@@ -1,0 +1,59 @@
+{
+  "profile": {
+    "name": "dev"
+  },
+  "active_provider": "anthropic",
+  "providers": {
+    "anthropic": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "api_key": "sk-ant-...",
+      "base_url": "https://api.anthropic.com",
+      "auth": "x-api-key",
+      "api_version": "2023-06-01"
+    },
+    "openai": {
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "api_key": "sk-...",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "local": {
+      "provider": "openai_compatible",
+      "model": "local-model-name",
+      "api_key": "not-needed",
+      "base_url": "http://127.0.0.1:11434/v1"
+    }
+  },
+  "modules": {
+    "workflow": "single_loop",
+    "search": "null",
+    "memory": "none",
+    "context": "simple",
+    "policy": "ask_write",
+    "patch": "direct",
+    "renderer": "plain"
+  },
+  "tools": {
+    "enabled": ["read_file", "write_file", "shell", "search"]
+  },
+  "policy": {
+    "ask_write": {
+      "ask_before": ["write_file", "shell"],
+      "allow": ["read_file", "search"]
+    }
+  },
+  "search": {
+    "rg": {
+      "max_results": 50
+    }
+  },
+  "memory": {
+    "jsonl": {
+      "path": ".agent/memory.jsonl"
+    }
+  },
+  "event_log": {
+    "path": ".agent/events.jsonl"
+  }
+}

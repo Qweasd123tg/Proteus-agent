@@ -1,0 +1,33 @@
+[profile]
+name = "dev-basic"
+
+[model]
+provider = "fake"
+model = "fake-tool-model"
+stream = false
+
+[modules]
+workflow = "single_loop"
+search = "null"
+memory = "none"
+context = "simple"
+policy = "ask_write"
+patch = "direct"
+renderer = "plain"
+
+[tools]
+enabled = ["read_file", "write_file", "shell", "search"]
+
+[policy.ask_write]
+ask_before = ["write_file", "shell"]
+allow = ["read_file", "search"]
+
+[search.rg]
+max_results = 50
+
+[memory.jsonl]
+path = ".agent/memory.jsonl"
+
+[event_log]
+path = ".agent/events.jsonl"
+

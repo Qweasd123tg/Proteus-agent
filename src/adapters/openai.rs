@@ -1,0 +1,322 @@
+use anyhow::{Result, anyhow};
+use async_trait::async_trait;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+use serde_json::{Value, json};
+
+use crate::{
+    adapters::secrets::read_secret_from_config,
+    contracts::{ModelAdapter, ModelClient},
+    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        MessageRole, ModelCapabilities, TokenUsage,
+    },
+};
+
+#[derive(Debug, Clone)]
+pub struct OpenAiResponsesClient {
+    http: reqwest::Client,
+    api_key: String,
+    base_url: String,
+}
+
+impl OpenAiResponsesClient {
+    pub fn from_provider_config(config: Value) -> Result<Self> {
+        let api_key = read_secret_from_config(&config, "OPENAI_API_KEY", "openai_api_key")?;
+        let base_url = config
+            .get("base_url")
+            .and_then(Value::as_str)
+            .unwrap_or("https://api.openai.com/v1")
+            .trim_end_matches('/')
+            .to_owned();
+
+        Ok(Self {
+            http: reqwest::Client::new(),
+            api_key,
+            base_url,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for OpenAiResponsesClient {
+    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        <Self as ModelAdapter>::complete(self, request).await
+    }
+}
+
+#[async_trait]
+impl ModelAdapter for OpenAiResponsesClient {
+    fn id(&self) -> &'static str {
+        "openai.responses"
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities {
+            supports_tools: true,
+            supports_parallel_tool_calls: true,
+            supports_streaming: false,
+            supports_json_schema: true,
+            supports_system_role: true,
+            supports_developer_role: true,
+            supports_cache_hints: false,
+            supports_reasoning_config: true,
+            supports_image_input: false,
+            supports_file_input: false,
+            max_input_tokens: None,
+            max_output_tokens: None,
+        }
+    }
+
+    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let body = to_openai_request(&request)?;
+        let url = format!("{}/responses", self.base_url);
+        let response: Value = self
+            .http
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        from_openai_response(response)
+    }
+}
+
+fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
+    let mut body = json!({
+        "model": request.model.model,
+        "input": to_openai_input(&request.messages)?,
+        "store": false,
+    });
+
+    if let Some(instructions) = joined_instructions(request) {
+        body["instructions"] = Value::String(instructions);
+    }
+
+    if !request.tools.is_empty() {
+        body["tools"] = Value::Array(request.tools.iter().map(to_openai_tool).collect());
+        body["tool_choice"] = match &request.tool_choice {
+            ToolChoice::None => Value::String("none".to_owned()),
+            ToolChoice::Auto => Value::String("auto".to_owned()),
+            ToolChoice::Required => Value::String("required".to_owned()),
+            ToolChoice::Tool(name) => json!({ "type": "function", "name": name }),
+        };
+    }
+
+    if let Some(max_output_tokens) = request.limits.max_output_tokens {
+        body["max_output_tokens"] = json!(max_output_tokens);
+    }
+
+    if request.response_format == crate::domain::ResponseFormat::Json {
+        body["text"] = json!({ "format": { "type": "json_object" } });
+    }
+
+    if request.reasoning.effort.is_some() || request.reasoning.summary {
+        let mut reasoning = serde_json::Map::new();
+        if let Some(effort) = &request.reasoning.effort {
+            reasoning.insert("effort".to_owned(), Value::String(effort.clone()));
+        }
+        if request.reasoning.summary {
+            reasoning.insert("summary".to_owned(), Value::String("auto".to_owned()));
+        }
+        body["reasoning"] = Value::Object(reasoning);
+    }
+
+    Ok(body)
+}
+
+fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
+    let mut instructions = request.instructions.clone();
+    instructions.sort_by_key(|instruction| std::cmp::Reverse(instruction.priority));
+    let text = instructions
+        .into_iter()
+        .map(|instruction| instruction.text)
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn to_openai_tool(tool: &ToolSpec) -> Value {
+    json!({
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.input_schema,
+        "strict": false,
+    })
+}
+
+fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
+    let mut input = Vec::new();
+    for message in messages {
+        for part in &message.parts {
+            match part {
+                ContentPart::Text { text } => input.push(json!({
+                    "type": "message",
+                    "role": role_to_openai(&message.role),
+                    "content": [{ "type": content_text_type(&message.role), "text": text }]
+                })),
+                ContentPart::Context { chunk } => input.push(json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": format!("Context from {}{}:\n{}",
+                            chunk.source,
+                            chunk.path.as_ref().map(|path| format!(" ({})", path.display())).unwrap_or_default(),
+                            chunk.content
+                        )
+                    }]
+                })),
+                ContentPart::ToolCall { call } => input.push(json!({
+                    "type": "function_call",
+                    "call_id": call.id,
+                    "name": call.name,
+                    "arguments": serde_json::to_string(&call.args)?,
+                })),
+                ContentPart::ToolResult { result } => input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": result.call_id,
+                    "output": result.error.clone().unwrap_or_else(|| result.output.clone()),
+                })),
+                ContentPart::ReasoningSummary { text } => input.push(json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": format!("Reasoning summary: {text}") }]
+                })),
+                ContentPart::FileRef { path, content } => input.push(json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": format!("File reference: {}\n{}", path.display(), content.clone().unwrap_or_default())
+                    }]
+                })),
+                ContentPart::Patch { patch } => input.push(json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": patch.content }]
+                })),
+            }
+        }
+    }
+    Ok(input)
+}
+
+fn role_to_openai(role: &MessageRole) -> &'static str {
+    match role {
+        MessageRole::System => "system",
+        MessageRole::Developer => "developer",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "tool",
+    }
+}
+
+fn content_text_type(role: &MessageRole) -> &'static str {
+    match role {
+        MessageRole::Assistant => "output_text",
+        _ => "input_text",
+    }
+}
+
+fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
+    if let Some(error) = response.get("error").filter(|error| !error.is_null()) {
+        return Err(anyhow!("OpenAI API error: {error}"));
+    }
+
+    let mut text_parts = Vec::new();
+    let mut tool_calls = Vec::new();
+
+    for item in response
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("OpenAI response did not contain output array"))?
+    {
+        match item.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for content_item in content {
+                        if content_item.get("type").and_then(Value::as_str) == Some("output_text") {
+                            if let Some(text) = content_item.get("text").and_then(Value::as_str) {
+                                text_parts.push(text.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+            Some("function_call") => {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.get("id").and_then(Value::as_str))
+                    .ok_or_else(|| anyhow!("function_call missing call_id"))?
+                    .to_owned();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("function_call missing name"))?
+                    .to_owned();
+                let args = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .map(serde_json::from_str)
+                    .transpose()?
+                    .unwrap_or(Value::Null);
+                tool_calls.push(ToolCall {
+                    id: call_id,
+                    name,
+                    args,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let finish_reason = if tool_calls.is_empty() {
+        FinishReason::Stop
+    } else {
+        FinishReason::ToolCalls
+    };
+    let mut parts = text_parts
+        .into_iter()
+        .map(|text| ContentPart::Text { text })
+        .collect::<Vec<_>>();
+    parts.extend(
+        tool_calls
+            .iter()
+            .cloned()
+            .map(|call| ContentPart::ToolCall { call }),
+    );
+
+    let message = CanonicalMessage {
+        id: crate::domain::new_message_id(),
+        role: MessageRole::Assistant,
+        parts,
+        name: None,
+        tool_call_id: None,
+        metadata: serde_json::Value::Null,
+    };
+
+    Ok(CanonicalModelResponse {
+        message,
+        tool_calls,
+        finish_reason,
+        usage: parse_usage(&response),
+        provider_metadata: response,
+    })
+}
+
+fn parse_usage(response: &Value) -> Option<TokenUsage> {
+    let usage = response.get("usage")?;
+    Some(TokenUsage {
+        input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
+        output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
+    })
+}

@@ -1,0 +1,6 @@
+/target/
+/.agent/
+/Analys/
+.env
+secrets.json
+config.local.json
