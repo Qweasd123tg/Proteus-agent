@@ -23,12 +23,16 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config_path = cli
+        .config
+        .clone()
+        .or_else(AppConfig::default_user_config_path);
     let config = AppConfig::load(cli.config.as_deref()).await?;
     let cwd = match cli.cwd {
         Some(cwd) => cwd,
         None => std::env::current_dir()?,
     };
-    let runtime = AgentRuntime::new(config, cwd)?;
+    let runtime = AgentRuntime::new_with_config_path(config, cwd, config_path.as_deref())?;
 
     if cli.interactive || cli.task.is_empty() {
         return run_repl(runtime).await;
@@ -42,6 +46,9 @@ async fn main() -> Result<()> {
 async fn run_repl(runtime: AgentRuntime) -> Result<()> {
     println!("Modular Agent REPL");
     println!("Type a task, /help, or /exit.");
+    if let Some(session_dir) = runtime.session_dir() {
+        println!("Session: {}", session_dir.display());
+    }
 
     loop {
         print!("agent> ");
@@ -62,7 +69,7 @@ async fn run_repl(runtime: AgentRuntime) -> Result<()> {
         match input {
             "/exit" | "/quit" => break,
             "/clear" | "/reset" => {
-                runtime.clear_history().await;
+                runtime.clear_history().await?;
                 println!("history cleared");
                 continue;
             }

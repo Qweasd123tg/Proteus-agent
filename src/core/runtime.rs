@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     contracts::EventSink,
-    core::{AppConfig, BuiltinRegistry, JsonlEventStore},
+    core::{AppConfig, BuiltinRegistry, JsonlEventStore, SessionStore},
     domain::{AgentOutput, AgentTask, Event, new_session_id},
     model_standard::CanonicalMessage,
 };
@@ -15,18 +15,32 @@ pub struct AgentRuntime {
     registry: BuiltinRegistry,
     event_sink: Arc<dyn EventSink>,
     history: Mutex<Vec<CanonicalMessage>>,
+    session_store: Option<SessionStore>,
 }
 
 impl AgentRuntime {
     pub fn new(config: AppConfig, cwd: PathBuf) -> Result<Self> {
+        let config_path = AppConfig::default_user_config_path();
+        Self::new_with_config_path(config, cwd, config_path.as_deref())
+    }
+
+    pub fn new_with_config_path(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&std::path::Path>,
+    ) -> Result<Self> {
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
         let event_sink: Arc<dyn EventSink> =
             Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+        let session_store = config_path
+            .and_then(|path| path.parent())
+            .map(|config_dir| SessionStore::new(config_dir, &cwd));
         Ok(Self {
             cwd,
             registry,
             event_sink,
             history: Mutex::new(Vec::new()),
+            session_store,
         })
     }
 
@@ -41,6 +55,7 @@ impl AgentRuntime {
             registry,
             event_sink,
             history: Mutex::new(Vec::new()),
+            session_store: None,
         })
     }
 
@@ -65,7 +80,13 @@ impl AgentRuntime {
             .workflow
             .run(task, history, runtime_context)
             .await?;
-        *self.history.lock().await = workflow_output.messages;
+        let mut history = self.history.lock().await;
+        if let Some(session_store) = &self.session_store {
+            session_store
+                .append_messages(&workflow_output.messages[history.len()..])
+                .await?;
+        }
+        *history = workflow_output.messages;
         Ok(workflow_output.output)
     }
 
@@ -73,11 +94,19 @@ impl AgentRuntime {
         self.registry.renderer.render(output).await
     }
 
-    pub async fn clear_history(&self) {
+    pub async fn clear_history(&self) -> Result<()> {
         self.history.lock().await.clear();
+        if let Some(session_store) = &self.session_store {
+            session_store.clear().await?;
+        }
+        Ok(())
     }
 
     pub async fn history_len(&self) -> usize {
         self.history.lock().await.len()
+    }
+
+    pub fn session_dir(&self) -> Option<&std::path::Path> {
+        self.session_store.as_ref().map(|store| store.session_dir())
     }
 }

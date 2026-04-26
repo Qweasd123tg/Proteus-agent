@@ -17,7 +17,22 @@ Open the interactive terminal:
 cargo run
 ```
 
+Install as a command:
+
+```bash
+./install.sh
+```
+
+Then use it from any workspace:
+
+```bash
+cd /path/to/project
+agent
+```
+
 By default it reads user config from `/home/qweasd123tg/.config/agent-qweasd123tg/config.json` when that file exists.
+Sessions are stored next to that config under `sessions/<encoded-cwd>/<session-name|date>/messages.jsonl`.
+For example, `/home/game` maps to `sessions/home|game/...`.
 
 Inside the prompt:
 

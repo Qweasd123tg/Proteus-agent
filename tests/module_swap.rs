@@ -153,3 +153,19 @@ async fn json_config_can_switch_to_custom_provider_url() {
         "http://127.0.0.1:11434/v1"
     );
 }
+
+#[test]
+fn workspace_path_is_encoded_as_folder_name() {
+    let encoded = modular_agent::core::encode_workspace_path(std::path::Path::new("/home/game"));
+
+    assert_eq!(encoded, "home|game");
+}
+
+#[test]
+fn workspace_path_keeps_cyrillic_folder_names() {
+    let encoded = modular_agent::core::encode_workspace_path(std::path::Path::new(
+        "/home/qweasd123tg/Проекты/моя игра",
+    ));
+
+    assert_eq!(encoded, "home|qweasd123tg|Проекты|моя_игра");
+}
