@@ -1,6 +1,6 @@
 # Архитектура v0
 
-Этот документ описывает фактическую реализацию проекта. Более широкий замысел и будущие направления лежат в [../MODULAR_AGENT_SPEC_RU.md](../MODULAR_AGENT_SPEC_RU.md).
+Этот документ описывает фактическую реализацию проекта. Текущая граница ядра зафиксирована в [../ARCHITECTURE_STATUS.md](../ARCHITECTURE_STATUS.md), а более широкий замысел и будущие направления лежат в [../MODULAR_AGENT_SPEC_RU.md](../MODULAR_AGENT_SPEC_RU.md).
 
 ## Коротко
 
@@ -10,7 +10,7 @@
 CLI -> AgentRuntime -> BuiltinRegistry -> RuntimeContext -> Workflow
 ```
 
-`AppConfig` выбирает реализации по строковым ключам. `BuiltinRegistry` собирает trait-объекты. `AgentRuntime` запускает workflow и хранит историю. `Workflow` работает только с contracts и DTO.
+`AppConfig` выбирает реализации по строковым ключам. `BuiltinModuleCatalog` хранит built-in manifests и factory lookup. `BuiltinRegistry` использует catalog и собирает trait-объекты. `AgentRuntime` запускает workflow и хранит историю. `Workflow` работает только с contracts и DTO.
 
 Это не hot-swap, не marketplace и не динамический plugin loader.
 
@@ -24,13 +24,14 @@ src/contracts/memory_store.rs -> trait boundary: MemoryStore
 src/modules/memory/*.rs   -> concrete implementations: none, jsonl
 ```
 
-Такая же схема применяется к `tool`, `model`, `search`, `context`, `policy`, `patch`, `workflow` и `renderer`: `domain` описывает данные, `contracts` описывает интерфейс, `modules` дают встроенные реализации.
+Такая же схема применяется к `model`, `search`, `context`, `policy`, `patch`, `workflow` и `renderer`: `domain` описывает данные, `contracts` описывает интерфейс, `modules` дают встроенные реализации. Tools используют те же слои DTO/contract/module, но wiring идёт через `ToolProvider` и `ToolRegistry`, а не через `modules.*` slot.
 
 ### CLI
 
 `src/main.rs` отвечает за:
 
 - parsing `--config`, `--cwd`, `--interactive`, `--plan`, `--auto`, `--permission-mode`, `TASK...`;
+- обработку introspection-команды `modules list`;
 - загрузку `AppConfig`;
 - создание `AgentRuntime`;
 - запуск REPL или одной задачи.
@@ -44,6 +45,7 @@ CLI не должен владеть бизнес-логикой runtime.
 - загрузку конфига;
 - wiring встроенных реализаций;
 - создание `RuntimeContext`;
+- владение `SessionId`, primary `ThreadId`, per-run `TurnId` и `run_lock`;
 - event store;
 - session store;
 - in-memory history.
@@ -51,9 +53,10 @@ CLI не должен владеть бизнес-логикой runtime.
 Основные файлы:
 
 - `config.rs` - schema и default values;
-- `registry.rs` - выбор встроенных модулей;
-- `runtime.rs` - lifecycle одного запуска;
-- `event_store.rs` - JSONL event sink;
+- `module_catalog.rs` - manifests и factories встроенных модулей;
+- `registry.rs` - сборка runtime registry из config и catalog;
+- `runtime.rs` - lifecycle runtime session и turns;
+- `event_store.rs` - JSONL event sink и envelope fan-out;
 - `session_store.rs` - history сообщений.
 
 ### Contracts
@@ -64,6 +67,7 @@ CLI не должен владеть бизнес-логикой runtime.
 - `ModelAdapter`;
 - `SearchBackend`;
 - `MemoryStore`;
+- `MemoryPolicy`;
 - `ContextBuilder`;
 - `Tool`;
 - `ToolProvider`;
@@ -143,7 +147,7 @@ task
 -> Event::TaskReceived
 -> ContextBuilder::build
 -> Event::ContextBuilt
--> CanonicalModelRequest
+-> CanonicalModelRequest из persistent conversation + ephemeral context
 -> ModelService::complete
 -> RequestShaper::shape с ModelCapabilities
 -> ModelAdapter::complete
@@ -163,10 +167,10 @@ task
 
 ## Текущие Ограничения
 
-- `ModuleManifest` существует как DTO, но не участвует в registry.
+- `ModuleManifest` участвует во внутреннем `BuiltinModuleCatalog`, но dynamic plugin loader, package manager и hot-reload ещё не реализованы.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`; MCP provider ещё не реализован, но `ToolRegistry` уже хранит source.
-- `MemoryStore::remember` есть в контракте, но активный путь использует только `recall` через `SimpleContextBuilder`.
+- `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому активный путь использует только `recall` через `SimpleContextBuilder`.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
 - Approval transport подключён для CLI single-run и line REPL. TUI пока использует headless отказ для tools, требующих approval.
 

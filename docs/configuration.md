@@ -97,6 +97,7 @@ Default env vars:
     "workflow": "single_loop",
     "search": "null",
     "memory": "none",
+    "memory_policy": "none",
     "context": "simple",
     "policy": "ask_write",
     "patch": "direct",
@@ -236,6 +237,8 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 ```
 
 Путь считается относительно рабочего каталога агента.
+
+`modules.memory` выбирает backend хранения (`none` или `jsonl`). `modules.memory_policy` выбирает lifecycle policy записи; сейчас реализован только `none`, поэтому автоматических memory writes нет.
 
 ## Event Log
 

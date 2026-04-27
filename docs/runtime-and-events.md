@@ -59,11 +59,25 @@ cargo run -- --cwd /path/to/project summarize project
 }
 ```
 
-Event log является трассой runtime-событий. Каждый event пишется отдельной JSONL-строкой.
+Event log является трассой runtime-событий. Каждая JSONL-строка содержит `EventEnvelope`, а не голый `Event`:
+
+```text
+schema_version
+event_id
+session_id
+thread_id
+turn_id
+seq
+timestamp_ms
+event
+```
+
+`EventEmitter` создаёт envelope один раз перед fan-out, поэтому durable JSONL log и live sinks получают один и тот же `event_id`, `seq` и timestamp для одного logical event. `turn_id = null` используется для событий уровня session, например `SessionStarted`.
 
 Ключевые события текущего workflow:
 
 - `SessionStarted`;
+- `TurnStarted`;
 - `TaskReceived`;
 - `ContextBuilt`;
 - `ModelRequestPrepared`;
@@ -75,7 +89,9 @@ Event log является трассой runtime-событий. Каждый e
 - `TurnFinished`;
 - `Error`.
 
-`PatchApplied` и `MemoryWritten` существуют в enum, но текущий `SingleLoopWorkflow` их не испускает. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
+`PatchApplied` существует в enum, но текущий `SingleLoopWorkflow` его не испускает. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
+
+`MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
 
 ## Session Store
 
@@ -101,23 +117,30 @@ Event log является трассой runtime-событий. Каждый e
 
 `AgentRuntime` держит history сообщений в памяти. После каждого turn новые сообщения дописываются в `messages.jsonl`, если session store подключён.
 
-При запуске новая session directory создаётся заново. Текущий код не восстанавливает историю из предыдущей session.
+Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` и preflight context вроде `tool:list_dir` добавляются только в model request текущего turn и не дописываются в runtime history/session store.
+
+`SessionId` создаётся один раз при построении `AgentRuntime` и остаётся тем же для всех `run()` этого runtime. Каждый `run()` создаёт новый `TurnId`; `run_lock` не даёт двум turns одного runtime одновременно читать и перезаписывать history.
+
+При построении runtime новая session directory создаётся заново. Текущий код не восстанавливает историю из предыдущей session.
 
 ## SingleLoopWorkflow
 
 Текущий workflow:
 
-1. принимает `AgentTask`;
-2. пишет `TaskReceived`;
-3. вызывает `ContextBuilder::build`;
-4. пишет `ContextBuilt`;
-5. собирает `CanonicalModelRequest`;
-6. вызывает `ModelClient::complete`, реализованный `ModelService`;
-7. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
-8. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
-9. добавляет `ToolResult` в canonical messages;
-10. повторяет model call до финального ответа или лимита rounds;
-11. пишет `TurnFinished`.
+1. `AgentRuntime::run` берёт `run_lock`;
+2. при первом turn пишет `SessionStarted`;
+3. создаёт новый `TurnId` и пишет `TurnStarted`;
+4. принимает `AgentTask`;
+5. пишет `TaskReceived`;
+6. вызывает `ContextBuilder::build`;
+7. пишет `ContextBuilt`;
+8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
+9. вызывает `ModelClient::complete`, реализованный `ModelService`;
+10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
+11. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
+12. добавляет `ToolResult` в canonical messages;
+13. повторяет model call до финального ответа или лимита rounds;
+14. пишет `TurnFinished`.
 
 Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolOrchestrator`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
 

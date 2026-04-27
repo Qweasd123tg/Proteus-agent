@@ -11,10 +11,16 @@ cargo test
 `tests/module_swap.rs` проверяет:
 
 - `search = null` и `search = rg` не требуют изменений runtime;
+- `BuiltinModuleCatalog` перечисляет built-in manifests для model/search/memory_policy/workflow slots;
+- `modules list` рендерит catalog без запуска runtime;
 - `memory = none` и `memory = jsonl` не требуют изменений runtime;
+- `memory_policy = none` подключается как отдельный lifecycle slot и не пишет память автоматически;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` скрывает command/network tools в `auto` и исполняет `ToolSpec.timeout_ms`;
+- `AgentRuntime` сохраняет один `SessionId` между turns и создаёт новый `TurnId` на каждый `run()`;
+- `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
+- `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
 - `PermissionMode::Plan` и `PermissionMode::Auto` меняют видимость tools без изменения runtime;
 - `apply_patch` применяет internal patch format только внутри workspace;
@@ -40,6 +46,7 @@ canonical DTO не ломаются.
 
 - новый search backend должен проходить тот же runtime path, что `null` и `rg`;
 - новый memory store должен работать через `MemoryStore`;
+- новая memory policy должна работать через `MemoryPolicy` и не зависеть от конкретного backend;
 - новый model provider должен реализовать `ModelAdapter`; `ModelService` отвечает за `ModelClient` boundary и shaping;
 - новая policy не должна менять `ToolRegistry` или tools.
 
