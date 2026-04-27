@@ -1,13 +1,18 @@
 use std::{
     io::{self, IsTerminal, Write},
     path::PathBuf,
+    sync::Arc,
     time::Duration,
 };
 
 use anyhow::Result;
+use async_trait::async_trait;
 use clap::Parser;
-use modular_agent::core::{AgentRuntime, AppConfig};
 use modular_agent::domain::AgentOutput;
+use modular_agent::{
+    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
+    core::{AgentRuntime, AppConfig},
+};
 use serde_json::Value;
 use tokio::time::sleep;
 
@@ -38,19 +43,89 @@ async fn main() -> Result<()> {
         Some(cwd) => cwd,
         None => std::env::current_dir()?,
     };
-    let runtime =
-        AgentRuntime::new_with_config_path(config.clone(), cwd.clone(), config_path.as_deref())?;
-
     if cli.interactive || cli.task.is_empty() {
         if io::stdin().is_terminal() && io::stdout().is_terminal() {
+            let runtime = AgentRuntime::new_with_config_path(
+                config.clone(),
+                cwd.clone(),
+                config_path.as_deref(),
+            )?;
             return tui::run_tui(runtime, config, cwd).await;
         }
+        let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
+            config.clone(),
+            cwd.clone(),
+            config_path.as_deref(),
+            terminal_approval_transport(),
+        )?;
         return run_repl(runtime, config, cwd).await;
     }
 
+    let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
+        config.clone(),
+        cwd.clone(),
+        config_path.as_deref(),
+        terminal_approval_transport(),
+    )?;
     let output = runtime.run(cli.task.join(" ")).await?;
     println!("{}", runtime.render(&output).await?);
     Ok(())
+}
+
+fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {
+    Arc::new(TerminalApprovalTransport {
+        enabled: io::stdin().is_terminal() && io::stdout().is_terminal(),
+    })
+}
+
+#[derive(Debug)]
+struct TerminalApprovalTransport {
+    enabled: bool,
+}
+
+#[async_trait]
+impl ApprovalTransport for TerminalApprovalTransport {
+    fn can_request_approval(&self) -> bool {
+        self.enabled
+    }
+
+    async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
+        if !self.enabled {
+            return Ok(ApprovalResponse {
+                approved: false,
+                note: Some(format!(
+                    "approval transport is not interactive: {}",
+                    request.reason
+                )),
+            });
+        }
+
+        let args = request.call.args.to_string();
+        let args = if args.chars().count() > 500 {
+            format!("{}...", args.chars().take(500).collect::<String>())
+        } else {
+            args
+        };
+        eprintln!();
+        eprintln!("Approval requested");
+        eprintln!("tool: {}", request.call.name);
+        eprintln!("cwd: {}", request.cwd.display());
+        eprintln!("reason: {}", request.reason);
+        if let Some(spec) = &request.tool_spec {
+            eprintln!("safety: {:?}", spec.safety);
+        }
+        eprintln!("args: {args}");
+        eprint!("Approve this tool call? [y/N] ");
+        io::stderr().flush()?;
+
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        let approved = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+        Ok(ApprovalResponse {
+            approved,
+            note: (!approved).then(|| format!("tool call was not approved: {}", request.reason)),
+        })
+    }
 }
 
 async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Result<()> {

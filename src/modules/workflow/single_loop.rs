@@ -1,12 +1,15 @@
+use std::path::Path;
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::{
     contracts::{
-        ContextBuildInput, PolicyContext, RuntimeContext, ToolContext, Workflow, WorkflowOutput,
+        ApprovalRequest, ContextBuildInput, PolicyContext, RuntimeContext, ToolContext, Workflow,
+        WorkflowOutput,
     },
-    domain::{AgentOutput, AgentTask, Event, PolicyDecision, ToolCall, ToolResult},
+    domain::{AgentOutput, AgentTask, ContextChunk, Event, PolicyDecision, ToolCall, ToolResult},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, ContentPart, InstructionBlock, InstructionKind,
         MessageRole,
@@ -65,9 +68,10 @@ impl Workflow for SingleLoopWorkflow {
                 metadata: serde_json::Value::Null,
             });
         }
+        maybe_add_directory_listing_context(&ctx, &task, &mut messages).await?;
 
         for _round in 0..self.max_tool_rounds {
-            let request = request_from_state(&ctx, &messages);
+            let request = request_from_state(&ctx, &task.cwd, &messages);
             ctx.event_sink
                 .append(Event::ModelRequestPrepared {
                     model: request.model.clone(),
@@ -131,6 +135,72 @@ impl Workflow for SingleLoopWorkflow {
             .await?;
         Ok(WorkflowOutput { output, messages })
     }
+}
+
+async fn maybe_add_directory_listing_context(
+    ctx: &RuntimeContext,
+    task: &AgentTask,
+    messages: &mut Vec<CanonicalMessage>,
+) -> Result<()> {
+    if !looks_like_directory_listing_request(&task.text) {
+        return Ok(());
+    }
+
+    let call = ToolCall {
+        id: crate::domain::new_call_id(),
+        name: "list_dir".to_owned(),
+        args: json!({ "path": "." }),
+    };
+    let result = execute_tool_call(ctx, task, call).await?;
+    if !result.ok {
+        return Ok(());
+    }
+
+    messages.push(CanonicalMessage {
+        id: crate::domain::new_message_id(),
+        role: MessageRole::User,
+        parts: vec![ContentPart::Context {
+            chunk: ContextChunk {
+                source: "tool:list_dir".to_owned(),
+                path: Some(task.cwd.clone()),
+                content: if result.output.is_empty() {
+                    "<empty directory>".to_owned()
+                } else {
+                    result.output
+                },
+                score: Some(1.0),
+                metadata: result.metadata,
+            },
+        }],
+        name: Some("context".to_owned()),
+        tool_call_id: None,
+        metadata: serde_json::Value::Null,
+    });
+
+    Ok(())
+}
+
+fn looks_like_directory_listing_request(text: &str) -> bool {
+    let text = text.to_lowercase();
+    [
+        "что в папке",
+        "что в директории",
+        "что в каталоге",
+        "какие файлы",
+        "глянь файлы",
+        "посмотри файлы",
+        "покажи файлы",
+        "список файлов",
+        "list files",
+        "show files",
+        "what files",
+        "what is in the folder",
+        "what's in the folder",
+        "what is in the directory",
+        "what's in the directory",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
 }
 
 fn output_metadata(
@@ -203,17 +273,18 @@ fn part_text_len(part: &ContentPart) -> usize {
 
 fn request_from_state(
     ctx: &RuntimeContext,
+    cwd: &Path,
     messages: &[CanonicalMessage],
 ) -> CanonicalModelRequest {
     CanonicalModelRequest {
         model: ctx.model_ref.clone(),
         instructions: vec![InstructionBlock {
             kind: InstructionKind::System,
-            text: "You are running inside a modular v0 agent skeleton.".to_owned(),
+            text: "You are running inside a modular v0 agent skeleton. Answer normal conversational questions directly. Use tools only when they are necessary and only if they are included in the current tool list.".to_owned(),
             priority: 100,
         }],
         messages: messages.to_vec(),
-        tools: ctx.tools.specs(),
+        tools: visible_tool_specs(ctx, cwd),
         tool_choice: crate::domain::ToolChoice::Auto,
         response_format: crate::domain::ResponseFormat::Text,
         sampling: crate::domain::SamplingConfig::default(),
@@ -222,6 +293,31 @@ fn request_from_state(
         cache: crate::domain::CacheHints::default(),
         metadata: serde_json::Value::Null,
     }
+}
+
+fn visible_tool_specs(ctx: &RuntimeContext, cwd: &Path) -> Vec<crate::domain::ToolSpec> {
+    ctx.tools
+        .specs()
+        .into_iter()
+        .filter(|spec| {
+            let call = ToolCall {
+                id: crate::domain::new_call_id(),
+                name: spec.name.clone(),
+                args: serde_json::Value::Null,
+            };
+            match ctx.policy.evaluate(
+                &call,
+                &PolicyContext {
+                    cwd: cwd.to_path_buf(),
+                    tool_spec: Some(spec.clone()),
+                },
+            ) {
+                PolicyDecision::Allow => true,
+                PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
+                PolicyDecision::Deny { .. } => false,
+            }
+        })
+        .collect()
 }
 
 async fn execute_tool_call(
@@ -238,31 +334,12 @@ async fn execute_tool_call(
         &call,
         &PolicyContext {
             cwd: task.cwd.clone(),
-            tool_spec,
+            tool_spec: tool_spec.clone(),
         },
     );
 
     match decision {
-        PolicyDecision::Allow => {
-            let tool = ctx
-                .tools
-                .get(&call.name)
-                .ok_or_else(|| anyhow!("unknown tool: {}", call.name))?;
-            let result = tool
-                .invoke(
-                    &call,
-                    ToolContext {
-                        cwd: task.cwd.clone(),
-                    },
-                )
-                .await?;
-            ctx.event_sink
-                .append(Event::ToolFinished {
-                    result: result.clone(),
-                })
-                .await?;
-            Ok(result)
-        }
+        PolicyDecision::Allow => invoke_allowed_tool(ctx, task, &call).await,
         PolicyDecision::Ask { reason } => {
             ctx.event_sink
                 .append(Event::ApprovalRequested {
@@ -270,19 +347,34 @@ async fn execute_tool_call(
                     reason: reason.clone(),
                 })
                 .await?;
+            let approval = ctx
+                .approval
+                .request_approval(ApprovalRequest {
+                    call: call.clone(),
+                    cwd: task.cwd.clone(),
+                    reason: reason.clone(),
+                    tool_spec,
+                })
+                .await?;
             ctx.event_sink
                 .append(Event::ApprovalResolved {
                     call_id: call.id.clone(),
-                    approved: false,
+                    approved: approval.approved,
                 })
                 .await?;
+            if approval.approved {
+                return invoke_allowed_tool(ctx, task, &call).await;
+            }
+
             let result = ToolResult {
                 call_id: call.id.clone(),
                 ok: false,
                 output: String::new(),
-                error: Some(format!(
-                    "approval required but no approval transport is wired: {reason}"
-                )),
+                error: Some(
+                    approval
+                        .note
+                        .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
+                ),
                 metadata: serde_json::Value::Null,
             };
             ctx.event_sink
@@ -308,6 +400,41 @@ async fn execute_tool_call(
             Ok(result)
         }
     }
+}
+
+async fn invoke_allowed_tool(
+    ctx: &RuntimeContext,
+    task: &AgentTask,
+    call: &ToolCall,
+) -> Result<ToolResult> {
+    let tool = ctx
+        .tools
+        .get(&call.name)
+        .ok_or_else(|| anyhow!("unknown tool: {}", call.name))?;
+    let result = match tool
+        .invoke(
+            call,
+            ToolContext {
+                cwd: task.cwd.clone(),
+            },
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => ToolResult {
+            call_id: call.id.clone(),
+            ok: false,
+            output: String::new(),
+            error: Some(error.to_string()),
+            metadata: json!({ "tool": call.name }),
+        },
+    };
+    ctx.event_sink
+        .append(Event::ToolFinished {
+            result: result.clone(),
+        })
+        .await?;
+    Ok(result)
 }
 
 fn message_text(message: &CanonicalMessage) -> String {

@@ -22,6 +22,8 @@ Security v0 держится на трёх уровнях:
 
 | Tool | Safety | Поведение |
 |---|---|---|
+| `apply_patch` | `WritesFiles` | применяет workspace-scoped patch через `PatchApplier` |
+| `list_dir` | `ReadOnly` | показывает файлы и директории внутри workspace |
 | `read_file` | `ReadOnly` | читает UTF-8 файл внутри workspace |
 | `write_file` | `WritesFiles` | пишет UTF-8 файл внутри workspace |
 | `shell` | `RunsCommands` | запускает команду в `cwd` |
@@ -29,9 +31,9 @@ Security v0 держится на трёх уровнях:
 
 ## Workspace Boundary
 
-`read_file` canonicalize-ит `cwd` и target path, затем проверяет, что файл находится внутри workspace.
+`list_dir` и `read_file` canonicalize-ят `cwd` и target path, затем проверяют, что путь находится внутри workspace.
 
-`write_file` запрещает absolute path и parent traversal. Перед записью tool проверяет canonical workspace boundary для существующего target или parent directory, поэтому symlink не должен позволять запись за пределы workspace.
+`apply_patch` и `write_file` запрещают absolute path и parent traversal. Перед записью они проверяют canonical workspace boundary для существующего target или parent directory, поэтому symlink не должен позволять запись за пределы workspace.
 
 `shell` запускает команду с текущим `cwd`. В v0 дополнительной sandbox-изоляции внутри самого инструмента нет.
 
@@ -52,14 +54,20 @@ Security v0 держится на трёх уровнях:
 {
   "policy": {
     "ask_write": {
-      "ask_before": ["write_file", "shell"],
-      "allow": ["read_file", "search"]
+      "ask_before": ["apply_patch", "write_file", "shell"],
+      "allow": ["read_file", "list_dir", "search"]
     }
   }
 }
 ```
 
-Важно: текущий workflow не имеет интерактивного approval transport. Если policy возвращает `Ask`, workflow пишет `ApprovalRequested`, затем `ApprovalResolved { approved: false }`, и возвращает tool result с ошибкой.
+Важно: CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, workflow пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
+
+Headless runtime и текущий TUI используют headless transport, поэтому `Ask` завершается отказом. `SingleLoopWorkflow` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+
+Если `Tool::invoke` возвращает ошибку, workflow не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result.
+
+`ask_write.allow` и `ask_write.ask_before` валидируются при старте против зарегистрированного `ToolRegistry`. Ссылка на неизвестный tool считается ошибкой конфигурации.
 
 ## allow_all
 

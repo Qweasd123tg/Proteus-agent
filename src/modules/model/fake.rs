@@ -55,6 +55,20 @@ impl ModelClient for FakeModelClient {
             });
         }
 
+        if let Some(listing) = latest_directory_listing_context(&request) {
+            let message = CanonicalMessage::text(
+                MessageRole::Assistant,
+                format!("Fake final answer after directory listing:\n{listing}"),
+            );
+            return Ok(CanonicalModelResponse {
+                message,
+                tool_calls: Vec::new(),
+                finish_reason: FinishReason::Stop,
+                usage: None,
+                provider_metadata: json!({"provider": "fake"}),
+            });
+        }
+
         let context_chunks = request
             .messages
             .iter()
@@ -78,6 +92,20 @@ impl ModelClient for FakeModelClient {
     }
 }
 
+fn latest_directory_listing_context(request: &CanonicalModelRequest) -> Option<String> {
+    request
+        .messages
+        .iter()
+        .rev()
+        .flat_map(|message| message.parts.iter().rev())
+        .find_map(|part| match part {
+            ContentPart::Context { chunk } if chunk.source == "tool:list_dir" => {
+                Some(chunk.content.clone())
+            }
+            _ => None,
+        })
+}
+
 fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
     request
         .messages
@@ -85,7 +113,9 @@ fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
         .rev()
         .flat_map(|message| message.parts.iter().rev())
         .find_map(|part| match part {
-            ContentPart::ToolResult { result } => Some(result.output.clone()),
+            ContentPart::ToolResult { result } => {
+                result.error.clone().or_else(|| Some(result.output.clone()))
+            }
             _ => None,
         })
 }

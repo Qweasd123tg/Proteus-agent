@@ -4,6 +4,7 @@
 //! defines neutral DTOs, `contracts::MemoryStore` defines the boundary, and
 //! this module's `memory` directory contains concrete implementations.
 
+pub mod approval;
 pub mod context;
 pub mod memory;
 pub mod model;
@@ -14,6 +15,7 @@ pub mod search;
 pub mod tools;
 pub mod workflow;
 
+pub use approval::*;
 pub use context::*;
 pub use memory::*;
 pub use model::*;

@@ -128,7 +128,7 @@ Default env vars:
 ```json
 {
   "tools": {
-    "enabled": ["read_file", "write_file", "shell", "search"]
+    "enabled": ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
   }
 }
 ```
@@ -141,14 +141,26 @@ Default env vars:
 {
   "policy": {
     "ask_write": {
-      "ask_before": ["write_file", "shell"],
-      "allow": ["read_file", "search"]
+      "ask_before": ["apply_patch", "write_file", "shell"],
+      "allow": ["read_file", "list_dir", "search"]
     }
   }
 }
 ```
 
 `ask_write` сначала проверяет явные списки `allow` и `ask_before`, затем смотрит на `ToolSafety`.
+Имена в `allow` и `ask_before` должны ссылаться на tools, зарегистрированные через `tools.enabled`; неизвестное имя считается ошибкой конфигурации при старте.
+
+`apply_patch` принимает строку `patch` во внутреннем формате:
+
+```text
+*** Begin Patch
+*** Update File: src/main.rs
+@@
+-old line
++new line
+*** End Patch
+```
 
 ## Search
 

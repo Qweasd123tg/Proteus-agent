@@ -5,8 +5,8 @@ use async_trait::async_trait;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventSink, MemoryStore, ModelClient, PatchApplier,
-        SearchBackend, ToolRegistry,
+        ApprovalPolicy, ApprovalTransport, ContextBuilder, EventSink, MemoryStore, ModelClient,
+        PatchApplier, SearchBackend, ToolRegistry,
     },
     domain::{AgentOutput, AgentTask, ModelRef, SessionId},
     model_standard::CanonicalMessage,
@@ -23,6 +23,7 @@ pub struct RuntimeContext {
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
+    pub approval: Arc<dyn ApprovalTransport>,
     pub patch: Arc<dyn PatchApplier>,
 }
 

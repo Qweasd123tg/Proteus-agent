@@ -15,6 +15,7 @@ cargo test
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
 - `ToolRegistry` запрещает duplicate names и возвращает tool specs в стабильном порядке;
+- `apply_patch` применяет internal patch format только внутри workspace;
 - `write_file` не может выйти за workspace через parent traversal или symlink;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse`;
 - JSON config может выбрать Anthropic provider;

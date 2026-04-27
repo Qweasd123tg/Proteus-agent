@@ -72,7 +72,7 @@ Event log является трассой runtime-событий. Каждый e
 - `TurnFinished`;
 - `Error`.
 
-`PatchApplied` и `MemoryWritten` существуют в enum, но текущий `SingleLoopWorkflow` их не испускает.
+`PatchApplied` и `MemoryWritten` существуют в enum, но текущий `SingleLoopWorkflow` их не испускает. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 ## Session Store
 
@@ -115,6 +115,8 @@ Event log является трассой runtime-событий. Каждый e
 9. повторяет model call до финального ответа или лимита rounds;
 10. пишет `TurnFinished`.
 
+Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolRegistry` и `ApprovalPolicy`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
+
 Лимит tool rounds: `4`.
 
-Если approval требуется, но transport не подключён, workflow возвращает tool result с ошибкой approval.
+Если approval требуется, workflow отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.

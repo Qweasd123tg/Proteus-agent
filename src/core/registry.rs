@@ -11,9 +11,10 @@ use crate::{
     core::AppConfig,
     domain::SessionId,
     modules::{
-        AllowAllPolicy, AskWritePolicy, DirectPatchApplier, FakeModelClient, JsonlMemory, NoMemory,
-        NullSearch, PlainRenderer, ReadFileTool, RgSearch, SearchTool, ShellTool,
-        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, WriteFileTool,
+        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, DirectPatchApplier, FakeModelClient,
+        JsonlMemory, ListDirTool, NoMemory, NullSearch, PlainRenderer, ReadFileTool, RgSearch,
+        SearchTool, ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
+        WriteFileTool,
     },
 };
 
@@ -66,10 +67,17 @@ impl BuiltinRegistry {
             module => bail!("unsupported context module: {module}"),
         };
 
+        let patch: Arc<dyn PatchApplier> = match config.modules.patch.as_str() {
+            "direct" => Arc::new(DirectPatchApplier::new(cwd.clone())),
+            module => bail!("unsupported patch module: {module}"),
+        };
+
         let mut tools = ToolRegistry::new();
         for tool in &config.tools.enabled {
             match tool.as_str() {
                 "read_file" => tools.register(ReadFileTool)?,
+                "list_dir" => tools.register(ListDirTool)?,
+                "apply_patch" => tools.register(ApplyPatchTool::new(patch.clone()))?,
                 "write_file" => tools.register(WriteFileTool)?,
                 "shell" => tools.register(ShellTool)?,
                 "search" => tools.register(SearchTool::new(search.clone()))?,
@@ -79,16 +87,23 @@ impl BuiltinRegistry {
 
         let policy: Arc<dyn ApprovalPolicy> = match config.modules.policy.as_str() {
             "allow_all" => Arc::new(AllowAllPolicy),
-            "ask_write" => Arc::new(AskWritePolicy::new(
-                config.policy.ask_write.allow.clone(),
-                config.policy.ask_write.ask_before.clone(),
-            )),
+            "ask_write" => {
+                validate_policy_tool_names(
+                    &tools,
+                    "policy.ask_write.allow",
+                    &config.policy.ask_write.allow,
+                )?;
+                validate_policy_tool_names(
+                    &tools,
+                    "policy.ask_write.ask_before",
+                    &config.policy.ask_write.ask_before,
+                )?;
+                Arc::new(AskWritePolicy::new(
+                    config.policy.ask_write.allow.clone(),
+                    config.policy.ask_write.ask_before.clone(),
+                ))
+            }
             module => bail!("unsupported policy module: {module}"),
-        };
-
-        let patch: Arc<dyn PatchApplier> = match config.modules.patch.as_str() {
-            "direct" => Arc::new(DirectPatchApplier),
-            module => bail!("unsupported patch module: {module}"),
         };
 
         let workflow: Arc<dyn Workflow> = match config.modules.workflow.as_str() {
@@ -122,6 +137,7 @@ impl BuiltinRegistry {
         &self,
         session_id: SessionId,
         event_sink: Arc<dyn EventSink>,
+        approval: Arc<dyn crate::contracts::ApprovalTransport>,
     ) -> RuntimeContext {
         RuntimeContext {
             session_id,
@@ -133,7 +149,21 @@ impl BuiltinRegistry {
             context: self.context.clone(),
             tools: self.tools.clone(),
             policy: self.policy.clone(),
+            approval,
             patch: self.patch.clone(),
         }
     }
+}
+
+fn validate_policy_tool_names(
+    tools: &ToolRegistry,
+    config_path: &str,
+    names: &[String],
+) -> Result<()> {
+    for name in names {
+        if tools.spec(name).is_err() {
+            bail!("{config_path} references unsupported tool: {name}");
+        }
+    }
+    Ok(())
 }

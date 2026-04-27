@@ -157,9 +157,9 @@ task
 ## Текущие Ограничения
 
 - `ModuleManifest` существует как DTO, но не участвует в registry.
-- `PatchApplier` подключён в `RuntimeContext`, но текущий workflow его не вызывает.
+- `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - `MemoryStore::remember` есть в контракте, но активный путь использует только `recall` через `SimpleContextBuilder`.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
-- Approval transport не подключён: `ask_write` возвращает отказ с сообщением, если tool требует approval.
+- Approval transport подключён для CLI single-run и line REPL. TUI пока использует headless отказ для tools, требующих approval.
 
 Эти ограничения нужно описывать как состояние v0, а не как архитектурный дефект.

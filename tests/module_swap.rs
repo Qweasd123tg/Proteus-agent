@@ -1,14 +1,21 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use modular_agent::{
-    contracts::{ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry},
+    contracts::{
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, ModelClient, PolicyContext, Tool,
+        ToolContext, ToolRegistry,
+    },
     core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore},
     domain::{
-        CacheHints, ModelLimits, ModelRef, PolicyDecision, ReasoningConfig, ResponseFormat,
+        CacheHints, Event, ModelLimits, ModelRef, PolicyDecision, ReasoningConfig, ResponseFormat,
         SamplingConfig, ToolCall, ToolChoice, new_call_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, FinishReason, MessageRole},
-    modules::{FakeModelClient, ReadFileTool, WriteFileTool},
+    modules::{
+        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ReadFileTool,
+        WriteFileTool,
+    },
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -190,7 +197,293 @@ fn tool_specs_are_returned_in_stable_name_order() {
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
 
-    assert_eq!(names, ["read_file", "search", "shell", "write_file"]);
+    assert_eq!(
+        names,
+        [
+            "apply_patch",
+            "list_dir",
+            "read_file",
+            "search",
+            "shell",
+            "write_file"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
+    let (output, _events) = run_with(AppConfig::default(), "summarize hello").await;
+
+    assert!(output.contains("tools=3"));
+}
+
+#[tokio::test]
+async fn interactive_approval_transport_exposes_ask_tools_to_model() {
+    let dir = temp_workspace();
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime = AgentRuntime::with_event_sink_and_approval_transport(
+        AppConfig::default(),
+        dir.path().to_path_buf(),
+        events,
+        Arc::new(TestApprovalTransport { interactive: true }),
+    )
+    .unwrap();
+
+    let output = runtime.run("summarize hello".to_owned()).await.unwrap();
+
+    assert!(output.text.contains("tools=6"));
+}
+
+#[tokio::test]
+async fn allow_all_keeps_all_registered_tools_visible_to_model() {
+    let mut config = AppConfig::default();
+    config.modules.policy = "allow_all".to_owned();
+
+    let (output, _events) = run_with(config, "summarize hello").await;
+
+    assert!(output.contains("tools=6"));
+}
+
+#[derive(Debug)]
+struct TestApprovalTransport {
+    interactive: bool,
+}
+
+#[async_trait]
+impl ApprovalTransport for TestApprovalTransport {
+    fn can_request_approval(&self) -> bool {
+        self.interactive
+    }
+
+    async fn request_approval(
+        &self,
+        _request: ApprovalRequest,
+    ) -> anyhow::Result<ApprovalResponse> {
+        Ok(ApprovalResponse {
+            approved: false,
+            note: Some("test approval denied".to_owned()),
+        })
+    }
+}
+
+#[tokio::test]
+async fn folder_listing_question_uses_list_dir_context() {
+    let (output, events) = run_with(AppConfig::default(), "привет что в папке ?").await;
+
+    assert!(output.contains("file\tsample.txt"));
+    assert!(events.events().await.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolCallRequested { call } if call.name == "list_dir"
+        )
+    }));
+}
+
+#[tokio::test]
+async fn list_dir_lists_workspace_entries() {
+    let dir = temp_workspace();
+    std::fs::create_dir(dir.path().join("src")).expect("src dir");
+    std::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n").expect("main file");
+    let tool = ListDirTool;
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "list_dir".to_owned(),
+        args: json!({ "path": "." }),
+    };
+
+    let result = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert!(result.output.contains("file\tsample.txt"));
+    assert!(result.output.contains("dir\tsrc"));
+}
+
+#[tokio::test]
+async fn list_dir_rejects_parent_traversal() {
+    let dir = temp_workspace();
+    let tool = ListDirTool;
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "list_dir".to_owned(),
+        args: json!({ "path": ".." }),
+    };
+
+    let error = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("escapes workspace"));
+}
+
+#[tokio::test]
+async fn read_file_directory_error_points_to_list_dir() {
+    let dir = temp_workspace();
+    let tool = ReadFileTool;
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "read_file".to_owned(),
+        args: json!({ "path": "." }),
+    };
+
+    let error = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("use list_dir"));
+}
+
+#[tokio::test]
+async fn apply_patch_replaces_exact_text_once() {
+    let dir = temp_workspace();
+    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "apply_patch".to_owned(),
+        args: json!({
+            "patch": "*** Begin Patch\n*** Update File: sample.txt\n@@\n-hello modular agent\n+patched modular agent\n*** End Patch",
+        }),
+    };
+
+    let result = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert!(result.output.contains("updated sample.txt"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("sample.txt")).unwrap(),
+        "patched modular agent\n"
+    );
+}
+
+#[tokio::test]
+async fn apply_patch_adds_new_file_from_internal_format() {
+    let dir = temp_workspace();
+    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "apply_patch".to_owned(),
+        args: json!({
+            "patch": "*** Begin Patch\n*** Add File: nested/new.txt\n+hello\n+patch\n*** End Patch",
+        }),
+    };
+
+    let result = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert!(result.output.contains("added nested/new.txt"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("nested").join("new.txt")).unwrap(),
+        "hello\npatch\n"
+    );
+}
+
+#[tokio::test]
+async fn apply_patch_rejects_parent_traversal() {
+    let dir = temp_workspace();
+    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "apply_patch".to_owned(),
+        args: json!({
+            "patch": "*** Begin Patch\n*** Add File: ../outside.txt\n+outside\n*** End Patch",
+        }),
+    };
+
+    let error = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("escapes workspace"));
+}
+
+#[test]
+fn ask_write_rejects_unknown_policy_tool_at_startup() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.policy.ask_write.allow = vec!["missing_tool".to_owned()];
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown policy tool should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("policy.ask_write.allow references unsupported tool: missing_tool")
+    );
+}
+
+#[tokio::test]
+async fn tool_invocation_error_is_returned_as_failed_tool_result() {
+    let dir = temp_workspace();
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime = AgentRuntime::with_event_sink(
+        AppConfig::default(),
+        dir.path().to_path_buf(),
+        events.clone(),
+    )
+    .unwrap();
+
+    let output = runtime
+        .run("read_file missing.txt".to_owned())
+        .await
+        .unwrap();
+    let records = events.events().await;
+
+    assert!(output.text.contains("failed to canonicalize"));
+    assert!(records.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolFinished { result }
+                if !result.ok
+                    && result
+                        .error
+                        .as_deref()
+                        .is_some_and(|error| error.contains("failed to canonicalize"))
+        )
+    }));
 }
 
 #[tokio::test]

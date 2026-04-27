@@ -504,21 +504,28 @@ fn default_context_bar_width() -> usize {
 }
 
 fn default_tools() -> Vec<String> {
-    ["read_file", "write_file", "shell", "search"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+    [
+        "read_file",
+        "list_dir",
+        "apply_patch",
+        "write_file",
+        "shell",
+        "search",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 fn default_ask_before() -> Vec<String> {
-    ["write_file", "shell"]
+    ["apply_patch", "write_file", "shell"]
         .into_iter()
         .map(str::to_owned)
         .collect()
 }
 
 fn default_allow_tools() -> Vec<String> {
-    ["read_file", "search"]
+    ["read_file", "list_dir", "search"]
         .into_iter()
         .map(str::to_owned)
         .collect()

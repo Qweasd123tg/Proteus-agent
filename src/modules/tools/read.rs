@@ -34,6 +34,15 @@ impl Tool for ReadFileTool {
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
         let path = required_path(call)?;
         let path = workspace_path(&ctx.cwd, &path).await?;
+        let metadata = tokio::fs::metadata(&path)
+            .await
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.is_dir() {
+            bail!(
+                "path is a directory; use list_dir to list entries: {}",
+                path.display()
+            );
+        }
         let output = tokio::fs::read_to_string(&path)
             .await
             .with_context(|| format!("failed to read {}", path.display()))?;

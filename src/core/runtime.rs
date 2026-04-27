@@ -4,16 +4,18 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use crate::{
-    contracts::EventSink,
+    contracts::{ApprovalTransport, EventSink},
     core::{AppConfig, BuiltinRegistry, JsonlEventStore, SessionStore},
     domain::{AgentOutput, AgentTask, Event, new_session_id},
     model_standard::CanonicalMessage,
+    modules::HeadlessApprovalTransport,
 };
 
 pub struct AgentRuntime {
     cwd: PathBuf,
     registry: BuiltinRegistry,
     event_sink: Arc<dyn EventSink>,
+    approval: Arc<dyn ApprovalTransport>,
     history: Mutex<Vec<CanonicalMessage>>,
     session_store: Option<SessionStore>,
 }
@@ -29,6 +31,20 @@ impl AgentRuntime {
         cwd: PathBuf,
         config_path: Option<&std::path::Path>,
     ) -> Result<Self> {
+        Self::new_with_config_path_and_approval_transport(
+            config,
+            cwd,
+            config_path,
+            Arc::new(HeadlessApprovalTransport),
+        )
+    }
+
+    pub fn new_with_config_path_and_approval_transport(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&std::path::Path>,
+        approval: Arc<dyn ApprovalTransport>,
+    ) -> Result<Self> {
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
         let event_sink: Arc<dyn EventSink> =
             Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
@@ -39,6 +55,7 @@ impl AgentRuntime {
             cwd,
             registry,
             event_sink,
+            approval,
             history: Mutex::new(Vec::new()),
             session_store,
         })
@@ -49,11 +66,26 @@ impl AgentRuntime {
         cwd: PathBuf,
         event_sink: Arc<dyn EventSink>,
     ) -> Result<Self> {
+        Self::with_event_sink_and_approval_transport(
+            config,
+            cwd,
+            event_sink,
+            Arc::new(HeadlessApprovalTransport),
+        )
+    }
+
+    pub fn with_event_sink_and_approval_transport(
+        config: AppConfig,
+        cwd: PathBuf,
+        event_sink: Arc<dyn EventSink>,
+        approval: Arc<dyn ApprovalTransport>,
+    ) -> Result<Self> {
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
         Ok(Self {
             cwd,
             registry,
             event_sink,
+            approval,
             history: Mutex::new(Vec::new()),
             session_store: None,
         })
@@ -71,9 +103,11 @@ impl AgentRuntime {
             text,
             cwd: self.cwd.clone(),
         };
-        let runtime_context = self
-            .registry
-            .runtime_context(session_id, self.event_sink.clone());
+        let runtime_context = self.registry.runtime_context(
+            session_id,
+            self.event_sink.clone(),
+            self.approval.clone(),
+        );
         let history = self.history.lock().await.clone();
         let workflow_output = self
             .registry

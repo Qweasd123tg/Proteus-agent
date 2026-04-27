@@ -32,11 +32,11 @@ max_tokens = 200000
 bar_width = 10
 
 [tools]
-enabled = ["read_file", "write_file", "shell", "search"]
+enabled = ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
 
 [policy.ask_write]
-ask_before = ["write_file", "shell"]
-allow = ["read_file", "search"]
+ask_before = ["apply_patch", "write_file", "shell"]
+allow = ["read_file", "list_dir", "search"]
 
 [search.rg]
 max_results = 50
