@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::{
     adapters::secrets::read_secret_from_config,
-    contracts::{ModelAdapter, ModelClient},
+    contracts::ModelAdapter,
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -66,13 +66,6 @@ impl AnthropicAuth {
             "bearer" | "authorization_bearer" => Ok(Self::Bearer),
             other => Err(anyhow!("unsupported Anthropic auth mode: {other}")),
         }
-    }
-}
-
-#[async_trait]
-impl ModelClient for AnthropicMessagesClient {
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
-        <Self as ModelAdapter>::complete(self, request).await
     }
 }
 

@@ -105,7 +105,7 @@ export PATH="$HOME/.local/bin:$PATH"
 agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
 ```
 
-- `--config PATH` читает JSON или TOML конфиг из указанного файла;
+- `--config PATH` читает JSON/TOML файл или директорию с `*.toml`/`*.json`;
 - `--cwd PATH` задаёт рабочий каталог агента;
 - `-i`, `--interactive` принудительно открывает REPL;
 - `TASK...` запускает одну задачу без REPL.
@@ -119,18 +119,27 @@ agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
 Без `--config` агент пытается найти пользовательский конфиг в таком порядке:
 
 1. `AGENT_CONFIG_PATH`;
-2. `AGENT_CONFIG_HOME/config.json`;
-3. `$HOME/.config/agent-qweasd123tg/config.json`;
-4. `$XDG_CONFIG_HOME/agent/config.json`, если `HOME` недоступен.
+2. `AGENT_CONFIG_HOME/configs`;
+3. `$HOME/.config/agent-qweasd123tg/configs`;
+4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`, если `HOME` недоступен.
 
-Если файл не найден, используются defaults из `AppConfig`.
+Если путь не найден, используются defaults из `AppConfig`. Если путь является директорией, все `*.toml` и `*.json` внутри неё читаются в сортированном порядке и merge-ятся в один итоговый `AppConfig`.
 
-Полный JSON-профиль:
+Рекомендуемый пользовательский layout:
 
 ```bash
-mkdir -p "$HOME/.config/agent-qweasd123tg"
-cp config.example.json "$HOME/.config/agent-qweasd123tg/config.json"
+mkdir -p "$HOME/.config/agent-qweasd123tg/configs"
 ```
+
+```text
+~/.config/agent-qweasd123tg/
+  configs/
+    01-model.toml
+    02-tools.toml
+    03-runtime.toml
+```
+
+Single-file JSON/TOML через `--config` остаётся поддержан для smoke tests и переносимых профилей.
 
 В `config.example.json` основной формат такой:
 

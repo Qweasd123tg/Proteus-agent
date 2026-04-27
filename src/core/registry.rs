@@ -5,15 +5,16 @@ use anyhow::{Result, bail};
 use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventSink, MemoryStore, ModelClient, PatchApplier,
-        Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow, register_provider_tools,
+        ApprovalPolicy, ContextBuilder, EventSink, MemoryStore, ModelAdapter, ModelClient,
+        PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow,
+        register_provider_tools,
     },
     core::AppConfig,
     domain::SessionId,
     modules::{
         AllowAllPolicy, AskWritePolicy, BuiltinToolProvider, DirectPatchApplier, FakeModelClient,
-        JsonlMemory, NoMemory, NullSearch, PlainRenderer, RgSearch, SimpleContextBuilder,
-        SingleLoopWorkflow, StatuslineRenderer,
+        JsonlMemory, ModelService, NoMemory, NullSearch, PlainRenderer, RgSearch,
+        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
     },
 };
 
@@ -34,7 +35,7 @@ pub struct BuiltinRegistry {
 impl BuiltinRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
         let model_config = config.active_model_config()?;
-        let model: Arc<dyn ModelClient> = match model_config.provider.as_str() {
+        let model_adapter: Arc<dyn ModelAdapter> = match model_config.provider.as_str() {
             "fake" => Arc::new(FakeModelClient::default()),
             "openai" | "openai_compatible" => Arc::new(
                 OpenAiResponsesClient::from_provider_config(model_config.provider_config.clone())?,
@@ -44,6 +45,7 @@ impl BuiltinRegistry {
             )?),
             provider => bail!("unsupported model provider: {provider}"),
         };
+        let model: Arc<dyn ModelClient> = Arc::new(ModelService::new(model_adapter));
 
         let search: Arc<dyn SearchBackend> = match config.modules.search.as_str() {
             "null" => Arc::new(NullSearch),

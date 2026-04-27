@@ -1,20 +1,24 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use modular_agent::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, ModelClient, PolicyContext, Tool,
-        ToolContext, ToolRegistry, ToolSource,
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, ModelAdapter, ModelClient,
+        PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource,
     },
-    core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore},
+    core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore, ToolOrchestrator},
     domain::{
-        CacheHints, Event, ModelLimits, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig,
-        ResponseFormat, SamplingConfig, ToolCall, ToolChoice, new_call_id,
+        AgentTask, CacheHints, Event, ModelLimits, ModelRef, PermissionMode, PolicyDecision,
+        ReasoningConfig, ResponseFormat, SamplingConfig, ToolCall, ToolChoice, ToolResult,
+        ToolSafety, ToolSpec, new_call_id, new_session_id,
     },
-    model_standard::{CanonicalMessage, CanonicalModelRequest, FinishReason, MessageRole},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
+        ModelCapabilities,
+    },
     modules::{
-        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ReadFileTool,
-        WriteFileTool,
+        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService,
+        ReadFileTool, WriteFileTool,
     },
 };
 use serde_json::json;
@@ -265,7 +269,118 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
 
     let (output, _events) = run_with(config, "summarize hello").await;
 
-    assert!(output.contains("tools=6"));
+    assert!(output.contains("tools=5"));
+}
+
+#[tokio::test]
+async fn auto_permission_mode_hides_command_and_network_tools() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.permissions.mode = PermissionMode::Auto;
+    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    registry.tools.register(NetworkTool).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        events.clone(),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Auto,
+    );
+    let orchestrator = ToolOrchestrator::default();
+
+    let names = orchestrator
+        .visible_tool_specs(&ctx, dir.path())
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"read_file".to_owned()));
+    assert!(names.contains(&"write_file".to_owned()));
+    assert!(!names.contains(&"shell".to_owned()));
+    assert!(!names.contains(&"network_probe".to_owned()));
+
+    let denied = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "try shell".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "shell".to_owned(),
+                args: json!({ "command": "echo should-not-run" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!denied.ok);
+    assert!(
+        denied
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("permission mode auto denies"))
+    );
+    assert!(events.events().await.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolFinished { result }
+                if !result.ok
+                    && result
+                        .error
+                        .as_deref()
+                        .is_some_and(|error| error.contains("permission mode auto denies"))
+        )
+    }));
+}
+
+#[tokio::test]
+async fn tool_orchestrator_enforces_tool_timeout() {
+    let dir = temp_workspace();
+    let config = AppConfig::default();
+    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    registry.tools.register(SlowTool).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        events.clone(),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Auto,
+    );
+    let orchestrator = ToolOrchestrator::default();
+
+    let result = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "slow".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "slow".to_owned(),
+                args: serde_json::Value::Null,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.ok);
+    assert_eq!(result.metadata["timed_out"], true);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("tool timed out after 5ms"))
+    );
+    assert!(events.events().await.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolFinished { result }
+                if result.metadata["timed_out"] == true
+        )
+    }));
 }
 
 #[tokio::test]
@@ -298,6 +413,61 @@ async fn allow_all_keeps_all_registered_tools_visible_to_model() {
 #[derive(Debug)]
 struct TestApprovalTransport {
     interactive: bool,
+}
+
+#[derive(Debug)]
+struct NetworkTool;
+
+#[async_trait]
+impl Tool for NetworkTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "network_probe".to_owned(),
+            description: "Synthetic network tool for policy tests".to_owned(),
+            input_schema: json!({ "type": "object" }),
+            safety: ToolSafety::Network,
+            timeout_ms: Some(1_000),
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult {
+            call_id: call.id.clone(),
+            ok: true,
+            output: "network".to_owned(),
+            error: None,
+            metadata: serde_json::Value::Null,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct SlowTool;
+
+#[async_trait]
+impl Tool for SlowTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "slow".to_owned(),
+            description: "Synthetic slow tool for timeout tests".to_owned(),
+            input_schema: json!({ "type": "object" }),
+            safety: ToolSafety::ReadOnly,
+            timeout_ms: Some(5),
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        Ok(ToolResult {
+            call_id: call.id.clone(),
+            ok: true,
+            output: "done".to_owned(),
+            error: None,
+            metadata: serde_json::Value::Null,
+        })
+    }
 }
 
 #[async_trait]
@@ -592,7 +762,7 @@ async fn write_file_rejects_symlink_escape() {
 
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {
-    let model = FakeModelClient;
+    let model = ModelService::new(Arc::new(FakeModelClient));
     let request = CanonicalModelRequest {
         model: ModelRef {
             provider: "fake".to_owned(),
@@ -617,6 +787,103 @@ async fn fake_model_uses_canonical_contract() {
 
     assert_eq!(response.finish_reason, FinishReason::ToolCalls);
     assert_eq!(response.tool_calls[0].name, "read_file");
+}
+
+#[tokio::test]
+async fn model_service_shapes_request_before_adapter_call() {
+    let model = ModelService::new(Arc::new(NoToolsAdapter));
+    let request = CanonicalModelRequest {
+        model: ModelRef {
+            provider: "test".to_owned(),
+            model: "no-tools".to_owned(),
+        },
+        instructions: Vec::new(),
+        messages: vec![CanonicalMessage::text(MessageRole::User, "hello")],
+        tools: vec![ToolSpec {
+            name: "read_file".to_owned(),
+            description: "read file".to_owned(),
+            input_schema: json!({ "type": "object" }),
+            safety: ToolSafety::ReadOnly,
+            timeout_ms: None,
+            metadata: serde_json::Value::Null,
+        }],
+        tool_choice: ToolChoice::Auto,
+        response_format: ResponseFormat::Text,
+        sampling: SamplingConfig::default(),
+        reasoning: ReasoningConfig {
+            effort: Some("high".to_owned()),
+            summary: true,
+        },
+        limits: ModelLimits {
+            max_input_tokens: Some(10_000),
+            max_output_tokens: Some(10_000),
+        },
+        cache: CacheHints {
+            cache_instructions: true,
+            cache_context: true,
+        },
+        metadata: serde_json::Value::Null,
+    };
+
+    let response = model.complete(request).await.unwrap();
+
+    assert_eq!(response.provider_metadata["tool_count"], 0);
+    assert_eq!(response.provider_metadata["tool_choice"], "None");
+    assert_eq!(
+        response.provider_metadata["reasoning"],
+        serde_json::Value::Null
+    );
+    assert_eq!(response.provider_metadata["cache"], serde_json::Value::Null);
+    assert_eq!(response.provider_metadata["max_output_tokens"], 128);
+}
+
+struct NoToolsAdapter;
+
+#[async_trait]
+impl ModelAdapter for NoToolsAdapter {
+    fn id(&self) -> &'static str {
+        "test.no_tools"
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities {
+            supports_tools: false,
+            supports_parallel_tool_calls: false,
+            supports_streaming: false,
+            supports_json_schema: false,
+            supports_system_role: true,
+            supports_developer_role: true,
+            supports_cache_hints: false,
+            supports_reasoning_config: false,
+            supports_image_input: false,
+            supports_file_input: false,
+            max_input_tokens: Some(512),
+            max_output_tokens: Some(128),
+        }
+    }
+
+    async fn complete(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<CanonicalModelResponse> {
+        Ok(CanonicalModelResponse {
+            message: CanonicalMessage::text(MessageRole::Assistant, "ok"),
+            tool_calls: Vec::new(),
+            finish_reason: FinishReason::Stop,
+            usage: None,
+            provider_metadata: json!({
+                "tool_count": request.tools.len(),
+                "tool_choice": format!("{:?}", request.tool_choice),
+                "reasoning": request.reasoning.effort,
+                "cache": if request.cache == CacheHints::default() {
+                    serde_json::Value::Null
+                } else {
+                    json!(request.cache)
+                },
+                "max_output_tokens": request.limits.max_output_tokens,
+            }),
+        })
+    }
 }
 
 #[tokio::test]
@@ -651,6 +918,60 @@ async fn toml_config_file_can_select_statusline_renderer() {
     );
     assert_eq!(config.renderer.statusline.position, "bottom");
     assert_eq!(config.renderer.statusline.frame, "block");
+}
+
+#[tokio::test]
+async fn config_directory_merges_sorted_config_files() {
+    let dir = tempfile::tempdir().expect("config dir");
+    std::fs::write(
+        dir.path().join("01-model.toml"),
+        r#"
+active_provider = "local"
+
+[providers.local]
+provider = "openai_compatible"
+model = "local-model"
+base_url = "http://127.0.0.1:11434/v1"
+"#,
+    )
+    .expect("model config");
+    std::fs::write(
+        dir.path().join("02-runtime.toml"),
+        r#"
+[modules]
+renderer = "statusline"
+search = "rg"
+
+[tools]
+enabled = ["read_file", "search"]
+
+[search.rg]
+max_results = 7
+
+[renderer.statusline]
+components = ["model", "context"]
+ansi = false
+"#,
+    )
+    .expect("runtime config");
+
+    let config = modular_agent::core::AppConfig::load(Some(dir.path()))
+        .await
+        .unwrap();
+    let model_config = config.active_model_config().unwrap();
+
+    assert_eq!(model_config.provider, "openai_compatible");
+    assert_eq!(model_config.model, "local-model");
+    assert_eq!(
+        model_config.provider_config["base_url"],
+        "http://127.0.0.1:11434/v1"
+    );
+    assert_eq!(config.modules.renderer, "statusline");
+    assert_eq!(config.modules.search, "rg");
+    assert_eq!(config.search.rg.max_results, 7);
+    assert_eq!(config.tools.enabled, ["read_file", "search"]);
+    assert_eq!(config.renderer.statusline.components, ["model", "context"]);
+    assert!(!config.renderer.statusline.ansi);
 }
 
 #[tokio::test]

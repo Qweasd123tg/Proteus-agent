@@ -79,7 +79,7 @@ Event log является трассой runtime-событий. Каждый e
 
 ## Session Store
 
-Если runtime знает путь пользовательского конфига, он создаёт session store рядом с директорией этого конфига:
+Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для directory-based layout `~/.config/agent-qweasd123tg/configs` session store живёт в `~/.config/agent-qweasd123tg/sessions`:
 
 ```text
 <config-dir>/sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>/messages.jsonl
@@ -112,16 +112,19 @@ Event log является трассой runtime-событий. Каждый e
 3. вызывает `ContextBuilder::build`;
 4. пишет `ContextBuilt`;
 5. собирает `CanonicalModelRequest`;
-6. вызывает `ModelClient::complete`;
-7. если модель вернула tool calls, прогоняет их через `PermissionMode`, `ApprovalPolicy` и `ToolRegistry`;
-8. добавляет `ToolResult` в canonical messages;
-9. повторяет model call до финального ответа или лимита rounds;
-10. пишет `TurnFinished`.
+6. вызывает `ModelClient::complete`, реализованный `ModelService`;
+7. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
+8. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
+9. добавляет `ToolResult` в canonical messages;
+10. повторяет model call до финального ответа или лимита rounds;
+11. пишет `TurnFinished`.
 
-Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolRegistry` и permission gate, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
+Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolOrchestrator`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
 
 Лимит tool rounds: `4`.
 
-Если approval требуется, workflow отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.
+Если approval требуется, `ToolOrchestrator` отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.
 
-`permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает все не-`Dangerous` tools без approval.
+`permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
+
+`ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors обрезаются до общего лимита orchestrator-а.

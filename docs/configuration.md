@@ -1,31 +1,46 @@
 # Конфигурация
 
-`AppConfig` поддерживает JSON и TOML. Формат определяется по расширению файла: `.json` читается как JSON, остальные файлы читаются как TOML.
+`AppConfig` поддерживает JSON и TOML. Формат файла определяется по расширению: `.json` читается как JSON, остальные config-файлы читаются как TOML.
+
+`--config` может указывать как на один файл, так и на директорию. Директория читается как config tree: все `*.toml` и `*.json` внутри неё сортируются по имени, затем merge-ятся в один итоговый `AppConfig`.
 
 ## Порядок Выбора
 
-Если передан `--config`, используется только этот файл:
+Если передан `--config`, используется только этот путь:
 
 ```bash
 cargo run -- --config config.example.json
+cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
 ```
 
 Если `--config` не передан, путь ищется так:
 
 1. `AGENT_CONFIG_PATH`;
-2. `AGENT_CONFIG_HOME/config.json`;
-3. `$HOME/.config/agent-qweasd123tg/config.json`;
-4. `$XDG_CONFIG_HOME/agent/config.json`, если `HOME` недоступен.
+2. `AGENT_CONFIG_HOME/configs`;
+3. `$HOME/.config/agent-qweasd123tg/configs`;
+4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`, если `HOME` недоступен.
 
-Если файл не найден, используется `AppConfig::default()`.
+Если путь не найден, используется `AppConfig::default()`.
 
 ## JSON И TOML
 
-`config.example.json` - основной полный пример с `active_provider` и `providers`.
+Рекомендуемый пользовательский формат - directory-based TOML:
+
+```text
+~/.config/agent-qweasd123tg/
+  configs/
+    01-model.toml
+    02-tools.toml
+    03-runtime.toml
+```
+
+Порядок важен: более поздний файл может переопределить значения из более раннего. Object/table values merge-ятся рекурсивно, arrays/scalars заменяются целиком.
+
+`config.example.json` - полный single-file пример с `active_provider` и `providers`.
 
 `agent.example.toml` - dev/smoke-test пример с прямым `[model]` и явными runtime sections для modules, tools, policy, search, context, memory и event log.
 
-Оба формата поддерживаются одной struct schema.
+Все форматы поддерживаются одной struct schema.
 
 ## Provider Profiles
 
@@ -149,7 +164,7 @@ Default env vars:
 
 - `plan` - только read-only tools;
 - `normal` - `ApprovalPolicy` + `ApprovalTransport`;
-- `auto` - все не-`Dangerous` tools без approval.
+- `auto` - `ReadOnly` и `WritesFiles` без approval; `RunsCommands`, `Network` и `Dangerous` запрещены.
 
 CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют config для текущего запуска.
 
@@ -232,4 +247,4 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 }
 ```
 
-Event log пишется относительно `cwd`, а session history хранится рядом с директорией пользовательского config path.
+Event log пишется относительно `cwd`, а session history хранится рядом с пользовательским config home. Для default layout это `$HOME/.config/agent-qweasd123tg/sessions`, то есть рядом с директорией `configs`.

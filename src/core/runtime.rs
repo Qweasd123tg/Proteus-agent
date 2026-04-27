@@ -183,15 +183,14 @@ impl AgentRuntimeBuilder {
 
         let permission_mode = config.permissions.mode;
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
-        let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
-            Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)))
-        });
+        let event_sink: Arc<dyn EventSink> = event_sink
+            .unwrap_or_else(|| Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path))));
         let approval: Arc<dyn ApprovalTransport> =
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport));
         let session_store = config_path
             .as_deref()
-            .and_then(|path| path.parent())
-            .map(|config_dir| SessionStore::new(config_dir, &cwd));
+            .map(config_store_root)
+            .map(|config_dir| SessionStore::new(&config_dir, &cwd));
 
         Ok(AgentRuntime {
             cwd,
@@ -203,4 +202,17 @@ impl AgentRuntimeBuilder {
             session_store,
         })
     }
+}
+
+fn config_store_root(path: &std::path::Path) -> PathBuf {
+    if path.is_dir() {
+        return path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf());
+    }
+
+    path.parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
 }

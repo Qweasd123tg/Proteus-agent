@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::domain::{ModelRef, PermissionMode};
 
@@ -42,15 +43,26 @@ pub struct AppConfig {
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
         match path {
-            Some(path) => Self::load_file(path).await,
+            Some(path) => Self::load_path(path).await,
             None => {
                 if let Some(path) = default_config_path() {
                     if tokio::fs::try_exists(&path).await? {
-                        return Self::load_file(&path).await;
+                        return Self::load_path(&path).await;
                     }
                 }
                 Ok(Self::default())
             }
+        }
+    }
+
+    async fn load_path(path: &Path) -> Result<Self> {
+        let metadata = tokio::fs::metadata(path)
+            .await
+            .with_context(|| format!("failed to inspect config path {}", path.display()))?;
+        if metadata.is_dir() {
+            Self::load_dir(path).await
+        } else {
+            Self::load_file(path).await
         }
     }
 
@@ -65,6 +77,29 @@ impl AppConfig {
             _ => toml::from_str(&content)
                 .with_context(|| format!("failed to parse TOML config {}", path.display())),
         }
+    }
+
+    async fn load_dir(path: &Path) -> Result<Self> {
+        let mut entries = tokio::fs::read_dir(path)
+            .await
+            .with_context(|| format!("failed to read config dir {}", path.display()))?;
+        let mut files = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_file() && is_config_file(&entry.path()) {
+                files.push(entry.path());
+            }
+        }
+        files.sort();
+
+        let mut merged = Value::Object(Map::new());
+        for file in files {
+            let value = load_config_value(&file).await?;
+            merge_config_value(&mut merged, value);
+        }
+
+        serde_json::from_value(merged)
+            .with_context(|| format!("failed to build config from dir {}", path.display()))
     }
 
     pub fn default_user_config_path() -> Option<PathBuf> {
@@ -590,13 +625,50 @@ fn default_config_path() -> Option<PathBuf> {
     }
 
     if let Some(config_home) = env::var_os("AGENT_CONFIG_HOME") {
-        return Some(PathBuf::from(config_home).join("config.json"));
+        return Some(PathBuf::from(config_home).join("configs"));
     }
 
     if let Some(home) = env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/config.json"));
+        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/configs"));
     }
 
     env::var_os("XDG_CONFIG_HOME")
-        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent/config.json"))
+        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs"))
+}
+
+fn is_config_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("toml" | "json")
+    )
+}
+
+async fn load_config_value(path: &Path) -> Result<Value> {
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .with_context(|| format!("failed to read config {}", path.display()))?;
+
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse JSON config {}", path.display())),
+        _ => {
+            let value = toml::from_str::<toml::Value>(&content)
+                .with_context(|| format!("failed to parse TOML config {}", path.display()))?;
+            serde_json::to_value(value)
+                .with_context(|| format!("failed to normalize TOML config {}", path.display()))
+        }
+    }
+}
+
+fn merge_config_value(base: &mut Value, overlay: Value) {
+    match (base, overlay) {
+        (Value::Object(base), Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                merge_config_value(base.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (base, overlay) => {
+            *base = overlay;
+        }
+    }
 }

@@ -25,7 +25,7 @@ Security v0 держится на четырёх уровнях:
 
 - `plan` показывает и исполняет только `ReadOnly` tools;
 - `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
-- `auto` разрешает все tools, кроме `Dangerous`, без approval.
+- `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
 
 CLI может переопределить config через `--plan`, `--auto` или `--permission-mode plan|normal|auto`.
 
@@ -72,11 +72,11 @@ CLI может переопределить config через `--plan`, `--auto`
 }
 ```
 
-Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, workflow пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
+Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
 
-Headless runtime и текущий TUI используют headless transport, поэтому `Ask` завершается отказом. `SingleLoopWorkflow` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+Headless runtime и текущий TUI используют headless transport, поэтому `Ask` завершается отказом. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 
-Если `Tool::invoke` возвращает ошибку, workflow не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result.
+Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
 
 `ask_write.allow` и `ask_write.ask_before` валидируются при старте против зарегистрированного `ToolRegistry`. Ссылка на неизвестный tool считается ошибкой конфигурации.
 

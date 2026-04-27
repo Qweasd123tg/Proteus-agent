@@ -3,11 +3,11 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::{
-    contracts::ModelClient,
-    domain::{ToolCall, new_call_id},
+    contracts::ModelAdapter,
+    domain::{ModelRef, ToolCall, new_call_id},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole,
+        MessageRole, ModelCapabilities,
     },
 };
 
@@ -15,7 +15,15 @@ use crate::{
 pub struct FakeModelClient;
 
 #[async_trait]
-impl ModelClient for FakeModelClient {
+impl ModelAdapter for FakeModelClient {
+    fn id(&self) -> &'static str {
+        "fake"
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities::basic_text_and_tools()
+    }
+
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
         if let Some(result_text) = latest_tool_result_text(&request) {
             let message = CanonicalMessage::text(
