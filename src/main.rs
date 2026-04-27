@@ -10,8 +10,9 @@ use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use modular_agent::domain::{AgentOutput, PermissionMode};
 use modular_agent::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
-    core::{AgentRuntime, AppConfig},
+    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport, EventSink},
+    core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
+    modules::ChannelApprovalTransport,
 };
 use serde_json::Value;
 use tokio::time::sleep;
@@ -69,12 +70,17 @@ async fn main() -> Result<()> {
     };
     if cli.interactive || cli.task.is_empty() {
         if io::stdin().is_terminal() && io::stdout().is_terminal() {
-            let runtime = AgentRuntime::new_with_config_path(
-                config.clone(),
-                cwd.clone(),
-                config_path.as_deref(),
-            )?;
-            return tui::run_tui(runtime, config, cwd).await;
+            let broadcast = Arc::new(BroadcastEventSink::new(1024));
+            let jsonl = Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+            let event_sink: Arc<dyn EventSink> =
+                Arc::new(FanoutEventSink::new(vec![jsonl, broadcast.clone()]));
+            let (approval_tx, approval_rx) = ChannelApprovalTransport::new(8);
+            let runtime = AgentRuntime::builder(config.clone(), cwd.clone())
+                .with_config_path(config_path.as_deref())
+                .with_event_sink(event_sink)
+                .with_approval(Arc::new(approval_tx))
+                .build()?;
+            return tui::run_tui(runtime, config, cwd, broadcast, approval_rx).await;
         }
         let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
             config.clone(),

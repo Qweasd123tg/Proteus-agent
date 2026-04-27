@@ -1,7 +1,11 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
+use tokio::{
+    fs::OpenOptions,
+    io::AsyncWriteExt,
+    sync::{Mutex, broadcast},
+};
 
 use crate::{
     contracts::EventSink,
@@ -78,5 +82,64 @@ impl EventSink for InMemoryEventStore {
 impl From<InMemoryEventStore> for Arc<dyn EventSink> {
     fn from(store: InMemoryEventStore) -> Self {
         Arc::new(store)
+    }
+}
+
+/// Broadcasts every event to any number of subscribers. Lagging receivers
+/// miss old events (tokio broadcast semantics) but the sink itself never
+/// blocks or errors because of a slow consumer — `append` always returns Ok.
+#[derive(Debug)]
+pub struct BroadcastEventSink {
+    tx: broadcast::Sender<Event>,
+}
+
+impl BroadcastEventSink {
+    pub fn new(capacity: usize) -> Self {
+        let (tx, _) = broadcast::channel(capacity.max(1));
+        Self { tx }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+        self.tx.subscribe()
+    }
+}
+
+#[async_trait::async_trait]
+impl EventSink for BroadcastEventSink {
+    async fn append(&self, event: Event) -> Result<()> {
+        let _ = self.tx.send(event);
+        Ok(())
+    }
+}
+
+/// Fan-out sink: forwards every event to an ordered list of inner sinks.
+/// If any inner sink fails, the first error is returned — but all inner
+/// sinks still receive the event first (best-effort delivery).
+#[derive(Clone)]
+pub struct FanoutEventSink {
+    sinks: Vec<Arc<dyn EventSink>>,
+}
+
+impl FanoutEventSink {
+    pub fn new(sinks: Vec<Arc<dyn EventSink>>) -> Self {
+        Self { sinks }
+    }
+}
+
+#[async_trait::async_trait]
+impl EventSink for FanoutEventSink {
+    async fn append(&self, event: Event) -> Result<()> {
+        let mut first_err: Option<anyhow::Error> = None;
+        for sink in &self.sinks {
+            if let Err(err) = sink.append(event.clone()).await
+                && first_err.is_none()
+            {
+                first_err = Some(err);
+            }
+        }
+        match first_err {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 }

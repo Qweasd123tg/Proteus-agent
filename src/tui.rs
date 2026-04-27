@@ -15,9 +15,12 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use modular_agent::{
-    core::{AgentRuntime, AppConfig},
-    domain::AgentOutput,
+    contracts::{ApprovalRequest, ApprovalResponse},
+    core::{AgentRuntime, AppConfig, BroadcastEventSink},
+    domain::{AgentOutput, Event, ToolCall, ToolResult},
+    modules::PendingApproval,
 };
+use tokio::sync::{broadcast, mpsc};
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
@@ -31,9 +34,16 @@ use tokio::task::JoinHandle;
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-pub async fn run_tui(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Result<()> {
+pub async fn run_tui(
+    runtime: AgentRuntime,
+    config: AppConfig,
+    cwd: PathBuf,
+    events: Arc<BroadcastEventSink>,
+    mut approvals: mpsc::Receiver<PendingApproval>,
+) -> Result<()> {
     let mut terminal = TerminalSession::enter()?;
     let runtime = Arc::new(runtime);
+    let mut event_rx = events.subscribe();
     let mut app = TuiApp::new(
         config,
         cwd,
@@ -62,6 +72,31 @@ pub async fn run_tui(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> 
         }
 
         if app.advance_streaming() {
+            dirty = true;
+        }
+
+        loop {
+            match event_rx.try_recv() {
+                Ok(event) => {
+                    app.ingest_event(event);
+                    dirty = true;
+                }
+                Err(broadcast::error::TryRecvError::Empty) => break,
+                Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                    app.messages.push(TuiMessage::system(format!(
+                        "… dropped {n} live events (TUI fell behind, log still complete)"
+                    )));
+                    dirty = true;
+                }
+                Err(broadcast::error::TryRecvError::Closed) => break,
+            }
+        }
+
+        if app.pending_approval.is_none()
+            && let Ok(pending) = approvals.try_recv()
+        {
+            app.pending_approval = Some(pending);
+            app.status = "approval required".to_owned();
             dirty = true;
         }
 
@@ -150,6 +185,7 @@ struct TuiApp {
     spinner_index: usize,
     last_tick: Instant,
     streaming: Option<StreamingAnswer>,
+    pending_approval: Option<PendingApproval>,
     should_quit: bool,
 }
 
@@ -171,8 +207,32 @@ impl TuiApp {
             spinner_index: 0,
             last_tick: Instant::now(),
             streaming: None,
+            pending_approval: None,
             should_quit: false,
         })
+    }
+
+    fn resolve_approval(&mut self, approved: bool) {
+        let Some(pending) = self.pending_approval.take() else {
+            return;
+        };
+        let PendingApproval { request, responder } = pending;
+        let response = ApprovalResponse {
+            approved,
+            note: if approved {
+                None
+            } else {
+                Some(format!("tool call denied by user: {}", request.reason))
+            },
+        };
+        let tool_name = request.call.name.clone();
+        let _ = responder.send(response);
+        self.messages.push(TuiMessage::system(format!(
+            "{} {} for {tool_name}",
+            if approved { "✓" } else { "✗" },
+            if approved { "approved" } else { "denied" }
+        )));
+        self.status = "ready".to_owned();
     }
 
     async fn poll_completed_model(&mut self) -> Result<Option<AgentOutput>> {
@@ -269,6 +329,78 @@ impl TuiApp {
     fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
     }
+
+    fn ingest_event(&mut self, event: Event) {
+        match event {
+            Event::ToolCallRequested { call } => {
+                self.messages.push(TuiMessage::tool_running(&call));
+                self.status = format!("running {}", call.name);
+            }
+            Event::ToolFinished { result } => {
+                self.update_tool_result(&result);
+                self.status = if result.ok {
+                    "ready".to_owned()
+                } else {
+                    "tool error".to_owned()
+                };
+            }
+            Event::ApprovalRequested { call_id: _, reason } => {
+                self.messages
+                    .push(TuiMessage::system(format!("approval requested: {reason}")));
+            }
+            Event::ApprovalResolved {
+                call_id: _,
+                approved,
+            } => {
+                self.messages.push(TuiMessage::system(if approved {
+                    "approval granted".to_owned()
+                } else {
+                    "approval denied".to_owned()
+                }));
+            }
+            Event::Error { message } => {
+                self.messages.push(TuiMessage::error(message));
+            }
+            Event::ContextBuilt {
+                chunks,
+                token_estimate,
+            } => {
+                self.status = match token_estimate {
+                    Some(tokens) => format!("context · {chunks} chunks · ~{tokens} tok"),
+                    None => format!("context · {chunks} chunks"),
+                };
+            }
+            Event::ModelResponseReceived { .. }
+            | Event::ModelRequestPrepared { .. }
+            | Event::MemoryWritten { .. }
+            | Event::PatchApplied { .. }
+            | Event::SessionStarted { .. }
+            | Event::TaskReceived { .. }
+            | Event::TurnFinished { .. } => {}
+        }
+        self.scroll_to_bottom();
+    }
+
+    fn update_tool_result(&mut self, result: &ToolResult) {
+        for message in self.messages.iter_mut().rev() {
+            if let TuiMessage {
+                role: TuiRole::Tool,
+                tool: Some(card),
+                ..
+            } = message
+                && card.call_id == result.call_id
+                && card.status == ToolStatus::Running
+            {
+                card.status = if result.ok {
+                    ToolStatus::Ok
+                } else {
+                    ToolStatus::Err
+                };
+                card.output_preview = preview_output(&result.output, result.error.as_deref());
+                return;
+            }
+        }
+    }
 }
 
 struct StreamingAnswer {
@@ -280,6 +412,7 @@ struct StreamingAnswer {
 struct TuiMessage {
     role: TuiRole,
     text: String,
+    tool: Option<ToolCard>,
 }
 
 impl TuiMessage {
@@ -287,6 +420,7 @@ impl TuiMessage {
         Self {
             role: TuiRole::User,
             text: text.into(),
+            tool: None,
         }
     }
 
@@ -294,6 +428,7 @@ impl TuiMessage {
         Self {
             role: TuiRole::Assistant,
             text: text.into(),
+            tool: None,
         }
     }
 
@@ -301,6 +436,7 @@ impl TuiMessage {
         Self {
             role: TuiRole::System,
             text: text.into(),
+            tool: None,
         }
     }
 
@@ -308,6 +444,21 @@ impl TuiMessage {
         Self {
             role: TuiRole::Error,
             text: text.into(),
+            tool: None,
+        }
+    }
+
+    fn tool_running(call: &ToolCall) -> Self {
+        Self {
+            role: TuiRole::Tool,
+            text: String::new(),
+            tool: Some(ToolCard {
+                call_id: call.id.clone(),
+                name: call.name.clone(),
+                args_summary: summarize_args(&call.args),
+                status: ToolStatus::Running,
+                output_preview: String::new(),
+            }),
         }
     }
 }
@@ -317,11 +468,88 @@ enum TuiRole {
     Assistant,
     System,
     Error,
+    Tool,
+}
+
+struct ToolCard {
+    call_id: modular_agent::domain::CallId,
+    name: String,
+    args_summary: String,
+    status: ToolStatus,
+    output_preview: String,
+}
+
+#[derive(PartialEq, Eq)]
+enum ToolStatus {
+    Running,
+    Ok,
+    Err,
+}
+
+fn summarize_args(args: &Value) -> String {
+    match args {
+        Value::Object(map) => {
+            let mut pairs = Vec::with_capacity(map.len());
+            for (key, value) in map.iter().take(3) {
+                pairs.push(format!("{key}={}", compact_value(value)));
+            }
+            if map.len() > 3 {
+                pairs.push("…".to_owned());
+            }
+            pairs.join(" ")
+        }
+        other => compact_value(other),
+    }
+}
+
+fn compact_value(value: &Value) -> String {
+    let rendered = match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    let collapsed: String = rendered
+        .chars()
+        .map(|ch| if ch == '\n' || ch == '\r' { ' ' } else { ch })
+        .collect();
+    if collapsed.chars().count() > 60 {
+        let prefix: String = collapsed.chars().take(57).collect();
+        format!("{prefix}…")
+    } else {
+        collapsed
+    }
+}
+
+fn preview_output(output: &str, error: Option<&str>) -> String {
+    let source = if output.trim().is_empty() {
+        error.unwrap_or_default()
+    } else {
+        output
+    };
+    let mut lines: Vec<&str> = source.lines().take(6).collect();
+    let extra = source.lines().count().saturating_sub(lines.len());
+    if extra > 0 {
+        lines.push("…");
+    }
+    lines.join("\n")
 }
 
 async fn handle_key(key: KeyEvent, runtime: &Arc<AgentRuntime>, app: &mut TuiApp) -> Result<bool> {
     if key.kind != KeyEventKind::Press {
         return Ok(false);
+    }
+
+    if app.pending_approval.is_some() {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                app.resolve_approval(true);
+                return Ok(true);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                app.resolve_approval(false);
+                return Ok(true);
+            }
+            _ => return Ok(false),
+        }
     }
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -449,6 +677,66 @@ fn render(frame: &mut Frame, app: &TuiApp) {
     let cursor_x = chunks[1].x + 3 + app.input.chars().count() as u16;
     let cursor_y = chunks[1].y + 1;
     frame.set_cursor_position(Position::new(cursor_x.min(chunks[1].right() - 2), cursor_y));
+
+    if app.pending_approval.is_some() {
+        render_approval_modal(frame, app, frame.area());
+    }
+}
+
+fn render_approval_modal(frame: &mut Frame, app: &TuiApp, full: Rect) {
+    let Some(pending) = &app.pending_approval else {
+        return;
+    };
+    let request: &ApprovalRequest = &pending.request;
+
+    let modal_width = full.width.saturating_mul(3) / 4;
+    let modal_width = modal_width.clamp(50, 100).min(full.width.saturating_sub(2));
+    let modal_height: u16 = 12;
+    let modal_height = modal_height.min(full.height.saturating_sub(2));
+    let x = full.x + (full.width.saturating_sub(modal_width)) / 2;
+    let y = full.y + (full.height.saturating_sub(modal_height)) / 2;
+    let area = Rect::new(x, y, modal_width, modal_height);
+
+    frame.render_widget(ratatui::widgets::Clear, area);
+
+    let safety = request
+        .tool_spec
+        .as_ref()
+        .map(|spec| format!("{:?}", spec.safety))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let args = compact_value(&request.call.args);
+    let inner_width = area.width.saturating_sub(4) as usize;
+
+    let mut body: Vec<Line<'static>> = Vec::new();
+    body.push(Line::from(Span::styled(
+        format!("tool: {}", request.call.name),
+        Style::default().fg(Color::Yellow),
+    )));
+    body.push(Line::from(format!("cwd: {}", request.cwd.display())));
+    body.push(Line::from(format!("safety: {safety}")));
+    body.push(Line::raw(""));
+    for seg in wrap_text(&format!("reason: {}", request.reason), inner_width) {
+        body.push(Line::from(seg));
+    }
+    for seg in wrap_text(&format!("args: {args}"), inner_width) {
+        body.push(Line::from(Span::styled(
+            seg,
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    body.push(Line::raw(""));
+    body.push(Line::from(vec![
+        Span::styled("[y]", Style::default().fg(Color::Green)),
+        Span::raw(" approve   "),
+        Span::styled("[n/Esc]", Style::default().fg(Color::Red)),
+        Span::raw(" deny"),
+    ]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" approval required ");
+    frame.render_widget(Paragraph::new(body).block(block), area);
 }
 
 fn render_transcript(frame: &mut Frame, app: &TuiApp, area: Rect) {
@@ -517,11 +805,19 @@ fn card_line(text: &str, width: usize) -> Line<'static> {
 }
 
 fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &TuiMessage, width: usize) {
+    if matches!(message.role, TuiRole::Tool) {
+        if let Some(card) = &message.tool {
+            append_tool_card_lines(lines, card, width);
+        }
+        return;
+    }
+
     let (prefix, style) = match message.role {
         TuiRole::User => ("› ", Style::default().fg(Color::Cyan)),
         TuiRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
         TuiRole::System => ("  ", Style::default().fg(Color::DarkGray)),
         TuiRole::Error => ("! ", Style::default().fg(Color::Red)),
+        TuiRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
     };
 
     let text_width = width.saturating_sub(prefix.chars().count()).max(1);
@@ -548,6 +844,49 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &TuiMessage, wi
                 Span::styled(segment, style),
             ]));
             first_segment = false;
+        }
+    }
+}
+
+fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
+    let (glyph, glyph_style, name_style) = match card.status {
+        ToolStatus::Running => (
+            "⏺",
+            Style::default().fg(Color::Yellow),
+            Style::default().fg(Color::Yellow),
+        ),
+        ToolStatus::Ok => (
+            "✓",
+            Style::default().fg(Color::Green),
+            Style::default().fg(Color::Reset),
+        ),
+        ToolStatus::Err => (
+            "✗",
+            Style::default().fg(Color::Red),
+            Style::default().fg(Color::Red),
+        ),
+    };
+    let mut header: Vec<Span<'static>> = vec![
+        Span::styled(format!("{glyph} "), glyph_style),
+        Span::styled(card.name.clone(), name_style),
+    ];
+    if !card.args_summary.is_empty() {
+        header.push(Span::styled(
+            format!("({})", card.args_summary),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    lines.push(Line::from(header));
+
+    if !card.output_preview.is_empty() {
+        let preview_width = width.saturating_sub(4).max(1);
+        for raw in card.output_preview.lines() {
+            for segment in wrap_text(raw, preview_width) {
+                lines.push(Line::from(vec![
+                    Span::styled("  │ ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(segment, Style::default().fg(Color::DarkGray)),
+                ]));
+            }
         }
     }
 }
