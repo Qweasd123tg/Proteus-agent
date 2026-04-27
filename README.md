@@ -1,69 +1,126 @@
 # Modular Agent
 
-Rust CLI-first skeleton for a modular coding agent.
+Rust CLI-first каркас для модульного coding-agent.
 
-The current implementation is intentionally small:
+Проект строится вокруг простой идеи:
 
-- stable DTOs in `src/domain` and `src/model_standard`;
-- traits in `src/contracts`;
-- wiring in `src/core`;
-- built-in stub modules in `src/modules`;
-- fake model, simple context builder, JSONL event log, read/write/shell/search tools;
-- module-swap tests for search, memory, policy, and canonical model contract.
+```text
+маленькое стабильное ядро
++ заменяемые module slots
++ простые DTO-контракты
++ встроенные реализации для v0
++ adapter-слой для провайдеров и чужих идей
+```
 
-Open the interactive terminal:
+Это не динамическая plugin-система и не клон Claude Code, Codex CLI, OpenCode или ForgeCode. В текущей версии модульность означает config-time выбор встроенных реализаций через `AppConfig` и `BuiltinRegistry`.
+
+## Что Уже Есть
+
+- стабильные DTO в `src/domain` и `src/model_standard`;
+- trait-контракты в `src/contracts`;
+- wiring и lifecycle в `src/core`;
+- встроенные модули в `src/modules`;
+- fake model, OpenAI Responses adapter, Anthropic Messages adapter;
+- `null`/`rg` search, `none`/`jsonl` memory;
+- `read_file`, `write_file`, `shell`, `search` tools;
+- `ask_write` и `allow_all` policies;
+- JSONL event log и session history;
+- module-swap тесты для search, memory, policy и canonical model contract.
+
+## Быстрый Запуск
+
+Открыть интерактивный терминал:
 
 ```bash
 cargo run
 ```
 
-Install as a command:
+Внутри REPL:
+
+```text
+agent> read_file Cargo.toml
+agent> summarize project
+agent> /history
+agent> /clear
+agent> /exit
+```
+
+Выполнить одну задачу:
+
+```bash
+cargo run -- read_file Cargo.toml
+```
+
+Запустить с явным конфигом:
+
+```bash
+cargo run -- --config agent.example.toml summarize project
+cargo run -- --config config.example.json
+```
+
+Запустить из другого рабочего каталога:
+
+```bash
+cargo run -- --cwd /path/to/project summarize project
+```
+
+## Установка
 
 ```bash
 ./install.sh
 ```
 
-Then use it from any workspace:
+Скрипт собирает release binary и создаёт wrapper:
+
+```text
+~/.local/bin/agent
+```
+
+После этого:
 
 ```bash
 cd /path/to/project
 agent
 ```
 
-By default it reads user config from `/home/qweasd123tg/.config/agent-qweasd123tg/config.json` when that file exists.
-Sessions are stored next to that config under `sessions/<encoded-cwd>/<session-name|date>/messages.jsonl`.
-For example, `/home/game` maps to `sessions/home|game/...`.
+Если `~/.local/bin` не входит в `PATH`, добавьте:
 
-Inside the prompt:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## CLI
 
 ```text
-agent> read_file Cargo.toml
-agent> summarize project
-agent> /exit
+agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
 ```
 
-Run one task directly:
+- `--config PATH` читает JSON или TOML конфиг из указанного файла;
+- `--cwd PATH` задаёт рабочий каталог агента;
+- `-i`, `--interactive` принудительно открывает REPL;
+- `TASK...` запускает одну задачу без REPL.
+
+Если `TASK` не указан, агент открывает REPL.
+
+## Конфигурация
+
+Без `--config` агент пытается найти пользовательский конфиг в таком порядке:
+
+1. `AGENT_CONFIG_PATH`;
+2. `AGENT_CONFIG_HOME/config.json`;
+3. `$HOME/.config/agent-qweasd123tg/config.json`;
+4. `$XDG_CONFIG_HOME/agent/config.json`, если `HOME` недоступен.
+
+Если файл не найден, используются defaults из `AppConfig`.
+
+Полный JSON-профиль:
 
 ```bash
-cargo run -- read_file Cargo.toml
+mkdir -p "$HOME/.config/agent-qweasd123tg"
+cp config.example.json "$HOME/.config/agent-qweasd123tg/config.json"
 ```
 
-Run with an explicit config:
-
-```bash
-cargo run -- --config agent.example.toml summarize project
-```
-
-Use one system JSON config:
-
-```bash
-mkdir -p /home/qweasd123tg/.config/agent-qweasd123tg
-cp config.example.json /home/qweasd123tg/.config/agent-qweasd123tg/config.json
-# edit active_provider, api_key, base_url, and model
-cargo run
-```
-
-Minimal provider section:
+В `config.example.json` основной формат такой:
 
 ```json
 {
@@ -73,7 +130,9 @@ Minimal provider section:
       "provider": "anthropic",
       "model": "claude-sonnet-4-20250514",
       "api_key": "sk-ant-...",
-      "base_url": "https://api.anthropic.com"
+      "base_url": "https://api.anthropic.com",
+      "auth": "x-api-key",
+      "api_version": "2023-06-01"
     },
     "local": {
       "provider": "openai_compatible",
@@ -85,16 +144,50 @@ Minimal provider section:
 }
 ```
 
-Run with an explicit JSON config:
+`agent.example.toml` оставлен как минимальный dev/smoke-test профиль с `[model]` и `[modules]`.
 
-```bash
-cargo run -- --config config.example.json
+Подробнее: [docs/configuration.md](docs/configuration.md).
+
+## Runtime Данные
+
+Event log по умолчанию пишется в рабочем каталоге:
+
+```text
+.agent/events.jsonl
 ```
 
-Validate:
+Если используется пользовательский config path, history сессий хранится рядом с директорией конфига:
+
+```text
+sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>/messages.jsonl
+```
+
+Пример: `/home/game` кодируется как `home|game`.
+
+Подробнее: [docs/runtime-and-events.md](docs/runtime-and-events.md).
+
+## Документация
+
+- [MODULAR_AGENT_SPEC_RU.md](MODULAR_AGENT_SPEC_RU.md) - архитектурная цель и рамка проекта;
+- [docs/architecture.md](docs/architecture.md) - фактическая архитектура v0;
+- [docs/modules.md](docs/modules.md) - module slots и встроенные реализации;
+- [docs/configuration.md](docs/configuration.md) - конфиг, providers, modules, secrets;
+- [docs/runtime-and-events.md](docs/runtime-and-events.md) - REPL, session store, event log;
+- [docs/security-and-policy.md](docs/security-and-policy.md) - tools, workspace boundary, approval policy;
+- [docs/testing.md](docs/testing.md) - тестирование модульности и контрактов;
+- [AGENTS.md](AGENTS.md) - правила работы для агентов и контрибьюторов.
+
+## Проверка
 
 ```bash
 cargo test
 ```
 
-The architecture follows `MODULAR_AGENT_SPEC_RU.md`: core code talks to modules through traits and canonical DTOs, not provider SDK types.
+Главная архитектурная проверка:
+
+```text
+если заменить search=rg на search=null,
+или memory=none на memory=jsonl,
+или model=fake на model=openai,
+core runtime не должен меняться.
+```
