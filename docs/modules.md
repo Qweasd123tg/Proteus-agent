@@ -14,7 +14,6 @@
 | Patch | `PatchApplier` | `modules.patch` | `direct` |
 | Workflow | `Workflow` | `modules.workflow` | `single_loop` |
 | Renderer | `Renderer` | `modules.renderer` | `plain` |
-| Tools | `Tool` | `tools.enabled` | `read_file`, `write_file`, `shell`, `search` |
 
 ## Model Providers
 
@@ -72,6 +71,8 @@ Runtime зависит от `ModelClient`, а provider adapters отвечают
 2. результатов `memory.recall`;
 3. результатов `search.search`.
 
+Лимит search chunks задаётся через `context.simple.max_search_results`. Backend-specific лимиты, например `search.rg.max_results`, остаются настройками соответствующего backend.
+
 Более сложный context builder должен оставаться за contract `ContextBuilder` и не зависеть от provider-specific model API.
 
 ## Tools
@@ -83,7 +84,9 @@ Runtime зависит от `ModelClient`, а provider adapters отвечают
 enabled = ["read_file", "write_file", "shell", "search"]
 ```
 
-Каждый tool возвращает `ToolSpec` с `ToolSafety`. Policy принимает решение на основе имени tool и safety class.
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые `BuiltinRegistry` регистрирует в `ToolRegistry` по списку `tools.enabled`.
+
+Каждый tool возвращает `ToolSpec` с `ToolSafety`. Policy принимает решение на основе имени tool и safety class. `ToolRegistry` запрещает duplicate names, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
 
 ## Policy
 
@@ -100,7 +103,7 @@ enabled = ["read_file", "write_file", "shell", "search"]
 
 ## Patch
 
-`direct` реализует `PatchApplier`, но текущий `SingleLoopWorkflow` не вызывает patch slot. Сейчас запись файлов идёт через `write_file` tool.
+`direct` сейчас является placeholder-реализацией `PatchApplier`: slot подключён к `RuntimeContext`, но текущий `SingleLoopWorkflow` не вызывает patch slot, а сама реализация возвращает stub result. В v0 запись файлов идёт через `write_file` tool.
 
 ## Workflow
 

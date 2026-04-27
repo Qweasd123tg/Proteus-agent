@@ -48,6 +48,11 @@
       "max_results": 50
     }
   },
+  "context": {
+    "simple": {
+      "max_search_results": 50
+    }
+  },
   "memory": {
     "jsonl": {
       "path": ".agent/memory.jsonl"

@@ -1,3 +1,5 @@
+use std::path::{Component, Path, PathBuf};
+
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::json;
@@ -33,18 +35,12 @@ impl Tool for WriteFileTool {
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
         let path = required_path(call)?;
-        if path.is_absolute() {
-            bail!("absolute writes are not allowed: {}", path.display());
-        }
+        let target = writable_workspace_path(&ctx.cwd, &path).await?;
         let content = call
             .args
             .get("content")
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow::anyhow!("write_file requires string arg 'content'"))?;
-        let target = ctx.cwd.join(&path);
-        if let Some(parent) = target.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
         tokio::fs::write(&target, content)
             .await
             .with_context(|| format!("failed to write {}", target.display()))?;
@@ -56,4 +52,55 @@ impl Tool for WriteFileTool {
             metadata: json!({ "path": path }),
         })
     }
+}
+
+async fn writable_workspace_path(cwd: &Path, path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        bail!("absolute writes are not allowed: {}", path.display());
+    }
+
+    let mut clean = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => clean.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => bail!("path escapes workspace: {}", path.display()),
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("absolute writes are not allowed: {}", path.display())
+            }
+        }
+    }
+
+    if clean.as_os_str().is_empty() {
+        bail!("write path must not be empty");
+    }
+
+    let base = tokio::fs::canonicalize(cwd)
+        .await
+        .with_context(|| format!("failed to canonicalize cwd {}", cwd.display()))?;
+    let target = base.join(&clean);
+
+    if let Ok(canonical_target) = tokio::fs::canonicalize(&target).await {
+        if !canonical_target.starts_with(&base) {
+            bail!("path escapes workspace: {}", path.display());
+        }
+        return Ok(canonical_target);
+    }
+
+    let parent = target
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| anyhow::anyhow!("write path has no parent: {}", path.display()))?;
+    tokio::fs::create_dir_all(&parent).await?;
+    let canonical_parent = tokio::fs::canonicalize(&parent)
+        .await
+        .with_context(|| format!("failed to canonicalize {}", parent.display()))?;
+    if !canonical_parent.starts_with(&base) {
+        bail!("path escapes workspace: {}", path.display());
+    }
+
+    let file_name = target
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("write path must name a file: {}", path.display()))?;
+    Ok(canonical_parent.join(file_name))
 }

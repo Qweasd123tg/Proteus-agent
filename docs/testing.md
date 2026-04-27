@@ -14,6 +14,8 @@ cargo test
 - `memory = none` и `memory = jsonl` не требуют изменений runtime;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
+- `ToolRegistry` запрещает duplicate names и возвращает tool specs в стабильном порядке;
+- `write_file` не может выйти за workspace через parent traversal или symlink;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse`;
 - JSON config может выбрать Anthropic provider;
 - JSON config может переключиться на custom local provider URL;

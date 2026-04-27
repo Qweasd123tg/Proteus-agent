@@ -1,6 +1,6 @@
 /target/
 /.agent/
-/Analys/
+/examples/
 .env
 secrets.json
 config.local.json

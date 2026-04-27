@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use modular_agent::{
-    contracts::{ModelClient, PolicyContext},
+    contracts::{ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry},
     core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore},
     domain::{
         CacheHints, ModelLimits, ModelRef, PolicyDecision, ReasoningConfig, ResponseFormat,
         SamplingConfig, ToolCall, ToolChoice, new_call_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, FinishReason, MessageRole},
-    modules::FakeModelClient,
+    modules::{FakeModelClient, ReadFileTool, WriteFileTool},
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -91,6 +91,84 @@ async fn tool_visibility_and_execution_policy_are_separate() {
     assert!(matches!(decision, PolicyDecision::Ask { .. }));
 }
 
+#[test]
+fn tool_registry_rejects_duplicate_names() {
+    let mut registry = ToolRegistry::new();
+    registry.register(ReadFileTool).unwrap();
+
+    let error = registry.register(ReadFileTool).unwrap_err();
+
+    assert!(error.to_string().contains("duplicate tool registration"));
+}
+
+#[test]
+fn tool_specs_are_returned_in_stable_name_order() {
+    let dir = temp_workspace();
+    let config = AppConfig::default();
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let names = registry
+        .tools
+        .specs()
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, ["read_file", "search", "shell", "write_file"]);
+}
+
+#[tokio::test]
+async fn write_file_rejects_parent_traversal() {
+    let dir = temp_workspace();
+    let outside = dir.path().parent().unwrap().join("outside-write.txt");
+    let tool = WriteFileTool;
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "write_file".to_owned(),
+        args: json!({ "path": "../outside-write.txt", "content": "escaped" }),
+    };
+
+    let error = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("escapes workspace"));
+    assert!(!outside.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn write_file_rejects_symlink_escape() {
+    let dir = temp_workspace();
+    let outside_dir = tempfile::tempdir().expect("outside dir");
+    let link = dir.path().join("outside-link");
+    std::os::unix::fs::symlink(outside_dir.path(), &link).expect("symlink");
+    let tool = WriteFileTool;
+    let call = ToolCall {
+        id: new_call_id(),
+        name: "write_file".to_owned(),
+        args: json!({ "path": "outside-link/escape.txt", "content": "escaped" }),
+    };
+
+    let error = tool
+        .invoke(
+            &call,
+            ToolContext {
+                cwd: dir.path().to_path_buf(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("escapes workspace"));
+    assert!(!outside_dir.path().join("escape.txt").exists());
+}
+
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {
     let model = FakeModelClient;
@@ -135,6 +213,7 @@ async fn json_config_file_can_select_anthropic_provider() {
         model_config.provider_config["base_url"],
         "https://api.anthropic.com"
     );
+    assert_eq!(config.context.simple.max_search_results, 50);
 }
 
 #[tokio::test]

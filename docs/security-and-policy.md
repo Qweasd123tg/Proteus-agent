@@ -31,7 +31,7 @@ Security v0 держится на трёх уровнях:
 
 `read_file` canonicalize-ит `cwd` и target path, затем проверяет, что файл находится внутри workspace.
 
-`write_file` запрещает absolute path. Запись идёт относительно `cwd`.
+`write_file` запрещает absolute path и parent traversal. Перед записью tool проверяет canonical workspace boundary для существующего target или parent directory, поэтому symlink не должен позволять запись за пределы workspace.
 
 `shell` запускает команду с текущим `cwd`. В v0 дополнительной sandbox-изоляции внутри самого инструмента нет.
 

@@ -61,7 +61,7 @@ impl BuiltinRegistry {
 
         let context: Arc<dyn ContextBuilder> = match config.modules.context.as_str() {
             "simple" => Arc::new(SimpleContextBuilder {
-                max_search_results: config.search.rg.max_results,
+                max_search_results: config.context.simple.max_search_results,
             }),
             module => bail!("unsupported context module: {module}"),
         };
@@ -69,10 +69,10 @@ impl BuiltinRegistry {
         let mut tools = ToolRegistry::new();
         for tool in &config.tools.enabled {
             match tool.as_str() {
-                "read_file" => tools.register(ReadFileTool),
-                "write_file" => tools.register(WriteFileTool),
-                "shell" => tools.register(ShellTool),
-                "search" => tools.register(SearchTool::new(search.clone())),
+                "read_file" => tools.register(ReadFileTool)?,
+                "write_file" => tools.register(WriteFileTool)?,
+                "shell" => tools.register(ShellTool)?,
+                "search" => tools.register(SearchTool::new(search.clone()))?,
                 name => bail!("unsupported tool: {name}"),
             }
         }

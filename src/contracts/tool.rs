@@ -26,11 +26,16 @@ impl ToolRegistry {
         Self::default()
     }
 
-    pub fn register<T>(&mut self, tool: T)
+    pub fn register<T>(&mut self, tool: T) -> Result<()>
     where
         T: Tool + 'static,
     {
-        self.tools.insert(tool.spec().name, Arc::new(tool));
+        let spec = tool.spec();
+        if self.tools.contains_key(&spec.name) {
+            return Err(anyhow!("duplicate tool registration: {}", spec.name));
+        }
+        self.tools.insert(spec.name, Arc::new(tool));
+        Ok(())
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -38,7 +43,13 @@ impl ToolRegistry {
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
-        self.tools.values().map(|tool| tool.spec()).collect()
+        let mut specs = self
+            .tools
+            .values()
+            .map(|tool| tool.spec())
+            .collect::<Vec<_>>();
+        specs.sort_by(|left, right| left.name.cmp(&right.name));
+        specs
     }
 
     pub fn spec(&self, name: &str) -> Result<ToolSpec> {

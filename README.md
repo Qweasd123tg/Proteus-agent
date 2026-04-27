@@ -144,7 +144,7 @@ cp config.example.json "$HOME/.config/agent-qweasd123tg/config.json"
 }
 ```
 
-`agent.example.toml` оставлен как минимальный dev/smoke-test профиль с `[model]` и `[modules]`.
+`agent.example.toml` оставлен как dev/smoke-test профиль с прямым `[model]` и явными runtime sections.
 
 Подробнее: [docs/configuration.md](docs/configuration.md).
 

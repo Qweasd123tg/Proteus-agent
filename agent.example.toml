@@ -25,9 +25,11 @@ allow = ["read_file", "search"]
 [search.rg]
 max_results = 50
 
+[context.simple]
+max_search_results = 50
+
 [memory.jsonl]
 path = ".agent/memory.jsonl"
 
 [event_log]
 path = ".agent/events.jsonl"
-

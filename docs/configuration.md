@@ -23,7 +23,7 @@ cargo run -- --config config.example.json
 
 `config.example.json` - основной полный пример с `active_provider` и `providers`.
 
-`agent.example.toml` - минимальный dev/smoke-test пример с прямым `[model]`.
+`agent.example.toml` - dev/smoke-test пример с прямым `[model]` и явными runtime sections для modules, tools, policy, search, context, memory и event log.
 
 Оба формата поддерживаются одной struct schema.
 
@@ -102,7 +102,7 @@ Default env vars:
 }
 ```
 
-`tools.enabled` определяет, какие tools попадут в `ToolRegistry` и будут видны модели.
+`tools.enabled` определяет, какие tools попадут в `ToolRegistry` и будут видны модели. Имена должны быть уникальными; duplicate tool registration считается ошибкой конфигурации.
 
 ## Policy
 
@@ -131,7 +131,21 @@ Default env vars:
 }
 ```
 
-`max_results` используется `RgSearch` и `SimpleContextBuilder`.
+`max_results` ограничивает backend `RgSearch`.
+
+## Context
+
+```json
+{
+  "context": {
+    "simple": {
+      "max_search_results": 50
+    }
+  }
+}
+```
+
+`max_search_results` задаёт лимит поисковых chunks, которые `SimpleContextBuilder` запрашивает через `SearchBackend`. Этот параметр не привязан к конкретной реализации search backend.
 
 ## Memory
 

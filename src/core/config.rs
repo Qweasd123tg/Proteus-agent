@@ -28,6 +28,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub search: SearchConfig,
     #[serde(default)]
+    pub context: ContextConfig,
+    #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default)]
     pub event_log: EventLogConfig,
@@ -97,6 +99,7 @@ impl Default for AppConfig {
             tools: ToolsConfig::default(),
             policy: PolicyConfig::default(),
             search: SearchConfig::default(),
+            context: ContextConfig::default(),
             memory: MemoryConfig::default(),
             event_log: EventLogConfig::default(),
         }
@@ -393,6 +396,38 @@ fn default_allow_tools() -> Vec<String> {
 }
 
 fn default_max_results() -> usize {
+    50
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextConfig {
+    #[serde(default)]
+    pub simple: SimpleContextConfig,
+}
+
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            simple: SimpleContextConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleContextConfig {
+    #[serde(default = "default_max_context_search_results")]
+    pub max_search_results: usize,
+}
+
+impl Default for SimpleContextConfig {
+    fn default() -> Self {
+        Self {
+            max_search_results: default_max_context_search_results(),
+        }
+    }
+}
+
+fn default_max_context_search_results() -> usize {
     50
 }
 
