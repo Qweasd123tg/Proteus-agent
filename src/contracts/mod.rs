@@ -1,3 +1,8 @@
+//! Trait boundaries for replaceable agent slots.
+//!
+//! Contracts depend on `domain` DTOs and are implemented by modules or
+//! adapters. Core wires these traits through the registry.
+
 pub mod approval_policy;
 pub mod context_builder;
 pub mod event_sink;

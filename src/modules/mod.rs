@@ -1,3 +1,9 @@
+//! Built-in implementations of the contracts.
+//!
+//! Subdirectories are grouped by slot/type. For example, `domain::memory`
+//! defines neutral DTOs, `contracts::MemoryStore` defines the boundary, and
+//! this module's `memory` directory contains concrete implementations.
+
 pub mod context;
 pub mod memory;
 pub mod model;

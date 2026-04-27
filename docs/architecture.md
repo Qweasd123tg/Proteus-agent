@@ -16,6 +16,16 @@ CLI -> AgentRuntime -> BuiltinRegistry -> RuntimeContext -> Workflow
 
 ## Слои
 
+Одинаковые названия в разных слоях обозначают разные роли, а не дублирование. Например:
+
+```text
+src/domain/memory.rs      -> DTO: MemoryItem, MemoryQuery
+src/contracts/memory_store.rs -> trait boundary: MemoryStore
+src/modules/memory/*.rs   -> concrete implementations: none, jsonl
+```
+
+Такая же схема применяется к `tool`, `model`, `search`, `context`, `policy`, `patch`, `workflow` и `renderer`: `domain` описывает данные, `contracts` описывает интерфейс, `modules` дают встроенные реализации.
+
 ### CLI
 
 `src/main.rs` отвечает за:

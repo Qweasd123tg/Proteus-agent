@@ -2,6 +2,8 @@
 
 Модульность v0 означает выбор встроенной реализации через config. Все текущие реализации живут в подпапках `src/modules`, сгруппированных по slot/type, а строки выбора обрабатываются в `src/core/registry.rs`.
 
+`src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `src/domain` или `src/contracts`, это другой слой: например `src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `src/modules/memory` содержит `NoMemory` и `JsonlMemory`.
+
 ## Slots
 
 | Slot | Contract | Config key | Реализации v0 |
@@ -51,6 +53,8 @@ Runtime зависит от `ModelClient`, а provider adapters отвечают
 
 ## Memory
 
+`modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `src/domain/memory.rs` и не зависят от выбранного backend.
+
 `modules.memory = "none"` ничего не сохраняет и ничего не возвращает.
 
 `modules.memory = "jsonl"` использует файл:
@@ -62,6 +66,8 @@ Runtime зависит от `ModelClient`, а provider adapters отвечают
 Путь настраивается через `memory.jsonl.path`.
 
 В текущем workflow `remember` не вызывается автоматически. `SimpleContextBuilder` использует только `recall`.
+
+`domain/memory.rs` описывает формат данных памяти, а `modules/memory/*.rs` определяет, как эти данные сохраняются и читаются.
 
 ## Context
 
