@@ -1,24 +1,34 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use modular_agent::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, ModelAdapter, ModelClient,
-        PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource,
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, EventEmitter, ModelAdapter,
+        ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
     },
-    core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore, ToolOrchestrator},
+    core::{
+        AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
+        ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ToolOrchestrator,
+    },
     domain::{
-        AgentTask, CacheHints, Event, ModelLimits, ModelRef, PermissionMode, PolicyDecision,
-        ReasoningConfig, ResponseFormat, SamplingConfig, ToolCall, ToolChoice, ToolResult,
-        ToolSafety, ToolSpec, new_call_id, new_session_id,
+        AgentTask, CacheHints, Event, EventContext, ModelLimits, ModelRef, ModuleKind,
+        PermissionMode, PolicyDecision, ReasoningConfig, ResponseFormat, SamplingConfig, ToolCall,
+        ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id,
+        new_turn_id,
     },
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
-        ModelCapabilities,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        MessageRole, ModelCapabilities,
     },
     modules::{
         ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService,
-        ReadFileTool, WriteFileTool,
+        ReadFileTool, SingleLoopWorkflow, WriteFileTool,
     },
 };
 use serde_json::json;
@@ -39,10 +49,88 @@ async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventSt
     (output.text, events)
 }
 
+fn test_config() -> AppConfig {
+    let mut config = AppConfig::default();
+    config.tools.enabled = standard_tool_names()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    config.tools.path = None;
+    config.policy.ask_write.ask_before = ["apply_patch", "write_file", "shell"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    config.policy.ask_write.allow = ["read_file", "list_dir", "search"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    config
+}
+
+fn configured_tool_names(config: &AppConfig) -> Vec<&str> {
+    let mut names = config
+        .tools
+        .configured
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+fn standard_tool_names() -> Vec<&'static str> {
+    let mut names = vec![
+        "read_file",
+        "list_dir",
+        "apply_patch",
+        "write_file",
+        "shell",
+        "search",
+    ];
+    names.sort();
+    names
+}
+
+#[test]
+fn builtin_module_catalog_lists_builtin_slots() {
+    let catalog = BuiltinModuleCatalog::new();
+
+    let model_ids = catalog
+        .manifests_by_kind(ModuleKind::Model)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+    let search_ids = catalog
+        .manifests_by_kind(ModuleKind::Search)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+    let memory_policy_ids = catalog
+        .manifests_by_kind(ModuleKind::MemoryPolicy)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        model_ids,
+        ["anthropic", "fake", "openai", "openai_compatible"]
+    );
+    assert_eq!(search_ids, ["null", "rg"]);
+    assert_eq!(memory_policy_ids, ["none"]);
+    assert_eq!(
+        catalog
+            .manifest(ModuleKind::Workflow, "single_loop")
+            .unwrap()
+            .capabilities,
+        ["model", "tools", "context"]
+    );
+    assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
+}
+
 #[tokio::test]
 async fn statusline_renderer_composes_configured_components() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.components = vec!["model".to_owned(), "context".to_owned()];
     config.renderer.statusline.ansi = false;
@@ -62,7 +150,7 @@ async fn statusline_renderer_composes_configured_components() {
 #[test]
 fn statusline_renderer_rejects_unknown_component() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.components = vec!["unknown".to_owned()];
 
@@ -81,7 +169,7 @@ fn statusline_renderer_rejects_unknown_component() {
 #[test]
 fn statusline_renderer_rejects_unknown_position_at_startup() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.position = "middle".to_owned();
 
@@ -100,7 +188,7 @@ fn statusline_renderer_rejects_unknown_position_at_startup() {
 #[test]
 fn statusline_renderer_rejects_unknown_frame_at_startup() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.frame = "floating".to_owned();
 
@@ -119,7 +207,7 @@ fn statusline_renderer_rejects_unknown_frame_at_startup() {
 #[tokio::test]
 async fn swapping_search_backend_does_not_change_runtime() {
     for search in ["null", "rg"] {
-        let mut config = AppConfig::default();
+        let mut config = test_config();
         config.modules.search = search.to_owned();
 
         let (output, events) = run_with(config, "summarize hello").await;
@@ -132,7 +220,7 @@ async fn swapping_search_backend_does_not_change_runtime() {
 #[tokio::test]
 async fn swapping_memory_store_does_not_change_runtime() {
     for memory in ["none", "jsonl"] {
-        let mut config = AppConfig::default();
+        let mut config = test_config();
         config.modules.memory = memory.to_owned();
 
         let (output, events) = run_with(config, "summarize memory").await;
@@ -143,9 +231,44 @@ async fn swapping_memory_store_does_not_change_runtime() {
 }
 
 #[tokio::test]
+async fn no_memory_policy_does_not_write_memory_automatically() {
+    let mut config = test_config();
+    config.modules.memory = "jsonl".to_owned();
+    config.modules.memory_policy = "none".to_owned();
+
+    let (_output, events) = run_with(config, "remember nothing automatically").await;
+
+    assert!(
+        !events
+            .events()
+            .await
+            .iter()
+            .any(|event| matches!(event, Event::MemoryWritten { .. }))
+    );
+}
+
+#[test]
+fn unknown_memory_policy_is_rejected_at_startup() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.memory_policy = "auto_summary".to_owned();
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown memory policy should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported memory_policy module: auto_summary")
+    );
+}
+
+#[tokio::test]
 async fn swapping_policy_does_not_change_read_tool_execution() {
     for policy in ["allow_all", "ask_write"] {
-        let mut config = AppConfig::default();
+        let mut config = test_config();
         config.modules.policy = policy.to_owned();
 
         let (output, events) = run_with(config, "read_file sample.txt").await;
@@ -156,9 +279,89 @@ async fn swapping_policy_does_not_change_read_tool_execution() {
 }
 
 #[tokio::test]
+async fn runtime_keeps_session_id_and_creates_new_turn_id_per_run() {
+    let dir = temp_workspace();
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime =
+        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events.clone())
+            .unwrap();
+
+    let first = runtime.run("summarize first".to_owned()).await.unwrap();
+    let second = runtime.run("summarize second".to_owned()).await.unwrap();
+    let records = events.events().await;
+
+    let session_ids = records
+        .iter()
+        .filter_map(|event| match event {
+            Event::SessionStarted { session_id, .. } => Some(*session_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let turn_ids = records
+        .iter()
+        .filter_map(|event| match event {
+            Event::TurnStarted {
+                session_id,
+                turn_id,
+                ..
+            } => Some((*session_id, *turn_id)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(session_ids.len(), 1);
+    assert_eq!(turn_ids.len(), 2);
+    assert_eq!(turn_ids[0].0, session_ids[0]);
+    assert_eq!(turn_ids[1].0, session_ids[0]);
+    assert_ne!(turn_ids[0].1, turn_ids[1].1);
+    assert_eq!(first.metadata["session_id"], session_ids[0].to_string());
+    assert_eq!(second.metadata["session_id"], session_ids[0].to_string());
+    assert_ne!(first.metadata["turn_id"], second.metadata["turn_id"]);
+}
+
+#[tokio::test]
+async fn fanout_preserves_event_envelope_identity_across_sinks() {
+    let left = Arc::new(InMemoryEventStore::new());
+    let right = Arc::new(InMemoryEventStore::new());
+    let emitter = EventEmitter::new(Arc::new(FanoutEventSink::new(vec![
+        left.clone(),
+        right.clone(),
+    ])));
+    let session_id = new_session_id();
+    let thread_id = new_thread_id();
+
+    emitter
+        .emit(
+            EventContext {
+                session_id,
+                thread_id,
+                turn_id: None,
+            },
+            Event::Error {
+                message: "same envelope".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let left = left.envelopes().await;
+    let right = right.envelopes().await;
+
+    assert_eq!(left.len(), 1);
+    assert_eq!(right.len(), 1);
+    assert_eq!(left[0].event_id, right[0].event_id);
+    assert_eq!(left[0].seq, 1);
+    assert_eq!(right[0].seq, 1);
+    assert_eq!(left[0].session_id, session_id);
+    assert_eq!(left[0].thread_id, thread_id);
+    assert_eq!(left[0].turn_id, None);
+    assert_eq!(left[0].schema_version, 1);
+}
+
+#[tokio::test]
 async fn tool_visibility_and_execution_policy_are_separate() {
     let dir = temp_workspace();
-    let config = AppConfig::default();
+    let config = test_config();
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
 
     assert!(registry.tools.spec("write_file").is_ok());
@@ -214,7 +417,7 @@ fn tool_registry_tracks_tool_source() {
 #[test]
 fn tool_specs_are_returned_in_stable_name_order() {
     let dir = temp_workspace();
-    let config = AppConfig::default();
+    let config = test_config();
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
     let names = registry
         .tools
@@ -237,8 +440,400 @@ fn tool_specs_are_returned_in_stable_name_order() {
 }
 
 #[tokio::test]
+async fn configured_native_tool_uses_config_spec_and_native_handler() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "read_file".to_owned(),
+        description: "Configured read tool".to_owned(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        }),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: json!({ "from": "config" }),
+        executor: ConfiguredToolExecutorConfig::Native {
+            handler: "read_file".to_owned(),
+        },
+    });
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let spec = registry.tools.spec("read_file").unwrap();
+    assert_eq!(spec.description, "Configured read tool");
+    assert_eq!(spec.metadata["from"], "config");
+    assert_eq!(
+        registry.tools.entry("read_file").unwrap().source,
+        ToolSource::Config {
+            origin: "config:native".to_owned()
+        }
+    );
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Plan,
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "read".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "read_file".to_owned(),
+                args: json!({ "path": "sample.txt" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert!(result.output.contains("hello modular agent"));
+}
+
+#[test]
+fn configured_native_tool_cannot_lower_handler_safety() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "shell".to_owned(),
+        description: "Configured shell".to_owned(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string" }
+            },
+            "required": ["command"]
+        }),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Native {
+            handler: "shell".to_owned(),
+        },
+    });
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+
+    assert_eq!(
+        registry.tools.spec("shell").unwrap().safety,
+        ToolSafety::RunsCommands
+    );
+}
+
+#[tokio::test]
+async fn configured_process_tool_executes_through_orchestrator() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "echo_args".to_owned(),
+        description: "Echo JSON tool args from stdin".to_owned(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "message": { "type": "string" }
+            },
+            "required": ["message"]
+        }),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Process {
+            command: "sh".to_owned(),
+            args: vec!["-lc".to_owned(), "cat".to_owned()],
+        },
+    });
+    config.modules.policy = "allow_all".to_owned();
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    assert_eq!(
+        registry.tools.spec("echo_args").unwrap().safety,
+        ToolSafety::RunsCommands
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "echo".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "echo_args".to_owned(),
+                args: json!({ "message": "hello" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(result.output, "{\"message\":\"hello\"}");
+    let events = events.events().await;
+    assert!(matches!(events[0], Event::ToolCallRequested { .. }));
+    assert!(matches!(events[1], Event::ToolFinished { .. }));
+}
+
+#[tokio::test]
+async fn configured_process_tool_still_obeys_permission_mode() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "touch_marker".to_owned(),
+        description: "Create a marker file".to_owned(),
+        input_schema: json!({ "type": "object", "properties": {} }),
+        safety: ToolSafety::RunsCommands,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Process {
+            command: "sh".to_owned(),
+            args: vec![
+                "-lc".to_owned(),
+                "touch should_not_exist_from_config_tool".to_owned(),
+            ],
+        },
+    });
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Plan,
+    );
+    let orchestrator = ToolOrchestrator::default();
+
+    assert!(
+        orchestrator
+            .visible_tool_specs(&ctx, dir.path())
+            .into_iter()
+            .all(|spec| spec.name != "touch_marker")
+    );
+
+    let result = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "touch".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "touch_marker".to_owned(),
+                args: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.ok);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("permission mode plan"))
+    );
+    assert!(
+        !dir.path()
+            .join("should_not_exist_from_config_tool")
+            .exists()
+    );
+}
+
+#[tokio::test]
+async fn configured_mcp_tool_executes_fixed_remote_tool_through_orchestrator() {
+    let dir = temp_workspace();
+    let server = dir.path().join("mcp_server.sh");
+    std::fs::write(
+        &server,
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}'
+      ;;
+    *'"method":"notifications/initialized"'*)
+      ;;
+    *'"method":"tools/call"'*)
+      case "$line" in
+        *'"name":"remote_echo"'*)
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"mcp ok"}],"isError":false}}'
+          ;;
+        *)
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"wrong tool"}}'
+          ;;
+      esac
+      ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.modules.policy = "allow_all".to_owned();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "mcp_echo".to_owned(),
+        description: "Call a fixed MCP echo tool".to_owned(),
+        input_schema: json!({ "type": "object", "properties": {} }),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Mcp {
+            server: Some("test-mcp".to_owned()),
+            command: "sh".to_owned(),
+            args: vec![server.to_string_lossy().to_string()],
+            tool: "remote_echo".to_owned(),
+            protocol_version: "2025-06-18".to_owned(),
+        },
+    });
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    assert_eq!(
+        registry.tools.spec("mcp_echo").unwrap().safety,
+        ToolSafety::RunsCommands
+    );
+    assert_eq!(
+        registry.tools.entry("mcp_echo").unwrap().source,
+        ToolSource::Mcp {
+            server: "test-mcp".to_owned()
+        }
+    );
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "mcp".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "mcp_echo".to_owned(),
+                args: json!({ "name": "attempted_override" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(result.output, "mcp ok");
+    assert_eq!(result.metadata["executor"], "mcp");
+    assert_eq!(result.metadata["remote_tool"], "remote_echo");
+    let events = events.events().await;
+    assert!(matches!(events[0], Event::ToolCallRequested { .. }));
+    assert!(matches!(events[1], Event::ToolFinished { .. }));
+}
+
+#[tokio::test]
+async fn configured_mcp_tool_still_obeys_permission_mode() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.policy.ask_write.allow = Vec::new();
+    config.policy.ask_write.ask_before = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "mcp_hidden".to_owned(),
+        description: "Hidden MCP command tool".to_owned(),
+        input_schema: json!({ "type": "object", "properties": {} }),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Mcp {
+            server: Some("hidden-mcp".to_owned()),
+            command: "sh".to_owned(),
+            args: vec!["-c".to_owned(), "exit 99".to_owned()],
+            tool: "remote".to_owned(),
+            protocol_version: "2025-06-18".to_owned(),
+        },
+    });
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Plan,
+    );
+    let orchestrator = ToolOrchestrator::default();
+
+    assert!(
+        orchestrator
+            .visible_tool_specs(&ctx, dir.path())
+            .into_iter()
+            .all(|spec| spec.name != "mcp_hidden")
+    );
+
+    let result = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "mcp".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "mcp_hidden".to_owned(),
+                args: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.ok);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("permission mode plan"))
+    );
+}
+
+#[tokio::test]
 async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
-    let (output, _events) = run_with(AppConfig::default(), "summarize hello").await;
+    let (output, _events) = run_with(test_config(), "summarize hello").await;
 
     assert!(output.contains("tools=3"));
 }
@@ -246,7 +841,7 @@ async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
 #[tokio::test]
 async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.permissions.mode = PermissionMode::Plan;
     let events = Arc::new(InMemoryEventStore::new());
     let runtime = AgentRuntime::with_event_sink_and_approval_transport(
@@ -264,7 +859,7 @@ async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive
 
 #[tokio::test]
 async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_transport() {
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.permissions.mode = PermissionMode::Auto;
 
     let (output, _events) = run_with(config, "summarize hello").await;
@@ -275,14 +870,16 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
 #[tokio::test]
 async fn auto_permission_mode_hides_command_and_network_tools() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.permissions.mode = PermissionMode::Auto;
     let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
     registry.tools.register(NetworkTool).unwrap();
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
-        events.clone(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
         Arc::new(TestApprovalTransport { interactive: false }),
         PermissionMode::Auto,
     );
@@ -338,13 +935,15 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
 #[tokio::test]
 async fn tool_orchestrator_enforces_tool_timeout() {
     let dir = temp_workspace();
-    let config = AppConfig::default();
+    let config = test_config();
     let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
     registry.tools.register(SlowTool).unwrap();
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
-        events.clone(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
         Arc::new(TestApprovalTransport { interactive: false }),
         PermissionMode::Auto,
     );
@@ -388,7 +987,7 @@ async fn interactive_approval_transport_exposes_ask_tools_to_model() {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
     let runtime = AgentRuntime::with_event_sink_and_approval_transport(
-        AppConfig::default(),
+        test_config(),
         dir.path().to_path_buf(),
         events,
         Arc::new(TestApprovalTransport { interactive: true }),
@@ -401,8 +1000,162 @@ async fn interactive_approval_transport_exposes_ask_tools_to_model() {
 }
 
 #[tokio::test]
+async fn malformed_tool_call_is_rejected_before_approval() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "write malformed".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "write_file".to_owned(),
+                args: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.ok);
+    assert!(
+        result.metadata["validation_error"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("tool 'write_file' requires string arg 'path'"))
+    );
+    let records = events.events().await;
+    assert!(records.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolFinished { result } if result.metadata["validation_error"] == true
+        )
+    }));
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ApprovalRequested { .. }))
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ApprovalResolved { .. }))
+    );
+}
+
+#[tokio::test]
+async fn workflow_does_not_execute_tool_calls_from_length_response() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.policy = "allow_all".to_owned();
+    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    registry.model = Arc::new(LengthToolCallModel);
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+
+    let output = SingleLoopWorkflow::default()
+        .run(
+            AgentTask {
+                text: "write".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            Vec::new(),
+            ctx,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(output.output.text, "partial write");
+    assert!(!dir.path().join("partial.txt").exists());
+    let records = events.events().await;
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ToolCallRequested { .. }))
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ApprovalRequested { .. }))
+    );
+}
+
+#[tokio::test]
+async fn workflow_requests_final_answer_without_tools_after_round_limit() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.policy = "allow_all".to_owned();
+    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    registry.model = Arc::new(FinalAfterToolLimitModel::default());
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+
+    let output = SingleLoopWorkflow { max_tool_rounds: 1 }
+        .run(
+            AgentTask {
+                text: "write then finish".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            Vec::new(),
+            ctx,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(output.output.text, "final after tool limit");
+    assert_eq!(
+        output.output.metadata["tool_round_limit_reached"],
+        serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("limit-final.txt")).unwrap(),
+        "done"
+    );
+    let records = events.events().await;
+    assert_eq!(
+        records
+            .iter()
+            .filter(|event| matches!(event, Event::ToolCallRequested { .. }))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn allow_all_keeps_all_registered_tools_visible_to_model() {
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.modules.policy = "allow_all".to_owned();
 
     let (output, _events) = run_with(config, "summarize hello").await;
@@ -417,6 +1170,14 @@ struct TestApprovalTransport {
 
 #[derive(Debug)]
 struct NetworkTool;
+
+#[derive(Debug)]
+struct LengthToolCallModel;
+
+#[derive(Debug, Default)]
+struct FinalAfterToolLimitModel {
+    calls: AtomicUsize,
+}
 
 #[async_trait]
 impl Tool for NetworkTool {
@@ -438,6 +1199,80 @@ impl Tool for NetworkTool {
             output: "network".to_owned(),
             error: None,
             metadata: serde_json::Value::Null,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for FinalAfterToolLimitModel {
+    async fn complete(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<CanonicalModelResponse> {
+        let call_number = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call_number == 0 {
+            let call = ToolCall {
+                id: new_call_id(),
+                name: "write_file".to_owned(),
+                args: json!({ "path": "limit-final.txt", "content": "done" }),
+            };
+            return Ok(CanonicalModelResponse {
+                message: CanonicalMessage {
+                    id: modular_agent::domain::new_message_id(),
+                    role: MessageRole::Assistant,
+                    parts: vec![ContentPart::ToolCall { call: call.clone() }],
+                    name: None,
+                    tool_call_id: None,
+                    metadata: serde_json::Value::Null,
+                },
+                tool_calls: vec![call],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+                provider_metadata: serde_json::Value::Null,
+            });
+        }
+
+        assert!(request.tools.is_empty());
+        assert_eq!(request.tool_choice, ToolChoice::None);
+        Ok(CanonicalModelResponse {
+            message: CanonicalMessage::text(MessageRole::Assistant, "final after tool limit"),
+            tool_calls: Vec::new(),
+            finish_reason: FinishReason::Stop,
+            usage: None,
+            provider_metadata: serde_json::Value::Null,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for LengthToolCallModel {
+    async fn complete(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> anyhow::Result<CanonicalModelResponse> {
+        let call = ToolCall {
+            id: new_call_id(),
+            name: "write_file".to_owned(),
+            args: json!({ "path": "partial.txt", "content": "should not write" }),
+        };
+        Ok(CanonicalModelResponse {
+            message: CanonicalMessage {
+                id: modular_agent::domain::new_message_id(),
+                role: MessageRole::Assistant,
+                parts: vec![
+                    ContentPart::Text {
+                        text: "partial write".to_owned(),
+                    },
+                    ContentPart::ToolCall { call: call.clone() },
+                ],
+                name: None,
+                tool_call_id: None,
+                metadata: serde_json::Value::Null,
+            },
+            tool_calls: vec![call],
+            finish_reason: FinishReason::Length,
+            usage: None,
+            provider_metadata: serde_json::Value::Null,
         })
     }
 }
@@ -489,7 +1324,7 @@ impl ApprovalTransport for TestApprovalTransport {
 
 #[tokio::test]
 async fn folder_listing_question_uses_list_dir_context() {
-    let (output, events) = run_with(AppConfig::default(), "привет что в папке ?").await;
+    let (output, events) = run_with(test_config(), "привет что в папке ?").await;
 
     assert!(output.contains("file\tsample.txt"));
     assert!(events.events().await.iter().any(|event| {
@@ -497,6 +1332,62 @@ async fn folder_listing_question_uses_list_dir_context() {
             event,
             Event::ToolCallRequested { call } if call.name == "list_dir"
         )
+    }));
+}
+
+#[tokio::test]
+async fn context_chunks_are_not_persisted_to_runtime_history() {
+    let dir = temp_workspace();
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime =
+        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events).unwrap();
+
+    let listing = runtime
+        .run("привет что в папке ?".to_owned())
+        .await
+        .unwrap();
+    let follow_up = runtime
+        .run("summarize after listing".to_owned())
+        .await
+        .unwrap();
+
+    assert!(listing.text.contains("file\tsample.txt"));
+    assert!(follow_up.text.contains("context_chunks=1"));
+    assert!(!follow_up.text.contains("after directory listing"));
+    assert_eq!(runtime.history_len().await, 4);
+}
+
+#[tokio::test]
+async fn context_chunks_are_not_written_to_session_store() {
+    let dir = temp_workspace();
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    std::fs::write(&config_path, "").expect("config file");
+    let runtime = AgentRuntime::new_with_config_path(
+        test_config(),
+        dir.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .unwrap();
+
+    let output = runtime
+        .run("привет что в папке ?".to_owned())
+        .await
+        .unwrap();
+    let messages_path = runtime.session_dir().unwrap().join("messages.jsonl");
+    let contents = std::fs::read_to_string(messages_path).expect("messages jsonl");
+    let messages = contents
+        .lines()
+        .map(|line| serde_json::from_str::<CanonicalMessage>(line).expect("message"))
+        .collect::<Vec<_>>();
+
+    assert!(output.text.contains("file\tsample.txt"));
+    assert_eq!(messages.len(), 2);
+    assert!(!messages.iter().any(|message| {
+        message
+            .parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Context { .. }))
     }));
 }
 
@@ -661,7 +1552,7 @@ async fn apply_patch_rejects_parent_traversal() {
 #[test]
 fn ask_write_rejects_unknown_policy_tool_at_startup() {
     let dir = temp_workspace();
-    let mut config = AppConfig::default();
+    let mut config = test_config();
     config.policy.ask_write.allow = vec!["missing_tool".to_owned()];
 
     let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
@@ -680,12 +1571,9 @@ fn ask_write_rejects_unknown_policy_tool_at_startup() {
 async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime = AgentRuntime::with_event_sink(
-        AppConfig::default(),
-        dir.path().to_path_buf(),
-        events.clone(),
-    )
-    .unwrap();
+    let runtime =
+        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events.clone())
+            .unwrap();
 
     let output = runtime
         .run("read_file missing.txt".to_owned())
@@ -902,6 +1790,8 @@ async fn json_config_file_can_select_anthropic_provider() {
         "https://api.anthropic.com"
     );
     assert_eq!(config.context.simple.max_search_results, 50);
+    assert!(config.tools.enabled.is_empty());
+    assert_eq!(configured_tool_names(&config), standard_tool_names());
 }
 
 #[tokio::test]
@@ -918,6 +1808,8 @@ async fn toml_config_file_can_select_statusline_renderer() {
     );
     assert_eq!(config.renderer.statusline.position, "bottom");
     assert_eq!(config.renderer.statusline.frame, "block");
+    assert!(config.tools.enabled.is_empty());
+    assert_eq!(configured_tool_names(&config), standard_tool_names());
 }
 
 #[tokio::test]

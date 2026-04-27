@@ -19,13 +19,13 @@ Core не должен знать детали конкретного поиск
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
-- Не превращать `MODULAR_AGENT_SPEC_RU.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
+- Не превращать `docs/MODULAR_AGENT_SPEC_RU.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
 
 ## Как Добавлять Модуль
 
 1. Найти подходящий trait в `src/contracts`.
 2. Реализовать модуль в подходящей подпапке `src/modules` или adapter в `src/adapters`.
-3. Зарегистрировать строковый ключ в `BuiltinRegistry::from_config`.
+3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить или обновить конфиг-пример.
 5. Добавить тест на заменяемость, если модуль относится к slot.
 6. Обновить `docs/modules.md` и при необходимости `docs/configuration.md`.
@@ -42,10 +42,11 @@ Core не должен знать детали конкретного поиск
 - архитектурные границы: `docs/architecture.md`;
 - module slots: `docs/modules.md`;
 - config schema и examples: `docs/configuration.md`;
+- planned права tools/modules: `docs/rights-and-modules.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
-- vision/spec: `MODULAR_AGENT_SPEC_RU.md`.
+- vision/spec: `docs/MODULAR_AGENT_SPEC_RU.md`.
 
 ## Проверка Перед Завершением
 

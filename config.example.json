@@ -29,6 +29,7 @@
     "workflow": "single_loop",
     "search": "null",
     "memory": "none",
+    "memory_policy": "none",
     "context": "simple",
     "policy": "ask_write",
     "patch": "direct",
@@ -53,7 +54,8 @@
     }
   },
   "tools": {
-    "enabled": ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
+    "enabled": [],
+    "path": "/home/qweasd123tg/.config/agent-qweasd123tg/tools"
   },
   "permissions": {
     "mode": "normal"

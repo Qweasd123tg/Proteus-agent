@@ -11,7 +11,9 @@ cargo run
 cargo run -- --interactive
 ```
 
-Если stdin/stdout являются TTY, интерактивный режим использует `ratatui` presenter в стиле Codex: компактная стартовая карточка в transcript, нижний composer/footer, spinner ожидания и постепенный вывод ответа. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Для pipe/non-TTY остаётся line REPL fallback.
+Если stdin/stdout являются TTY, интерактивный режим использует `ratatui` presenter. Контроллер в `src/tui.rs` собирает runtime events, approval requests, streaming state и ввод пользователя, а `src/tui/visual.rs` принимает нейтральный `VisualState` и рендерит transcript, composer, footer, tool activity и approval modal. Это отделяет данные ядра от конкретного визуального стиля.
+
+Текущий visual style ближе к Codex/OpenCode: компактная стартовая карточка в transcript, нижний composer/footer, spinner ожидания и постепенный вывод ответа. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Для pipe/non-TTY остаётся line REPL fallback.
 
 Одна задача:
 
@@ -140,11 +142,12 @@ Conversation history хранит persistent сообщения: user prompts, a
 11. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
 12. добавляет `ToolResult` в canonical messages;
 13. повторяет model call до финального ответа или лимита rounds;
-14. пишет `TurnFinished`.
+14. если лимит rounds исчерпан, делает финальный model call без tools;
+15. пишет `TurnFinished`.
 
 Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolOrchestrator`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
 
-Лимит tool rounds: `4`.
+Лимит tool rounds: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
 Если approval требуется, `ToolOrchestrator` отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.
 

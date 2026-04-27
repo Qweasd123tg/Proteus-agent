@@ -1,6 +1,6 @@
 # Архитектура v0
 
-Этот документ описывает фактическую реализацию проекта. Текущая граница ядра зафиксирована в [../ARCHITECTURE_STATUS.md](../ARCHITECTURE_STATUS.md), а более широкий замысел и будущие направления лежат в [../MODULAR_AGENT_SPEC_RU.md](../MODULAR_AGENT_SPEC_RU.md).
+Этот документ описывает фактическую реализацию проекта. Текущая граница ядра зафиксирована в [ARCHITECTURE_STATUS.md](ARCHITECTURE_STATUS.md), а более широкий замысел и будущие направления лежат в [MODULAR_AGENT_SPEC_RU.md](MODULAR_AGENT_SPEC_RU.md).
 
 ## Коротко
 
@@ -159,11 +159,13 @@ task
      Tool::invoke или denied/timeout result
      Event::ToolFinished
      повторить model call
+-> если лимит tool rounds исчерпан:
+     финальный model call без tools
 -> AgentOutput
 -> Event::TurnFinished
 ```
 
-Максимальное число tool rounds в `SingleLoopWorkflow` сейчас равно `4`.
+Максимальное число tool rounds в `SingleLoopWorkflow` сейчас равно `8`. После исчерпания лимита workflow делает финальный запрос к модели с `tool_choice = none` и пустым списком tools, чтобы завершить turn нормальным ответом вместо выполнения новых tool calls.
 
 ## Текущие Ограничения
 

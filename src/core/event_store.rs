@@ -9,7 +9,7 @@ use tokio::{
 
 use crate::{
     contracts::EventSink,
-    domain::{Event, EventRecord, new_event_id},
+    domain::{Event, EventEnvelope},
 };
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ impl JsonlEventStore {
 
 #[async_trait::async_trait]
 impl EventSink for JsonlEventStore {
-    async fn append(&self, event: Event) -> Result<()> {
+    async fn append(&self, envelope: EventEnvelope) -> Result<()> {
         let _guard = self.lock.lock().await;
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent)
@@ -37,11 +37,7 @@ impl EventSink for JsonlEventStore {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
 
-        let record = EventRecord {
-            id: new_event_id(),
-            event,
-        };
-        let mut line = serde_json::to_vec(&record)?;
+        let mut line = serde_json::to_vec(&envelope)?;
         line.push(b'\n');
 
         let mut file = OpenOptions::new()
@@ -58,7 +54,7 @@ impl EventSink for JsonlEventStore {
 
 #[derive(Debug, Default)]
 pub struct InMemoryEventStore {
-    events: Mutex<Vec<Event>>,
+    events: Mutex<Vec<EventEnvelope>>,
 }
 
 impl InMemoryEventStore {
@@ -67,14 +63,23 @@ impl InMemoryEventStore {
     }
 
     pub async fn events(&self) -> Vec<Event> {
+        self.events
+            .lock()
+            .await
+            .iter()
+            .map(|envelope| envelope.event.clone())
+            .collect()
+    }
+
+    pub async fn envelopes(&self) -> Vec<EventEnvelope> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait::async_trait]
 impl EventSink for InMemoryEventStore {
-    async fn append(&self, event: Event) -> Result<()> {
-        self.events.lock().await.push(event);
+    async fn append(&self, envelope: EventEnvelope) -> Result<()> {
+        self.events.lock().await.push(envelope);
         Ok(())
     }
 }
@@ -106,8 +111,8 @@ impl BroadcastEventSink {
 
 #[async_trait::async_trait]
 impl EventSink for BroadcastEventSink {
-    async fn append(&self, event: Event) -> Result<()> {
-        let _ = self.tx.send(event);
+    async fn append(&self, envelope: EventEnvelope) -> Result<()> {
+        let _ = self.tx.send(envelope.event);
         Ok(())
     }
 }
@@ -128,10 +133,10 @@ impl FanoutEventSink {
 
 #[async_trait::async_trait]
 impl EventSink for FanoutEventSink {
-    async fn append(&self, event: Event) -> Result<()> {
+    async fn append(&self, envelope: EventEnvelope) -> Result<()> {
         let mut first_err: Option<anyhow::Error> = None;
         for sink in &self.sinks {
-            if let Err(err) = sink.append(event.clone()).await
+            if let Err(err) = sink.append(envelope.clone()).await
                 && first_err.is_none()
             {
                 first_err = Some(err);

@@ -9,8 +9,8 @@ use crate::{
     core::ToolOrchestrator,
     domain::{AgentOutput, AgentTask, ContextChunk, Event, ToolCall},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, ContentPart, InstructionBlock, InstructionKind,
-        MessageRole,
+        CanonicalMessage, CanonicalModelRequest, ContentPart, FinishReason, InstructionBlock,
+        InstructionKind, MessageRole,
     },
 };
 
@@ -21,7 +21,7 @@ pub struct SingleLoopWorkflow {
 
 impl Default for SingleLoopWorkflow {
     fn default() -> Self {
-        Self { max_tool_rounds: 4 }
+        Self { max_tool_rounds: 8 }
     }
 }
 
@@ -33,9 +33,7 @@ impl Workflow for SingleLoopWorkflow {
         history: Vec<CanonicalMessage>,
         ctx: RuntimeContext,
     ) -> Result<WorkflowOutput> {
-        ctx.event_sink
-            .append(Event::TaskReceived { task: task.clone() })
-            .await?;
+        ctx.emit(Event::TaskReceived { task: task.clone() }).await?;
 
         let bundle = ctx
             .context
@@ -45,19 +43,21 @@ impl Workflow for SingleLoopWorkflow {
                 memory: ctx.memory.clone(),
             })
             .await?;
-        ctx.event_sink
-            .append(Event::ContextBuilt {
-                chunks: bundle.chunks.len(),
-                token_estimate: bundle.token_estimate,
-            })
-            .await?;
+        ctx.emit(Event::ContextBuilt {
+            chunks: bundle.chunks.len(),
+            token_estimate: bundle.token_estimate,
+        })
+        .await?;
 
         let context_chunks = bundle.chunks.len();
         let context_token_estimate = bundle.token_estimate;
-        let mut messages = history;
-        messages.push(CanonicalMessage::text(MessageRole::User, task.text.clone()));
+        let mut persistent_messages = history;
+        let user_message = CanonicalMessage::text(MessageRole::User, task.text.clone());
+        persistent_messages.push(user_message.clone());
+
+        let mut model_messages = persistent_messages.clone();
         for chunk in bundle.chunks {
-            messages.push(CanonicalMessage {
+            model_messages.push(CanonicalMessage {
                 id: crate::domain::new_message_id(),
                 role: MessageRole::User,
                 parts: vec![ContentPart::Context { chunk }],
@@ -67,44 +67,48 @@ impl Workflow for SingleLoopWorkflow {
             });
         }
         let tool_orchestrator = ToolOrchestrator::default();
-        maybe_add_directory_listing_context(&tool_orchestrator, &ctx, &task, &mut messages).await?;
+        maybe_add_directory_listing_context(&tool_orchestrator, &ctx, &task, &mut model_messages)
+            .await?;
 
         for _round in 0..self.max_tool_rounds {
-            let request = request_from_state(&ctx, &tool_orchestrator, &task.cwd, &messages);
-            ctx.event_sink
-                .append(Event::ModelRequestPrepared {
-                    model: request.model.clone(),
-                })
-                .await?;
+            let request = request_from_state(&ctx, &tool_orchestrator, &task.cwd, &model_messages);
+            ctx.emit(Event::ModelRequestPrepared {
+                model: request.model.clone(),
+            })
+            .await?;
             let response = ctx.model.complete(request).await?;
-            ctx.event_sink
-                .append(Event::ModelResponseReceived {
-                    finish_reason: response.finish_reason.clone(),
-                })
-                .await?;
+            ctx.emit(Event::ModelResponseReceived {
+                finish_reason: response.finish_reason.clone(),
+            })
+            .await?;
 
-            messages.push(response.message.clone());
-            if response.tool_calls.is_empty() {
+            model_messages.push(response.message.clone());
+            persistent_messages.push(response.message.clone());
+            let should_run_tools = response.finish_reason == FinishReason::ToolCalls
+                && !response.tool_calls.is_empty();
+            if !should_run_tools {
                 let output = AgentOutput {
                     text: message_text(&response.message),
                     metadata: output_metadata(
                         &ctx,
-                        &messages,
+                        &model_messages,
                         context_chunks,
                         context_token_estimate,
                     ),
                 };
-                ctx.event_sink
-                    .append(Event::TurnFinished {
-                        output: output.clone(),
-                    })
-                    .await?;
-                return Ok(WorkflowOutput { output, messages });
+                ctx.emit(Event::TurnFinished {
+                    output: output.clone(),
+                })
+                .await?;
+                return Ok(WorkflowOutput {
+                    output,
+                    messages: persistent_messages,
+                });
             }
 
             for call in response.tool_calls {
                 let result = tool_orchestrator.execute(&ctx, &task, call).await?;
-                messages.push(CanonicalMessage {
+                let tool_result_message = CanonicalMessage {
                     id: crate::domain::new_message_id(),
                     role: MessageRole::Tool,
                     parts: vec![ContentPart::ToolResult {
@@ -113,26 +117,48 @@ impl Workflow for SingleLoopWorkflow {
                     name: None,
                     tool_call_id: Some(result.call_id),
                     metadata: serde_json::Value::Null,
-                });
+                };
+                model_messages.push(tool_result_message.clone());
+                persistent_messages.push(tool_result_message);
             }
         }
 
+        let mut request = request_from_state(&ctx, &tool_orchestrator, &task.cwd, &model_messages);
+        request.tools.clear();
+        request.tool_choice = crate::domain::ToolChoice::None;
+        ctx.emit(Event::ModelRequestPrepared {
+            model: request.model.clone(),
+        })
+        .await?;
+        let response = ctx.model.complete(request).await?;
+        ctx.emit(Event::ModelResponseReceived {
+            finish_reason: response.finish_reason.clone(),
+        })
+        .await?;
+
+        model_messages.push(response.message.clone());
+        persistent_messages.push(response.message.clone());
         let output = AgentOutput {
-            text: "Stopped after reaching max tool rounds".to_owned(),
+            text: message_text(&response.message),
             metadata: output_metadata_with_extra(
                 &ctx,
-                &messages,
+                &model_messages,
                 context_chunks,
                 context_token_estimate,
-                json!({ "max_tool_rounds": self.max_tool_rounds }),
+                json!({
+                    "max_tool_rounds": self.max_tool_rounds,
+                    "tool_round_limit_reached": true,
+                }),
             ),
         };
-        ctx.event_sink
-            .append(Event::TurnFinished {
-                output: output.clone(),
-            })
-            .await?;
-        Ok(WorkflowOutput { output, messages })
+        ctx.emit(Event::TurnFinished {
+            output: output.clone(),
+        })
+        .await?;
+        Ok(WorkflowOutput {
+            output,
+            messages: persistent_messages,
+        })
     }
 }
 
@@ -228,6 +254,8 @@ fn output_metadata_with_extra(
     let token_estimate = estimate_message_tokens(messages).or(context_token_estimate);
     let mut metadata = json!({
         "session_id": ctx.session_id,
+        "thread_id": ctx.thread_id,
+        "turn_id": ctx.turn_id,
         "model": {
             "provider": ctx.model_ref.provider.clone(),
             "name": ctx.model_ref.model.clone(),

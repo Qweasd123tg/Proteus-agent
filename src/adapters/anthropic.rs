@@ -304,6 +304,14 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
 
     let mut parts = Vec::new();
     let mut tool_calls = Vec::new();
+    let finish_reason = match response.get("stop_reason").and_then(Value::as_str) {
+        Some("tool_use") => FinishReason::ToolCalls,
+        Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
+        Some("max_tokens") => FinishReason::Length,
+        Some(_) => FinishReason::Unknown,
+        None => FinishReason::Unknown,
+    };
+    let accept_tool_calls = finish_reason == FinishReason::ToolCalls;
 
     for item in response
         .get("content")
@@ -318,7 +326,7 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
                     });
                 }
             }
-            Some("tool_use") => {
+            Some("tool_use") if accept_tool_calls => {
                 let call = ToolCall {
                     id: item
                         .get("id")
@@ -335,18 +343,10 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
                 parts.push(ContentPart::ToolCall { call: call.clone() });
                 tool_calls.push(call);
             }
+            Some("tool_use") => {}
             _ => {}
         }
     }
-
-    let finish_reason = match response.get("stop_reason").and_then(Value::as_str) {
-        Some("tool_use") => FinishReason::ToolCalls,
-        Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
-        Some("max_tokens") => FinishReason::Length,
-        Some(_) => FinishReason::Unknown,
-        None if !tool_calls.is_empty() => FinishReason::ToolCalls,
-        None => FinishReason::Unknown,
-    };
 
     Ok(CanonicalModelResponse {
         message: CanonicalMessage {
@@ -370,4 +370,68 @@ fn parse_usage(response: &Value) -> Option<TokenUsage> {
         input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
         output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_tokens_tool_use_is_not_returned_as_executable_call() {
+        let response = json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "stop_reason": "max_tokens",
+            "content": [
+                { "type": "text", "text": "writing file" },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "write_file",
+                    "input": {}
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 2048 }
+        });
+
+        let canonical = from_anthropic_response(response).unwrap();
+
+        assert_eq!(canonical.finish_reason, FinishReason::Length);
+        assert!(canonical.tool_calls.is_empty());
+        assert!(
+            canonical
+                .message
+                .parts
+                .iter()
+                .all(|part| !matches!(part, ContentPart::ToolCall { .. }))
+        );
+    }
+
+    #[test]
+    fn completed_tool_use_is_returned_as_executable_call() {
+        let response = json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "stop_reason": "tool_use",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "write_file",
+                    "input": { "path": "site/index.html", "content": "<html></html>" }
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 120 }
+        });
+
+        let canonical = from_anthropic_response(response).unwrap();
+
+        assert_eq!(canonical.finish_reason, FinishReason::ToolCalls);
+        assert_eq!(canonical.tool_calls.len(), 1);
+        assert_eq!(canonical.tool_calls[0].args["path"], "site/index.html");
+    }
 }

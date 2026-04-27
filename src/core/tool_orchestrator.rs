@@ -63,22 +63,36 @@ impl ToolOrchestrator {
         task: &AgentTask,
         call: ToolCall,
     ) -> Result<ToolResult> {
-        ctx.event_sink
-            .append(Event::ToolCallRequested { call: call.clone() })
+        ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
         let tool_spec = ctx.tools.spec(&call.name).ok();
+        if let Some(spec) = tool_spec.as_ref()
+            && let Some(error) = validate_tool_call_args(&call, spec)
+        {
+            let result = ToolResult {
+                call_id: call.id.clone(),
+                ok: false,
+                output: String::new(),
+                error: Some(error),
+                metadata: json!({
+                    "tool": call.name,
+                    "validation_error": true,
+                }),
+            };
+            return self.finish(ctx, result).await;
+        }
+
         let decision = self.evaluate_access(ctx, &task.cwd, &call, tool_spec.clone());
 
         match decision {
             PolicyDecision::Allow => self.invoke_allowed(ctx, task, &call, tool_spec).await,
             PolicyDecision::Ask { reason } => {
-                ctx.event_sink
-                    .append(Event::ApprovalRequested {
-                        call_id: call.id.clone(),
-                        reason: reason.clone(),
-                    })
-                    .await?;
+                ctx.emit(Event::ApprovalRequested {
+                    call_id: call.id.clone(),
+                    reason: reason.clone(),
+                })
+                .await?;
                 let approval = ctx
                     .approval
                     .request_approval(ApprovalRequest {
@@ -88,12 +102,11 @@ impl ToolOrchestrator {
                         tool_spec: tool_spec.clone(),
                     })
                     .await?;
-                ctx.event_sink
-                    .append(Event::ApprovalResolved {
-                        call_id: call.id.clone(),
-                        approved: approval.approved,
-                    })
-                    .await?;
+                ctx.emit(Event::ApprovalResolved {
+                    call_id: call.id.clone(),
+                    approved: approval.approved,
+                })
+                .await?;
                 if approval.approved {
                     return self.invoke_allowed(ctx, task, &call, tool_spec).await;
                 }
@@ -226,11 +239,10 @@ impl ToolOrchestrator {
     }
 
     async fn finish(&self, ctx: &RuntimeContext, result: ToolResult) -> Result<ToolResult> {
-        ctx.event_sink
-            .append(Event::ToolFinished {
-                result: result.clone(),
-            })
-            .await?;
+        ctx.emit(Event::ToolFinished {
+            result: result.clone(),
+        })
+        .await?;
         Ok(result)
     }
 
@@ -292,4 +304,64 @@ fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
     };
     object.insert(key.to_owned(), value);
     Value::Object(object)
+}
+
+fn validate_tool_call_args(call: &ToolCall, spec: &ToolSpec) -> Option<String> {
+    let schema = spec.input_schema.as_object()?;
+    let required_args = schema.get("required").and_then(Value::as_array);
+    let properties = schema.get("properties").and_then(Value::as_object);
+    let expects_object = required_args.is_some() || properties.is_some();
+
+    if expects_object && !call.args.is_object() {
+        return Some(format!("tool '{}' requires object args", call.name));
+    }
+
+    let args = call.args.as_object()?;
+    for required in required_args.into_iter().flatten() {
+        let Some(name) = required.as_str() else {
+            continue;
+        };
+        let property = properties.and_then(|properties| properties.get(name));
+        let expected_types = property.map(schema_type_names).unwrap_or_default();
+        let Some(value) = args.get(name) else {
+            return Some(required_arg_error(&call.name, name, &expected_types));
+        };
+        if !expected_types.is_empty()
+            && !expected_types
+                .iter()
+                .any(|expected_type| value_matches_schema_type(value, expected_type))
+        {
+            return Some(required_arg_error(&call.name, name, &expected_types));
+        }
+    }
+
+    None
+}
+
+fn schema_type_names(schema: &Value) -> Vec<&str> {
+    match schema.get("type") {
+        Some(Value::String(type_name)) => vec![type_name.as_str()],
+        Some(Value::Array(type_names)) => type_names.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn value_matches_schema_type(value: &Value, expected_type: &str) -> bool {
+    match expected_type {
+        "array" => value.is_array(),
+        "boolean" => value.is_boolean(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "null" => value.is_null(),
+        "number" => value.is_number(),
+        "object" => value.is_object(),
+        "string" => value.is_string(),
+        _ => true,
+    }
+}
+
+fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) -> String {
+    let Some(expected_type) = expected_types.first() else {
+        return format!("tool '{tool_name}' requires arg '{arg_name}'");
+    };
+    format!("tool '{tool_name}' requires {expected_type} arg '{arg_name}'")
 }

@@ -19,6 +19,7 @@ pub trait Tool: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolSource {
     Builtin { provider: String },
+    Config { origin: String },
     Mcp { server: String },
     Dynamic { origin: String },
 }
@@ -33,6 +34,7 @@ impl ToolSource {
     pub fn label(&self) -> String {
         match self {
             Self::Builtin { provider } => format!("builtin:{provider}"),
+            Self::Config { origin } => format!("config:{origin}"),
             Self::Mcp { server } => format!("mcp:{server}"),
             Self::Dynamic { origin } => format!("dynamic:{origin}"),
         }

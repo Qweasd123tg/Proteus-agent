@@ -5,18 +5,23 @@ use async_trait::async_trait;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, ContextBuilder, EventSink, MemoryStore, ModelClient,
+        ApprovalPolicy, ApprovalTransport, ContextBuilder, EventEmitter, MemoryStore, ModelClient,
         PatchApplier, SearchBackend, ToolRegistry,
     },
-    domain::{AgentOutput, AgentTask, ModelRef, PermissionMode, SessionId},
+    domain::{
+        AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, SessionId, ThreadId,
+        TurnId,
+    },
     model_standard::CanonicalMessage,
 };
 
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
     pub model_ref: ModelRef,
-    pub event_sink: Arc<dyn EventSink>,
+    pub events: Arc<EventEmitter>,
     pub model: Arc<dyn ModelClient>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
@@ -26,6 +31,20 @@ pub struct RuntimeContext {
     pub approval: Arc<dyn ApprovalTransport>,
     pub permission_mode: PermissionMode,
     pub patch: Arc<dyn PatchApplier>,
+}
+
+impl RuntimeContext {
+    pub fn event_context(&self) -> EventContext {
+        EventContext {
+            session_id: self.session_id,
+            thread_id: self.thread_id,
+            turn_id: Some(self.turn_id),
+        }
+    }
+
+    pub async fn emit(&self, event: Event) -> Result<()> {
+        self.events.emit(self.event_context(), event).await
+    }
 }
 
 #[async_trait]

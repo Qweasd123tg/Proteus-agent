@@ -7,6 +7,10 @@ Security v0 держится на четырёх уровнях:
 3. `ApprovalPolicy` принимает решение перед исполнением в `normal`;
 4. сами tools проверяют workspace/path ограничения.
 
+Будущая config-editable модель прав описана отдельно в
+[rights-and-modules.md](rights-and-modules.md). Этот документ ниже описывает
+текущую реализацию v0.
+
 ## ToolSafety
 
 Поддерживаемые классы:
@@ -39,6 +43,12 @@ CLI может переопределить config через `--plan`, `--auto`
 | `write_file` | `WritesFiles` | пишет UTF-8 файл внутри workspace |
 | `shell` | `RunsCommands` | запускает команду в `cwd` |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
+
+Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "shell"` останется `RunsCommands`, даже если config укажет `ReadOnly`.
+
+Config-defined `process` и stdio `mcp` tools также считаются command execution boundary. Даже если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в `plan` и запрещены в `auto`.
+
+Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool из config. Model args не могут переопределить remote tool name; это сохраняет связь между `ToolSpec`, policy decision и фактическим downstream вызовом.
 
 ## Workspace Boundary
 

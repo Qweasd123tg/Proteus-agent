@@ -1,3 +1,4 @@
+mod configured;
 mod list;
 mod patch;
 mod provider;
@@ -6,6 +7,7 @@ mod search;
 mod shell;
 mod write;
 
+pub use configured::*;
 pub use list::*;
 pub use patch::*;
 pub use provider::*;

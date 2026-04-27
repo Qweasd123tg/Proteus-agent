@@ -42,17 +42,21 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
-        match path {
+        let config = match path {
             Some(path) => Self::load_path(path).await,
             None => {
                 if let Some(path) = default_config_path() {
                     if tokio::fs::try_exists(&path).await? {
-                        return Self::load_path(&path).await;
+                        Self::load_path(&path).await
+                    } else {
+                        Ok(Self::default())
                     }
+                } else {
+                    Ok(Self::default())
                 }
-                Ok(Self::default())
             }
-        }
+        }?;
+        config.with_tool_manifests().await
     }
 
     async fn load_path(path: &Path) -> Result<Self> {
@@ -124,6 +128,20 @@ impl AppConfig {
         }
 
         Ok(self.model.clone())
+    }
+
+    async fn with_tool_manifests(mut self) -> Result<Self> {
+        let Some(path) = self.tools.path.clone() else {
+            return Ok(self);
+        };
+        let path = expand_home(path);
+        if !tokio::fs::try_exists(&path).await? {
+            return Ok(self);
+        }
+
+        let manifests = load_tool_manifests(&path).await?;
+        self.tools.configured.extend(manifests);
+        Ok(self)
     }
 }
 
@@ -236,6 +254,8 @@ pub struct ModulesConfig {
     pub search: String,
     #[serde(default = "default_memory")]
     pub memory: String,
+    #[serde(default = "default_memory_policy")]
+    pub memory_policy: String,
     #[serde(default = "default_context")]
     pub context: String,
     #[serde(default = "default_policy")]
@@ -252,6 +272,7 @@ impl Default for ModulesConfig {
             workflow: default_workflow(),
             search: default_search(),
             memory: default_memory(),
+            memory_policy: default_memory_policy(),
             context: default_context(),
             policy: default_policy(),
             patch: default_patch(),
@@ -264,14 +285,57 @@ impl Default for ModulesConfig {
 pub struct ToolsConfig {
     #[serde(default = "default_tools")]
     pub enabled: Vec<String>,
+    #[serde(default = "default_tools_path")]
+    pub path: Option<PathBuf>,
+    #[serde(default)]
+    pub configured: Vec<ConfiguredToolConfig>,
 }
 
 impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             enabled: default_tools(),
+            path: default_tools_path(),
+            configured: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfiguredToolConfig {
+    pub name: String,
+    pub description: String,
+    #[serde(default = "default_tool_input_schema")]
+    pub input_schema: serde_json::Value,
+    pub safety: crate::domain::ToolSafety,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    pub executor: ConfiguredToolExecutorConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ConfiguredToolExecutorConfig {
+    Native {
+        handler: String,
+    },
+    Process {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    Mcp {
+        #[serde(default)]
+        server: Option<String>,
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        tool: String,
+        #[serde(default = "default_mcp_protocol_version")]
+        protocol_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -488,6 +552,10 @@ fn default_memory() -> String {
     "none".to_owned()
 }
 
+fn default_memory_policy() -> String {
+    "none".to_owned()
+}
+
 fn default_context() -> String {
     "simple".to_owned()
 }
@@ -548,31 +616,39 @@ fn default_context_bar_width() -> usize {
 }
 
 fn default_tools() -> Vec<String> {
-    [
-        "read_file",
-        "list_dir",
-        "apply_patch",
-        "write_file",
-        "shell",
-        "search",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
+    Vec::new()
+}
+
+fn default_tools_path() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("AGENT_TOOLS_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/tools"));
+    }
+
+    env::var_os("XDG_CONFIG_HOME")
+        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/tools"))
+}
+
+fn default_tool_input_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })
+}
+
+fn default_mcp_protocol_version() -> String {
+    "2025-06-18".to_owned()
 }
 
 fn default_ask_before() -> Vec<String> {
-    ["apply_patch", "write_file", "shell"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+    Vec::new()
 }
 
 fn default_allow_tools() -> Vec<String> {
-    ["read_file", "list_dir", "search"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+    Vec::new()
 }
 
 fn default_max_results() -> usize {
@@ -660,6 +736,51 @@ async fn load_config_value(path: &Path) -> Result<Value> {
     }
 }
 
+async fn load_tool_manifests(path: &Path) -> Result<Vec<ConfiguredToolConfig>> {
+    let mut entries = tokio::fs::read_dir(path)
+        .await
+        .with_context(|| format!("failed to read tools dir {}", path.display()))?;
+    let mut files = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        let entry_path = entry.path();
+        let file_type = entry.file_type().await?;
+        if file_type.is_file() && is_config_file(&entry_path) {
+            files.push(entry_path);
+        } else if file_type.is_dir() {
+            for candidate in [
+                entry_path.join("tool.toml"),
+                entry_path.join("manifest.toml"),
+                entry_path.join("tool.json"),
+                entry_path.join("manifest.json"),
+            ] {
+                if tokio::fs::try_exists(&candidate).await? {
+                    files.push(candidate);
+                    break;
+                }
+            }
+        }
+    }
+    files.sort();
+
+    let mut tools = Vec::new();
+    for file in files {
+        tools.push(load_tool_manifest(&file).await?);
+    }
+    Ok(tools)
+}
+
+async fn load_tool_manifest(path: &Path) -> Result<ConfiguredToolConfig> {
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .with_context(|| format!("failed to read tool manifest {}", path.display()))?;
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse JSON tool manifest {}", path.display())),
+        _ => toml::from_str(&content)
+            .with_context(|| format!("failed to parse TOML tool manifest {}", path.display())),
+    }
+}
+
 fn merge_config_value(base: &mut Value, overlay: Value) {
     match (base, overlay) {
         (Value::Object(base), Value::Object(overlay)) => {
@@ -671,4 +792,16 @@ fn merge_config_value(base: &mut Value, overlay: Value) {
             *base = overlay;
         }
     }
+}
+
+fn expand_home(path: PathBuf) -> PathBuf {
+    let Some(path_str) = path.to_str() else {
+        return path;
+    };
+    if let Some(stripped) = path_str.strip_prefix("~/")
+        && let Some(home) = env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(stripped);
+    }
+    path
 }

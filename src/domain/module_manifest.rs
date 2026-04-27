@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModuleManifest {
     pub id: String,
     pub kind: ModuleKind,
@@ -10,11 +10,12 @@ pub struct ModuleManifest {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModuleKind {
     Model,
     Search,
     Memory,
+    MemoryPolicy,
     Context,
     Tool,
     Policy,

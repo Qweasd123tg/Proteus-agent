@@ -144,12 +144,29 @@ Default env vars:
 ```json
 {
   "tools": {
-    "enabled": ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
+    "enabled": [],
+    "path": "/home/qweasd123tg/.config/agent-qweasd123tg/tools"
   }
 }
 ```
 
-`tools.enabled` определяет, какие tools попадут в `ToolRegistry` и будут видны модели. Имена должны быть уникальными; duplicate tool registration считается ошибкой конфигурации.
+`tools.enabled` оставлен для совместимости и включает встроенные tools по имени. В config-first режиме используйте `tools.path`, а `tools.enabled = []`.
+
+`tools.path` указывает каталог tool manifests. Runtime читает `*.toml`/`*.json` файлы на первом уровне и подпапки с `tool.toml`, `manifest.toml`, `tool.json` или `manifest.json`.
+
+`tools.configured` остаётся доступным для inline tools, но основной путь для локальных tools - каталог `/home/qweasd123tg/.config/agent-qweasd123tg/tools`.
+
+Сейчас поддержаны executors `native`, `process` и `mcp`.
+
+`native` использует встроенный Rust handler (`read_file`, `list_dir`, `apply_patch`, `write_file`, `shell`, `search`), но `ToolSpec` берёт из config. Это позволяет тестировать стандартные tools без магического списка в runtime config.
+
+`process` запускает фиксированные `command` + `args` в рабочей директории задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как `ToolResult`.
+
+`mcp` запускает stdio MCP server per call, выполняет `initialize`, отправляет `notifications/initialized`, затем вызывает фиксированный remote `tools/call` из поля `tool`. Model args становятся только MCP `arguments`; имя remote tool не берётся из model args.
+
+`ToolResult.call_id`, `ok`, `error` и metadata формируются host runtime-ом, а не внешним процессом/MCP server.
+
+Имена всех tools должны быть уникальными; duplicate tool registration считается ошибкой конфигурации. Для `native` config не может понизить safety ниже safety самого handler-а. Для `process` и `mcp` executors действует safety floor: даже если config укажет `ReadOnly` или `WritesFiles`, effective `ToolSafety` будет не ниже `RunsCommands`.
 
 ## Permissions
 
@@ -169,6 +186,10 @@ Default env vars:
 
 CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют config для текущего запуска.
 
+Более гибкая table-driven схема прав (`hide`/`deny`/`ask`/`allow`,
+priority, per-tool limits) пока является planned design и описана в
+[rights-and-modules.md](rights-and-modules.md).
+
 ## Policy
 
 ```json
@@ -183,7 +204,7 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 ```
 
 `ask_write` сначала проверяет явные списки `allow` и `ask_before`, затем смотрит на `ToolSafety`.
-Имена в `allow` и `ask_before` должны ссылаться на tools, зарегистрированные через `tools.enabled`; неизвестное имя считается ошибкой конфигурации при старте.
+Имена в `allow` и `ask_before` должны ссылаться на tools, зарегистрированные через `tools.enabled` или `tools.configured`; неизвестное имя считается ошибкой конфигурации при старте.
 
 `apply_patch` принимает строку `patch` во внутреннем формате:
 

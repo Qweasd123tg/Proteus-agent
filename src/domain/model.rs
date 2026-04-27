@@ -37,7 +37,7 @@ impl Default for ModelLimits {
     fn default() -> Self {
         Self {
             max_input_tokens: None,
-            max_output_tokens: Some(2048),
+            max_output_tokens: Some(16_384),
         }
     }
 }

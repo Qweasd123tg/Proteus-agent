@@ -134,6 +134,7 @@ Core не отвечает за:
 | `ModelClient` | общение с LLM | `FakeModelClient` | OpenAI, Anthropic, local, OpenAI-compatible |
 | `SearchBackend` | поиск по проекту | `RgSearch` / `NullSearch` | repo map, tree-sitter, semantic |
 | `MemoryStore` | память | `NoMemory` / `JsonlMemory` | SQLite, vector, hybrid |
+| `MemoryPolicy` | lifecycle записи памяти | `NoMemoryPolicy` | summary, reflection, user-facts |
 | `ContextBuilder` | сбор контекста | `SimpleContextBuilder` | budgeted, repo-aware, memory-aware |
 | `ToolRegistry` + `ToolProvider` | доступные tools | builtin provider + source-aware registry | dynamic registry, MCP later |
 | `ApprovalPolicy` | разрешения | `AskWritePolicy` | strict, trusted, headless |
@@ -163,6 +164,7 @@ pub enum ModuleKind {
     Model,
     Search,
     Memory,
+    MemoryPolicy,
     Context,
     Tool,
     Policy,
@@ -171,6 +173,8 @@ pub enum ModuleKind {
     Renderer,
 }
 ```
+
+В текущей реализации manifests встроенных модулей собраны во внутреннем `BuiltinModuleCatalog`. Это ещё не пакетная система: catalog только связывает config ids, metadata и factory функции для built-in реализаций.
 
 Правило совместимости:
 
@@ -641,8 +645,21 @@ SQLite позже.
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventEnvelope {
+    pub schema_version: u32,
+    pub event_id: EventId,
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    pub turn_id: Option<TurnId>,
+    pub seq: u64,
+    pub timestamp_ms: i64,
+    pub event: Event,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     SessionStarted { session_id: SessionId, cwd: PathBuf },
+    TurnStarted { session_id: SessionId, thread_id: ThreadId, turn_id: TurnId },
     TaskReceived { task: AgentTask },
     ContextBuilt { chunks: usize, token_estimate: Option<u32> },
     ModelRequestPrepared { model: ModelRef },
@@ -664,6 +681,8 @@ pub enum Event {
 event log = правда
 любые индексы/кэши = производные
 ```
+
+Envelope создаётся до fan-out, чтобы JSONL log и live sinks видели один logical event с одинаковым `event_id` и `seq`.
 
 ---
 
@@ -726,6 +745,7 @@ stream = false
 workflow = "single_loop"
 search = "rg"
 memory = "none"
+memory_policy = "none"
 context = "simple"
 policy = "ask_write"
 patch = "direct"

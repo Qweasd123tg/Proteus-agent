@@ -8,10 +8,13 @@ use std::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use modular_agent::domain::{AgentOutput, PermissionMode};
+use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode};
 use modular_agent::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport, EventSink},
-    core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
+    core::{
+        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog, FanoutEventSink,
+        JsonlEventStore,
+    },
     modules::ChannelApprovalTransport,
 };
 use serde_json::Value;
@@ -58,6 +61,12 @@ impl From<CliPermissionMode> for PermissionMode {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    if is_modules_list_command(&cli.task) {
+        let catalog = BuiltinModuleCatalog::new();
+        println!("{}", render_module_list(&catalog.manifests()));
+        return Ok(());
+    }
+
     let config_path = cli
         .config
         .clone()
@@ -100,6 +109,77 @@ async fn main() -> Result<()> {
     let output = runtime.run(cli.task.join(" ")).await?;
     println!("{}", runtime.render(&output).await?);
     Ok(())
+}
+
+fn is_modules_list_command(task: &[String]) -> bool {
+    matches!(task, [module, command] if module == "modules" && command == "list")
+}
+
+fn render_module_list(manifests: &[ModuleManifest]) -> String {
+    let rows = manifests
+        .iter()
+        .map(|manifest| {
+            [
+                module_kind_label(&manifest.kind).to_owned(),
+                manifest.id.clone(),
+                manifest.capabilities.join(","),
+                manifest.description.clone().unwrap_or_default(),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    render_table(["kind", "id", "capabilities", "description"], &rows)
+}
+
+fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
+    let mut widths = headers
+        .iter()
+        .map(|header| header.chars().count())
+        .collect::<Vec<_>>();
+    for row in rows {
+        for (index, cell) in row.iter().enumerate() {
+            widths[index] = widths[index].max(cell.chars().count());
+        }
+    }
+
+    let mut rendered = String::new();
+    rendered.push_str(&render_table_row(&headers.map(str::to_owned), &widths));
+    rendered.push('\n');
+    rendered.push_str(
+        &widths
+            .iter()
+            .map(|width| "-".repeat(*width))
+            .collect::<Vec<_>>()
+            .join("  "),
+    );
+    for row in rows {
+        rendered.push('\n');
+        rendered.push_str(&render_table_row(row, &widths));
+    }
+    rendered
+}
+
+fn render_table_row<const N: usize>(row: &[String; N], widths: &[usize]) -> String {
+    row.iter()
+        .enumerate()
+        .map(|(index, cell)| format!("{cell:width$}", width = widths[index]))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+fn module_kind_label(kind: &ModuleKind) -> &'static str {
+    match kind {
+        ModuleKind::Model => "model",
+        ModuleKind::Search => "search",
+        ModuleKind::Memory => "memory",
+        ModuleKind::MemoryPolicy => "memory_policy",
+        ModuleKind::Context => "context",
+        ModuleKind::Tool => "tool",
+        ModuleKind::Policy => "policy",
+        ModuleKind::Patch => "patch",
+        ModuleKind::Workflow => "workflow",
+        ModuleKind::Renderer => "renderer",
+    }
 }
 
 fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<PermissionMode> {
@@ -475,4 +555,39 @@ fn footer_context(config: &AppConfig, output: &AgentOutput) -> String {
 
 fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use modular_agent::domain::ModuleManifest;
+
+    #[test]
+    fn modules_list_command_is_exact() {
+        assert!(is_modules_list_command(&[
+            "modules".to_owned(),
+            "list".to_owned()
+        ]));
+        assert!(!is_modules_list_command(&["modules".to_owned()]));
+        assert!(!is_modules_list_command(&[
+            "modules".to_owned(),
+            "list".to_owned(),
+            "extra".to_owned()
+        ]));
+    }
+
+    #[test]
+    fn module_list_output_contains_catalog_rows() {
+        let manifests = vec![ModuleManifest::builtin(
+            "rg",
+            ModuleKind::Search,
+            &["workspace", "ripgrep"],
+        )];
+        let rendered = render_module_list(&manifests);
+
+        assert!(rendered.contains("kind"));
+        assert!(rendered.contains("search"));
+        assert!(rendered.contains("rg"));
+        assert!(rendered.contains("workspace,ripgrep"));
+    }
 }
