@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::{
     contracts::{
@@ -51,6 +51,8 @@ impl Workflow for SingleLoopWorkflow {
             })
             .await?;
 
+        let context_chunks = bundle.chunks.len();
+        let context_token_estimate = bundle.token_estimate;
         let mut messages = history;
         messages.push(CanonicalMessage::text(MessageRole::User, task.text.clone()));
         for chunk in bundle.chunks {
@@ -82,7 +84,12 @@ impl Workflow for SingleLoopWorkflow {
             if response.tool_calls.is_empty() {
                 let output = AgentOutput {
                     text: message_text(&response.message),
-                    metadata: json!({ "session_id": ctx.session_id }),
+                    metadata: output_metadata(
+                        &ctx,
+                        &messages,
+                        context_chunks,
+                        context_token_estimate,
+                    ),
                 };
                 ctx.event_sink
                     .append(Event::TurnFinished {
@@ -109,7 +116,13 @@ impl Workflow for SingleLoopWorkflow {
 
         let output = AgentOutput {
             text: "Stopped after reaching max tool rounds".to_owned(),
-            metadata: json!({ "session_id": ctx.session_id, "max_tool_rounds": self.max_tool_rounds }),
+            metadata: output_metadata_with_extra(
+                &ctx,
+                &messages,
+                context_chunks,
+                context_token_estimate,
+                json!({ "max_tool_rounds": self.max_tool_rounds }),
+            ),
         };
         ctx.event_sink
             .append(Event::TurnFinished {
@@ -117,6 +130,74 @@ impl Workflow for SingleLoopWorkflow {
             })
             .await?;
         Ok(WorkflowOutput { output, messages })
+    }
+}
+
+fn output_metadata(
+    ctx: &RuntimeContext,
+    messages: &[CanonicalMessage],
+    context_chunks: usize,
+    context_token_estimate: Option<u32>,
+) -> Value {
+    output_metadata_with_extra(
+        ctx,
+        messages,
+        context_chunks,
+        context_token_estimate,
+        json!({}),
+    )
+}
+
+fn output_metadata_with_extra(
+    ctx: &RuntimeContext,
+    messages: &[CanonicalMessage],
+    context_chunks: usize,
+    context_token_estimate: Option<u32>,
+    extra: Value,
+) -> Value {
+    let token_estimate = estimate_message_tokens(messages).or(context_token_estimate);
+    let mut metadata = json!({
+        "session_id": ctx.session_id,
+        "model": {
+            "provider": ctx.model_ref.provider.clone(),
+            "name": ctx.model_ref.model.clone(),
+        },
+        "context": {
+            "chunks": context_chunks,
+            "token_estimate": token_estimate,
+            "initial_token_estimate": context_token_estimate,
+        },
+    });
+
+    if let (Value::Object(metadata), Value::Object(extra)) = (&mut metadata, extra) {
+        metadata.extend(extra);
+    }
+
+    metadata
+}
+
+fn estimate_message_tokens(messages: &[CanonicalMessage]) -> Option<u32> {
+    let bytes = messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .map(part_text_len)
+        .sum::<usize>();
+    Some((bytes / 4 + messages.len()).max(1) as u32)
+}
+
+fn part_text_len(part: &ContentPart) -> usize {
+    match part {
+        ContentPart::Text { text } => text.len(),
+        ContentPart::Context { chunk } => chunk.content.len(),
+        ContentPart::FileRef { content, .. } => content.as_deref().unwrap_or_default().len(),
+        ContentPart::ToolCall { call } => call.name.len() + call.args.to_string().len(),
+        ContentPart::ToolResult { result } => {
+            result.output.len()
+                + result.error.as_deref().unwrap_or_default().len()
+                + result.metadata.to_string().len()
+        }
+        ContentPart::Patch { patch } => patch.content.len(),
+        ContentPart::ReasoningSummary { text } => text.len(),
     }
 }
 

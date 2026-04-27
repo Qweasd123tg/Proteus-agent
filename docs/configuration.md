@@ -92,6 +92,37 @@ Default env vars:
 
 Поддерживаемые значения перечислены в [modules.md](modules.md).
 
+## Renderer
+
+`modules.renderer = "plain"` печатает только текст ответа.
+
+`modules.renderer = "statusline"` добавляет настраиваемую строку состояния:
+
+```json
+{
+  "renderer": {
+    "statusline": {
+      "components": ["model", "context", "session"],
+      "position": "bottom",
+      "frame": "block",
+      "separator": " | ",
+      "ansi": true,
+      "model": {
+        "label": "model",
+        "show_provider": true
+      },
+      "context": {
+        "label": "ctx",
+        "max_tokens": 200000,
+        "bar_width": 10
+      }
+    }
+  }
+}
+```
+
+`components` задаёт порядок render-компонентов. Доступны `model`, `context` и `session`. `position` поддерживает `top` и `bottom`, а `frame` поддерживает `line` и `block`. `context.max_tokens` используется только для визуального процента и не меняет сборку контекста.
+
 ## Tools
 
 ```json

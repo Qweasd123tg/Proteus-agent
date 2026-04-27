@@ -32,7 +32,25 @@
     "context": "simple",
     "policy": "ask_write",
     "patch": "direct",
-    "renderer": "plain"
+    "renderer": "statusline"
+  },
+  "renderer": {
+    "statusline": {
+      "components": ["model", "context", "session"],
+      "position": "bottom",
+      "frame": "block",
+      "separator": " | ",
+      "ansi": true,
+      "model": {
+        "label": "model",
+        "show_provider": true
+      },
+      "context": {
+        "label": "ctx",
+        "max_tokens": 200000,
+        "bar_width": 10
+      }
+    }
   },
   "tools": {
     "enabled": ["read_file", "write_file", "shell", "search"]

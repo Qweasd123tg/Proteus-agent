@@ -32,6 +32,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default)]
+    pub renderer: RendererConfig,
+    #[serde(default)]
     pub event_log: EventLogConfig,
 }
 
@@ -101,6 +103,7 @@ impl Default for AppConfig {
             search: SearchConfig::default(),
             context: ContextConfig::default(),
             memory: MemoryConfig::default(),
+            renderer: RendererConfig::default(),
             event_log: EventLogConfig::default(),
         }
     }
@@ -326,6 +329,89 @@ pub struct EventLogConfig {
     pub path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RendererConfig {
+    #[serde(default)]
+    pub statusline: StatuslineRendererConfig,
+}
+
+impl Default for RendererConfig {
+    fn default() -> Self {
+        Self {
+            statusline: StatuslineRendererConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatuslineRendererConfig {
+    #[serde(default = "default_statusline_components")]
+    pub components: Vec<String>,
+    #[serde(default = "default_statusline_position")]
+    pub position: String,
+    #[serde(default = "default_statusline_frame")]
+    pub frame: String,
+    #[serde(default = "default_statusline_separator")]
+    pub separator: String,
+    #[serde(default = "default_statusline_ansi")]
+    pub ansi: bool,
+    #[serde(default)]
+    pub model: ModelNameComponentConfig,
+    #[serde(default)]
+    pub context: ContextIndicatorComponentConfig,
+}
+
+impl Default for StatuslineRendererConfig {
+    fn default() -> Self {
+        Self {
+            components: default_statusline_components(),
+            position: default_statusline_position(),
+            frame: default_statusline_frame(),
+            separator: default_statusline_separator(),
+            ansi: default_statusline_ansi(),
+            model: ModelNameComponentConfig::default(),
+            context: ContextIndicatorComponentConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelNameComponentConfig {
+    #[serde(default = "default_model_component_label")]
+    pub label: String,
+    #[serde(default = "default_show_model_provider")]
+    pub show_provider: bool,
+}
+
+impl Default for ModelNameComponentConfig {
+    fn default() -> Self {
+        Self {
+            label: default_model_component_label(),
+            show_provider: default_show_model_provider(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextIndicatorComponentConfig {
+    #[serde(default = "default_context_component_label")]
+    pub label: String,
+    #[serde(default = "default_context_window_tokens")]
+    pub max_tokens: Option<u32>,
+    #[serde(default = "default_context_bar_width")]
+    pub bar_width: usize,
+}
+
+impl Default for ContextIndicatorComponentConfig {
+    fn default() -> Self {
+        Self {
+            label: default_context_component_label(),
+            max_tokens: default_context_window_tokens(),
+            bar_width: default_context_bar_width(),
+        }
+    }
+}
+
 impl Default for EventLogConfig {
     fn default() -> Self {
         Self {
@@ -372,6 +458,49 @@ fn default_patch() -> String {
 
 fn default_renderer() -> String {
     "plain".to_owned()
+}
+
+fn default_statusline_components() -> Vec<String> {
+    ["model", "context", "session"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
+fn default_statusline_position() -> String {
+    "bottom".to_owned()
+}
+
+fn default_statusline_frame() -> String {
+    "block".to_owned()
+}
+
+fn default_statusline_separator() -> String {
+    " | ".to_owned()
+}
+
+fn default_statusline_ansi() -> bool {
+    true
+}
+
+fn default_model_component_label() -> String {
+    "model".to_owned()
+}
+
+fn default_show_model_provider() -> bool {
+    true
+}
+
+fn default_context_component_label() -> String {
+    "ctx".to_owned()
+}
+
+fn default_context_window_tokens() -> Option<u32> {
+    Some(200_000)
+}
+
+fn default_context_bar_width() -> usize {
+    10
 }
 
 fn default_tools() -> Vec<String> {

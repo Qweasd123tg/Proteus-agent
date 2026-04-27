@@ -11,6 +11,8 @@ cargo run
 cargo run -- --interactive
 ```
 
+Если stdin/stdout являются TTY, интерактивный режим использует `ratatui` presenter в стиле Codex: компактная стартовая карточка в transcript, нижний composer/footer, spinner ожидания и постепенный вывод ответа. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Для pipe/non-TTY остаётся line REPL fallback.
+
 Одна задача:
 
 ```bash

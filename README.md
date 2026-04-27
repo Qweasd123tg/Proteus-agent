@@ -38,11 +38,11 @@ cargo run
 Внутри REPL:
 
 ```text
-agent> read_file Cargo.toml
-agent> summarize project
-agent> /history
-agent> /clear
-agent> /exit
+❯ read_file Cargo.toml
+❯ summarize project
+❯ /history
+❯ /clear
+❯ /exit
 ```
 
 Выполнить одну задачу:
@@ -102,6 +102,8 @@ agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
 
 Если `TASK` не указан, агент открывает REPL.
 
+В обычном TTY интерактивный режим запускает `ratatui` presenter в стиле Codex: компактная стартовая карточка в transcript, нижний composer/footer, spinner и постепенный вывод ответа. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Если stdin/stdout не являются TTY, используется line REPL fallback.
+
 ## Конфигурация
 
 Без `--config` агент пытается найти пользовательский конфиг в таком порядке:
@@ -145,6 +147,19 @@ cp config.example.json "$HOME/.config/agent-qweasd123tg/config.json"
 ```
 
 `agent.example.toml` оставлен как dev/smoke-test профиль с прямым `[model]` и явными runtime sections.
+
+Внешний вид финального CLI-вывода выбирается через renderer module. Например, compact statusline с моделью, контекстом и id сессии:
+
+```toml
+[modules]
+renderer = "statusline"
+
+[renderer.statusline]
+components = ["model", "context", "session"]
+position = "bottom"
+frame = "block"
+separator = " | "
+```
 
 Подробнее: [docs/configuration.md](docs/configuration.md).
 

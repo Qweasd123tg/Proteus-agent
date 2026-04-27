@@ -13,7 +13,7 @@ use crate::{
     modules::{
         AllowAllPolicy, AskWritePolicy, DirectPatchApplier, FakeModelClient, JsonlMemory, NoMemory,
         NullSearch, PlainRenderer, ReadFileTool, RgSearch, SearchTool, ShellTool,
-        SimpleContextBuilder, SingleLoopWorkflow, WriteFileTool,
+        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, WriteFileTool,
     },
 };
 
@@ -98,6 +98,9 @@ impl BuiltinRegistry {
 
         let renderer: Arc<dyn Renderer> = match config.modules.renderer.as_str() {
             "plain" => Arc::new(PlainRenderer),
+            "statusline" => Arc::new(StatuslineRenderer::from_config(
+                &config.renderer.statusline,
+            )?),
             module => bail!("unsupported renderer module: {module}"),
         };
 

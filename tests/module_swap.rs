@@ -29,6 +29,83 @@ async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventSt
 }
 
 #[tokio::test]
+async fn statusline_renderer_composes_configured_components() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.modules.renderer = "statusline".to_owned();
+    config.renderer.statusline.components = vec!["model".to_owned(), "context".to_owned()];
+    config.renderer.statusline.ansi = false;
+    config.renderer.statusline.context.max_tokens = Some(100);
+
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime =
+        AgentRuntime::with_event_sink(config, dir.path().to_path_buf(), events.clone()).unwrap();
+    let output = runtime.run("summarize hello".to_owned()).await.unwrap();
+    let rendered = runtime.render(&output).await.unwrap();
+
+    assert!(rendered.contains("model fake/fake-tool-model"));
+    assert!(rendered.contains("ctx ["));
+    assert!(rendered.contains("Fake final answer"));
+}
+
+#[test]
+fn statusline_renderer_rejects_unknown_component() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.modules.renderer = "statusline".to_owned();
+    config.renderer.statusline.components = vec!["unknown".to_owned()];
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown statusline component should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported statusline component: unknown")
+    );
+}
+
+#[test]
+fn statusline_renderer_rejects_unknown_position_at_startup() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.modules.renderer = "statusline".to_owned();
+    config.renderer.statusline.position = "middle".to_owned();
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown statusline position should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported statusline position: middle")
+    );
+}
+
+#[test]
+fn statusline_renderer_rejects_unknown_frame_at_startup() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.modules.renderer = "statusline".to_owned();
+    config.renderer.statusline.frame = "floating".to_owned();
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown statusline frame should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported statusline frame: floating")
+    );
+}
+
+#[tokio::test]
 async fn swapping_search_backend_does_not_change_runtime() {
     for search in ["null", "rg"] {
         let mut config = AppConfig::default();
@@ -214,6 +291,22 @@ async fn json_config_file_can_select_anthropic_provider() {
         "https://api.anthropic.com"
     );
     assert_eq!(config.context.simple.max_search_results, 50);
+}
+
+#[tokio::test]
+async fn toml_config_file_can_select_statusline_renderer() {
+    let config =
+        modular_agent::core::AppConfig::load(Some(std::path::Path::new("agent.example.toml")))
+            .await
+            .unwrap();
+
+    assert_eq!(config.modules.renderer, "statusline");
+    assert_eq!(
+        config.renderer.statusline.components,
+        ["model", "context", "session"]
+    );
+    assert_eq!(config.renderer.statusline.position, "bottom");
+    assert_eq!(config.renderer.statusline.frame, "block");
 }
 
 #[tokio::test]
