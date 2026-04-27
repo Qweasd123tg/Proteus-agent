@@ -4,12 +4,12 @@ use async_trait::async_trait;
 use modular_agent::{
     contracts::{
         ApprovalRequest, ApprovalResponse, ApprovalTransport, ModelClient, PolicyContext, Tool,
-        ToolContext, ToolRegistry,
+        ToolContext, ToolRegistry, ToolSource,
     },
     core::{AgentRuntime, AppConfig, BuiltinRegistry, InMemoryEventStore},
     domain::{
-        CacheHints, Event, ModelLimits, ModelRef, PolicyDecision, ReasoningConfig, ResponseFormat,
-        SamplingConfig, ToolCall, ToolChoice, new_call_id,
+        CacheHints, Event, ModelLimits, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig,
+        ResponseFormat, SamplingConfig, ToolCall, ToolChoice, new_call_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, FinishReason, MessageRole},
     modules::{
@@ -186,6 +186,28 @@ fn tool_registry_rejects_duplicate_names() {
 }
 
 #[test]
+fn tool_registry_tracks_tool_source() {
+    let mut registry = ToolRegistry::new();
+    registry
+        .register_with_source(
+            ToolSource::Mcp {
+                server: "filesystem".to_owned(),
+            },
+            ReadFileTool,
+        )
+        .unwrap();
+
+    let entry = registry.entry("read_file").unwrap();
+
+    assert_eq!(
+        entry.source,
+        ToolSource::Mcp {
+            server: "filesystem".to_owned()
+        }
+    );
+}
+
+#[test]
 fn tool_specs_are_returned_in_stable_name_order() {
     let dir = temp_workspace();
     let config = AppConfig::default();
@@ -215,6 +237,35 @@ async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
     let (output, _events) = run_with(AppConfig::default(), "summarize hello").await;
 
     assert!(output.contains("tools=3"));
+}
+
+#[tokio::test]
+async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive() {
+    let dir = temp_workspace();
+    let mut config = AppConfig::default();
+    config.permissions.mode = PermissionMode::Plan;
+    let events = Arc::new(InMemoryEventStore::new());
+    let runtime = AgentRuntime::with_event_sink_and_approval_transport(
+        config,
+        dir.path().to_path_buf(),
+        events,
+        Arc::new(TestApprovalTransport { interactive: true }),
+    )
+    .unwrap();
+
+    let output = runtime.run("summarize hello".to_owned()).await.unwrap();
+
+    assert!(output.text.contains("tools=3"));
+}
+
+#[tokio::test]
+async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_transport() {
+    let mut config = AppConfig::default();
+    config.permissions.mode = PermissionMode::Auto;
+
+    let (output, _events) = run_with(config, "summarize hello").await;
+
+    assert!(output.contains("tools=6"));
 }
 
 #[tokio::test]

@@ -1,10 +1,11 @@
 # Security И Policy
 
-Security v0 держится на трёх уровнях:
+Security v0 держится на четырёх уровнях:
 
 1. tools объявляют `ToolSafety`;
-2. `ApprovalPolicy` принимает решение перед исполнением;
-3. сами tools проверяют workspace/path ограничения.
+2. `PermissionMode` задаёт верхний режим исполнения;
+3. `ApprovalPolicy` принимает решение перед исполнением в `normal`;
+4. сами tools проверяют workspace/path ограничения.
 
 ## ToolSafety
 
@@ -17,6 +18,16 @@ Security v0 держится на трёх уровнях:
 - `Dangerous`.
 
 `ToolSpec` обязан описывать safety class. Policy не должна гадать по имени tool, если можно использовать `ToolSafety`.
+
+## PermissionMode
+
+`permissions.mode` задаёт режим доступа:
+
+- `plan` показывает и исполняет только `ReadOnly` tools;
+- `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
+- `auto` разрешает все tools, кроме `Dangerous`, без approval.
+
+CLI может переопределить config через `--plan`, `--auto` или `--permission-mode plan|normal|auto`.
 
 ## Встроенные Tools
 
@@ -61,7 +72,7 @@ Security v0 держится на трёх уровнях:
 }
 ```
 
-Важно: CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, workflow пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
+Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, workflow пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
 
 Headless runtime и текущий TUI используют headless transport, поэтому `Ask` завершается отказом. `SingleLoopWorkflow` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 
@@ -80,4 +91,4 @@ Headless runtime и текущий TUI используют headless transport, 
 - Для file tools проверять workspace boundary.
 - Для команд и сети считать действие потенциально опасным.
 - Добавлять тест на policy behavior, если tool пишет файлы, запускает команды или ходит в сеть.
-- Не исполнять tool в обход `ToolRegistry` и `ApprovalPolicy`.
+- Не исполнять tool в обход `ToolRegistry`, `PermissionMode` и `ApprovalPolicy`.

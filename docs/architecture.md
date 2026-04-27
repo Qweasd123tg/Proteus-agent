@@ -30,7 +30,7 @@ src/modules/memory/*.rs   -> concrete implementations: none, jsonl
 
 `src/main.rs` отвечает за:
 
-- parsing `--config`, `--cwd`, `--interactive`, `TASK...`;
+- parsing `--config`, `--cwd`, `--interactive`, `--plan`, `--auto`, `--permission-mode`, `TASK...`;
 - загрузку `AppConfig`;
 - создание `AgentRuntime`;
 - запуск REPL или одной задачи.
@@ -66,6 +66,7 @@ CLI не должен владеть бизнес-логикой runtime.
 - `MemoryStore`;
 - `ContextBuilder`;
 - `Tool`;
+- `ToolProvider`;
 - `ApprovalPolicy`;
 - `PatchApplier`;
 - `Workflow`;
@@ -144,7 +145,8 @@ task
 -> ModelClient::complete
 -> Event::ModelResponseReceived
 -> если есть tool calls:
-     ApprovalPolicy::evaluate
+     PermissionMode gate
+     ApprovalPolicy::evaluate в normal mode
      Tool::invoke или denied result
      Event::ToolFinished
      повторить model call
@@ -158,6 +160,7 @@ task
 
 - `ModuleManifest` существует как DTO, но не участвует в registry.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
+- Tools подключаются через `BuiltinToolProvider`; MCP provider ещё не реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore::remember` есть в контракте, но активный путь использует только `recall` через `SimpleContextBuilder`.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
 - Approval transport подключён для CLI single-run и line REPL. TUI пока использует headless отказ для tools, требующих approval.

@@ -23,6 +23,8 @@ Rust CLI-first каркас для модульного coding-agent.
 - fake model, OpenAI Responses adapter, Anthropic Messages adapter;
 - `null`/`rg` search, `none`/`jsonl` memory;
 - `read_file`, `list_dir`, `apply_patch`, `write_file`, `shell`, `search` tools;
+- `ToolProvider` -> `ToolRegistry` слой с source-aware регистрацией tools;
+- permission modes: `plan`, `normal`, `auto`;
 - `ask_write` и `allow_all` policies;
 - JSONL event log и session history;
 - module-swap тесты для search, memory, policy и canonical model contract.
@@ -62,6 +64,14 @@ cargo run -- --config config.example.json
 
 ```bash
 cargo run -- --cwd /path/to/project summarize project
+```
+
+Режимы доступа:
+
+```bash
+cargo run -- --plan summarize project
+cargo run -- --auto "run tests"
+cargo run -- --permission-mode normal "edit file"
 ```
 
 ## Установка

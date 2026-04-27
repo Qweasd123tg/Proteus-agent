@@ -16,9 +16,38 @@ pub trait Tool: Send + Sync {
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolSource {
+    Builtin { provider: String },
+    Mcp { server: String },
+    Dynamic { origin: String },
+}
+
+impl ToolSource {
+    pub fn builtin(provider: impl Into<String>) -> Self {
+        Self::Builtin {
+            provider: provider.into(),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Self::Builtin { provider } => format!("builtin:{provider}"),
+            Self::Mcp { server } => format!("mcp:{server}"),
+            Self::Dynamic { origin } => format!("dynamic:{origin}"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ToolEntry {
+    pub source: ToolSource,
+    pub tool: Arc<dyn Tool>,
+}
+
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
-    tools: HashMap<String, Arc<dyn Tool>>,
+    tools: HashMap<String, ToolEntry>,
 }
 
 impl ToolRegistry {
@@ -30,26 +59,50 @@ impl ToolRegistry {
     where
         T: Tool + 'static,
     {
+        self.register_with_source(ToolSource::builtin("core"), tool)
+    }
+
+    pub fn register_with_source<T>(&mut self, source: ToolSource, tool: T) -> Result<()>
+    where
+        T: Tool + 'static,
+    {
+        self.register_arc(source, Arc::new(tool))
+    }
+
+    pub fn register_arc(&mut self, source: ToolSource, tool: Arc<dyn Tool>) -> Result<()> {
         let spec = tool.spec();
-        if self.tools.contains_key(&spec.name) {
-            return Err(anyhow!("duplicate tool registration: {}", spec.name));
+        if let Some(existing) = self.tools.get(&spec.name) {
+            return Err(anyhow!(
+                "duplicate tool registration: {} from {} conflicts with {}",
+                spec.name,
+                source.label(),
+                existing.source.label()
+            ));
         }
-        self.tools.insert(spec.name, Arc::new(tool));
+        self.tools.insert(spec.name, ToolEntry { source, tool });
         Ok(())
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).map(|entry| entry.tool.clone())
+    }
+
+    pub fn entry(&self, name: &str) -> Option<ToolEntry> {
         self.tools.get(name).cloned()
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
-        let mut specs = self
+        let mut entries = self
             .tools
             .values()
-            .map(|tool| tool.spec())
+            .map(|entry| (entry.tool.spec(), entry.source.label()))
             .collect::<Vec<_>>();
-        specs.sort_by(|left, right| left.name.cmp(&right.name));
-        specs
+        entries.sort_by(|(left, left_source), (right, right_source)| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left_source.cmp(right_source))
+        });
+        entries.into_iter().map(|(spec, _source)| spec).collect()
     }
 
     pub fn spec(&self, name: &str) -> Result<ToolSpec> {

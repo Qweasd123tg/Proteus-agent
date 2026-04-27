@@ -5,10 +5,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use async_trait::async_trait;
-use clap::Parser;
-use modular_agent::domain::AgentOutput;
+use clap::{Parser, ValueEnum};
+use modular_agent::domain::{AgentOutput, PermissionMode};
 use modular_agent::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{AgentRuntime, AppConfig},
@@ -27,8 +27,31 @@ struct Cli {
     cwd: Option<PathBuf>,
     #[arg(short, long)]
     interactive: bool,
+    #[arg(long)]
+    plan: bool,
+    #[arg(long = "auto")]
+    auto_mode: bool,
+    #[arg(long, value_enum)]
+    permission_mode: Option<CliPermissionMode>,
     #[arg(trailing_var_arg = true)]
     task: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliPermissionMode {
+    Plan,
+    Normal,
+    Auto,
+}
+
+impl From<CliPermissionMode> for PermissionMode {
+    fn from(value: CliPermissionMode) -> Self {
+        match value {
+            CliPermissionMode::Plan => Self::Plan,
+            CliPermissionMode::Normal => Self::Normal,
+            CliPermissionMode::Auto => Self::Auto,
+        }
+    }
 }
 
 #[tokio::main]
@@ -38,7 +61,8 @@ async fn main() -> Result<()> {
         .config
         .clone()
         .or_else(AppConfig::default_user_config_path);
-    let config = AppConfig::load(cli.config.as_deref()).await?;
+    let mut config = AppConfig::load(cli.config.as_deref()).await?;
+    config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
     let cwd = match cli.cwd {
         Some(cwd) => cwd,
         None => std::env::current_dir()?,
@@ -70,6 +94,23 @@ async fn main() -> Result<()> {
     let output = runtime.run(cli.task.join(" ")).await?;
     println!("{}", runtime.render(&output).await?);
     Ok(())
+}
+
+fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<PermissionMode> {
+    let selected = [
+        cli.plan.then_some(PermissionMode::Plan),
+        cli.auto_mode.then_some(PermissionMode::Auto),
+        cli.permission_mode.map(Into::into),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    if selected.len() > 1 {
+        bail!("use only one of --plan, --auto, or --permission-mode");
+    }
+
+    Ok(selected.into_iter().next().unwrap_or(configured))
 }
 
 fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {

@@ -14,7 +14,8 @@ cargo test
 - `memory = none` и `memory = jsonl` не требуют изменений runtime;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
-- `ToolRegistry` запрещает duplicate names и возвращает tool specs в стабильном порядке;
+- `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
+- `PermissionMode::Plan` и `PermissionMode::Auto` меняют видимость tools без изменения runtime;
 - `apply_patch` применяет internal patch format только внутри workspace;
 - `write_file` не может выйти за workspace через parent traversal или symlink;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse`;

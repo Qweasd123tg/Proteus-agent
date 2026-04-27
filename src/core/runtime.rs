@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 use crate::{
     contracts::{ApprovalTransport, EventSink},
     core::{AppConfig, BuiltinRegistry, JsonlEventStore, SessionStore},
-    domain::{AgentOutput, AgentTask, Event, new_session_id},
+    domain::{AgentOutput, AgentTask, Event, PermissionMode, new_session_id},
     model_standard::CanonicalMessage,
     modules::HeadlessApprovalTransport,
 };
@@ -16,6 +16,7 @@ pub struct AgentRuntime {
     registry: BuiltinRegistry,
     event_sink: Arc<dyn EventSink>,
     approval: Arc<dyn ApprovalTransport>,
+    permission_mode: PermissionMode,
     history: Mutex<Vec<CanonicalMessage>>,
     session_store: Option<SessionStore>,
 }
@@ -45,6 +46,7 @@ impl AgentRuntime {
         config_path: Option<&std::path::Path>,
         approval: Arc<dyn ApprovalTransport>,
     ) -> Result<Self> {
+        let permission_mode = config.permissions.mode;
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
         let event_sink: Arc<dyn EventSink> =
             Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
@@ -56,6 +58,7 @@ impl AgentRuntime {
             registry,
             event_sink,
             approval,
+            permission_mode,
             history: Mutex::new(Vec::new()),
             session_store,
         })
@@ -80,12 +83,14 @@ impl AgentRuntime {
         event_sink: Arc<dyn EventSink>,
         approval: Arc<dyn ApprovalTransport>,
     ) -> Result<Self> {
+        let permission_mode = config.permissions.mode;
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
         Ok(Self {
             cwd,
             registry,
             event_sink,
             approval,
+            permission_mode,
             history: Mutex::new(Vec::new()),
             session_store: None,
         })
@@ -107,6 +112,7 @@ impl AgentRuntime {
             session_id,
             self.event_sink.clone(),
             self.approval.clone(),
+            self.permission_mode,
         );
         let history = self.history.lock().await.clone();
         let workflow_output = self

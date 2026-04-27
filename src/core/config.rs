@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::domain::ModelRef;
+use crate::domain::{ModelRef, PermissionMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -23,6 +23,8 @@ pub struct AppConfig {
     pub modules: ModulesConfig,
     #[serde(default)]
     pub tools: ToolsConfig,
+    #[serde(default)]
+    pub permissions: PermissionsConfig,
     #[serde(default)]
     pub policy: PolicyConfig,
     #[serde(default)]
@@ -99,6 +101,7 @@ impl Default for AppConfig {
             model: ModelConfig::default(),
             modules: ModulesConfig::default(),
             tools: ToolsConfig::default(),
+            permissions: PermissionsConfig::default(),
             policy: PolicyConfig::default(),
             search: SearchConfig::default(),
             context: ContextConfig::default(),
@@ -234,6 +237,12 @@ impl Default for ToolsConfig {
             enabled: default_tools(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PermissionsConfig {
+    #[serde(default)]
+    pub mode: PermissionMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

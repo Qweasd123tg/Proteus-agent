@@ -9,7 +9,10 @@ use crate::{
         ApprovalRequest, ContextBuildInput, PolicyContext, RuntimeContext, ToolContext, Workflow,
         WorkflowOutput,
     },
-    domain::{AgentOutput, AgentTask, ContextChunk, Event, PolicyDecision, ToolCall, ToolResult},
+    domain::{
+        AgentOutput, AgentTask, ContextChunk, Event, PermissionMode, PolicyDecision, ToolCall,
+        ToolResult, ToolSafety, ToolSpec,
+    },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, ContentPart, InstructionBlock, InstructionKind,
         MessageRole,
@@ -305,13 +308,7 @@ fn visible_tool_specs(ctx: &RuntimeContext, cwd: &Path) -> Vec<crate::domain::To
                 name: spec.name.clone(),
                 args: serde_json::Value::Null,
             };
-            match ctx.policy.evaluate(
-                &call,
-                &PolicyContext {
-                    cwd: cwd.to_path_buf(),
-                    tool_spec: Some(spec.clone()),
-                },
-            ) {
+            match evaluate_tool_access(ctx, cwd, &call, Some(spec.clone())) {
                 PolicyDecision::Allow => true,
                 PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
                 PolicyDecision::Deny { .. } => false,
@@ -330,13 +327,7 @@ async fn execute_tool_call(
         .await?;
 
     let tool_spec = ctx.tools.spec(&call.name).ok();
-    let decision = ctx.policy.evaluate(
-        &call,
-        &PolicyContext {
-            cwd: task.cwd.clone(),
-            tool_spec: tool_spec.clone(),
-        },
-    );
+    let decision = evaluate_tool_access(ctx, &task.cwd, &call, tool_spec.clone());
 
     match decision {
         PolicyDecision::Allow => invoke_allowed_tool(ctx, task, &call).await,
@@ -399,6 +390,44 @@ async fn execute_tool_call(
                 .await?;
             Ok(result)
         }
+    }
+}
+
+fn evaluate_tool_access(
+    ctx: &RuntimeContext,
+    cwd: &Path,
+    call: &ToolCall,
+    tool_spec: Option<ToolSpec>,
+) -> PolicyDecision {
+    let Some(spec) = tool_spec else {
+        return PolicyDecision::Deny {
+            reason: format!("unknown tool: {}", call.name),
+        };
+    };
+
+    match ctx.permission_mode {
+        PermissionMode::Plan => match spec.safety {
+            ToolSafety::ReadOnly => PolicyDecision::Allow,
+            _ => PolicyDecision::Deny {
+                reason: format!(
+                    "permission mode plan allows only read-only tools: {}",
+                    call.name
+                ),
+            },
+        },
+        PermissionMode::Auto => match spec.safety {
+            ToolSafety::Dangerous => PolicyDecision::Deny {
+                reason: format!("permission mode auto denies dangerous tool: {}", call.name),
+            },
+            _ => PolicyDecision::Allow,
+        },
+        PermissionMode::Normal => ctx.policy.evaluate(
+            call,
+            &PolicyContext {
+                cwd: cwd.to_path_buf(),
+                tool_spec: Some(spec),
+            },
+        ),
     }
 }
 

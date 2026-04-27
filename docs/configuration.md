@@ -135,6 +135,24 @@ Default env vars:
 
 `tools.enabled` определяет, какие tools попадут в `ToolRegistry` и будут видны модели. Имена должны быть уникальными; duplicate tool registration считается ошибкой конфигурации.
 
+## Permissions
+
+```json
+{
+  "permissions": {
+    "mode": "normal"
+  }
+}
+```
+
+`permissions.mode` поддерживает:
+
+- `plan` - только read-only tools;
+- `normal` - `ApprovalPolicy` + `ApprovalTransport`;
+- `auto` - все не-`Dangerous` tools без approval.
+
+CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют config для текущего запуска.
+
 ## Policy
 
 ```json

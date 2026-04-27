@@ -34,6 +34,9 @@ bar_width = 10
 [tools]
 enabled = ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
 
+[permissions]
+mode = "normal"
+
 [policy.ask_write]
 ask_before = ["apply_patch", "write_file", "shell"]
 allow = ["read_file", "list_dir", "search"]

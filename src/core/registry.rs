@@ -6,15 +6,14 @@ use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
         ApprovalPolicy, ContextBuilder, EventSink, MemoryStore, ModelClient, PatchApplier,
-        Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow,
+        Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow, register_provider_tools,
     },
     core::AppConfig,
     domain::SessionId,
     modules::{
-        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, DirectPatchApplier, FakeModelClient,
-        JsonlMemory, ListDirTool, NoMemory, NullSearch, PlainRenderer, ReadFileTool, RgSearch,
-        SearchTool, ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
-        WriteFileTool,
+        AllowAllPolicy, AskWritePolicy, BuiltinToolProvider, DirectPatchApplier, FakeModelClient,
+        JsonlMemory, NoMemory, NullSearch, PlainRenderer, RgSearch, SimpleContextBuilder,
+        SingleLoopWorkflow, StatuslineRenderer,
     },
 };
 
@@ -73,17 +72,9 @@ impl BuiltinRegistry {
         };
 
         let mut tools = ToolRegistry::new();
-        for tool in &config.tools.enabled {
-            match tool.as_str() {
-                "read_file" => tools.register(ReadFileTool)?,
-                "list_dir" => tools.register(ListDirTool)?,
-                "apply_patch" => tools.register(ApplyPatchTool::new(patch.clone()))?,
-                "write_file" => tools.register(WriteFileTool)?,
-                "shell" => tools.register(ShellTool)?,
-                "search" => tools.register(SearchTool::new(search.clone()))?,
-                name => bail!("unsupported tool: {name}"),
-            }
-        }
+        let builtin_tools =
+            BuiltinToolProvider::new(config.tools.enabled.clone(), search.clone(), patch.clone());
+        register_provider_tools(&mut tools, &builtin_tools)?;
 
         let policy: Arc<dyn ApprovalPolicy> = match config.modules.policy.as_str() {
             "allow_all" => Arc::new(AllowAllPolicy),
@@ -138,6 +129,7 @@ impl BuiltinRegistry {
         session_id: SessionId,
         event_sink: Arc<dyn EventSink>,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
+        permission_mode: crate::domain::PermissionMode,
     ) -> RuntimeContext {
         RuntimeContext {
             session_id,
@@ -150,6 +142,7 @@ impl BuiltinRegistry {
             tools: self.tools.clone(),
             policy: self.policy.clone(),
             approval,
+            permission_mode,
             patch: self.patch.clone(),
         }
     }

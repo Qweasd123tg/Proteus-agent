@@ -8,7 +8,7 @@ use crate::{
         ApprovalPolicy, ApprovalTransport, ContextBuilder, EventSink, MemoryStore, ModelClient,
         PatchApplier, SearchBackend, ToolRegistry,
     },
-    domain::{AgentOutput, AgentTask, ModelRef, SessionId},
+    domain::{AgentOutput, AgentTask, ModelRef, PermissionMode, SessionId},
     model_standard::CanonicalMessage,
 };
 
@@ -24,6 +24,7 @@ pub struct RuntimeContext {
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub approval: Arc<dyn ApprovalTransport>,
+    pub permission_mode: PermissionMode,
     pub patch: Arc<dyn PatchApplier>,
 }
 

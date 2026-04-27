@@ -90,15 +90,24 @@ Runtime зависит от `ModelClient`, а provider adapters отвечают
 enabled = ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
 ```
 
-Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые `BuiltinRegistry` регистрирует в `ToolRegistry` по списку `tools.enabled`.
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через `ToolProvider` и регистрируются в `ToolRegistry` по списку `tools.enabled`.
 
-Каждый tool возвращает `ToolSpec` с `ToolSafety`. Policy принимает решение на основе имени tool и safety class. `ToolRegistry` запрещает duplicate names, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
+Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool (`builtin`, в будущем `mcp`/`dynamic`), запрещает duplicate names, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
 
-`ToolRegistry` хранит все включённые tools. `SingleLoopWorkflow` показывает модели tools, которые policy разрешает сразу, а также tools с `Ask`, если в runtime подключён интерактивный `ApprovalTransport`. Execution path всё равно повторно проверяет каждый `ToolCall` через policy перед `Tool::invoke`.
+`ToolRegistry` хранит все включённые tools. `SingleLoopWorkflow` показывает модели tools согласно `permissions.mode`: в `plan` только `ReadOnly`, в `normal` через policy/approval, в `auto` все не-`Dangerous`. Execution path всё равно повторно проверяет каждый `ToolCall` через тот же gate перед `Tool::invoke`.
+
+## Permissions
+
+```toml
+[permissions]
+mode = "normal"
+```
+
+Поддерживаются `plan`, `normal` и `auto`. `plan` удобен для анализа без записи и shell. `normal` является default и использует `ApprovalPolicy`. `auto` нужен для доверенного окружения и не запрашивает approval для `WritesFiles`, `RunsCommands` и `Network`.
 
 ## Policy
 
-`ask_write`:
+`ask_write` в `permissions.mode = "normal"`:
 
 - разрешает tools из `policy.ask_write.allow`;
 - требует approval для tools из `policy.ask_write.ask_before`;

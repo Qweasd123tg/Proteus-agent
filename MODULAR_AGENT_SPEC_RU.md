@@ -135,7 +135,7 @@ Core не отвечает за:
 | `SearchBackend` | поиск по проекту | `RgSearch` / `NullSearch` | repo map, tree-sitter, semantic |
 | `MemoryStore` | память | `NoMemory` / `JsonlMemory` | SQLite, vector, hybrid |
 | `ContextBuilder` | сбор контекста | `SimpleContextBuilder` | budgeted, repo-aware, memory-aware |
-| `ToolRegistry` | доступные tools | hardcoded tools | dynamic registry, MCP later |
+| `ToolRegistry` + `ToolProvider` | доступные tools | builtin provider + source-aware registry | dynamic registry, MCP later |
 | `ApprovalPolicy` | разрешения | `AskWritePolicy` | strict, trusted, headless |
 | `PatchApplier` | применение изменений | direct write | unified diff, git-aware patch |
 | `Workflow` | ход агента | `SingleLoopWorkflow` | plan/execute/review, subagents later |
@@ -519,6 +519,13 @@ pub enum ToolSafety {
     Network,
     Dangerous,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum PermissionMode {
+    Plan,
+    Normal,
+    Auto,
+}
 ```
 
 Adapter уже сам превращает `ToolSpec` в OpenAI/Anthropic/local schema.
@@ -595,6 +602,13 @@ pub trait ContextBuilder: Send + Sync {
 pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
     async fn invoke(&self, input: ToolInput, ctx: ToolContext) -> anyhow::Result<ToolResult>;
+}
+```
+
+```rust
+pub trait ToolProvider: Send + Sync {
+    fn name(&self) -> &str;
+    fn tools(&self) -> anyhow::Result<Vec<ProvidedTool>>;
 }
 ```
 
@@ -718,11 +732,14 @@ patch = "direct"
 renderer = "plain"
 
 [tools]
-enabled = ["read_file", "write_file", "shell", "search"]
+enabled = ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
+
+[permissions]
+mode = "normal"
 
 [policy.ask_write]
-ask_before = ["write_file", "shell"]
-allow = ["read_file", "search"]
+ask_before = ["apply_patch", "write_file", "shell"]
+allow = ["read_file", "list_dir", "search"]
 
 [search.rg]
 max_results = 50

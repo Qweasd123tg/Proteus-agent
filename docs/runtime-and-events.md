@@ -17,6 +17,9 @@ cargo run -- --interactive
 
 ```bash
 cargo run -- summarize project
+cargo run -- --plan summarize project
+cargo run -- --auto apply patch
+cargo run -- --permission-mode normal summarize project
 ```
 
 Явный рабочий каталог:
@@ -110,13 +113,15 @@ Event log является трассой runtime-событий. Каждый e
 4. пишет `ContextBuilt`;
 5. собирает `CanonicalModelRequest`;
 6. вызывает `ModelClient::complete`;
-7. если модель вернула tool calls, прогоняет их через `ApprovalPolicy` и `ToolRegistry`;
+7. если модель вернула tool calls, прогоняет их через `PermissionMode`, `ApprovalPolicy` и `ToolRegistry`;
 8. добавляет `ToolResult` в canonical messages;
 9. повторяет model call до финального ответа или лимита rounds;
 10. пишет `TurnFinished`.
 
-Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolRegistry` и `ApprovalPolicy`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
+Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolRegistry` и permission gate, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
 
 Лимит tool rounds: `4`.
 
 Если approval требуется, workflow отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.
+
+`permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает все не-`Dangerous` tools без approval.
