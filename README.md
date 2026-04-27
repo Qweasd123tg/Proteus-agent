@@ -30,6 +30,7 @@ Rust CLI-first каркас для модульного coding-agent.
 - permission modes: `plan`, `normal`, `auto`;
 - `ask_write` и `allow_all` policies;
 - JSONL event log и session history;
+- app-server boundary для внешних UI-клиентов через `AppServerEvent`;
 - module-swap тесты для search, memory, policy и canonical model contract.
 
 ## Быстрый Запуск
@@ -113,17 +114,37 @@ export PATH="$HOME/.local/bin:$PATH"
 ```text
 agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
 agent modules list
+agent server stdio
 ```
 
 - `--config PATH` читает JSON/TOML файл или директорию с `*.toml`/`*.json`;
 - `--cwd PATH` задаёт рабочий каталог агента;
 - `-i`, `--interactive` принудительно открывает REPL;
 - `modules list` показывает встроенный `BuiltinModuleCatalog`;
+- `server stdio` запускает экспериментальный headless app-server с JSONL-протоколом поверх stdin/stdout;
 - `TASK...` запускает одну задачу без REPL.
 
 Если `TASK` не указан, агент открывает REPL.
 
 В обычном TTY интерактивный режим запускает `ratatui` presenter. `src/tui.rs` собирает runtime events, approvals, streaming и ввод, а `src/tui/visual.rs` принимает `VisualState` и рендерит Codex/OpenCode-like transcript, composer/footer, tool activity и approval modal. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Если stdin/stdout не являются TTY, используется line REPL fallback.
+
+`agent server stdio` нужен как основа для вынесенных визуальных клиентов. Процесс читает JSONL-команды:
+
+```json
+{"id":"1","type":"send","text":"summarize project"}
+{"id":"2","type":"clear_history"}
+{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null}
+{"id":"4","type":"shutdown"}
+```
+
+И пишет JSONL-ответы/события:
+
+```json
+{"type":"event","event":{"type":"user_message_submitted","text":"summarize project"}}
+{"type":"response","id":"1","ok":true,"output":{"text":"...","metadata":{}},"error":null}
+```
+
+Это transport поверх `src/app_server.rs`; будущие socket/http/ACP-клиенты должны цепляться к той же границе, а не к `AgentRuntime` напрямую.
 
 ## Конфигурация
 

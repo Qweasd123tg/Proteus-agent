@@ -30,6 +30,14 @@ cargo run -- --permission-mode normal summarize project
 cargo run -- --cwd /path/to/project summarize project
 ```
 
+Headless app-server для внешнего UI:
+
+```bash
+cargo run -- server stdio
+```
+
+`server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой поверх `src/app_server.rs`, а не новая runtime-логика.
+
 ## REPL Commands
 
 ```text
@@ -94,6 +102,31 @@ event
 `PatchApplied` существует в enum, но текущий `SingleLoopWorkflow` его не испускает. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 `MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
+
+## App Server Boundary
+
+`src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport; будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
+
+События app-server:
+
+- `Runtime` - проброшенный runtime `Event`;
+- `UserMessageSubmitted` - пользовательская команда принята;
+- `TurnOutput` - итоговый `AgentOutput`;
+- `ApprovalRequested` - tool approval ждёт решения UI-клиента;
+- `ApprovalResolved` - approval закрыт;
+- `Error` - ошибка app-server/runtime;
+- `Shutdown` - процесс/сессия закрывается.
+
+Команды `server stdio`:
+
+```json
+{"id":"1","type":"send","text":"summarize project"}
+{"id":"2","type":"clear_history"}
+{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null}
+{"id":"4","type":"shutdown"}
+```
+
+Каждая строка stdout является либо `event`, либо `response`. `send` запускает turn асинхронно, поэтому UI может отправить `approval` в тот же процесс, пока turn ждёт решения.
 
 ## Session Store
 

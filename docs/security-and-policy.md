@@ -84,7 +84,7 @@ Config-defined `process` и stdio `mcp` tools также считаются comm
 
 Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
 
-Headless runtime и текущий TUI используют headless transport, поэтому `Ask` завершается отказом. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+Headless runtime без approval transport отказывает `Ask`. App-server transport публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если клиент не отвечает, turn продолжает ждать решение. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 
 Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
 

@@ -38,6 +38,12 @@ src/modules/memory/*.rs   -> concrete implementations: none, jsonl
 
 CLI не должен владеть бизнес-логикой runtime.
 
+### App Server Boundary
+
+`src/app_server.rs` является границей для внешних UI-клиентов. Он создаёт `AgentRuntime`, публикует `AppServerEvent`, принимает пользовательские сообщения, прокидывает approval requests и умеет очищать history. Это не часть core и не provider-specific adapter: transport-код может меняться, а runtime остаётся за тем же contract/DTO слоем.
+
+Текущий transport подключён командой `agent server stdio`. Он читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Socket/http/ACP можно добавлять поверх этой же границы как planned transport, не связывая core с конкретной TUI.
+
 ### Core
 
 `src/core` отвечает за:
@@ -174,6 +180,6 @@ task
 - Tools подключаются через `BuiltinToolProvider`; MCP provider ещё не реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому активный путь использует только `recall` через `SimpleContextBuilder`.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
-- Approval transport подключён для CLI single-run и line REPL. TUI пока использует headless отказ для tools, требующих approval.
+- Approval transport подключён для CLI single-run, line REPL и app-server clients. UI-клиент app-server должен ответить на `ApprovalRequested`; без ответа turn будет ждать решение.
 
 Эти ограничения нужно описывать как состояние v0, а не как архитектурный дефект.
