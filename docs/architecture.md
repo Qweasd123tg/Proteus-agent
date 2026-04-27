@@ -97,7 +97,7 @@ Provider-specific schema не должна протекать в workflow, memor
 
 ### Modules
 
-`src/modules` содержит встроенные реализации contracts:
+`src/modules` содержит встроенные реализации contracts, сгруппированные по slot/type:
 
 - fake model;
 - search;

@@ -7,8 +7,9 @@ use serde_json::json;
 use crate::{
     contracts::{Tool, ToolContext},
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
-    modules::required_path,
 };
+
+use super::read::required_path;
 
 #[derive(Debug)]
 pub struct WriteFileTool;

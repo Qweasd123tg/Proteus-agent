@@ -802,21 +802,39 @@ agent/
 
     modules/
       mod.rs
-      model_fake.rs
-      search_rg.rs
-      search_null.rs
-      memory_none.rs
-      memory_jsonl.rs
-      context_simple.rs
-      policy_allow_all.rs
-      policy_ask_write.rs
-      tools_read.rs
-      tools_write.rs
-      tools_shell.rs
-      tools_search.rs
-      patch_direct.rs
-      workflow_single_loop.rs
-      renderer_plain.rs
+      model/
+        mod.rs
+        fake.rs
+      search/
+        mod.rs
+        rg.rs
+        null.rs
+      memory/
+        mod.rs
+        none.rs
+        jsonl.rs
+      context/
+        mod.rs
+        simple.rs
+      policy/
+        mod.rs
+        allow_all.rs
+        ask_write.rs
+      tools/
+        mod.rs
+        read.rs
+        write.rs
+        shell.rs
+        search.rs
+      patch/
+        mod.rs
+        direct.rs
+      workflow/
+        mod.rs
+        single_loop.rs
+      renderer/
+        mod.rs
+        plain.rs
 
     adapters/
       mod.rs
@@ -1159,7 +1177,7 @@ Project structure should follow:
 - src/contracts
 - src/model_standard
 - src/core
-- src/modules
+- src/modules/{model,search,memory,context,policy,tools,patch,workflow,renderer}
 - src/adapters
 
 Focus on clean boundaries, not features.

@@ -19,7 +19,7 @@ Rust CLI-first каркас для модульного coding-agent.
 - стабильные DTO в `src/domain` и `src/model_standard`;
 - trait-контракты в `src/contracts`;
 - wiring и lifecycle в `src/core`;
-- встроенные модули в `src/modules`;
+- встроенные модули в `src/modules`, сгруппированные по slot/type;
 - fake model, OpenAI Responses adapter, Anthropic Messages adapter;
 - `null`/`rg` search, `none`/`jsonl` memory;
 - `read_file`, `write_file`, `shell`, `search` tools;
