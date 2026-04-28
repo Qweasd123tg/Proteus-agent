@@ -181,6 +181,41 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 `tools.configured` остаётся доступным для inline tools. `AGENT_TOOLS_PATH`
 может переопределить default tools directory, если path не указан в config.
 
+Схема одного элемента `tools.configured`:
+
+| Поле | Значение |
+|---|---|
+| `name` | уникальное имя tool для модели и policy |
+| `description` | описание tool в `ToolSpec` |
+| `input_schema` | JSON Schema для аргументов модели; default `{ "type": "object", "additionalProperties": true }` |
+| `safety` | `ReadOnly`, `WritesFiles`, `RunsCommands`, `Network` или `Dangerous` |
+| `timeout_ms` | optional timeout на исполнение |
+| `metadata` | arbitrary JSON metadata в `ToolSpec` |
+| `executor` | target executor; `kind` равен `native`, `process` или `mcp` |
+
+Inline пример:
+
+```toml
+[tools]
+enabled = []
+
+[[tools.configured]]
+name = "echo_args"
+description = "Echo model arguments through a fixed process."
+safety = "RunsCommands"
+timeout_ms = 5000
+input_schema = { type = "object", additionalProperties = true }
+
+[tools.configured.executor]
+kind = "process"
+command = "python3"
+args = ["tools/echo_args.py"]
+```
+
+Для `native` executor указывается `handler`, например
+`handler = "read_file"`. Для `mcp` executor указываются `command`, optional
+`args`, optional `server`, remote `tool` и optional `protocol_version`.
+
 Сейчас поддержаны executors `native`, `process` и `mcp`.
 
 `native` использует встроенный Rust handler (`read_file`, `list_dir`, `apply_patch`, `write_file`, `shell`, `search`), но `ToolSpec` берёт из config. Это позволяет тестировать стандартные tools без магического списка в runtime config.
@@ -212,8 +247,8 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют config для текущего запуска.
 
 Более гибкая table-driven схема прав (`hide`/`deny`/`ask`/`allow`,
-priority, per-tool limits) пока является planned design и описана в
-[rights-and-modules.md](rights-and-modules.md).
+priority, per-tool limits) пока является planned design. Текущая реализация
+использует `permissions.mode`, `ToolSafety` и `ApprovalPolicy`.
 
 ## Policy
 

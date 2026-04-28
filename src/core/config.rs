@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 
 use crate::domain::{ModelRef, PermissionMode};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
     pub profile: ProfileConfig,
@@ -161,26 +161,6 @@ impl AppConfig {
         }
 
         config_root(config_path).map(|root| root.join("tools"))
-    }
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            profile: ProfileConfig::default(),
-            active_provider: None,
-            providers: BTreeMap::new(),
-            model: ModelConfig::default(),
-            modules: ModulesConfig::default(),
-            tools: ToolsConfig::default(),
-            permissions: PermissionsConfig::default(),
-            policy: PolicyConfig::default(),
-            search: SearchConfig::default(),
-            context: ContextConfig::default(),
-            memory: MemoryConfig::default(),
-            renderer: RendererConfig::default(),
-            event_log: EventLogConfig::default(),
-        }
     }
 }
 
@@ -363,18 +343,10 @@ pub struct PermissionsConfig {
     pub mode: PermissionMode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PolicyConfig {
     #[serde(default)]
     pub ask_write: AskWritePolicyConfig,
-}
-
-impl Default for PolicyConfig {
-    fn default() -> Self {
-        Self {
-            ask_write: AskWritePolicyConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -394,18 +366,10 @@ impl Default for AskWritePolicyConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchConfig {
     #[serde(default)]
     pub rg: RgSearchConfig,
-}
-
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self {
-            rg: RgSearchConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,18 +386,10 @@ impl Default for RgSearchConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryConfig {
     #[serde(default)]
     pub jsonl: JsonlMemoryConfig,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            jsonl: JsonlMemoryConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,18 +412,10 @@ pub struct EventLogConfig {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RendererConfig {
     #[serde(default)]
     pub statusline: StatuslineRendererConfig,
-}
-
-impl Default for RendererConfig {
-    fn default() -> Self {
-        Self {
-            statusline: StatuslineRendererConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -665,18 +613,10 @@ fn default_max_results() -> usize {
     50
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContextConfig {
     #[serde(default)]
     pub simple: SimpleContextConfig,
-}
-
-impl Default for ContextConfig {
-    fn default() -> Self {
-        Self {
-            simple: SimpleContextConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

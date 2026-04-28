@@ -39,7 +39,7 @@ impl StdioRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StdioOutput {
     Event {
-        event: AppServerEvent,
+        event: Box<AppServerEvent>,
     },
     Response {
         id: Option<String>,

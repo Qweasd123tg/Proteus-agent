@@ -14,7 +14,7 @@ Rust CLI-first каркас для модульного coding-agent.
 
 Это не динамическая plugin-система и не клон Claude Code, Codex CLI, OpenCode или ForgeCode. В текущей версии модульность означает выбор встроенных реализаций через config.
 
-Текущая граница ядра зафиксирована в [docs/ARCHITECTURE_STATUS.md](docs/ARCHITECTURE_STATUS.md).
+Текущая граница ядра описана в [docs/architecture.md](docs/architecture.md).
 
 ## Что Уже Есть
 
@@ -134,38 +134,19 @@ agent server stdio
 
 Если `TASK` не указан, агент открывает REPL.
 
-Интерактивный режим внутри этого binary использует line REPL. Полноценный visual layer не входит в проект и должен подключаться как внешний client через `agent server stdio`.
-
-`agent server stdio` нужен как основа для вынесенных визуальных клиентов. Процесс читает JSONL-команды:
-
-```json
-{"id":"1","type":"send","text":"summarize project"}
-{"id":"2","type":"clear_history"}
-{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null}
-{"id":"4","type":"shutdown"}
-```
-
-И пишет JSONL-ответы/события:
-
-```json
-{"type":"event","event":{"type":"user_message_submitted","text":"summarize project"}}
-{"type":"response","id":"1","ok":true,"output":{"text":"...","metadata":{}},"error":null}
-```
-
-Это transport из `src/app_server/stdio.rs` поверх boundary в `src/app_server.rs`; будущие socket/http/ACP-клиенты должны цепляться к той же границе, а не к `AgentRuntime` напрямую.
+Интерактивный режим внутри этого binary использует line REPL. Полноценный visual
+layer не входит в проект и должен подключаться как внешний client через
+`agent server stdio`. JSONL protocol и event/session details описаны в
+[docs/runtime-and-events.md](docs/runtime-and-events.md).
 
 ## Конфигурация
 
-Без `--config` агент пытается найти пользовательский конфиг в таком порядке:
+Без `--config` агент ищет пользовательский config через `AGENT_CONFIG_PATH`,
+`AGENT_CONFIG_HOME/configs` и стандартный
+`$HOME/.config/agent-qweasd123tg/configs`. Если путь не найден, используются
+defaults из `AppConfig`.
 
-1. `AGENT_CONFIG_PATH`;
-2. `AGENT_CONFIG_HOME/configs`;
-3. `$HOME/.config/agent-qweasd123tg/configs`;
-4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`, если `HOME` недоступен.
-
-Если путь не найден, используются defaults из `AppConfig`. Если путь является директорией, все `*.toml` и `*.json` внутри неё читаются в сортированном порядке и merge-ятся в один итоговый `AppConfig`.
-
-Рекомендуемый пользовательский layout:
+Рекомендуемый layout:
 
 ```bash
 mkdir -p "$HOME/.config/agent-qweasd123tg/configs"
@@ -179,84 +160,31 @@ mkdir -p "$HOME/.config/agent-qweasd123tg/configs"
     03-runtime.toml
 ```
 
-Single-file JSON/TOML через `--config` остаётся поддержан для smoke tests и переносимых профилей.
-
-В `config.example.json` основной формат такой:
-
-```json
-{
-  "active_provider": "anthropic",
-  "providers": {
-    "anthropic": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
-      "api_key": "sk-ant-...",
-      "base_url": "https://api.anthropic.com",
-      "auth": "x-api-key",
-      "api_version": "2023-06-01"
-    },
-    "local": {
-      "provider": "openai_compatible",
-      "model": "local-model-name",
-      "api_key": "not-needed",
-      "base_url": "http://127.0.0.1:11434/v1"
-    }
-  }
-}
-```
-
-`agent.example.toml` оставлен как dev/smoke-test профиль с прямым `[model]`,
-явными runtime sections и включёнными built-in tools. Для сценария
-bring-your-own tools есть `agent.advanced.example.toml`: там
-`tools.enabled = []`, а tools по умолчанию читаются из директории `tools`
-рядом с config root.
-
-Внешний вид финального CLI-вывода выбирается через renderer module. Например, compact statusline с моделью, контекстом и id сессии:
-
-```toml
-[modules]
-renderer = "statusline"
-
-[renderer.statusline]
-components = ["model", "context", "session"]
-position = "bottom"
-frame = "block"
-separator = " | "
-```
-
-Подробнее: [docs/configuration.md](docs/configuration.md).
+Single-file JSON/TOML через `--config` остаётся поддержан для smoke tests и
+переносимых профилей. Полная schema, provider profiles, tools и renderer
+описаны в [docs/configuration.md](docs/configuration.md).
 
 ## Runtime Данные
 
-Event log по умолчанию пишется в рабочем каталоге:
+Event log по умолчанию пишется в рабочем каталоге, а session history при
+наличии config path хранится рядом с config root:
 
 ```text
 .agent/events.jsonl
-```
-
-Если используется пользовательский config path, history сессий хранится рядом с директорией конфига:
-
-```text
 sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>/messages.jsonl
 ```
-
-Один `AgentRuntime` держит один `SessionId`; каждый prompt внутри него получает новый `TurnId`.
-
-Пример: `/home/game` кодируется как `home|game`.
 
 Подробнее: [docs/runtime-and-events.md](docs/runtime-and-events.md).
 
 ## Документация
 
-- [docs/ARCHITECTURE_STATUS.md](docs/ARCHITECTURE_STATUS.md) - текущая граница ядра;
-- [docs/MODULAR_AGENT_SPEC_RU.md](docs/MODULAR_AGENT_SPEC_RU.md) - архитектурная цель и рамка проекта;
-- [docs/architecture.md](docs/architecture.md) - фактическая архитектура v0;
+- [docs/architecture.md](docs/architecture.md) - фактическая архитектура v0 и текущая граница ядра;
 - [docs/modules.md](docs/modules.md) - module slots и встроенные реализации;
 - [docs/configuration.md](docs/configuration.md) - конфиг, providers, modules, secrets;
-- [docs/rights-and-modules.md](docs/rights-and-modules.md) - planned config-editable права tools/modules;
 - [docs/runtime-and-events.md](docs/runtime-and-events.md) - REPL, session store, event log;
 - [docs/security-and-policy.md](docs/security-and-policy.md) - tools, workspace boundary, approval policy;
 - [docs/testing.md](docs/testing.md) - тестирование модульности и контрактов;
+- [docs/MODULAR_AGENT_SPEC_RU.md](docs/MODULAR_AGENT_SPEC_RU.md) - длинный vision/spec и planned направления;
 - [AGENTS.md](AGENTS.md) - правила работы для агентов и контрибьюторов.
 
 ## Проверка

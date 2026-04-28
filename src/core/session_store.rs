@@ -109,8 +109,6 @@ fn sanitize_path_part(input: &str) -> String {
     for ch in input.trim().chars() {
         if ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.') {
             out.push(ch);
-        } else if ch.is_whitespace() {
-            out.push('_');
         } else {
             out.push('_');
         }

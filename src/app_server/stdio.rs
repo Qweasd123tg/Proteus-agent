@@ -29,7 +29,13 @@ pub async fn run_stdio_app_server(
             match events.recv().await {
                 Ok(event) => {
                     let should_stop = matches!(event, AppServerEvent::Shutdown);
-                    if event_tx.send(StdioOutput::Event { event }).await.is_err() {
+                    if event_tx
+                        .send(StdioOutput::Event {
+                            event: Box::new(event),
+                        })
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                     if should_stop {

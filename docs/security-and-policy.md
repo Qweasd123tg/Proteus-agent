@@ -7,9 +7,8 @@ Security v0 держится на четырёх уровнях:
 3. `ApprovalPolicy` принимает решение перед исполнением в `normal`;
 4. сами tools проверяют workspace/path ограничения.
 
-Будущая config-editable модель прав описана отдельно в
-[rights-and-modules.md](rights-and-modules.md). Этот документ ниже описывает
-текущую реализацию v0.
+Этот документ описывает текущую реализацию v0. Более гибкая config-editable
+модель прав остаётся planned и кратко описана в конце.
 
 В v0 нет полноценного OS sandbox. Текущая защита держится на workspace
 boundary, safety classes, permission mode и approval policy. Отдельный sandbox,
@@ -95,7 +94,7 @@ preview, а для `shell` - command, cwd и причину запуска. `app
 основным edit path; `write_file` нужен как более широкий fallback и должен быть
 видим пользователю как более рискованное действие.
 
-Headless runtime без approval transport отказывает `Ask`. App-server transport публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если клиент не отвечает, turn продолжает ждать решение. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+Headless runtime без approval transport отказывает `Ask`. App-server transport публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если запрос некому доставить, он отклоняется, а если клиент получил запрос и не отвечает, turn продолжает ждать решение. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 
 Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
 
@@ -104,6 +103,26 @@ Headless runtime без approval transport отказывает `Ask`. App-serve
 ## allow_all
 
 `allow_all` разрешает все tool calls. Используйте его только для тестов или доверенного окружения.
+
+## Planned Rights Model
+
+Table-driven права tools/modules пока не реализованы. Целевая форма должна
+оставить пользовательскую модель простой:
+
+```text
+config -> роль агента -> режим прав -> подключённые модули -> права tools/modules
+```
+
+Для tools планируется config с решениями `hide`, `deny`, `ask`, `allow`,
+`priority`, `timeout_ms` и per-tool output limits. `hide` влияет на model
+request, `deny` остаётся execution guard, `ask` требует approval, `allow`
+разрешает исполнение без approval. `ToolSafety` остаётся нижним safety floor:
+config не должен тихо превращать command/network/dangerous tool в безопасный.
+
+Для modules та же идея может появиться позже, но первый шаг должен быть по
+tools, потому что они уже имеют `ToolSafety`, `ToolRegistry`, approval и
+execution path. Package manager, marketplace, dynamic plugins, WASM и внешний
+process-module protocol в этот шаг не входят.
 
 ## Правила Для Новых Tools
 

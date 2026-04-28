@@ -42,7 +42,6 @@ Core не должен знать детали конкретного поиск
 - архитектурные границы: `docs/architecture.md`;
 - module slots: `docs/modules.md`;
 - config schema и examples: `docs/configuration.md`;
-- planned права tools/modules: `docs/rights-and-modules.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;

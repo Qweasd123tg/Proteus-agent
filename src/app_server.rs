@@ -194,15 +194,81 @@ fn spawn_approval_forwarder(
                 .await
                 .insert(approval_id.clone(), responder);
             let app_request = AppApprovalRequest {
-                approval_id,
+                approval_id: approval_id.clone(),
                 call: request.call,
                 cwd: request.cwd,
                 reason: request.reason,
                 tool_spec: request.tool_spec,
             };
-            let _ = events.send(AppServerEvent::ApprovalRequested {
-                request: app_request,
-            });
+            if events
+                .send(AppServerEvent::ApprovalRequested {
+                    request: app_request,
+                })
+                .is_err()
+                && let Some(responder) = pending_approvals.lock().await.remove(&approval_id)
+            {
+                let _ = responder.send(ApprovalResponse {
+                    approved: false,
+                    note: Some(
+                        "approval request could not be delivered to any app-server client"
+                            .to_owned(),
+                    ),
+                });
+            }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+
+    use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
+
+    use super::*;
+    use crate::{
+        contracts::ApprovalRequest,
+        domain::{ToolCall, new_call_id},
+        modules::PendingApproval,
+    };
+
+    #[tokio::test]
+    async fn approval_forwarder_denies_when_no_client_can_receive_request() {
+        let (approval_tx, approval_rx) = mpsc::channel(1);
+        let (events, _) = broadcast::channel(1);
+        let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+        spawn_approval_forwarder(approval_rx, events, pending_approvals.clone());
+
+        let (responder, response_rx) = oneshot::channel();
+        approval_tx
+            .send(PendingApproval {
+                request: ApprovalRequest {
+                    call: ToolCall {
+                        id: new_call_id(),
+                        name: "write_file".to_owned(),
+                        args: serde_json::json!({}),
+                    },
+                    cwd: PathBuf::from("."),
+                    reason: "test approval".to_owned(),
+                    tool_spec: None,
+                },
+                responder,
+            })
+            .await
+            .unwrap();
+
+        let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
+            .await
+            .expect("approval response should not hang")
+            .expect("approval responder should send denial");
+
+        assert!(!response.approved);
+        assert!(
+            response
+                .note
+                .as_deref()
+                .is_some_and(|note| note.contains("could not be delivered"))
+        );
+        assert!(pending_approvals.lock().await.is_empty());
+    }
 }

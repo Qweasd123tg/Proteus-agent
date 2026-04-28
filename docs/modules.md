@@ -12,9 +12,8 @@ agent modules list
 
 Эта команда читает `BuiltinModuleCatalog`; она не устанавливает модули и не является package manager.
 
-Целевая идея config-managed modules и прав описана в
-[rights-and-modules.md](rights-and-modules.md). В текущей реализации external
-process modules и package manager ещё не реализованы.
+В текущей реализации config-defined tools уже поддерживают process и stdio MCP
+executors, но external process modules и package manager ещё не реализованы.
 
 ## Slots
 
@@ -114,7 +113,7 @@ enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_fil
 # path omitted: no external tool manifests in quickstart profile
 ```
 
-Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Ближайший план - разделить quickstart/coding profile с включёнными built-in tools и advanced profile, где `tools.enabled = []`, а полный набор задаётся через `tools.path` или `tools.configured`.
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Quickstart/coding profile включает built-in tools через `tools.enabled`, а advanced profile может поставить полный набор через `tools.path` или `tools.configured` при `tools.enabled = []`.
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это
@@ -129,7 +128,7 @@ agent tools list
 
 Config-defined tools добавляются через manifests в `tools.path` или inline через `tools.configured`. В v0 поддержаны `native`, `process` и stdio `mcp` executors: config задаёт `ToolSpec`-поля и фиксированный executor target, а runtime регистрирует executor как обычный `Tool`. Вызов всё равно проходит через `ToolOrchestrator`, `PermissionMode` и `ApprovalPolicy`.
 
-Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool (`builtin`, в будущем `mcp`/`dynamic`), запрещает duplicate names, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
+Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool и показывает labels вида `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
 
 `ToolRegistry` хранит все включённые tools. `SingleLoopWorkflow` обращается к `ToolOrchestrator`, а тот показывает модели tools согласно `permissions.mode`: в `plan` только `ReadOnly`, в `normal` через policy/approval, в `auto` только `ReadOnly` и `WritesFiles`. `RunsCommands`, `Network` и `Dangerous` в `auto` не показываются и не исполняются без другого policy mode. Execution path повторно проверяет каждый `ToolCall` через тот же gate перед `Tool::invoke`.
 

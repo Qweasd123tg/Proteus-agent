@@ -236,10 +236,10 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
             Some("message") => {
                 if let Some(content) = item.get("content").and_then(Value::as_array) {
                     for content_item in content {
-                        if content_item.get("type").and_then(Value::as_str) == Some("output_text") {
-                            if let Some(text) = content_item.get("text").and_then(Value::as_str) {
-                                text_parts.push(text.to_owned());
-                            }
+                        if content_item.get("type").and_then(Value::as_str) == Some("output_text")
+                            && let Some(text) = content_item.get("text").and_then(Value::as_str)
+                        {
+                            text_parts.push(text.to_owned());
                         }
                     }
                 }

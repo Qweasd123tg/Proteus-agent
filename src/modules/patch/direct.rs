@@ -176,11 +176,11 @@ fn parse_add_file(parser: &mut PatchParser<'_>, path: &str) -> Result<PatchOpera
 
 fn parse_update_file(parser: &mut PatchParser<'_>, path: &str) -> Result<PatchOperation> {
     let mut move_to = None;
-    if let Some(line) = parser.peek() {
-        if let Some(target) = line.strip_prefix("*** Move to: ") {
-            parser.next();
-            move_to = Some(parse_patch_path(target)?);
-        }
+    if let Some(line) = parser.peek()
+        && let Some(target) = line.strip_prefix("*** Move to: ")
+    {
+        parser.next();
+        move_to = Some(parse_patch_path(target)?);
     }
 
     let mut hunks = Vec::new();

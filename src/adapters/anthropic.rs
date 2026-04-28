@@ -286,11 +286,9 @@ fn tool_result_block(result: &crate::domain::ToolResult) -> Value {
 fn push_message(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
     if let Some(last) = out.last_mut() {
         let same_role = last.get("role").and_then(Value::as_str) == Some(role);
-        if same_role {
-            if let Some(content) = last.get_mut("content").and_then(Value::as_array_mut) {
-                content.extend(blocks);
-                return;
-            }
+        if same_role && let Some(content) = last.get_mut("content").and_then(Value::as_array_mut) {
+            content.extend(blocks);
+            return;
         }
     }
 

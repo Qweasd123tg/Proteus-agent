@@ -145,7 +145,7 @@ impl Tool for ConfiguredMcpTool {
             .current_dir(ctx.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()?;
         let mut stdin = child

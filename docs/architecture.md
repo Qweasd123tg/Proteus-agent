@@ -1,6 +1,8 @@
 # Архитектура v0
 
-Этот документ описывает фактическую реализацию проекта. Текущая граница ядра зафиксирована в [ARCHITECTURE_STATUS.md](ARCHITECTURE_STATUS.md), а более широкий замысел и будущие направления лежат в [MODULAR_AGENT_SPEC_RU.md](MODULAR_AGENT_SPEC_RU.md).
+Этот документ описывает фактическую реализацию проекта и текущую границу ядра.
+Более широкий замысел и будущие направления лежат в
+[MODULAR_AGENT_SPEC_RU.md](MODULAR_AGENT_SPEC_RU.md).
 
 ## Коротко
 
@@ -13,6 +15,61 @@ CLI -> AgentRuntime -> BuiltinRegistry -> RuntimeContext -> Workflow
 `AppConfig` выбирает реализации по строковым ключам. `BuiltinModuleCatalog` хранит built-in manifests и factory lookup. `BuiltinRegistry` использует catalog и собирает trait-объекты. `AgentRuntime` запускает workflow и хранит историю. `Workflow` работает только с contracts и DTO.
 
 Это не hot-swap, не marketplace и не динамический plugin loader.
+
+## Статус Ядра
+
+Текущая стадия:
+
+```text
+prototype-1: stable core invariants
+```
+
+Проект уже не demo loop, но ещё не plugin platform, package manager,
+marketplace, MCP host или multi-agent runtime.
+
+Стабильные инварианты:
+
+- `AgentRuntime` владеет одним `SessionId` на runtime/session.
+- Каждый `run()` создаёт новый `TurnId`; runtime держит один primary `ThreadId`.
+- `run_lock` ограничивает runtime одним активным turn.
+- Events пишутся как `EventEnvelope`; fan-out sinks получают один и тот же
+  `event_id` и `seq`.
+- Conversation history и ephemeral context разделены: `ContentPart::Context`
+  отправляется модели в текущем turn, но не сохраняется в history или
+  `messages.jsonl`.
+- Tool execution проходит через `ToolOrchestrator`: visibility gate,
+  `ApprovalPolicy`, timeout и output truncation.
+- `PermissionMode::Auto` не разрешает `RunsCommands`, `Network` и `Dangerous`
+  tools по умолчанию.
+- Providers реализуют `ModelAdapter`; runtime вызывает их через `ModelService`,
+  который применяет `RequestShaper` с `ModelCapabilities`.
+- Provider-specific request/response shapes остаются в `src/adapters`.
+- `MemoryStore` и `MemoryPolicy` разделены.
+- Built-in module ids, manifests и factories собраны в `BuiltinModuleCatalog`;
+  `BuiltinRegistry` собирает runtime trait-объекты из config и catalog.
+
+Граница проекта:
+
+```text
+Core -> Contract -> Module Implementation
+```
+
+Core может знать config schema, active module ids, contract traits,
+domain/model DTO и runtime/session/event lifecycle. Core не должен знать
+provider wire formats, конкретный search/memory/patch algorithm, prompt style
+конкретного workflow или UI-specific approval/rendering details.
+
+Hot path файлы, требующие focused tests при изменениях:
+
+- `src/core/runtime.rs` - session/thread/turn lifecycle, history, memory hook.
+- `src/core/registry.rs` - сборка runtime trait-объектов.
+- `src/core/module_catalog.rs` - built-in manifests и factories.
+- `src/core/tool_orchestrator.rs` - visibility, approval, timeout, execution.
+- `src/core/event_store.rs` - event envelope storage/fan-out.
+- `src/contracts/*`, `src/domain/*`, `src/model_standard/*` - boundary DTO и
+  traits.
+- `src/modules/workflow/single_loop.rs` - текущий baseline workflow.
+- `src/main.rs` - CLI routing; runtime/business logic сюда не переносить.
 
 ## Слои
 
@@ -179,9 +236,12 @@ task
 
 - `ModuleManifest` участвует во внутреннем `BuiltinModuleCatalog`, но dynamic plugin loader, package manager и hot-reload ещё не реализованы.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
-- Tools подключаются через `BuiltinToolProvider`; MCP provider ещё не реализован, но `ToolRegistry` уже хранит source.
+- Tools подключаются через `BuiltinToolProvider` и config-defined executors; полноценный MCP provider/registry ещё не реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому активный путь использует только `recall` через `SimpleContextBuilder`.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
-- Approval transport подключён для CLI single-run, line REPL и app-server clients. UI-клиент app-server должен ответить на `ApprovalRequested`; без ответа turn будет ждать решение.
+- Approval transport подключён для CLI single-run, line REPL и app-server clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если запрос доставлен клиенту и тот не отвечает, turn будет ждать решение.
+- Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
+- Resume из event log, session restore, derived SQLite/index, real subagents/multiple threads и eval harness пока planned.
+- Repo-aware context builder, line-oriented read/edit/git tools, `plan_execute_review`, diff-first approval и JSON output mode для `modules list` пока planned.
 
 Эти ограничения нужно описывать как состояние v0, а не как архитектурный дефект.

@@ -1,1309 +1,201 @@
-# Modular Coding Agent Skeleton v0.1
+# Modular Coding Agent Skeleton
 
-Финальная стартовая спецификация для реализации Rust CLI-first модульного coding-agent каркаса.
+Этот документ фиксирует vision проекта и planned направления. Он не является
+reference по текущей реализации: фактическое состояние описано в
+`architecture.md`, `modules.md`, `configuration.md`, `runtime-and-events.md`,
+`security-and-policy.md` и `testing.md`.
 
-Цель документа: дать архитектурную рамку, с которой можно начинать писать код в Codex/Claude, не превращая проект сразу в тяжёлую платформу.
+## Главная Идея
 
-Статус документа: это vision/spec проекта. Фактическое состояние текущей реализации описано в `README.md` и документах из `docs/`.
-
----
-
-## 0. Главная идея
-
-Проект — это не клон Claude Code, Codex CLI, OpenCode или ForgeCode.
-
-Проект — это **модульный каркас-конструктор**:
-
-```text
-маленькое стабильное ядро
-+ заменяемые module slots
-+ простые DTO-контракты
-+ fake/stub реализации на старте
-+ возможность адаптировать чужие идеи/модули через adapters
-```
-
-Главная проверка архитектуры:
-
-```text
-Если заменить search=rg на search=repo_map,
-или memory=none на memory=jsonl,
-или model=fake на model=openai,
-core runtime не должен меняться.
-```
-
----
-
-## 1. Не-цели v0
-
-В первой версии не делать:
-
-- полноценный marketplace плагинов;
-- in-process hot-reload Rust dylib;
-- WASM runtime;
-- ACP/MCP как основу ядра;
-- произвольный multi-agent DAG;
-- обязательный RAG;
-- встроенный сложный visual client;
-- полноценный аналог Claude Code/Codex;
-- fork чужого проекта целиком.
-
-Разрешено делать тупые реализации, если контракт уже правильный.
-
----
-
-## 2. Архитектурный принцип
-
-### Правильная форма
+Проект является маленьким модульным каркасом для coding-agent:
 
 ```text
 Core -> Contract -> Module Implementation
 ```
 
-### Неправильная форма
+Core должен оставаться тонким composition/lifecycle слоем. Новое поведение
+добавляется через существующий slot или через явно добавленный contract, а не
+через прямую связку конкретных modules между собой.
+
+Практическая мотивация: новые agent-подходы должны встраиваться без форка
+чужого CLI и без повторной хирургии после каждого upstream release. Если новая
+статья, прототип или документация описывает полезный метод, он должен
+превращаться в module implementation существующего slot или в новый явно
+описанный contract. Если для внедрения нужно одновременно править core, CLI,
+workflow и renderer, граница проекта слабая.
+
+Например, новая идея может оказаться module implementation для context,
+workflow, tool, renderer, memory policy или model adapter. Debug/visibility
+часть такой идеи должна идти через renderer или app-server boundary, а не
+привязывать core к конкретному алгоритму.
+
+## Не-Цели
+
+Для v0 не делать:
+
+- marketplace и package manager;
+- dynamic Rust plugin loading;
+- WASM runtime и hot-reload modules;
+- ACP/MCP как основу ядра;
+- обязательный RAG;
+- multi-agent DAG;
+- перенос runtime/business logic в CLI/UI;
+- provider-specific DTO за пределами adapters/model shaping слоя.
+
+Config-defined process/MCP tools допустимы как tools executor surface, но это не
+означает готовую external module system или полноценный MCP registry.
+
+## Принцип Границ
+
+Правильная форма:
 
 ```text
-Module A -> Module B -> Module C -> Core знает всё обо всех
+domain DTO -> contract trait -> module implementation
+                         ^
+                         |
+                       core wiring
 ```
 
-Модули не должны зависеть друг от друга напрямую.
-Они могут общаться только через core/runtime context и DTO.
-
----
-
-## 3. Общий граф системы
-
-```mermaid
-flowchart TD
-    CLI[CLI] --> CORE[Agent Core]
-
-    CORE --> CFG[Config Loader]
-    CORE --> REG[Module Registry]
-    CORE --> BUS[Event Bus]
-    CORE --> STORE[Event Store JSONL]
-
-    REG --> MODEL[Model Slot]
-    REG --> SEARCH[Search Slot]
-    REG --> MEMORY[Memory Slot]
-    REG --> CONTEXT[Context Slot]
-    REG --> TOOLS[Tool Slot]
-    REG --> POLICY[Policy Slot]
-    REG --> PATCH[Patch Slot]
-    REG --> WORKFLOW[Workflow Slot]
-
-    MODEL --> MODEL_IMPL[Fake / OpenAI / Anthropic / Local]
-    SEARCH --> SEARCH_IMPL[Null / rg / repo_map / semantic later]
-    MEMORY --> MEMORY_IMPL[None / JSONL / SQLite later]
-    CONTEXT --> CONTEXT_IMPL[Simple / repo-aware / hybrid]
-    TOOLS --> TOOLS_IMPL[read / write / shell / search]
-    POLICY --> POLICY_IMPL[allow_all / ask_write / strict]
-    WORKFLOW --> WORKFLOW_IMPL[single_loop / plan_execute later]
-```
-
----
-
-## 4. Стабильное ядро
-
-Core должен быть маленьким и скучным.
-
-Core отвечает за:
-
-- загрузку конфига;
-- создание module registry;
-- wiring активных реализаций;
-- запуск workflow;
-- передачу DTO между модулями;
-- запись событий;
-- cancellation/timeout базового уровня;
-- централизованную обработку ошибок.
-
-Core не отвечает за:
-
-- конкретный prompt style;
-- конкретный поиск;
-- конкретную память;
-- конкретный provider;
-- конкретный patch algorithm;
-- конкретную политику approval.
-
----
-
-## 5. Module slots v0
-
-| Slot | Назначение | Стартовая реализация | Будущие реализации |
-|---|---|---|---|
-| `ModelClient` | общение с LLM | `FakeModelClient` | OpenAI, Anthropic, local, OpenAI-compatible |
-| `SearchBackend` | поиск по проекту | `RgSearch` / `NullSearch` | repo map, tree-sitter, semantic |
-| `MemoryStore` | память | `NoMemory` / `JsonlMemory` | SQLite, vector, hybrid |
-| `MemoryPolicy` | lifecycle записи памяти | `NoMemoryPolicy` | summary, reflection, user-facts |
-| `ContextBuilder` | сбор контекста | `SimpleContextBuilder` | budgeted, repo-aware, memory-aware |
-| `ToolRegistry` + `ToolProvider` | доступные tools | builtin provider + source-aware registry | dynamic registry, MCP later |
-| `ApprovalPolicy` | разрешения | `AskWritePolicy` | strict, trusted, headless |
-| `PatchApplier` | применение изменений | direct write | unified diff, git-aware patch |
-| `Workflow` | ход агента | `SingleLoopWorkflow` | `plan_execute_review`, subagents later |
-| `Renderer` | вывод | plain text | JSON, app-server/ACP clients later |
-
----
-
-## 6. Стандарт модуля
-
-Каждый модуль должен иметь manifest.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleManifest {
-    pub id: String,
-    pub kind: ModuleKind,
-    pub version: String,
-    pub api_version: String,
-    pub capabilities: Vec<String>,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ModuleKind {
-    Model,
-    Search,
-    Memory,
-    MemoryPolicy,
-    Context,
-    Tool,
-    Policy,
-    Patch,
-    Workflow,
-    Renderer,
-}
-```
-
-В текущей реализации manifests встроенных модулей собраны во внутреннем `BuiltinModuleCatalog`. Это ещё не пакетная система: catalog только связывает config ids, metadata и factory функции для built-in реализаций.
-
-Правило совместимости:
+Неправильная форма:
 
 ```text
-core.api_version == module.api_version
+runtime -> concrete search
+workflow -> concrete model provider
+tool -> concrete approval UI
+renderer -> workflow internals
 ```
 
-В v0 можно сделать проще: все built-in модули компилируются вместе, но manifest уже есть.
-
----
-
-## 7. Стандарт DTO
-
-На границах только простые сериализуемые типы.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTask {
-    pub text: String,
-    pub cwd: PathBuf,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextChunk {
-    pub source: String,
-    pub path: Option<PathBuf>,
-    pub content: String,
-    pub score: Option<f32>,
-    pub metadata: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextBundle {
-    pub chunks: Vec<ContextChunk>,
-    pub summary: Option<String>,
-    pub token_estimate: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: CallId,
-    pub name: String,
-    pub args: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolResult {
-    pub call_id: CallId,
-    pub ok: bool,
-    pub output: String,
-    pub error: Option<String>,
-    pub metadata: serde_json::Value,
-}
-```
-
----
-
-# 8. Стандартизация модельной архитектуры
-
-Это обязательный слой. Без него OpenAI/Anthropic/local-провайдеры начнут протекать во все модули.
-
-## 8.1 Цель
-
-Внутри системы должен существовать один canonical model format:
-
-```text
-Agent Core -> CanonicalModelRequest -> ModelAdapter -> Provider API
-Provider API -> ModelAdapter -> CanonicalModelResponse -> Agent Core
-```
-
-Core, workflow, tools, memory и context builder не должны знать, какой provider используется.
-
----
-
-## 8.2 Граф модельного слоя
-
-```mermaid
-flowchart TD
-    WF[Workflow] --> CB[ContextBuilder]
-    CB --> MR[CanonicalModelRequest]
-    MR --> SHAPER[RequestShaper]
-    SHAPER --> CAP[Capability Normalizer]
-    CAP --> ADAPTER[ModelAdapter]
-
-    ADAPTER --> OAI[OpenAI Adapter]
-    ADAPTER --> ANT[Anthropic Adapter]
-    ADAPTER --> LOC[Local/OpenAI-compatible Adapter]
-
-    OAI --> RESP[CanonicalModelResponse]
-    ANT --> RESP
-    LOC --> RESP
-    RESP --> WF
-```
-
----
-
-## 8.3 Canonical messages
-
-Не привязывать внутренние сообщения к OpenAI/Anthropic/Gemini schema.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MessageRole {
-    System,
-    Developer,
-    User,
-    Assistant,
-    Tool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanonicalMessage {
-    pub id: MessageId,
-    pub role: MessageRole,
-    pub parts: Vec<ContentPart>,
-    pub name: Option<String>,
-    pub tool_call_id: Option<CallId>,
-    pub metadata: serde_json::Value,
-}
-```
-
----
-
-## 8.4 Content parts
-
-Модельные сообщения должны быть typed, а не просто строки.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ContentPart {
-    Text { text: String },
-    Context { chunk: ContextChunk },
-    FileRef { path: PathBuf, content: Option<String> },
-    ToolCall { call: ToolCall },
-    ToolResult { result: ToolResult },
-    Patch { patch: Patch },
-    ReasoningSummary { text: String },
-}
-```
-
-В v0 достаточно `Text`, `ToolCall`, `ToolResult`, `Context`.
-Остальное можно добавить позже.
-
-Важно: не хранить и не требовать raw chain-of-thought. Разрешён только `ReasoningSummary`, если provider его отдаёт или если система сама делает summary.
-
----
-
-## 8.5 Canonical request
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanonicalModelRequest {
-    pub model: ModelRef,
-    pub instructions: Vec<InstructionBlock>,
-    pub messages: Vec<CanonicalMessage>,
-    pub tools: Vec<ToolSpec>,
-    pub tool_choice: ToolChoice,
-    pub response_format: ResponseFormat,
-    pub sampling: SamplingConfig,
-    pub reasoning: ReasoningConfig,
-    pub limits: ModelLimits,
-    pub cache: CacheHints,
-    pub metadata: serde_json::Value,
-}
-```
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstructionBlock {
-    pub kind: InstructionKind,
-    pub text: String,
-    pub priority: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum InstructionKind {
-    System,
-    Developer,
-    Project,
-    UserPreference,
-}
-```
-
-Почему инструкции отдельно от messages:
-
-- разные providers по-разному поддерживают system/developer/project rules;
-- request shaper может правильно собрать их под конкретную модель;
-- context builder не должен заниматься provider-specific prompt layout.
-
----
-
-## 8.6 Canonical response
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanonicalModelResponse {
-    pub message: CanonicalMessage,
-    pub tool_calls: Vec<ToolCall>,
-    pub finish_reason: FinishReason,
-    pub usage: Option<TokenUsage>,
-    pub provider_metadata: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FinishReason {
-    Stop,
-    ToolCalls,
-    Length,
-    ContentFilter,
-    Error,
-    Unknown,
-}
-```
-
-Даже если provider отдаёт tool calls внутри content blocks, adapter приводит их к `tool_calls`.
-
----
-
-## 8.7 Streaming standard
-
-Внутри core должен быть один stream event enum.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ModelStreamEvent {
-    TextDelta { text: String },
-    ToolCallDelta { call_id: CallId, name: Option<String>, args_delta: String },
-    ToolCallFinished { call: ToolCall },
-    ReasoningSummaryDelta { text: String },
-    Usage { usage: TokenUsage },
-    Done { finish_reason: FinishReason },
-    Error { message: String },
-}
-```
-
-CLI/UI/ACP потом будут слушать эти события, а не provider-specific stream.
-
----
-
-## 8.8 Model capabilities
-
-Каждый provider/model должен объявить capabilities.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelCapabilities {
-    pub supports_tools: bool,
-    pub supports_parallel_tool_calls: bool,
-    pub supports_streaming: bool,
-    pub supports_json_schema: bool,
-    pub supports_system_role: bool,
-    pub supports_developer_role: bool,
-    pub supports_cache_hints: bool,
-    pub supports_reasoning_config: bool,
-    pub supports_image_input: bool,
-    pub supports_file_input: bool,
-    pub max_input_tokens: Option<u32>,
-    pub max_output_tokens: Option<u32>,
-}
-```
-
-RequestShaper обязан:
-
-- удалить неподдерживаемые features;
-- downgrade-нуть request, если можно;
-- вернуть понятную ошибку, если нельзя;
-- записать event о downgrade.
-
----
-
-## 8.9 Model adapter trait
-
-```rust
-#[async_trait::async_trait]
-pub trait ModelAdapter: Send + Sync {
-    fn id(&self) -> &'static str;
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
-
-    async fn complete(
-        &self,
-        request: CanonicalModelRequest,
-    ) -> anyhow::Result<CanonicalModelResponse>;
-
-    async fn stream(
-        &self,
-        request: CanonicalModelRequest,
-    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<ModelStreamEvent>>>;
-}
-```
-
-`ModelClient` может быть обёрткой над `ModelAdapter + RequestShaper`.
-
----
-
-## 8.10 Provider-specific data
-
-Provider-specific настройки разрешены только здесь:
-
-```toml
-[model]
-provider = "openai"
-model = "gpt-x"
-
-[model.provider_config]
-reasoning_effort = "medium"
-service_tier = "auto"
-```
-
-Или:
-
-```toml
-[model]
-provider = "anthropic"
-model = "claude-x"
-
-[model.provider_config]
-thinking_budget_tokens = 4096
-cache_system_prompt = true
-```
-
-Core не должен читать `reasoning_effort` или `thinking_budget_tokens` напрямую.
-Это задача adapter/shaper.
-
----
-
-## 8.11 Tool schema standard
-
-Tool descriptions должны быть provider-neutral.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolSpec {
-    pub name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-    pub safety: ToolSafety,
-    pub timeout_ms: Option<u64>,
-    pub metadata: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ToolSafety {
-    ReadOnly,
-    WritesFiles,
-    RunsCommands,
-    Network,
-    Dangerous,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum PermissionMode {
-    Plan,
-    Normal,
-    Auto,
-}
-```
-
-Adapter уже сам превращает `ToolSpec` в OpenAI/Anthropic/local schema.
-
----
-
-## 8.12 Request shaping pipeline
-
-```mermaid
-flowchart TD
-    RAW[Raw runtime state] --> CTX[ContextBuilder]
-    CTX --> REQ[CanonicalModelRequest]
-    REQ --> BUDGET[Token Budgeter]
-    BUDGET --> TOOLS[Tool Visibility Filter]
-    TOOLS --> CAP[Capability Normalizer]
-    CAP --> PROVIDER[Provider Adapter]
-    PROVIDER --> API[Provider API]
-```
-
-Порядок важен:
-
-1. ContextBuilder собирает смысловой контекст.
-2. TokenBudgeter режет/сжимает.
-3. ToolVisibilityFilter оставляет только tools, доступные модели.
-4. CapabilityNormalizer приводит request к возможностям модели.
-5. ProviderAdapter делает wire format.
-
----
-
-## 8.13 Главное правило модельной совместимости
-
-```text
-Ни один модуль, кроме model adapter/request shaper,
-не должен импортировать типы OpenAI/Anthropic/Gemini/local provider SDK.
-```
-
-Если где-то в `workflow`, `context`, `memory`, `tools`, `policy` появляется provider-specific тип — архитектура ломается.
-
----
-
-# 9. Основные traits v0
-
-```rust
-#[async_trait::async_trait]
-pub trait ModelClient: Send + Sync {
-    async fn complete(&self, request: CanonicalModelRequest) -> anyhow::Result<CanonicalModelResponse>;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait SearchBackend: Send + Sync {
-    async fn search(&self, query: SearchQuery) -> anyhow::Result<Vec<ContextChunk>>;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait MemoryStore: Send + Sync {
-    async fn remember(&self, item: MemoryItem) -> anyhow::Result<()>;
-    async fn recall(&self, query: MemoryQuery) -> anyhow::Result<Vec<MemoryItem>>;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait ContextBuilder: Send + Sync {
-    async fn build(&self, input: ContextBuildInput) -> anyhow::Result<ContextBundle>;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait Tool: Send + Sync {
-    fn spec(&self) -> ToolSpec;
-    async fn invoke(&self, input: ToolInput, ctx: ToolContext) -> anyhow::Result<ToolResult>;
-}
-```
-
-```rust
-pub trait ToolProvider: Send + Sync {
-    fn name(&self) -> &str;
-    fn tools(&self) -> anyhow::Result<Vec<ProvidedTool>>;
-}
-```
-
-```rust
-pub trait ApprovalPolicy: Send + Sync {
-    fn evaluate(&self, call: &ToolCall, ctx: &PolicyContext) -> PolicyDecision;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait PatchApplier: Send + Sync {
-    async fn apply(&self, patch: Patch) -> anyhow::Result<PatchResult>;
-}
-```
-
-```rust
-#[async_trait::async_trait]
-pub trait Workflow: Send + Sync {
-    async fn run(&self, task: AgentTask, ctx: RuntimeContext) -> anyhow::Result<AgentOutput>;
-}
-```
-
----
-
-# 10. Event log v0
-
-В v0 достаточно JSONL.
-SQLite позже.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventEnvelope {
-    pub schema_version: u32,
-    pub event_id: EventId,
-    pub session_id: SessionId,
-    pub thread_id: ThreadId,
-    pub turn_id: Option<TurnId>,
-    pub seq: u64,
-    pub timestamp_ms: i64,
-    pub event: Event,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Event {
-    SessionStarted { session_id: SessionId, cwd: PathBuf },
-    TurnStarted { session_id: SessionId, thread_id: ThreadId, turn_id: TurnId },
-    TaskReceived { task: AgentTask },
-    ContextBuilt { chunks: usize, token_estimate: Option<u32> },
-    ModelRequestPrepared { model: ModelRef },
-    ModelResponseReceived { finish_reason: FinishReason },
-    ToolCallRequested { call: ToolCall },
-    ApprovalRequested { call_id: CallId, reason: String },
-    ApprovalResolved { call_id: CallId, approved: bool },
-    ToolFinished { result: ToolResult },
-    MemoryWritten { kind: String },
-    PatchApplied { result: PatchResult },
-    TurnFinished { output: AgentOutput },
-    Error { message: String },
-}
-```
-
-Правило:
-
-```text
-event log = правда
-любые индексы/кэши = производные
-```
-
-Envelope создаётся до fan-out, чтобы JSONL log и live sinks видели один logical event с одинаковым `event_id` и `seq`.
-
----
-
-# 11. Runtime loop v0
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant CLI as CLI
-    participant R as Runtime
-    participant C as ContextBuilder
-    participant M as ModelClient
-    participant P as Policy
-    participant T as ToolRegistry
-    participant E as EventStore
-
-    U->>CLI: task
-    CLI->>R: AgentTask
-    R->>E: TaskReceived
-    R->>C: build context
-    C-->>R: ContextBundle
-    R->>E: ContextBuilt
-    R->>M: CanonicalModelRequest
-    M-->>R: CanonicalModelResponse
-
-    alt tool call
-        R->>P: evaluate tool call
-        alt allowed
-            R->>T: invoke tool
-            T-->>R: ToolResult
-            R->>E: ToolFinished
-            R->>M: continue with tool result
-        else needs approval
-            R->>CLI: approval request
-            CLI-->>R: approval response
-            R->>T: invoke if approved
-        else forbidden
-            R->>M: denied observation
-        end
-    else final answer
-        R->>E: TurnFinished
-        R-->>CLI: output
-    end
-```
-
----
-
-# 12. Конфиг v0
-
-```toml
-[profile]
-name = "dev-basic"
-
-[model]
-provider = "fake"
-model = "fake-tool-model"
-stream = false
-
-[modules]
-workflow = "single_loop"
-search = "rg"
-memory = "none"
-memory_policy = "none"
-context = "simple"
-policy = "ask_write"
-patch = "direct"
-renderer = "plain"
-
-[tools]
-enabled = ["read_file", "list_dir", "apply_patch", "write_file", "shell", "search"]
-
-[permissions]
-mode = "normal"
-
-[policy.ask_write]
-ask_before = ["apply_patch", "write_file", "shell"]
-allow = ["read_file", "list_dir", "search"]
-
-[search.rg]
-max_results = 50
-
-[memory.jsonl]
-path = ".agent/memory.jsonl"
-
-[event_log]
-path = ".agent/events.jsonl"
-```
-
-Позже:
-
-```toml
-[model]
-provider = "openai"
-model = "gpt-x"
-stream = true
-
-[modules]
-search = "repo_map"
-memory = "jsonl"
-context = "repo_aware"
-workflow = "plan_execute_review"
-```
-
-Важно: ближайшее развитие после v0 - всё ещё модульность, но через
-стабилизацию contract boundary на рабочем local coding loop. Marketplace и
-динамический plugin runtime не должны появиться раньше, чем built-in modules
-докажут, что workflow/context/tools/policy можно менять без правок core.
-Поэтому следующие config profiles должны разделять:
-
-```text
-quickstart/coding:
-  built-in read/search/edit/shell tools включены,
-  read-only tools allow,
-  apply_patch/write_file/shell ask
-
-advanced/bring-your-own-tools:
-  tools.enabled = [],
-  tools.path или tools.configured задают полный набор tools
-```
-
-Если policy ссылается на tool names, эти tools должны быть реально
-зарегистрированы; иначе ошибка должна быть диагностикой `doctor`, а не
-непонятным отказом агента "без рук".
-
----
-
-# 13. Структура проекта v0
-
-Начать можно с одного crate.
-
-```text
-agent/
-  Cargo.toml
-  src/
-    main.rs
-
-    core/
-      mod.rs
-      runtime.rs
-      registry.rs
-      config.rs
-      event_store.rs
-
-    domain/
-      mod.rs
-      ids.rs
-      events.rs
-      task.rs
-      context.rs
-      tool.rs
-      memory.rs
-      model.rs
-      patch.rs
-
-    contracts/
-      mod.rs
-      model_client.rs
-      model_adapter.rs
-      search_backend.rs
-      memory_store.rs
-      context_builder.rs
-      tool.rs
-      approval_policy.rs
-      patch_applier.rs
-      workflow.rs
-
-    model_standard/
-      mod.rs
-      canonical_request.rs
-      canonical_response.rs
-      content_part.rs
-      capabilities.rs
-      shaper.rs
-      stream.rs
-
-    modules/
-      mod.rs
-      model/
-        mod.rs
-        fake.rs
-      search/
-        mod.rs
-        rg.rs
-        null.rs
-      memory/
-        mod.rs
-        none.rs
-        jsonl.rs
-      context/
-        mod.rs
-        simple.rs
-      policy/
-        mod.rs
-        allow_all.rs
-        ask_write.rs
-      tools/
-        mod.rs
-        read.rs
-        write.rs
-        shell.rs
-        search.rs
-      patch/
-        mod.rs
-        direct.rs
-      workflow/
-        mod.rs
-        single_loop.rs
-      renderer/
-        mod.rs
-        plain.rs
-
-    adapters/
-      mod.rs
-      openai_adapter.rs
-      anthropic_adapter.rs
-      aider_repo_map_stub.rs
-      forge_context_stub.rs
-      codex_policy_shape_stub.rs
-
-    tests/
-      module_swap.rs
-      model_standard.rs
-      fake_workflow.rs
-```
-
-Позже можно разнести в crates.
-
----
-
-# 14. Как адаптировать чужие модули
-
-## Правило
-
-```text
-Чужой код никогда не входит напрямую в core.
-Только через adapter, реализующий твой trait.
-```
-
-## Схема
-
-```mermaid
-flowchart LR
-    CORE[Core] --> TRAIT[Your Trait]
-    TRAIT --> ADAPTER[Adapter]
-    ADAPTER --> FOREIGN[Foreign Logic / Rewritten Module]
-```
-
-## Процесс адаптации
-
-1. Найти у чужого проекта конкретную подсистему.
-2. Понять её входы/выходы.
-3. Написать свой DTO mapping.
-4. Реализовать свой trait.
-5. Добавить conformance test.
-6. Проверить лицензию.
-7. Не позволять чужому коду владеть runtime state.
-
----
-
-# 15. Что брать из других проектов
-
-## Aider
-
-Брать идеи:
-
-- repo map;
-- git-first patch flow;
-- compact context по кодовой базе.
-
-В твоей архитектуре:
-
-```text
-SearchBackend = RepoMapSearch
-ContextBuilder = RepoMapContextBuilder
-PatchApplier = GitPatchApplier
-```
-
-## ForgeCode
-
-Брать идеи:
-
-- Context vs Conversation split;
-- turn pipeline;
-- request shaping;
-- retrieval memory как отдельный слой.
-
-В твоей архитектуре:
-
-```text
-ContextBuilder
-ConversationStore later
-MemoryStore
-RequestShaper
-```
-
-## Claude Code patterns
-
-Брать идеи:
-
-- registered tools vs model-visible tools vs executed tools;
-- permission pipeline;
-- tool filtering;
-- subagent/tool pool assembly later.
-
-В твоей архитектуре:
-
-```text
-ToolRegistry
-ToolVisibilityFilter
-ApprovalPolicy
-Workflow later
-```
-
-## Codex patterns
-
-Брать идеи:
-
-- approval через state;
-- event log as source of truth;
-- subagent = thread later;
-- policy/orchestrator/runtime split.
-
-В твоей архитектуре:
-
-```text
-EventStore
-ApprovalState
-ThreadState later
-RuntimeLoop
-```
-
-## OpenCode
-
-Брать идеи:
-
-- typed parts;
-- structured events;
-- session run-state invariants;
-- plugin/tool ideas.
-
-Не брать целиком как основу v0.
-
----
-
-# 16. Юридическое правило
-
-Можно:
-
-- брать идеи;
-- переписывать своими словами/кодом;
-- использовать MIT/Apache/BSD совместимый код с сохранением license notices;
-- делать adapter к внешнему executable/tool.
-
-Опасно:
-
-- копировать GPL/AGPL код в свой core, если хочешь permissive/коммерческую свободу;
-- тащить большие куски без лицензий;
-- смешивать чужие типы с твоим core;
-- строить архитектуру вокруг чужого внутреннего API.
-
----
-
-# 17. MVP-порядок реализации
-
-## Phase 0 — domain + config
-
-Сделать:
-
-- IDs;
-- DTO;
-- Event enum;
-- config loader;
-- module manifest;
-- module registry skeleton.
-
-Никакой LLM пока не нужен.
-
-## Phase 1 — model standard + fake model
-
-Сделать:
-
-- `CanonicalModelRequest`;
-- `CanonicalModelResponse`;
-- `ContentPart`;
-- `ModelCapabilities`;
-- `FakeModelClient`.
-
-Цель:
-
-```text
-fake model returns ToolCall(read_file)
-```
-
-## Phase 2 — tools + policy
-
-Сделать:
-
-- read file;
-- write file;
-- shell;
-- search tool;
-- ask_write policy;
-- allow_all policy.
-
-Цель:
-
-```text
-tool call -> policy -> execute -> event log
-```
-
-## Phase 3 — simple runtime loop
-
-Сделать:
-
-- `SingleLoopWorkflow`;
-- context builder;
-- tool result feedback to model;
-- final answer.
-
-Цель:
-
-```text
-fake model -> tool -> fake final answer
-```
-
-## Phase 4 — rg search + simple memory
-
-Сделать:
-
-- `RgSearch`;
-- `NoMemory`;
-- `JsonlMemory`;
-- context = task + search hits + memory recall.
-
-Цель:
-
-```text
-search=rg -> search=null через config
-memory=none -> memory=jsonl через config
-```
-
-## Phase 5 — real model adapter
-
-Сделать один provider:
-
-- OpenAI или Anthropic;
-- через `ModelAdapter`;
-- без протекания provider types в core.
-
-Цель:
-
-```text
-model=fake -> model=real через config
-```
-
-## Phase 6 — module swap tests
-
-Тесты:
-
-```text
-search rg/null не меняет runtime
-memory none/jsonl не меняет runtime
-policy allow_all/ask_write не меняет tools
-model fake/real не меняет workflow
-```
-
-## Phase 7 — plugin-ready local coding loop
-
-Сделать:
-
-- рабочие quickstart defaults для built-in tools;
-- `agent init`, `agent doctor`, `tools list`;
-- auto context из `AGENTS.md`, README и manifest files;
-- `read_file` ranges/line numbers, `list_tree`, `git_status`, `git_diff`;
-- внешний UI interrupt/cancel и базовые slash-команды `/tools`, `/mode`, `/model`,
-  `/diff`.
-
-Цель:
-
-```text
-агент сам понимает repo, находит файлы, безопасно просит approval и даёт
-понятный итог без ручной настройки каждого tool; при этом новые context/tools/UI
-остаются заменяемыми modules, а не runtime-specific фичами
-```
-
-## Phase 8 — quality loop
-
-Сделать:
-
-- `repo_aware` context builder с query extraction и token budget;
-- `edit_file(old_text, new_text)` и unified diff path;
-- `plan_execute_review` workflow;
-- review step через `git_diff` и очевидные проверки;
-- final answer template: changed, tested, not tested.
-
-Цель:
-
-```text
-меньше тупого rg по полной фразе, меньше неверных edits, больше проверяемых
-изменений
-```
-
-## Phase 9 — eval-driven module swapping
-
-Сделать:
-
-- формат eval cases для repo understanding, editing, debugging и UX tasks;
-- report из event log: success, tests, calls, approvals, duration, tokens/cost,
-  files changed, diff size, failure reason;
-- сравнение связок `single_loop/simple_context/internal_patch` и
-  `plan_execute_review/repo_aware/edit_file`.
-
-Цель:
-
-```text
-решать, готов ли contract к будущим plugins, по измерениям, а не по ощущению
-архитектурной красоты
-```
-
----
-
-# 18. Definition of Done v0
-
-v0 считается успешной, если:
-
-1. CLI принимает задачу.
-2. Config выбирает модули.
-3. Fake model может вызвать tool.
-4. Tool проходит через policy.
-5. Результат пишется в event log.
-6. SearchBackend можно заменить через config.
-7. MemoryStore можно заменить через config.
-8. ModelClient можно заменить через config.
-9. Provider-specific типы не видны за пределами adapter.
-10. Есть хотя бы 4 module swap tests.
-
----
-
-# 19. Тесты совместимости модулей
-
-```rust
-#[tokio::test]
-async fn swapping_search_backend_does_not_change_runtime() {
-    // config A: search=rg
-    // config B: search=null
-    // same workflow, same model, same core
-}
-```
-
-```rust
-#[tokio::test]
-async fn fake_and_real_model_share_same_canonical_contract() {
-    // FakeModelClient and OpenAIAdapter both accept CanonicalModelRequest
-}
-```
-
-```rust
-#[tokio::test]
-async fn provider_specific_types_do_not_escape_adapter() {
-    // Compile-time архитектурная проверка через module boundaries.
-}
-```
-
-```rust
-#[tokio::test]
-async fn tool_visibility_and_execution_are_separate() {
-    // tool registered != tool visible != tool executed
-}
-```
-
----
-
-# 20. Первый prompt для Codex/Claude
-
-Скопируй это в Codex/Claude как стартовую задачу:
-
-```text
-We are implementing a Rust CLI-first modular coding-agent skeleton.
-Do not build a full agent yet.
-Implement only the v0 architecture foundation.
-
-Hard requirements:
-1. Core must not depend on provider-specific model SDK types.
-2. All model providers must use CanonicalModelRequest and CanonicalModelResponse.
-3. Modules are selected by config and wired through traits.
-4. Implement FakeModelClient first.
-5. Implement Tool trait, read_file tool, shell tool, and ask_write policy.
-6. Implement Event enum and JSONL EventStore.
-7. Implement SingleLoopWorkflow that can:
-   - build simple context,
-   - call fake model,
-   - receive tool call,
-   - evaluate policy,
-   - execute tool,
-   - append events,
-   - return final output.
-8. Do not add RAG, MCP, ACP, embedded UI, WASM, dynamic plugins, or subagents yet.
-9. Keep DTOs serde-serializable.
-10. Add module swap tests for search, memory, policy, and model.
-
-Project structure should follow:
-- src/domain
-- src/contracts
-- src/model_standard
-- src/core
-- src/modules/{model,search,memory,context,policy,tools,patch,workflow,renderer}
-- src/adapters
-
-Focus on clean boundaries, not features.
-```
-
----
-
-# 21. Главная мантра проекта
-
-```text
-Сначала совместимые контракты.
-Потом тупые реализации.
-Потом adapter к чужим идеям.
-Потом реальные provider/tools.
-Потом сложная память/retrieval/subagents.
-```
-
-Если следовать этому порядку, скелет не станет бесполезным даже при появлении 100500 будущих фич.
+Одинаковые понятия в разных слоях имеют разные роли:
+
+- `src/domain` - данные на границе;
+- `src/contracts` - заменяемые traits;
+- `src/modules` - built-in реализации;
+- `src/adapters` - внешние provider wire formats;
+- `src/core` - config, wiring, runtime lifecycle.
+
+## Module Slots
+
+Базовые slots:
+
+| Slot | Назначение |
+|---|---|
+| Model | provider-neutral model call через canonical protocol |
+| Search | поиск по workspace/project context |
+| Memory | хранение и retrieval memory items |
+| Memory Policy | lifecycle записи memory после turn |
+| Context | сбор ephemeral context для текущего turn |
+| Tools | registry и execution boundary |
+| Approval Policy | решение `allow`/`ask`/`deny` |
+| Patch | применение patch/edit операций |
+| Workflow | ход agent loop |
+| Renderer | финальный вывод |
+
+Текущие ids и config keys находятся в `modules.md` и `configuration.md`.
+
+## Model Standard
+
+Модельный слой должен оставаться provider-neutral:
+
+- workflow работает с `CanonicalModelRequest` и `CanonicalModelResponse`;
+- provider adapters мапят canonical protocol в OpenAI/Anthropic/local wire
+  format;
+- `RequestShaper` применяет `ModelCapabilities` перед provider call;
+- provider-specific fields не протекают в context, memory, workflow, tools или
+  policy.
+
+Цель: замена provider-а не должна требовать правок workflow/runtime.
+
+## Runtime И Events
+
+Runtime должен сохранять эти свойства:
+
+- один `SessionId` на runtime/session;
+- новый `TurnId` на каждый `run()`;
+- один активный turn на runtime;
+- event log как append-only trace;
+- одинаковые event envelopes при fan-out в durable/live sinks;
+- conversation history отдельно от ephemeral context;
+- tool execution только через `ToolRegistry`, `PermissionMode`,
+  `ApprovalPolicy` и `ToolOrchestrator`.
+
+Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
+
+## Planned Направления
+
+Ближайшие направления должны проверять modular boundary на реальном coding loop,
+а не обходить её:
+
+- usable local-agent profile: `agent init`, `agent doctor`, понятная
+  diagnostics вокруг config/tools;
+- project-instruction context: `AGENTS.md`, nested `AGENTS.md`, README и
+  manifest files без записи в conversation history;
+- `repo_aware` context builder как новая реализация `ContextBuilder`;
+- line-oriented read/edit/git tools через `ToolRegistry`;
+- diff-first approval для write/patch tools;
+- `plan_execute_review` как новый `Workflow`, не замена core;
+- eval report поверх event log для сравнения workflow/context/edit связок;
+- streaming model path;
+- session restore/resume поверх event log;
+- table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits.
+
+Каждое направление должно иметь focused tests на boundary, а не только happy
+path CLI smoke test.
+
+## Intake Новых Идей
+
+Рабочий процесс для новой статьи/метода:
+
+1. определить, к какому slot относится идея;
+2. проверить, хватает ли существующего contract;
+3. если хватает, реализовать новый module/adaptor и зарегистрировать его в
+   catalog;
+4. если не хватает, сначала добавить минимальный contract и test boundary;
+5. добавить config example и swap test;
+6. добавить debug/visibility через renderer или app-server boundary, а не через
+   прямую зависимость core от конкретного алгоритма.
+
+Ожидаемый результат: новый метод можно включить конфигом, например
+`modules.context = "dynamic_cursor_like"`, не переписывая runtime.
+
+## External Modules Later
+
+External modules можно добавлять только после стабилизации built-in contracts.
+Целевая последовательность:
+
+1. доказать заменяемость built-in slots через tests;
+2. стабилизировать config schema и diagnostics;
+3. добавить table-driven rights для tools;
+4. только потом проектировать external process/WASM/package-manager слой.
+
+До этого process/MCP остаются executor-ами tools, а не общей module system.
+
+## Как Брать Идеи Из Других Проектов
+
+Разрешено брать архитектурные идеи и UX patterns, но не тащить чужую структуру
+как есть. Любая адаптация должна пройти через локальные contracts:
+
+- модельные идеи -> `ModelAdapter` / model standard;
+- поиск -> `SearchBackend` или `ContextBuilder`;
+- memory -> `MemoryStore` / `MemoryPolicy`;
+- tools -> `Tool` / `ToolProvider` / `ToolRegistry`;
+- approval -> `ApprovalPolicy` / `ApprovalTransport`;
+- output -> `Renderer`;
+- agent loop -> `Workflow`.
+
+Если идея требует прямого импорта конкретной реализации в core, это сигнал, что
+нужен новый contract или что идею пока рано добавлять.
+
+## Definition Of Done Для v0
+
+v0 считается здоровым, если:
+
+- `cargo test` подтверждает заменяемость ключевых slots;
+- model provider меняется без правок workflow;
+- search/memory/policy меняются через config;
+- tools не исполняются в обход registry/policy/safety;
+- docs разделяют current state и planned state;
+- README остаётся quickstart, а reference details живут в профильных docs;
+- новые фичи не превращают CLI/UI в runtime layer.
+
+Главное правило: маленькое ядро важнее быстрого добавления фич, если фича
+ломает modular boundary.
