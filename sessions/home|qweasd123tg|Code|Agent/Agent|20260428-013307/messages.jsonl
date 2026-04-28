@@ -1,2 +1,0 @@
-{"id":"68e9d42a-172b-4ea3-94a4-98e1bf72f1b5","role":"User","parts":[{"Text":{"text":"summarize hello"}}],"name":null,"tool_call_id":null,"metadata":null}
-{"id":"8d686729-3420-40d1-bc63-d46848b4f781","role":"Assistant","parts":[{"Text":{"text":"Fake final answer. task=\"summarize hello\"; context_chunks=1; tools=3"}}],"name":null,"tool_call_id":null,"metadata":null}

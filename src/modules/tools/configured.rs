@@ -13,6 +13,9 @@ use std::sync::Arc;
 use crate::{
     contracts::{Tool, ToolContext},
     domain::{ToolCall, ToolResult, ToolSpec},
+    modules::process_output::{
+        DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
+    },
 };
 
 #[derive(Clone)]
@@ -105,30 +108,38 @@ impl Tool for ConfiguredProcessTool {
         stdin.write_all(call.args.to_string().as_bytes()).await?;
         drop(stdin);
 
-        let output = child.wait_with_output().await?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let output = wait_with_bounded_output(
+            child,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+        )
+        .await?;
 
         Ok(ToolResult {
             call_id: call.id.clone(),
             ok: output.status.success(),
-            output: stdout.to_string(),
+            output: output.stdout.text.clone(),
             error: if output.status.success() {
                 None
-            } else if stderr.is_empty() {
+            } else if output.stderr.text.is_empty() {
                 Some(format!(
                     "process tool '{}' exited with status {:?}",
                     call.name,
                     output.status.code()
                 ))
             } else {
-                Some(stderr.to_string())
+                Some(output.stderr.text.clone())
             },
-            metadata: json!({
-                "tool": call.name,
-                "executor": "process",
-                "status": output.status.code(),
-            }),
+            metadata: annotate_bounded_output(
+                json!({
+                    "tool": call.name,
+                    "executor": "process",
+                    "status": output.status.code(),
+                }),
+                &output,
+                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            ),
         })
     }
 }
@@ -284,4 +295,54 @@ fn render_mcp_content(content: Option<&Value>) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        contracts::{Tool, ToolContext},
+        domain::{ToolCall, ToolSafety, ToolSpec, new_call_id},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn configured_process_output_is_bounded_before_returning_result() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let tool = ConfiguredProcessTool::new(
+            ToolSpec {
+                name: "big_process".to_owned(),
+                description: "prints a large output".to_owned(),
+                input_schema: json!({ "type": "object" }),
+                safety: ToolSafety::RunsCommands,
+                timeout_ms: Some(30_000),
+                metadata: Value::Null,
+            },
+            "sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                "i=0; while [ \"$i\" -lt 5000 ]; do printf 0123456789; i=$((i+1)); done".to_owned(),
+            ],
+        );
+        let call = ToolCall {
+            id: new_call_id(),
+            name: "big_process".to_owned(),
+            args: json!({}),
+        };
+
+        let result = tool
+            .invoke(
+                &call,
+                ToolContext {
+                    cwd: cwd.path().to_path_buf(),
+                },
+            )
+            .await
+            .expect("process result");
+
+        assert!(result.ok);
+        assert_eq!(result.output.len(), DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES);
+        assert_eq!(result.metadata["stdout_truncated"], true);
+        assert_eq!(result.metadata["stdout_original_bytes"], 50_000);
+    }
 }

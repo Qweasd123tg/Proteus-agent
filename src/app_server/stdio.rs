@@ -124,7 +124,7 @@ pub async fn run_stdio_app_server(
             }
             StdioRequest::Shutdown { .. } => {
                 shutdown_requested = true;
-                server.shutdown();
+                server.shutdown().await;
                 send_stdio_response(&output_tx, id, Ok(None)).await;
                 break;
             }
@@ -139,7 +139,7 @@ pub async fn run_stdio_app_server(
         for handle in turn_handles {
             let _ = handle.await;
         }
-        server.shutdown();
+        server.shutdown().await;
     }
     drop(output_tx);
     writer.await??;

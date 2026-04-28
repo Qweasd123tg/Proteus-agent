@@ -180,7 +180,12 @@ Conversation history хранит persistent сообщения: user prompts, a
 
 Лимит tool rounds: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
-Если approval требуется, `ToolOrchestrator` отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; app-server transport публикует approval request и ждёт ответ UI-клиента.
+Если approval требуется, `ToolOrchestrator` отправляет запрос через
+`ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в
+терминале; app-server transport публикует approval request и ждёт ответ
+UI-клиента. App-server ограничивает ожидание через
+`app_server.approval_timeout_ms`: timeout или shutdown закрывает pending
+approval как отказ.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`, `/mode`, `/model`, `/doctor`, `/events` и `/export`. Эти команды должны оставаться клиентским слоем поверх runtime/app-server boundary, а не переносить business logic в visual layer.
 

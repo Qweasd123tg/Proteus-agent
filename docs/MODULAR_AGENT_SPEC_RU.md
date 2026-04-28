@@ -3,7 +3,8 @@
 Этот документ фиксирует vision проекта и planned направления. Он не является
 reference по текущей реализации: фактическое состояние описано в
 `architecture.md`, `modules.md`, `configuration.md`, `runtime-and-events.md`,
-`security-and-policy.md` и `testing.md`.
+`security-and-policy.md` и `testing.md`. Порядок ближайших этапов вынесен в
+`roadmap.md`.
 
 ## Главная Идея
 
@@ -123,7 +124,8 @@ Runtime должен сохранять эти свойства:
 ## Planned Направления
 
 Ближайшие направления должны проверять modular boundary на реальном coding loop,
-а не обходить её:
+а не обходить её. Приоритеты и этапы описаны в `roadmap.md`; ниже остаётся
+общий backlog направлений:
 
 - usable local-agent profile: `agent init`, `agent doctor`, понятная
   diagnostics вокруг config/tools;

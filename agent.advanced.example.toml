@@ -45,5 +45,8 @@ max_search_results = 50
 [memory.jsonl]
 path = ".agent/memory.jsonl"
 
+[app_server]
+approval_timeout_ms = 300000
+
 [event_log]
 path = ".agent/events.jsonl"

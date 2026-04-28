@@ -10,6 +10,7 @@ pub mod memory;
 pub mod model;
 pub mod patch;
 pub mod policy;
+pub(crate) mod process_output;
 pub mod renderer;
 pub mod search;
 pub mod tools;

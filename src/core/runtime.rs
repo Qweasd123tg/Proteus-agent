@@ -125,6 +125,12 @@ impl AgentRuntime {
             .workflow
             .run(task.clone(), history, runtime_context)
             .await?;
+        anyhow::ensure!(
+            workflow_output.messages.len() >= previous_history_len,
+            "workflow returned fewer messages than it received: output {}, input {}",
+            workflow_output.messages.len(),
+            previous_history_len
+        );
         let new_messages = &workflow_output.messages[previous_history_len..];
         let memory_output = self
             .registry
@@ -290,4 +296,65 @@ fn config_store_root(path: &std::path::Path) -> PathBuf {
     path.parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use anyhow::Result;
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::{
+        contracts::{RuntimeContext, Workflow, WorkflowOutput},
+        domain::{AgentOutput, AgentTask},
+        model_standard::{CanonicalMessage, MessageRole},
+    };
+
+    struct ShortHistoryWorkflow;
+
+    #[async_trait]
+    impl Workflow for ShortHistoryWorkflow {
+        async fn run(
+            &self,
+            _task: AgentTask,
+            _history: Vec<CanonicalMessage>,
+            _ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            Ok(WorkflowOutput {
+                output: AgentOutput {
+                    text: "bad workflow".to_owned(),
+                    metadata: serde_json::Value::Null,
+                },
+                messages: Vec::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn run_errors_when_workflow_drops_existing_history() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let mut runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+            .build()
+            .expect("runtime");
+
+        runtime.registry.workflow = Arc::new(ShortHistoryWorkflow);
+        runtime
+            .history
+            .lock()
+            .await
+            .push(CanonicalMessage::text(MessageRole::User, "previous"));
+
+        let error = runtime
+            .run("current".to_owned())
+            .await
+            .expect_err("short workflow history must error");
+
+        assert!(
+            error
+                .to_string()
+                .contains("workflow returned fewer messages than it received")
+        );
+    }
 }

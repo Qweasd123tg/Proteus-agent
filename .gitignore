@@ -1,5 +1,6 @@
 /target/
 /.agent/
+/sessions/
 /examples/
 .env
 secrets.json

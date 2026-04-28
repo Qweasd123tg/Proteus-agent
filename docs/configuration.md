@@ -250,6 +250,22 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 priority, per-tool limits) пока является planned design. Текущая реализация
 использует `permissions.mode`, `ToolSafety` и `ApprovalPolicy`.
 
+## App Server
+
+```json
+{
+  "app_server": {
+    "approval_timeout_ms": 300000
+  }
+}
+```
+
+`app_server.approval_timeout_ms` задаёт, сколько app-server transport ждёт
+ответ UI-клиента на approval request. Если клиент не ответил вовремя, request
+закрывается как `approved: false`, pending approval удаляется, а turn продолжает
+работу с отказанным tool call. При shutdown app-server также отклоняет все
+pending approvals.
+
 ## Policy
 
 ```json

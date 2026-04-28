@@ -37,6 +37,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub renderer: RendererConfig,
     #[serde(default)]
+    pub app_server: AppServerConfig,
+    #[serde(default)]
     pub event_log: EventLogConfig,
 }
 
@@ -412,6 +414,12 @@ pub struct EventLogConfig {
     pub path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppServerConfig {
+    #[serde(default = "default_approval_timeout_ms")]
+    pub approval_timeout_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RendererConfig {
     #[serde(default)]
@@ -491,6 +499,14 @@ impl Default for EventLogConfig {
     fn default() -> Self {
         Self {
             path: default_event_log_path(),
+        }
+    }
+}
+
+impl Default for AppServerConfig {
+    fn default() -> Self {
+        Self {
+            approval_timeout_ms: default_approval_timeout_ms(),
         }
     }
 }
@@ -643,6 +659,10 @@ fn default_memory_path() -> PathBuf {
 
 fn default_event_log_path() -> PathBuf {
     PathBuf::from(".agent/events.jsonl")
+}
+
+fn default_approval_timeout_ms() -> u64 {
+    300_000
 }
 
 fn default_config_path() -> Option<PathBuf> {

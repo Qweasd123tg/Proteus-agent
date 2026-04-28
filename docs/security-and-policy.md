@@ -52,6 +52,11 @@ Config-defined `native` tools не могут понизить safety ниже s
 
 Config-defined `process` и stdio `mcp` tools также считаются command execution boundary. Даже если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в `plan` и запрещены в `auto`.
 
+Process-based built-in tools читают stdout/stderr через bounded reader: модуль
+сохраняет только первые bytes лимита и дочитывает остаток без накопления в
+памяти. После этого `ToolOrchestrator` всё равно применяет общий output
+truncation перед событием `ToolFinished` и передачей результата модели.
+
 Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool из config. Model args не могут переопределить remote tool name; это сохраняет связь между `ToolSpec`, policy decision и фактическим downstream вызовом.
 
 ## Workspace Boundary
@@ -94,7 +99,14 @@ preview, а для `shell` - command, cwd и причину запуска. `app
 основным edit path; `write_file` нужен как более широкий fallback и должен быть
 видим пользователю как более рискованное действие.
 
-Headless runtime без approval transport отказывает `Ask`. App-server transport публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если запрос некому доставить, он отклоняется, а если клиент получил запрос и не отвечает, turn продолжает ждать решение. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+Headless runtime без approval transport отказывает `Ask`. App-server transport
+публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если
+запрос некому доставить, он отклоняется. Если клиент получил запрос и не
+ответил до `app_server.approval_timeout_ms`, app-server тоже отклоняет approval
+и очищает pending request. При shutdown app-server отклоняет все pending
+approvals. `ToolOrchestrator` передаёт модели tools, которые policy разрешает
+сразу, а tools с `Ask` показывает только если transport умеет интерактивно
+запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 
 Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
 

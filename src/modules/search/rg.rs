@@ -1,3 +1,5 @@
+use std::process::Stdio;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
@@ -6,6 +8,7 @@ use tokio::process::Command;
 use crate::{
     contracts::{SearchBackend, SearchQuery},
     domain::ContextChunk,
+    modules::process_output::{DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, wait_with_bounded_output},
 };
 
 #[derive(Debug)]
@@ -23,10 +26,19 @@ impl SearchBackend for RgSearch {
             .arg("--color=never")
             .arg(&query.text)
             .current_dir(&query.cwd)
-            .output()
-            .await
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
         {
-            Ok(output) => output,
+            Ok(child) => {
+                wait_with_bounded_output(
+                    child,
+                    DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+                    DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+                )
+                .await?
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error.into()),
         };
@@ -35,8 +47,9 @@ impl SearchBackend for RgSearch {
             return Ok(Vec::new());
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let chunks = stdout
+        let chunks = output
+            .stdout
+            .text
             .lines()
             .take(max_results)
             .filter_map(parse_rg_line)

@@ -1,3 +1,5 @@
+use std::process::Stdio;
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::json;
@@ -6,6 +8,9 @@ use tokio::process::Command;
 use crate::{
     contracts::{Tool, ToolContext},
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
+    modules::process_output::{
+        DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
+    },
 };
 
 #[derive(Debug)]
@@ -40,17 +45,24 @@ impl Tool for ShellTool {
             .arg("-lc")
             .arg(command)
             .current_dir(ctx.cwd)
-            .output()
-            .await?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        let output = wait_with_bounded_output(
+            output,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+        )
+        .await?;
 
         let mut rendered = String::new();
-        rendered.push_str(&String::from_utf8_lossy(&output.stdout));
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
+        rendered.push_str(&output.stdout.text);
+        if !output.stderr.text.is_empty() {
             if !rendered.is_empty() {
                 rendered.push('\n');
             }
-            rendered.push_str(&stderr);
+            rendered.push_str(&output.stderr.text);
         }
 
         Ok(ToolResult {
@@ -64,7 +76,49 @@ impl Tool for ShellTool {
                     Some(format!("process exited with code {code}"))
                 }
             }),
-            metadata: json!({ "status": output.status.code() }),
+            metadata: annotate_bounded_output(
+                json!({ "status": output.status.code() }),
+                &output,
+                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            ),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        contracts::{Tool, ToolContext},
+        domain::{ToolCall, new_call_id},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn shell_output_is_bounded_before_returning_result() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let call = ToolCall {
+            id: new_call_id(),
+            name: "shell".to_owned(),
+            args: json!({
+                "command": "i=0; while [ \"$i\" -lt 5000 ]; do printf 0123456789; i=$((i+1)); done"
+            }),
+        };
+
+        let result = ShellTool
+            .invoke(
+                &call,
+                ToolContext {
+                    cwd: cwd.path().to_path_buf(),
+                },
+            )
+            .await
+            .expect("shell result");
+
+        assert!(result.ok);
+        assert_eq!(result.output.len(), DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES);
+        assert_eq!(result.metadata["stdout_truncated"], true);
+        assert_eq!(result.metadata["stdout_original_bytes"], 50_000);
     }
 }

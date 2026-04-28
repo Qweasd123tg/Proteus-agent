@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -20,6 +21,8 @@ pub mod protocol;
 pub mod stdio;
 
 pub type AppApprovalId = String;
+type PendingApprovalResponders =
+    Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>;
 
 /// Protocol event exposed by the local app-server boundary. UI clients should
 /// depend on this stream instead of depending directly on runtime internals.
@@ -61,8 +64,7 @@ pub struct AppApprovalRequest {
 pub struct AppServerHandle {
     runtime: Arc<AgentRuntime>,
     events: broadcast::Sender<AppServerEvent>,
-    pending_approvals:
-        Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>,
+    pending_approvals: PendingApprovalResponders,
 }
 
 impl AppServerHandle {
@@ -117,7 +119,13 @@ impl AppServerHandle {
         Ok(())
     }
 
-    pub fn shutdown(&self) {
+    pub async fn shutdown(&self) {
+        deny_pending_approvals(
+            self.pending_approvals.clone(),
+            self.events.clone(),
+            "app-server shutting down".to_owned(),
+        )
+        .await;
         let _ = self.events.send(AppServerEvent::Shutdown);
     }
 }
@@ -135,6 +143,7 @@ impl AgentAppServer {
         let event_sink: Arc<dyn EventSink> =
             Arc::new(FanoutEventSink::new(vec![jsonl, core_broadcast.clone()]));
 
+        let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
         let runtime = Arc::new(
             AgentRuntime::builder(config, cwd)
@@ -147,7 +156,12 @@ impl AgentAppServer {
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
 
         spawn_runtime_event_forwarder(core_broadcast, events.clone());
-        spawn_approval_forwarder(approval_rx, events.clone(), pending_approvals.clone());
+        spawn_approval_forwarder(
+            approval_rx,
+            events.clone(),
+            pending_approvals.clone(),
+            approval_timeout,
+        );
 
         Ok(AppServerHandle {
             runtime,
@@ -182,9 +196,8 @@ fn spawn_runtime_event_forwarder(
 fn spawn_approval_forwarder(
     mut approval_rx: tokio::sync::mpsc::Receiver<PendingApproval>,
     events: broadcast::Sender<AppServerEvent>,
-    pending_approvals: Arc<
-        Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>,
-    >,
+    pending_approvals: PendingApprovalResponders,
+    approval_timeout: Duration,
 ) {
     tokio::spawn(async move {
         while let Some(PendingApproval { request, responder }) = approval_rx.recv().await {
@@ -214,9 +227,62 @@ fn spawn_approval_forwarder(
                             .to_owned(),
                     ),
                 });
+                let _ = events.send(AppServerEvent::ApprovalResolved {
+                    approval_id,
+                    approved: false,
+                });
+                continue;
             }
+
+            spawn_approval_timeout(
+                approval_id,
+                pending_approvals.clone(),
+                events.clone(),
+                approval_timeout,
+            );
         }
     });
+}
+
+fn spawn_approval_timeout(
+    approval_id: AppApprovalId,
+    pending_approvals: PendingApprovalResponders,
+    events: broadcast::Sender<AppServerEvent>,
+    approval_timeout: Duration,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(approval_timeout).await;
+        let responder = pending_approvals.lock().await.remove(&approval_id);
+        if let Some(responder) = responder {
+            let timeout_ms = approval_timeout.as_millis() as u64;
+            let _ = responder.send(ApprovalResponse {
+                approved: false,
+                note: Some(format!("approval request timed out after {timeout_ms}ms")),
+            });
+            let _ = events.send(AppServerEvent::ApprovalResolved {
+                approval_id,
+                approved: false,
+            });
+        }
+    });
+}
+
+async fn deny_pending_approvals(
+    pending_approvals: PendingApprovalResponders,
+    events: broadcast::Sender<AppServerEvent>,
+    note: String,
+) {
+    let pending = std::mem::take(&mut *pending_approvals.lock().await);
+    for (approval_id, responder) in pending {
+        let _ = responder.send(ApprovalResponse {
+            approved: false,
+            note: Some(note.clone()),
+        });
+        let _ = events.send(AppServerEvent::ApprovalResolved {
+            approval_id,
+            approved: false,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -237,7 +303,12 @@ mod tests {
         let (approval_tx, approval_rx) = mpsc::channel(1);
         let (events, _) = broadcast::channel(1);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-        spawn_approval_forwarder(approval_rx, events, pending_approvals.clone());
+        spawn_approval_forwarder(
+            approval_rx,
+            events,
+            pending_approvals.clone(),
+            Duration::from_secs(60),
+        );
 
         let (responder, response_rx) = oneshot::channel();
         approval_tx
@@ -270,5 +341,111 @@ mod tests {
                 .is_some_and(|note| note.contains("could not be delivered"))
         );
         assert!(pending_approvals.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn approval_forwarder_denies_when_client_does_not_answer_before_timeout() {
+        let (approval_tx, approval_rx) = mpsc::channel(1);
+        let (events, _) = broadcast::channel(8);
+        let mut event_rx = events.subscribe();
+        let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+        spawn_approval_forwarder(
+            approval_rx,
+            events,
+            pending_approvals.clone(),
+            Duration::from_millis(20),
+        );
+
+        let (responder, response_rx) = oneshot::channel();
+        approval_tx
+            .send(PendingApproval {
+                request: ApprovalRequest {
+                    call: ToolCall {
+                        id: new_call_id(),
+                        name: "write_file".to_owned(),
+                        args: serde_json::json!({}),
+                    },
+                    cwd: PathBuf::from("."),
+                    reason: "test approval".to_owned(),
+                    tool_spec: None,
+                },
+                responder,
+            })
+            .await
+            .unwrap();
+
+        let request_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("approval request event should arrive")
+            .expect("event stream should stay open");
+        let approval_id = match request_event {
+            AppServerEvent::ApprovalRequested { request } => request.approval_id,
+            other => panic!("expected approval request, got {other:?}"),
+        };
+
+        let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
+            .await
+            .expect("approval response should not hang")
+            .expect("approval responder should send denial");
+
+        assert!(!response.approved);
+        assert!(
+            response
+                .note
+                .as_deref()
+                .is_some_and(|note| note.contains("timed out"))
+        );
+        assert!(pending_approvals.lock().await.is_empty());
+
+        let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("approval resolved event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            resolved_event,
+            AppServerEvent::ApprovalResolved {
+                approval_id: id,
+                approved: false,
+            } if id == approval_id
+        ));
+    }
+
+    #[tokio::test]
+    async fn shutdown_denies_pending_approvals() {
+        let (events, _) = broadcast::channel(8);
+        let mut event_rx = events.subscribe();
+        let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+        let (responder, response_rx) = oneshot::channel();
+        let approval_id = "approval-1".to_owned();
+        pending_approvals
+            .lock()
+            .await
+            .insert(approval_id.clone(), responder);
+
+        deny_pending_approvals(
+            pending_approvals.clone(),
+            events,
+            "app-server shutting down".to_owned(),
+        )
+        .await;
+
+        let response = response_rx
+            .await
+            .expect("shutdown should send approval response");
+        assert!(!response.approved);
+        assert_eq!(response.note.as_deref(), Some("app-server shutting down"));
+        assert!(pending_approvals.lock().await.is_empty());
+
+        let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("approval resolved event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            resolved_event,
+            AppServerEvent::ApprovalResolved {
+                approval_id: id,
+                approved: false,
+            } if id == approval_id
+        ));
     }
 }

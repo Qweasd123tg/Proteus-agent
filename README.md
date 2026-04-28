@@ -1,6 +1,6 @@
 # Modular Agent
 
-Rust CLI-first каркас для модульного coding-agent.
+Rust core-first каркас для модульного coding-agent.
 
 Проект строится вокруг простой идеи:
 
@@ -30,18 +30,19 @@ Rust CLI-first каркас для модульного coding-agent.
 - permission modes: `plan`, `normal`, `auto`;
 - `ask_write` и `allow_all` policies;
 - JSONL event log и session history;
-- app-server boundary для внешних UI-клиентов через `AppServerEvent`;
+- временный CLI/dev shell и app-server boundary для внешних UI-клиентов через
+  `AppServerEvent`;
 - module-swap тесты для search, memory, policy и canonical model contract.
 
 ## Быстрый Запуск
 
-Открыть интерактивный терминал:
+Открыть временный интерактивный терминал для разработки ядра:
 
 ```bash
 cargo run
 ```
 
-Интерактивный режим использует line REPL. Визуальные клиенты должны жить отдельным процессом поверх `agent server stdio`.
+Интерактивный режим использует line REPL. Продуктовые CLI/UI клиенты должны жить отдельным процессом поверх `agent server stdio`; этот репозиторий держит ядро и транспортную границу.
 
 Внутри REPL:
 
@@ -184,6 +185,7 @@ sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>/messages.jsonl
 - [docs/runtime-and-events.md](docs/runtime-and-events.md) - REPL, session store, event log;
 - [docs/security-and-policy.md](docs/security-and-policy.md) - tools, workspace boundary, approval policy;
 - [docs/testing.md](docs/testing.md) - тестирование модульности и контрактов;
+- [docs/roadmap.md](docs/roadmap.md) - направление проекта и порядок следующих этапов;
 - [docs/MODULAR_AGENT_SPEC_RU.md](docs/MODULAR_AGENT_SPEC_RU.md) - длинный vision/spec и planned направления;
 - [AGENTS.md](AGENTS.md) - правила работы для агентов и контрибьюторов.
 
