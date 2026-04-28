@@ -57,7 +57,10 @@ impl MemoryStore for JsonlMemory {
         let mut lines = BufReader::new(file).lines();
         let mut items = Vec::new();
         while let Some(line) = lines.next_line().await? {
-            let item: MemoryItem = serde_json::from_str(&line)?;
+            let item: MemoryItem = match serde_json::from_str(&line) {
+                Ok(item) => item,
+                Err(_) => continue,
+            };
             if query.text.is_empty() || item.content.contains(&query.text) {
                 items.push(item);
             }
@@ -66,5 +69,50 @@ impl MemoryStore for JsonlMemory {
             }
         }
         Ok(items)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        contracts::MemoryStore,
+        domain::{MemoryItem, MemoryQuery},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn recall_skips_malformed_jsonl_lines() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("memory.jsonl");
+        let first = MemoryItem {
+            kind: "decision".to_owned(),
+            content: "keep this".to_owned(),
+            metadata: serde_json::Value::Null,
+        };
+        let second = MemoryItem {
+            kind: "preference".to_owned(),
+            content: "keep that".to_owned(),
+            metadata: serde_json::Value::Null,
+        };
+        let contents = format!(
+            "{}\nnot-json\n{}\n",
+            serde_json::to_string(&first).expect("first item"),
+            serde_json::to_string(&second).expect("second item")
+        );
+        tokio::fs::write(&path, contents)
+            .await
+            .expect("memory file");
+
+        let memory = JsonlMemory::new(path);
+        let items = memory
+            .recall(MemoryQuery {
+                text: "keep".to_owned(),
+                limit: 10,
+            })
+            .await
+            .expect("recall");
+
+        assert_eq!(items, vec![first, second]);
     }
 }

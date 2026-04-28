@@ -1567,6 +1567,24 @@ fn ask_write_rejects_unknown_policy_tool_at_startup() {
     assert!(error.contains("hint: enable the builtin tool"));
 }
 
+#[test]
+fn ask_write_rejects_unknown_ask_before_tool_at_startup() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.policy.ask_write.ask_before = vec!["missing_tool".to_owned()];
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown ask_before policy tool should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("policy.ask_write.ask_before references unknown tool \"missing_tool\"")
+    );
+}
+
 #[tokio::test]
 async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     let dir = temp_workspace();

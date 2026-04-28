@@ -121,23 +121,28 @@ event
 {"id":"1","type":"send","text":"summarize project"}
 {"id":"2","type":"clear_history"}
 {"id":"3","type":"approval","approval_id":"...","approved":true,"note":null}
-{"id":"4","type":"shutdown"}
+{"id":"4","type":"cancel","target_id":"1"}
+{"id":"5","type":"shutdown"}
 ```
 
-Каждая строка stdout является либо `event`, либо `response`. `send` запускает turn асинхронно, поэтому UI может отправить `approval` в тот же процесс, пока turn ждёт решения.
+Каждая строка stdout является либо `event`, либо `response`. `send` запускает
+turn асинхронно, поэтому UI может отправить `approval` или `cancel` в тот же
+процесс, пока turn работает или ждёт решения. `cancel.target_id` ссылается на
+`id` исходного `send`; transport abort-ит active или queued task и отправляет
+failed `response` для отменённого `send`.
 
 ## Session Store
 
 Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для directory-based layout `~/.config/agent-qweasd123tg/configs` session store живёт в `~/.config/agent-qweasd123tg/sessions`:
 
 ```text
-<config-dir>/sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>|<session-id>/messages.jsonl
 ```
 
 Пример:
 
 ```text
-/home/qweasd123tg/.config/agent-qweasd123tg/sessions/home|game/game|20260427-153000/messages.jsonl
+/home/qweasd123tg/.config/agent-qweasd123tg/sessions/home|game/game|20260427-153000|<uuid>/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:

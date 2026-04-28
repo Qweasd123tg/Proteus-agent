@@ -19,6 +19,10 @@ pub enum StdioRequest {
         approved: bool,
         note: Option<String>,
     },
+    Cancel {
+        id: Option<String>,
+        target_id: String,
+    },
     Shutdown {
         id: Option<String>,
     },
@@ -30,6 +34,7 @@ impl StdioRequest {
             Self::Send { id, .. }
             | Self::ClearHistory { id }
             | Self::Approval { id, .. }
+            | Self::Cancel { id, .. }
             | Self::Shutdown { id } => id.clone(),
         }
     }
@@ -79,6 +84,14 @@ mod tests {
             }
             .id(),
             Some("approval".to_owned())
+        );
+        assert_eq!(
+            StdioRequest::Cancel {
+                id: Some("cancel".to_owned()),
+                target_id: "send".to_owned(),
+            }
+            .id(),
+            Some("cancel".to_owned())
         );
         assert_eq!(
             StdioRequest::Shutdown {

@@ -45,13 +45,6 @@ UI/business logic в CLI.
 - CLI/UI зафиксирован как внешний слой;
 - process stdout/stderr bounded до общего truncation.
 
-Оставшиеся hardening-задачи:
-
-- cancel/interrupt active turn;
-- session dir collision;
-- corrupted JSONL memory lines не должны ломать весь recall;
-- явные тесты на config-time validation для всех policy tool names.
-
 ### v0.1: Repo-Aware Context
 
 Цель - агент лучше понимает проект и тратит меньше токенов.
@@ -97,7 +90,7 @@ state.
 
 Scope:
 
-- interrupt/cancel active turn;
+- расширить interrupt/cancel beyond stdio target cancel;
 - explicit approval queue events;
 - session resume/restore;
 - durable task/session metadata;

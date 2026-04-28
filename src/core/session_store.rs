@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
-use crate::model_standard::CanonicalMessage;
+use crate::{domain::SessionId, model_standard::CanonicalMessage};
 
 #[derive(Debug, Clone)]
 pub struct SessionStore {
@@ -17,12 +17,13 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn new(config_dir: &Path, cwd: &Path) -> Self {
+    pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Self {
         let workspace = encode_workspace_path(cwd);
         let session_name = format!(
-            "{}|{}",
+            "{}|{}|{}",
             session_label(cwd),
-            Local::now().format("%Y%m%d-%H%M%S")
+            Local::now().format("%Y%m%d-%H%M%S"),
+            session_id
         );
         let session_dir = config_dir
             .join("sessions")
@@ -119,4 +120,22 @@ fn sanitize_path_part(input: &str) -> String {
     }
 
     out.trim_matches('_').to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::new_session_id;
+
+    use super::*;
+
+    #[test]
+    fn session_dir_includes_session_id_to_avoid_same_second_collisions() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+
+        let first = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        let second = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+
+        assert_ne!(first.session_dir(), second.session_dir());
+    }
 }

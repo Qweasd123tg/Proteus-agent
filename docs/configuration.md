@@ -336,6 +336,8 @@ pending approvals.
 Путь считается относительно рабочего каталога агента.
 
 `modules.memory` выбирает backend хранения (`none` или `jsonl`). `modules.memory_policy` выбирает lifecycle policy записи; сейчас реализован только `none`, поэтому автоматических memory writes нет.
+`jsonl` memory при recall пропускает повреждённые строки, чтобы один битый
+record не ломал весь memory lookup.
 
 ## Event Log
 

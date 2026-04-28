@@ -264,15 +264,17 @@ impl AgentRuntimeBuilder {
         let events = Arc::new(EventEmitter::new(event_sink));
         let approval: Arc<dyn ApprovalTransport> =
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport));
+        let session_id = new_session_id();
+        let thread_id = new_thread_id();
         let session_store = config_path
             .as_deref()
             .map(config_store_root)
-            .map(|config_dir| SessionStore::new(&config_dir, &cwd));
+            .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id));
 
         Ok(AgentRuntime {
             cwd,
-            session_id: new_session_id(),
-            thread_id: new_thread_id(),
+            session_id,
+            thread_id,
             registry,
             events,
             approval,

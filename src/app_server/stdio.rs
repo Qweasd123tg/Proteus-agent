@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt},
@@ -73,7 +73,8 @@ pub async fn run_stdio_app_server(
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
     let mut shutdown_requested = false;
-    let mut turn_handles = Vec::new();
+    let mut keyed_turn_handles = HashMap::new();
+    let mut anonymous_turn_handles = Vec::new();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -95,12 +96,31 @@ pub async fn run_stdio_app_server(
 
         match request {
             StdioRequest::Send { id, text } => {
-                turn_handles.push(spawn_stdio_turn(
-                    server.clone(),
-                    output_tx.clone(),
-                    id,
-                    text,
-                ));
+                prune_finished_turns(&mut keyed_turn_handles);
+                match id.clone() {
+                    Some(turn_id) if keyed_turn_handles.contains_key(&turn_id) => {
+                        send_stdio_response(
+                            &output_tx,
+                            id,
+                            Err(anyhow!("turn id is already running: {turn_id}")),
+                        )
+                        .await;
+                    }
+                    Some(turn_id) => {
+                        keyed_turn_handles.insert(
+                            turn_id,
+                            spawn_stdio_turn(server.clone(), output_tx.clone(), id, text),
+                        );
+                    }
+                    None => {
+                        anonymous_turn_handles.push(spawn_stdio_turn(
+                            server.clone(),
+                            output_tx.clone(),
+                            None,
+                            text,
+                        ));
+                    }
+                }
             }
             StdioRequest::ClearHistory { .. } => {
                 send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
@@ -122,6 +142,11 @@ pub async fn run_stdio_app_server(
                 )
                 .await;
             }
+            StdioRequest::Cancel { target_id, .. } => {
+                let result =
+                    cancel_stdio_turn(&mut keyed_turn_handles, &output_tx, &target_id).await;
+                send_stdio_response(&output_tx, id, result.map(|_| None)).await;
+            }
             StdioRequest::Shutdown { .. } => {
                 shutdown_requested = true;
                 server.shutdown().await;
@@ -132,11 +157,17 @@ pub async fn run_stdio_app_server(
     }
 
     if shutdown_requested {
-        for handle in turn_handles {
+        for (_, handle) in keyed_turn_handles {
+            handle.abort();
+        }
+        for handle in anonymous_turn_handles {
             handle.abort();
         }
     } else {
-        for handle in turn_handles {
+        for (_, handle) in keyed_turn_handles {
+            let _ = handle.await;
+        }
+        for handle in anonymous_turn_handles {
             let _ = handle.await;
         }
         server.shutdown().await;
@@ -163,6 +194,29 @@ fn spawn_stdio_turn(
     })
 }
 
+async fn cancel_stdio_turn(
+    turn_handles: &mut HashMap<String, tokio::task::JoinHandle<()>>,
+    output_tx: &mpsc::Sender<StdioOutput>,
+    target_id: &str,
+) -> Result<()> {
+    prune_finished_turns(turn_handles);
+    let handle = turn_handles
+        .remove(target_id)
+        .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
+    handle.abort();
+    send_stdio_response(
+        output_tx,
+        Some(target_id.to_owned()),
+        Err(anyhow!("turn canceled by client")),
+    )
+    .await;
+    Ok(())
+}
+
+fn prune_finished_turns(turn_handles: &mut HashMap<String, tokio::task::JoinHandle<()>>) {
+    turn_handles.retain(|_, handle| !handle.is_finished());
+}
+
 async fn send_stdio_response(
     output_tx: &mpsc::Sender<StdioOutput>,
     id: Option<String>,
@@ -183,4 +237,46 @@ async fn send_stdio_response(
         },
     };
     let _ = output_tx.send(output).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, time::Duration};
+
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
+        let (output_tx, mut output_rx) = mpsc::channel(4);
+        let mut turn_handles = HashMap::new();
+        turn_handles.insert(
+            "send-1".to_owned(),
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }),
+        );
+
+        cancel_stdio_turn(&mut turn_handles, &output_tx, "send-1")
+            .await
+            .expect("cancel turn");
+
+        assert!(turn_handles.is_empty());
+        let output = output_rx.recv().await.expect("target response");
+        match output {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("send-1"));
+                assert!(!ok);
+                assert!(output.is_none());
+                assert_eq!(error.as_deref(), Some("turn canceled by client"));
+            }
+            StdioOutput::Event { .. } => panic!("expected response"),
+        }
+    }
 }
