@@ -38,11 +38,13 @@ src/modules/memory/*.rs   -> concrete implementations: none, jsonl
 
 CLI не должен владеть бизнес-логикой runtime.
 
+Visual layer не входит в binary. CLI оставляет line REPL и app-server transport; полноценные UI-клиенты должны подключаться как отдельные процессы.
+
 ### App Server Boundary
 
 `src/app_server.rs` является границей для внешних UI-клиентов. Он создаёт `AgentRuntime`, публикует `AppServerEvent`, принимает пользовательские сообщения, прокидывает approval requests и умеет очищать history. Это не часть core и не provider-specific adapter: transport-код может меняться, а runtime остаётся за тем же contract/DTO слоем.
 
-Текущий transport подключён командой `agent server stdio`. Он читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Socket/http/ACP можно добавлять поверх этой же границы как planned transport, не связывая core с конкретной TUI.
+Текущий transport подключён командой `agent server stdio` и живёт в `src/app_server/stdio.rs`; JSONL DTO живут в `src/app_server/protocol.rs`. Он читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Socket/http/ACP можно добавлять поверх этой же границы как planned transport, не связывая core с конкретным UI.
 
 ### Core
 

@@ -11,9 +11,7 @@ cargo run
 cargo run -- --interactive
 ```
 
-Если stdin/stdout являются TTY, интерактивный режим использует `ratatui` presenter. Контроллер в `src/tui.rs` собирает runtime events, approval requests, streaming state и ввод пользователя, а `src/tui/visual.rs` принимает нейтральный `VisualState` и рендерит transcript, composer, footer, tool activity и approval modal. Это отделяет данные ядра от конкретного визуального стиля.
-
-Текущий visual style ближе к Codex/OpenCode: компактная стартовая карточка в transcript, нижний composer/footer, spinner ожидания и постепенный вывод ответа. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Для pipe/non-TTY остаётся line REPL fallback.
+Интерактивный режим использует line REPL. Визуальные клиенты не входят в этот binary и должны подключаться отдельным процессом через app-server transport.
 
 Одна задача:
 
@@ -36,7 +34,7 @@ Headless app-server для внешнего UI:
 cargo run -- server stdio
 ```
 
-`server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой поверх `src/app_server.rs`, а не новая runtime-логика.
+`server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `src/app_server/stdio.rs` поверх `src/app_server.rs`, а не новая runtime-логика.
 
 ## REPL Commands
 
@@ -105,7 +103,7 @@ event
 
 ## App Server Boundary
 
-`src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport; будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
+`src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport в `src/app_server/stdio.rs`, а JSONL DTO лежат в `src/app_server/protocol.rs`. Будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
 
 События app-server:
 
@@ -182,7 +180,9 @@ Conversation history хранит persistent сообщения: user prompts, a
 
 Лимит tool rounds: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
-Если approval требуется, `ToolOrchestrator` отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; headless/TUI режимы сейчас возвращают отказ.
+Если approval требуется, `ToolOrchestrator` отправляет запрос через `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в терминале; app-server transport публикует approval request и ждёт ответ UI-клиента.
+
+Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`, `/mode`, `/model`, `/doctor`, `/events` и `/export`. Эти команды должны оставаться клиентским слоем поверх runtime/app-server boundary, а не переносить business logic в visual layer.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 

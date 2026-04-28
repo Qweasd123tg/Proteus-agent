@@ -41,6 +41,8 @@ Rust CLI-first каркас для модульного coding-agent.
 cargo run
 ```
 
+Интерактивный режим использует line REPL. Визуальные клиенты должны жить отдельным процессом поверх `agent server stdio`.
+
 Внутри REPL:
 
 ```text
@@ -82,6 +84,12 @@ cargo run -- --permission-mode normal "edit file"
 
 ```bash
 cargo run -- modules list
+```
+
+Посмотреть реально зарегистрированные tools для выбранного config:
+
+```bash
+cargo run -- --config agent.example.toml tools list
 ```
 
 ## Установка
@@ -126,7 +134,7 @@ agent server stdio
 
 Если `TASK` не указан, агент открывает REPL.
 
-В обычном TTY интерактивный режим запускает `ratatui` presenter. `src/tui.rs` собирает runtime events, approvals, streaming и ввод, а `src/tui/visual.rs` принимает `VisualState` и рендерит Codex/OpenCode-like transcript, composer/footer, tool activity и approval modal. Transcript прокручивается через `PageUp`/`PageDown`, `Home`/`End`, `Ctrl+U`/`Ctrl+D` и колесо мыши. Если stdin/stdout не являются TTY, используется line REPL fallback.
+Интерактивный режим внутри этого binary использует line REPL. Полноценный visual layer не входит в проект и должен подключаться как внешний client через `agent server stdio`.
 
 `agent server stdio` нужен как основа для вынесенных визуальных клиентов. Процесс читает JSONL-команды:
 
@@ -144,7 +152,7 @@ agent server stdio
 {"type":"response","id":"1","ok":true,"output":{"text":"...","metadata":{}},"error":null}
 ```
 
-Это transport поверх `src/app_server.rs`; будущие socket/http/ACP-клиенты должны цепляться к той же границе, а не к `AgentRuntime` напрямую.
+Это transport из `src/app_server/stdio.rs` поверх boundary в `src/app_server.rs`; будущие socket/http/ACP-клиенты должны цепляться к той же границе, а не к `AgentRuntime` напрямую.
 
 ## Конфигурация
 
@@ -197,7 +205,11 @@ Single-file JSON/TOML через `--config` остаётся поддержан 
 }
 ```
 
-`agent.example.toml` оставлен как dev/smoke-test профиль с прямым `[model]` и явными runtime sections.
+`agent.example.toml` оставлен как dev/smoke-test профиль с прямым `[model]`,
+явными runtime sections и включёнными built-in tools. Для сценария
+bring-your-own tools есть `agent.advanced.example.toml`: там
+`tools.enabled = []`, а tools по умолчанию читаются из директории `tools`
+рядом с config root.
 
 Внешний вид финального CLI-вывода выбирается через renderer module. Например, compact statusline с моделью, контекстом и id сессии:
 

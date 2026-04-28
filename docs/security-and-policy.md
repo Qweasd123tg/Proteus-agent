@@ -11,6 +11,11 @@ Security v0 держится на четырёх уровнях:
 [rights-and-modules.md](rights-and-modules.md). Этот документ ниже описывает
 текущую реализацию v0.
 
+В v0 нет полноценного OS sandbox. Текущая защита держится на workspace
+boundary, safety classes, permission mode и approval policy. Отдельный sandbox,
+network gate, protected paths и secrets policy являются следующими слоями, а не
+заменой текущего `ToolOrchestrator`.
+
 ## ToolSafety
 
 Поддерживаемые классы:
@@ -83,6 +88,12 @@ Config-defined `process` и stdio `mcp` tools также считаются comm
 ```
 
 Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
+
+Ближайшая UX-цель для write approval - diff-first flow. Для
+`apply_patch`/`write_file` approval должен показывать affected files и diff
+preview, а для `shell` - command, cwd и причину запуска. `apply_patch` остаётся
+основным edit path; `write_file` нужен как более широкий fallback и должен быть
+видим пользователю как более рискованное действие.
 
 Headless runtime без approval transport отказывает `Ask`. App-server transport публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если клиент не отвечает, turn продолжает ждать решение. `ToolOrchestrator` передаёт модели tools, которые policy разрешает сразу, а tools с `Ask` показывает только если transport умеет интерактивно запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
 

@@ -43,7 +43,7 @@ core runtime не должен меняться.
 - ACP/MCP как основу ядра;
 - произвольный multi-agent DAG;
 - обязательный RAG;
-- сложную TUI;
+- встроенный сложный visual client;
 - полноценный аналог Claude Code/Codex;
 - fork чужого проекта целиком.
 
@@ -139,8 +139,8 @@ Core не отвечает за:
 | `ToolRegistry` + `ToolProvider` | доступные tools | builtin provider + source-aware registry | dynamic registry, MCP later |
 | `ApprovalPolicy` | разрешения | `AskWritePolicy` | strict, trusted, headless |
 | `PatchApplier` | применение изменений | direct write | unified diff, git-aware patch |
-| `Workflow` | ход агента | `SingleLoopWorkflow` | plan/execute/review, subagents later |
-| `Renderer` | вывод | plain text | TUI, JSON, ACP later |
+| `Workflow` | ход агента | `SingleLoopWorkflow` | `plan_execute_review`, subagents later |
+| `Renderer` | вывод | plain text | JSON, app-server/ACP clients later |
 
 ---
 
@@ -410,7 +410,7 @@ pub enum ModelStreamEvent {
 }
 ```
 
-CLI/TUI/ACP потом будут слушать эти события, а не provider-specific stream.
+CLI/UI/ACP потом будут слушать эти события, а не provider-specific stream.
 
 ---
 
@@ -786,6 +786,27 @@ context = "repo_aware"
 workflow = "plan_execute_review"
 ```
 
+Важно: ближайшее развитие после v0 - всё ещё модульность, но через
+стабилизацию contract boundary на рабочем local coding loop. Marketplace и
+динамический plugin runtime не должны появиться раньше, чем built-in modules
+докажут, что workflow/context/tools/policy можно менять без правок core.
+Поэтому следующие config profiles должны разделять:
+
+```text
+quickstart/coding:
+  built-in read/search/edit/shell tools включены,
+  read-only tools allow,
+  apply_patch/write_file/shell ask
+
+advanced/bring-your-own-tools:
+  tools.enabled = [],
+  tools.path или tools.configured задают полный набор tools
+```
+
+Если policy ссылается на tool names, эти tools должны быть реально
+зарегистрированы; иначе ошибка должна быть диагностикой `doctor`, а не
+непонятным отказом агента "без рук".
+
 ---
 
 # 13. Структура проекта v0
@@ -1128,6 +1149,59 @@ policy allow_all/ask_write не меняет tools
 model fake/real не меняет workflow
 ```
 
+## Phase 7 — plugin-ready local coding loop
+
+Сделать:
+
+- рабочие quickstart defaults для built-in tools;
+- `agent init`, `agent doctor`, `tools list`;
+- auto context из `AGENTS.md`, README и manifest files;
+- `read_file` ranges/line numbers, `list_tree`, `git_status`, `git_diff`;
+- внешний UI interrupt/cancel и базовые slash-команды `/tools`, `/mode`, `/model`,
+  `/diff`.
+
+Цель:
+
+```text
+агент сам понимает repo, находит файлы, безопасно просит approval и даёт
+понятный итог без ручной настройки каждого tool; при этом новые context/tools/UI
+остаются заменяемыми modules, а не runtime-specific фичами
+```
+
+## Phase 8 — quality loop
+
+Сделать:
+
+- `repo_aware` context builder с query extraction и token budget;
+- `edit_file(old_text, new_text)` и unified diff path;
+- `plan_execute_review` workflow;
+- review step через `git_diff` и очевидные проверки;
+- final answer template: changed, tested, not tested.
+
+Цель:
+
+```text
+меньше тупого rg по полной фразе, меньше неверных edits, больше проверяемых
+изменений
+```
+
+## Phase 9 — eval-driven module swapping
+
+Сделать:
+
+- формат eval cases для repo understanding, editing, debugging и UX tasks;
+- report из event log: success, tests, calls, approvals, duration, tokens/cost,
+  files changed, diff size, failure reason;
+- сравнение связок `single_loop/simple_context/internal_patch` и
+  `plan_execute_review/repo_aware/edit_file`.
+
+Цель:
+
+```text
+решать, готов ли contract к будущим plugins, по измерениям, а не по ощущению
+архитектурной красоты
+```
+
 ---
 
 # 18. Definition of Done v0
@@ -1205,7 +1279,7 @@ Hard requirements:
    - execute tool,
    - append events,
    - return final output.
-8. Do not add RAG, MCP, ACP, TUI, WASM, dynamic plugins, or subagents yet.
+8. Do not add RAG, MCP, ACP, embedded UI, WASM, dynamic plugins, or subagents yet.
 9. Keep DTOs serde-serializable.
 10. Add module swap tests for search, memory, policy, and model.
 

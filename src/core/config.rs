@@ -42,21 +42,21 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
-        let config = match path {
-            Some(path) => Self::load_path(path).await,
+        let (config, config_path) = match path {
+            Some(path) => (Self::load_path(path).await?, Some(path.to_path_buf())),
             None => {
                 if let Some(path) = default_config_path() {
                     if tokio::fs::try_exists(&path).await? {
-                        Self::load_path(&path).await
+                        (Self::load_path(&path).await?, Some(path))
                     } else {
-                        Ok(Self::default())
+                        (Self::default(), None)
                     }
                 } else {
-                    Ok(Self::default())
+                    (Self::default(), None)
                 }
             }
-        }?;
-        config.with_tool_manifests().await
+        };
+        config.with_tool_manifests(config_path.as_deref()).await
     }
 
     async fn load_path(path: &Path) -> Result<Self> {
@@ -130,11 +130,10 @@ impl AppConfig {
         Ok(self.model.clone())
     }
 
-    async fn with_tool_manifests(mut self) -> Result<Self> {
-        let Some(path) = self.tools.path.clone() else {
+    async fn with_tool_manifests(mut self, config_path: Option<&Path>) -> Result<Self> {
+        let Some(path) = self.tools_path(config_path) else {
             return Ok(self);
         };
-        let path = expand_home(path);
         if !tokio::fs::try_exists(&path).await? {
             return Ok(self);
         }
@@ -142,6 +141,26 @@ impl AppConfig {
         let manifests = load_tool_manifests(&path).await?;
         self.tools.configured.extend(manifests);
         Ok(self)
+    }
+
+    fn tools_path(&self, config_path: Option<&Path>) -> Option<PathBuf> {
+        if let Some(path) = self.tools.path.clone() {
+            let path = expand_home(path);
+            if path.is_absolute() {
+                return Some(path);
+            }
+            return Some(
+                config_root(config_path)
+                    .map(|root| root.join(&path))
+                    .unwrap_or(path),
+            );
+        }
+
+        if let Some(path) = env::var_os("AGENT_TOOLS_PATH") {
+            return Some(PathBuf::from(path));
+        }
+
+        config_root(config_path).map(|root| root.join("tools"))
     }
 }
 
@@ -620,16 +639,7 @@ fn default_tools() -> Vec<String> {
 }
 
 fn default_tools_path() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("AGENT_TOOLS_PATH") {
-        return Some(PathBuf::from(path));
-    }
-
-    if let Some(home) = env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/tools"));
-    }
-
-    env::var_os("XDG_CONFIG_HOME")
-        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/tools"))
+    None
 }
 
 fn default_tool_input_schema() -> serde_json::Value {
@@ -710,6 +720,19 @@ fn default_config_path() -> Option<PathBuf> {
 
     env::var_os("XDG_CONFIG_HOME")
         .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs"))
+}
+
+fn config_root(config_path: Option<&Path>) -> Option<PathBuf> {
+    let path = config_path?;
+    if path.is_file() {
+        return path.parent().map(Path::to_path_buf);
+    }
+
+    if path.file_name().and_then(|name| name.to_str()) == Some("configs") {
+        return path.parent().map(Path::to_path_buf);
+    }
+
+    Some(path.to_path_buf())
 }
 
 fn is_config_file(path: &Path) -> bool {

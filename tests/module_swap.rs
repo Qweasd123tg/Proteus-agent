@@ -1560,11 +1560,11 @@ fn ask_write_rejects_unknown_policy_tool_at_startup() {
         Err(error) => error,
     };
 
-    assert!(
-        error
-            .to_string()
-            .contains("policy.ask_write.allow references unsupported tool: missing_tool")
-    );
+    let error = error.to_string();
+    assert!(error.contains("policy.ask_write.allow references unknown tool \"missing_tool\""));
+    assert!(error.contains("registered tools:"));
+    assert!(error.contains("read_file"));
+    assert!(error.contains("hint: enable the builtin tool"));
 }
 
 #[tokio::test]
@@ -1790,8 +1790,8 @@ async fn json_config_file_can_select_anthropic_provider() {
         "https://api.anthropic.com"
     );
     assert_eq!(config.context.simple.max_search_results, 50);
-    assert!(config.tools.enabled.is_empty());
-    assert_eq!(configured_tool_names(&config), standard_tool_names());
+    assert_eq!(config.tools.enabled, standard_tool_names());
+    assert!(configured_tool_names(&config).is_empty());
 }
 
 #[tokio::test]
@@ -1808,8 +1808,8 @@ async fn toml_config_file_can_select_statusline_renderer() {
     );
     assert_eq!(config.renderer.statusline.position, "bottom");
     assert_eq!(config.renderer.statusline.frame, "block");
-    assert!(config.tools.enabled.is_empty());
-    assert_eq!(configured_tool_names(&config), standard_tool_names());
+    assert_eq!(config.tools.enabled, standard_tool_names());
+    assert!(configured_tool_names(&config).is_empty());
 }
 
 #[tokio::test]
@@ -1864,6 +1864,44 @@ ansi = false
     assert_eq!(config.tools.enabled, ["read_file", "search"]);
     assert_eq!(config.renderer.statusline.components, ["model", "context"]);
     assert!(!config.renderer.statusline.ansi);
+}
+
+#[tokio::test]
+async fn config_directory_loads_tools_from_config_root_tools_dir_by_default() {
+    let root = tempfile::tempdir().expect("config root");
+    let configs_dir = root.path().join("configs");
+    let tools_dir = root.path().join("tools");
+    std::fs::create_dir(&configs_dir).expect("configs dir");
+    std::fs::create_dir(&tools_dir).expect("tools dir");
+    std::fs::write(
+        configs_dir.join("01-runtime.toml"),
+        r#"
+[tools]
+enabled = []
+"#,
+    )
+    .expect("runtime config");
+    std::fs::write(
+        tools_dir.join("read-file.toml"),
+        r#"
+name = "read_file"
+description = "Configured read tool from config root"
+safety = "ReadOnly"
+timeout_ms = 1000
+
+[executor]
+kind = "native"
+handler = "read_file"
+"#,
+    )
+    .expect("tool manifest");
+
+    let config = modular_agent::core::AppConfig::load(Some(&configs_dir))
+        .await
+        .unwrap();
+
+    assert!(config.tools.enabled.is_empty());
+    assert_eq!(configured_tool_names(&config), ["read_file"]);
 }
 
 #[tokio::test]

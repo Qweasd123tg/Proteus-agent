@@ -758,7 +758,19 @@ fn validate_policy_tool_names(
 ) -> Result<()> {
     for name in names {
         if tools.spec(name).is_err() {
-            bail!("{config_path} references unsupported tool: {name}");
+            let registered = tools
+                .specs()
+                .into_iter()
+                .map(|spec| spec.name)
+                .collect::<Vec<_>>();
+            let registered = if registered.is_empty() {
+                "[]".to_owned()
+            } else {
+                registered.join(", ")
+            };
+            bail!(
+                "{config_path} references unknown tool \"{name}\"\nregistered tools: {registered}\nhint: enable the builtin tool, add a configured tool, or remove this policy entry"
+            );
         }
     }
     Ok(())

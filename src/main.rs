@@ -8,25 +8,14 @@ use std::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use modular_agent::app_server::{AgentAppServer, AppServerEvent, AppServerHandle};
-use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode};
+use modular_agent::app_server::stdio::run_stdio_app_server;
+use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety};
 use modular_agent::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport, EventSink},
-    core::{
-        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog, FanoutEventSink,
-        JsonlEventStore,
-    },
-    modules::ChannelApprovalTransport,
+    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
+    core::{AgentRuntime, AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
 };
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt},
-    sync::mpsc,
-    time::sleep,
-};
-
-mod tui;
+use tokio::time::sleep;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "CLI-first modular agent skeleton")]
@@ -83,23 +72,15 @@ async fn main() -> Result<()> {
         Some(cwd) => cwd,
         None => std::env::current_dir()?,
     };
+    if is_tools_list_command(&cli.task) {
+        let registry = build_tool_registry_for_listing(&config, &cwd)?;
+        println!("{}", render_tool_list(&registry));
+        return Ok(());
+    }
     if is_app_server_stdio_command(&cli.task) {
         return run_stdio_app_server(config, cwd, config_path).await;
     }
     if cli.interactive || cli.task.is_empty() {
-        if io::stdin().is_terminal() && io::stdout().is_terminal() {
-            let broadcast = Arc::new(BroadcastEventSink::new(1024));
-            let jsonl = Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
-            let event_sink: Arc<dyn EventSink> =
-                Arc::new(FanoutEventSink::new(vec![jsonl, broadcast.clone()]));
-            let (approval_tx, approval_rx) = ChannelApprovalTransport::new(8);
-            let runtime = AgentRuntime::builder(config.clone(), cwd.clone())
-                .with_config_path(config_path.as_deref())
-                .with_event_sink(event_sink)
-                .with_approval(Arc::new(approval_tx))
-                .build()?;
-            return tui::run_tui(runtime, config, cwd, broadcast, approval_rx).await;
-        }
         let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
             config.clone(),
             cwd.clone(),
@@ -124,6 +105,10 @@ fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")
 }
 
+fn is_tools_list_command(task: &[String]) -> bool {
+    matches!(task, [tool, command] if tool == "tools" && command == "list")
+}
+
 fn is_app_server_stdio_command(task: &[String]) -> bool {
     matches!(task, [server, transport] if server == "server" && transport == "stdio")
 }
@@ -142,6 +127,40 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
         .collect::<Vec<_>>();
 
     render_table(["kind", "id", "capabilities", "description"], &rows)
+}
+
+fn build_tool_registry_for_listing(
+    config: &AppConfig,
+    cwd: &std::path::Path,
+) -> Result<modular_agent::contracts::ToolRegistry> {
+    let catalog = BuiltinModuleCatalog::new();
+    let build_ctx = ModuleBuildContext { config, cwd };
+    let search = catalog.build_search(&config.modules.search, &build_ctx)?;
+    let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
+    catalog.build_tools(&build_ctx, search, patch)
+}
+
+fn render_tool_list(registry: &modular_agent::contracts::ToolRegistry) -> String {
+    let rows = registry
+        .entries()
+        .into_iter()
+        .map(|(source, spec)| {
+            [
+                spec.name,
+                source.label(),
+                tool_safety_label(&spec.safety).to_owned(),
+                spec.timeout_ms
+                    .map(|timeout| timeout.to_string())
+                    .unwrap_or_else(|| "-".to_owned()),
+                spec.description,
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    render_table(
+        ["name", "source", "safety", "timeout_ms", "description"],
+        &rows,
+    )
 }
 
 fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
@@ -180,6 +199,16 @@ fn render_table_row<const N: usize>(row: &[String; N], widths: &[usize]) -> Stri
         .join("  ")
 }
 
+fn tool_safety_label(safety: &ToolSafety) -> &'static str {
+    match safety {
+        ToolSafety::ReadOnly => "ReadOnly",
+        ToolSafety::WritesFiles => "WritesFiles",
+        ToolSafety::RunsCommands => "RunsCommands",
+        ToolSafety::Network => "Network",
+        ToolSafety::Dangerous => "Dangerous",
+    }
+}
+
 fn module_kind_label(kind: &ModuleKind) -> &'static str {
     match kind {
         ModuleKind::Model => "model",
@@ -216,217 +245,6 @@ fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {
     Arc::new(TerminalApprovalTransport {
         enabled: io::stdin().is_terminal() && io::stdout().is_terminal(),
     })
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum StdioRequest {
-    Send {
-        id: Option<String>,
-        text: String,
-    },
-    ClearHistory {
-        id: Option<String>,
-    },
-    Approval {
-        id: Option<String>,
-        approval_id: String,
-        approved: bool,
-        note: Option<String>,
-    },
-    Shutdown {
-        id: Option<String>,
-    },
-}
-
-impl StdioRequest {
-    fn id(&self) -> Option<String> {
-        match self {
-            Self::Send { id, .. }
-            | Self::ClearHistory { id }
-            | Self::Approval { id, .. }
-            | Self::Shutdown { id } => id.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum StdioOutput {
-    Event {
-        event: AppServerEvent,
-    },
-    Response {
-        id: Option<String>,
-        ok: bool,
-        output: Option<Value>,
-        error: Option<String>,
-    },
-}
-
-async fn run_stdio_app_server(
-    config: AppConfig,
-    cwd: PathBuf,
-    config_path: Option<PathBuf>,
-) -> Result<()> {
-    let server = AgentAppServer::launch(config, cwd, config_path.as_deref())?;
-    let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
-
-    let mut events = server.subscribe();
-    let event_tx = output_tx.clone();
-    tokio::spawn(async move {
-        loop {
-            match events.recv().await {
-                Ok(event) => {
-                    let should_stop = matches!(event, AppServerEvent::Shutdown);
-                    if event_tx.send(StdioOutput::Event { event }).await.is_err() {
-                        break;
-                    }
-                    if should_stop {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                    let _ = event_tx
-                        .send(StdioOutput::Response {
-                            id: None,
-                            ok: false,
-                            output: None,
-                            error: Some(format!(
-                                "app-server event stream lagged by {count} events"
-                            )),
-                        })
-                        .await;
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-
-    let writer = tokio::spawn(async move {
-        let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-        while let Some(output) = output_rx.recv().await {
-            let line = serde_json::to_string(&output)?;
-            stdout.write_all(line.as_bytes()).await?;
-            stdout.write_all(b"\n").await?;
-            stdout.flush().await?;
-        }
-        Ok::<(), anyhow::Error>(())
-    });
-
-    let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-    let mut lines = stdin.lines();
-    let mut shutdown_requested = false;
-    let mut turn_handles = Vec::new();
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let request = match serde_json::from_str::<StdioRequest>(&line) {
-            Ok(request) => request,
-            Err(error) => {
-                send_stdio_response(
-                    &output_tx,
-                    None,
-                    Err(anyhow::anyhow!("invalid JSONL request: {error}")),
-                )
-                .await;
-                continue;
-            }
-        };
-        let id = request.id();
-
-        match request {
-            StdioRequest::Send { id, text } => {
-                turn_handles.push(spawn_stdio_turn(
-                    server.clone(),
-                    output_tx.clone(),
-                    id,
-                    text,
-                ));
-            }
-            StdioRequest::ClearHistory { .. } => {
-                send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
-                    .await;
-            }
-            StdioRequest::Approval {
-                approval_id,
-                approved,
-                note,
-                ..
-            } => {
-                send_stdio_response(
-                    &output_tx,
-                    id,
-                    server
-                        .respond_approval(&approval_id, approved, note)
-                        .await
-                        .map(|_| None),
-                )
-                .await;
-            }
-            StdioRequest::Shutdown { .. } => {
-                shutdown_requested = true;
-                server.shutdown();
-                send_stdio_response(&output_tx, id, Ok(None)).await;
-                break;
-            }
-        }
-    }
-
-    if shutdown_requested {
-        for handle in turn_handles {
-            handle.abort();
-        }
-    } else {
-        for handle in turn_handles {
-            let _ = handle.await;
-        }
-        server.shutdown();
-    }
-    drop(output_tx);
-    writer.await??;
-    Ok(())
-}
-
-fn spawn_stdio_turn(
-    server: AppServerHandle,
-    output_tx: mpsc::Sender<StdioOutput>,
-    id: Option<String>,
-    text: String,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let result = match server.send_user_message(text).await {
-            Ok(output) => serde_json::to_value(output)
-                .map(Some)
-                .map_err(anyhow::Error::from),
-            Err(error) => Err(error),
-        };
-        send_stdio_response(&output_tx, id, result).await;
-    })
-}
-
-async fn send_stdio_response(
-    output_tx: &mpsc::Sender<StdioOutput>,
-    id: Option<String>,
-    result: Result<Option<Value>>,
-) {
-    let output = match result {
-        Ok(output) => StdioOutput::Response {
-            id,
-            ok: true,
-            output,
-            error: None,
-        },
-        Err(error) => StdioOutput::Response {
-            id,
-            ok: false,
-            output: None,
-            error: Some(format!("{error:#}")),
-        },
-    };
-    let _ = output_tx.send(output).await;
 }
 
 #[derive(Debug)]
@@ -801,6 +619,20 @@ mod tests {
     }
 
     #[test]
+    fn tools_list_command_is_exact() {
+        assert!(is_tools_list_command(&[
+            "tools".to_owned(),
+            "list".to_owned()
+        ]));
+        assert!(!is_tools_list_command(&["tools".to_owned()]));
+        assert!(!is_tools_list_command(&[
+            "tools".to_owned(),
+            "list".to_owned(),
+            "extra".to_owned()
+        ]));
+    }
+
+    #[test]
     fn app_server_stdio_command_is_exact() {
         assert!(is_app_server_stdio_command(&[
             "server".to_owned(),
@@ -827,5 +659,22 @@ mod tests {
         assert!(rendered.contains("search"));
         assert!(rendered.contains("rg"));
         assert!(rendered.contains("workspace,ripgrep"));
+    }
+
+    #[test]
+    fn tool_list_output_contains_registered_tools() {
+        let mut config = AppConfig::default();
+        config.tools.path = None;
+        config.tools.enabled = vec!["read_file".to_owned(), "shell".to_owned()];
+        let dir = tempfile::tempdir().expect("temp dir");
+        let registry = build_tool_registry_for_listing(&config, dir.path()).unwrap();
+        let rendered = render_tool_list(&registry);
+
+        assert!(rendered.contains("name"));
+        assert!(rendered.contains("read_file"));
+        assert!(rendered.contains("builtin:builtin"));
+        assert!(rendered.contains("ReadOnly"));
+        assert!(rendered.contains("shell"));
+        assert!(rendered.contains("RunsCommands"));
     }
 }

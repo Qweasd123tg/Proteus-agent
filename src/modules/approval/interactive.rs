@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport};
 
 /// Pairs an approval request with a one-shot responder. The transport sends
-/// one of these into a channel; a front-end (TUI, remote UI, …) dequeues it,
+/// one of these into a channel; a front-end or remote UI dequeues it,
 /// shows the prompt, and answers via the responder.
 pub struct PendingApproval {
     pub request: ApprovalRequest,
@@ -13,7 +13,7 @@ pub struct PendingApproval {
 }
 
 /// Generic channel-backed approval transport. Decoupled from any specific UI —
-/// a TUI, REPL, RPC server or test harness can all drive it through the
+/// a REPL, RPC server, external UI or test harness can drive it through the
 /// receiver end of the channel.
 #[derive(Clone)]
 pub struct ChannelApprovalTransport {

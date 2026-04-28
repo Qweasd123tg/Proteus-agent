@@ -38,7 +38,12 @@ cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
 
 `config.example.json` - полный single-file пример с `active_provider` и `providers`.
 
-`agent.example.toml` - dev/smoke-test пример с прямым `[model]` и явными runtime sections для modules, tools, policy, search, context, memory и event log.
+`agent.example.toml` - quickstart/dev пример с прямым `[model]`, явными
+runtime sections и включёнными built-in tools.
+
+`agent.advanced.example.toml` - advanced пример для bring-your-own tools:
+`tools.enabled = []`, а полный набор tools приходит из директории `tools`
+рядом с config root.
 
 Все форматы поддерживаются одной struct schema.
 
@@ -144,17 +149,37 @@ Default env vars:
 ```json
 {
   "tools": {
-    "enabled": [],
-    "path": "/home/qweasd123tg/.config/agent-qweasd123tg/tools"
+    "enabled": ["apply_patch", "list_dir", "read_file", "search", "shell", "write_file"],
+    "path": null
   }
 }
 ```
 
-`tools.enabled` оставлен для совместимости и включает встроенные tools по имени. В config-first режиме используйте `tools.path`, а `tools.enabled = []`.
+`tools.enabled` включает встроенные tools по имени. Quickstart/coding профили
+должны перечислять built-in tools явно, чтобы policy ссылалась на реально
+зарегистрированные names.
 
-`tools.path` указывает каталог tool manifests. Runtime читает `*.toml`/`*.json` файлы на первом уровне и подпапки с `tool.toml`, `manifest.toml`, `tool.json` или `manifest.json`.
+В advanced/config-first режиме используйте `tools.path` или
+`tools.configured`, а `tools.enabled = []`.
 
-`tools.configured` остаётся доступным для inline tools, но основной путь для локальных tools - каталог `/home/qweasd123tg/.config/agent-qweasd123tg/tools`.
+`tools.path` указывает каталог tool manifests. Если `tools.path` не задан,
+runtime ищет tools в config root:
+
+```text
+~/.config/agent-qweasd123tg/
+  configs/
+  tools/
+```
+
+Для explicit config directory `configs/` config root считается родительская
+директория. Для single-file config root считается директория файла. Относительный
+`tools.path` также считается от config root.
+
+Runtime читает `*.toml`/`*.json` файлы на первом уровне и подпапки с
+`tool.toml`, `manifest.toml`, `tool.json` или `manifest.json`.
+
+`tools.configured` остаётся доступным для inline tools. `AGENT_TOOLS_PATH`
+может переопределить default tools directory, если path не указан в config.
 
 Сейчас поддержаны executors `native`, `process` и `mcp`.
 

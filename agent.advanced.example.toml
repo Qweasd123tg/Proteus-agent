@@ -1,5 +1,5 @@
 [profile]
-name = "dev-basic"
+name = "advanced-external-tools"
 
 [model]
 provider = "fake"
@@ -23,17 +23,11 @@ frame = "block"
 separator = " | "
 ansi = true
 
-[renderer.statusline.model]
-label = "model"
-show_provider = true
-
-[renderer.statusline.context]
-label = "ctx"
-max_tokens = 200000
-bar_width = 10
-
 [tools]
-enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_file"]
+enabled = []
+# path omitted: defaults to the tools directory next to the config root.
+# With the standard layout this is ~/.config/agent-qweasd123tg/tools.
+# Keep policy.ask_write in sync with the names registered by those manifests.
 
 [permissions]
 mode = "normal"

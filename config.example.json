@@ -54,8 +54,15 @@
     }
   },
   "tools": {
-    "enabled": [],
-    "path": "/home/qweasd123tg/.config/agent-qweasd123tg/tools"
+    "enabled": [
+      "apply_patch",
+      "list_dir",
+      "read_file",
+      "search",
+      "shell",
+      "write_file"
+    ],
+    "path": null
   },
   "permissions": {
     "mode": "normal"

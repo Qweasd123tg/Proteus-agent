@@ -73,6 +73,26 @@ canonical DTO не ломаются.
 - tool safety или policy: `docs/security-and-policy.md`;
 - архитектурные правила: `docs/architecture.md` и `AGENTS.md`.
 
+## Eval Harness
+
+Следующий уровень проверок - eval harness поверх event log. Он должен
+дополнять, а не заменять module-swap tests: module-swap фиксирует границы
+контрактов, evals измеряют качество coding loop и показывают, выдерживают ли
+эти контракты будущий plugin-style swapping.
+
+Минимальный набор eval cases:
+
+- repo understanding: найти runtime boundary, policy path, model adapter flow;
+- editing: добавить renderer/search backend/config example без нарушения slots;
+- debugging: failing test, сломанный approval, неверная context persistence;
+- UX: external UI interrupt, tools list, doctor output, diff approval.
+
+Отчёт должен фиксировать success/fail, tests passed, model calls, tool calls,
+approval count, duration, tokens/cost, changed files, diff size, unnecessary
+edits и failure reason. Главная первая сравнительная пара:
+`single_loop/simple_context/internal_patch` против
+`plan_execute_review/repo_aware/edit_file`.
+
 ## Когда Достаточно Документационной Проверки
 
 Если менялись только `.md` файлы, достаточно проверить:

@@ -16,6 +16,9 @@ use crate::{
     modules::{ChannelApprovalTransport, PendingApproval},
 };
 
+pub mod protocol;
+pub mod stdio;
+
 pub type AppApprovalId = String;
 
 /// Protocol event exposed by the local app-server boundary. UI clients should

@@ -83,8 +83,35 @@ Core не должен знать:
 
 ## Planned But Not Implemented
 
+Стратегическое направление остаётся прежним: стабилизировать маленькое ядро и
+контракты так, чтобы позже поверх них можно было добавлять plugins/external
+modules без переписывания runtime. Ближайшие local-agent фичи ниже нужны не как
+замена модульности, а как практическая проверка этих contracts на реальном
+coding loop.
+
 Это допустимые будущие направления, но они не являются текущим поведением:
 
+- usable local-agent profile с рабочими built-in tools по умолчанию,
+  `agent init`, `agent doctor`, `tools list` и понятной диагностикой config;
+- automatic project instruction context: `AGENTS.md`, nested `AGENTS.md`,
+  README и manifest files как high-priority context, без записи в conversation
+  history;
+- repo-aware context builder: top-level tree, manifest files, query term
+  extraction, targeted filename/text search, token budget и metadata со scores;
+- line-oriented read/edit tools: `read_file` с ranges/line numbers, `list_tree`,
+  `git_status`, `git_diff`, `edit_file(old_text, new_text)` и unified diff
+  support;
+- `plan_execute_review` workflow для coding tasks: classify, gather, plan,
+  execute, review diff/tests, final summary;
+- eval harness поверх event log для сравнения workflow/context/edit tool
+  связок на одинаковых repo tasks;
+- external UI daily-driver UX: real interrupt/cancel, input history, multiline input,
+  `@file`, `!shell`, `/diff`, `/tools`, `/model`, `/mode`, `/doctor`,
+  `/events`, `/export`;
+- diff-first approval для write/patch tools и более информативный shell
+  approval с command/cwd/reason;
+- sandbox/permissions hardening beyond v0: protected paths, explicit network
+  gate, secrets policy и позже OS sandbox;
 - real subagents / multiple threads;
 - resume из event log как source of truth;
 - session restore из предыдущего запуска;
@@ -114,7 +141,7 @@ Core не должен знать:
 - mandatory RAG;
 - multi-agent DAG;
 - переписывание CLI grammar ради косметики;
-- перенос runtime/business logic в CLI/TUI.
+- перенос runtime/business logic в CLI/UI.
 - external process modules до стабилизации config-editable rights.
 
 ## Module Addition Rule
@@ -133,13 +160,25 @@ Core не должен знать:
 
 ## Next Valid Core Checks
 
-Ближайшие полезные проверки архитектуры:
+Ближайшие полезные проверки должны доказывать не только чистоту slot boundary,
+но и пригодность агента как local coding loop. Эти проверки являются
+contract-hardening перед будущими plugins, а не отказом от plugin-ready
+архитектуры:
 
-- добавить одну реальную `MemoryPolicy` без изменения runtime/workflow;
-- добавить один новый `SearchBackend` без изменения runtime/workflow;
-- добавить один новый `Renderer` без изменения workflow;
-- добавить `ToolRightsConfig` для built-in tools без plugin system;
-- сделать read-only `modules list --json` только если нужен machine-readable output.
+- разделить quickstart/coding defaults и advanced empty-tool profile без
+  странных ошибок policy validation;
+- добавить auto project-instruction context без provider-specific logic и без
+  записи ephemeral context в history;
+- добавить `repo_aware` context builder как новую реализацию `ContextBuilder`,
+  не меняя `AgentRuntime`;
+- расширить read/edit/git tools через `ToolRegistry` и `ToolOrchestrator`, не
+  обходя `ApprovalPolicy`;
+- добавить `plan_execute_review` как новую реализацию `Workflow`, сохранив
+  `single_loop` baseline;
+- добавить eval report из event log для сравнения
+  `single_loop/simple_context` vs `plan_execute_review/repo_aware`;
+- добавить diff-first approval view/event path так, чтобы CLI/UI/app-server
+  оставались клиентами одного approval boundary.
 
 Если такая проверка требует правки hot path, текущая модульная граница слабая и
 её нужно стабилизировать до новых фич.

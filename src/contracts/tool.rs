@@ -107,6 +107,20 @@ impl ToolRegistry {
         entries.into_iter().map(|(spec, _source)| spec).collect()
     }
 
+    pub fn entries(&self) -> Vec<(ToolSource, ToolSpec)> {
+        let mut entries = self
+            .tools
+            .values()
+            .map(|entry| (entry.source.clone(), entry.tool.spec()))
+            .collect::<Vec<_>>();
+        entries.sort_by(|(left_source, left), (right_source, right)| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left_source.label().cmp(&right_source.label()))
+        });
+        entries
+    }
+
     pub fn spec(&self, name: &str) -> Result<ToolSpec> {
         self.get(name)
             .map(|tool| tool.spec())
