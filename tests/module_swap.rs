@@ -11,9 +11,9 @@ use async_trait::async_trait;
 use futures_util::stream;
 use modular_agent::{
     contracts::{
-        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
-        EventEmitter, ModelAdapter, ModelClient, PolicyContext, PolicyVisibilityContext, Tool,
-        ToolContext, ToolRegistry, ToolSource, Workflow,
+        ApprovalCacheScope, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
+        ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PolicyContext,
+        PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
@@ -1696,6 +1696,7 @@ impl ApprovalTransport for TestApprovalTransport {
         Ok(ApprovalResponse {
             approved: false,
             note: Some("test approval denied".to_owned()),
+            cache: ApprovalCacheScope::None,
         })
     }
 }

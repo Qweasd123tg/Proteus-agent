@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
-    contracts::{ApprovalResponse, EventSink},
+    contracts::{ApprovalCacheScope, ApprovalResponse, EventSink},
     core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
     domain::{AgentOutput, Event, ToolCall, ToolSpec},
     modules::{ChannelApprovalTransport, PendingApproval},
@@ -102,6 +102,7 @@ impl AppServerHandle {
         approval_id: &str,
         approved: bool,
         note: Option<String>,
+        cache: ApprovalCacheScope,
     ) -> Result<()> {
         let responder = self
             .pending_approvals
@@ -110,7 +111,11 @@ impl AppServerHandle {
             .remove(approval_id)
             .ok_or_else(|| anyhow!("unknown approval id: {approval_id}"))?;
         responder
-            .send(ApprovalResponse { approved, note })
+            .send(ApprovalResponse {
+                approved,
+                note,
+                cache,
+            })
             .map_err(|_| anyhow!("approval response channel dropped"))?;
         let _ = self.events.send(AppServerEvent::ApprovalResolved {
             approval_id: approval_id.to_owned(),
@@ -230,6 +235,7 @@ fn spawn_approval_forwarder(
                         "approval request could not be delivered to any app-server client"
                             .to_owned(),
                     ),
+                    cache: ApprovalCacheScope::None,
                 });
                 let _ = events.send(AppServerEvent::ApprovalResolved {
                     approval_id,
@@ -262,6 +268,7 @@ fn spawn_approval_timeout(
             let _ = responder.send(ApprovalResponse {
                 approved: false,
                 note: Some(format!("approval request timed out after {timeout_ms}ms")),
+                cache: ApprovalCacheScope::None,
             });
             let _ = events.send(AppServerEvent::ApprovalResolved {
                 approval_id,
@@ -281,6 +288,7 @@ async fn deny_pending_approvals(
         let _ = responder.send(ApprovalResponse {
             approved: false,
             note: Some(note.clone()),
+            cache: ApprovalCacheScope::None,
         });
         let _ = events.send(AppServerEvent::ApprovalResolved {
             approval_id,

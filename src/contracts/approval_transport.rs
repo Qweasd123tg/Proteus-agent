@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::{ToolCall, ToolSpec};
 
@@ -17,6 +18,15 @@ pub struct ApprovalRequest {
 pub struct ApprovalResponse {
     pub approved: bool,
     pub note: Option<String>,
+    pub cache: ApprovalCacheScope,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalCacheScope {
+    #[default]
+    None,
+    ExactCall,
 }
 
 #[async_trait]

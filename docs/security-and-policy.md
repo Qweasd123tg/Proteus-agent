@@ -97,6 +97,12 @@ truncation перед событием `ToolFinished` и передачей ре
 
 Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
 
+Runtime оборачивает выбранный transport в session-level approval cache. Cache
+используется только если approval response явно вернул `cache = "exact_call"`;
+ключ строится из `cwd + tool name + canonical JSON args`, без `approval_id` и
+reason. Cache хранится только в памяти текущего runtime/session и не переживает
+restart или `resume_from_session_dir`.
+
 Ближайшая UX-цель для write approval - diff-first flow. Для
 `apply_patch`/`write_file` approval должен показывать affected files и diff
 preview, а для `shell` - command, cwd и причину запуска. `apply_patch` остаётся

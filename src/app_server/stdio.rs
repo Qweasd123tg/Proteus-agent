@@ -130,13 +130,14 @@ pub async fn run_stdio_app_server(
                 approval_id,
                 approved,
                 note,
+                cache,
                 ..
             } => {
                 send_stdio_response(
                     &output_tx,
                     id,
                     server
-                        .respond_approval(&approval_id, approved, note)
+                        .respond_approval(&approval_id, approved, note, cache)
                         .await
                         .map(|_| None),
                 )

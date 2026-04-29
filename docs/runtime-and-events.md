@@ -120,7 +120,7 @@ event
 ```json
 {"id":"1","type":"send","text":"summarize project"}
 {"id":"2","type":"clear_history"}
-{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null}
+{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null,"cache":"exact_call"}
 {"id":"4","type":"cancel","target_id":"1"}
 {"id":"5","type":"shutdown"}
 ```
@@ -206,6 +206,11 @@ session directory.
 UI-клиента. App-server ограничивает ожидание через
 `app_server.approval_timeout_ms`: timeout или shutdown закрывает pending
 approval как отказ.
+
+Approval cache находится в transport-слое текущей runtime session. Если UI
+ответил `cache = "exact_call"`, следующий identical request с тем же `cwd`, tool
+name и canonical JSON args будет approved без нового pending app-server request.
+Этот cache не пишется в `messages.jsonl` и не восстанавливается при resume.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`, `/mode`, `/model`, `/doctor`, `/events` и `/export`. Эти команды должны оставаться клиентским слоем поверх runtime/app-server boundary, а не переносить business logic в visual layer.
 

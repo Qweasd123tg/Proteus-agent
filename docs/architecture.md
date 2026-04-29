@@ -40,6 +40,8 @@ marketplace, MCP host или multi-agent runtime.
   `messages.jsonl`.
 - Tool execution проходит через `ToolOrchestrator`: visibility gate,
   mode-aware `ApprovalPolicy`, timeout и output truncation.
+- Session-level approval cache живёт в `ApprovalTransport` wrapper-е, а не в
+  workflow/core execution logic.
 - `PermissionMode::Auto` не разрешает `RunsCommands`, `Network` и `Dangerous`
   tools по умолчанию; это правило живёт в policy wrapper, а не в orchestrator.
 - Providers реализуют `ModelAdapter`; runtime вызывает их через `ModelService`,

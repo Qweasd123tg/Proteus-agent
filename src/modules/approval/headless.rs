@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport};
+use crate::contracts::{ApprovalCacheScope, ApprovalRequest, ApprovalResponse, ApprovalTransport};
 
 #[derive(Debug, Default)]
 pub struct HeadlessApprovalTransport;
@@ -19,6 +19,7 @@ impl ApprovalTransport for HeadlessApprovalTransport {
                 "approval transport is not interactive: {}",
                 request.reason
             )),
+            cache: ApprovalCacheScope::None,
         })
     }
 }

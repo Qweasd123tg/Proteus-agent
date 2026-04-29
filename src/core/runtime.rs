@@ -11,7 +11,7 @@ use crate::{
         new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::CanonicalMessage,
-    modules::HeadlessApprovalTransport,
+    modules::{CachedApprovalTransport, HeadlessApprovalTransport},
 };
 
 pub struct AgentRuntime {
@@ -328,8 +328,9 @@ impl AgentRuntimeBuilder {
         let event_sink: Arc<dyn EventSink> = event_sink
             .unwrap_or_else(|| Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path))));
         let events = Arc::new(EventEmitter::new(event_sink));
-        let approval: Arc<dyn ApprovalTransport> =
-            approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport));
+        let approval: Arc<dyn ApprovalTransport> = Arc::new(CachedApprovalTransport::new(
+            approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport)),
+        ));
         let session_id = session_id.unwrap_or_else(new_session_id);
         let thread_id = thread_id.unwrap_or_else(new_thread_id);
         let session_store = if let Some(session_dir) = session_dir {

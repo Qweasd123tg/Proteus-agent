@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::AppServerEvent;
+use crate::contracts::ApprovalCacheScope;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -18,6 +19,8 @@ pub enum StdioRequest {
         approval_id: String,
         approved: bool,
         note: Option<String>,
+        #[serde(default)]
+        cache: ApprovalCacheScope,
     },
     Cancel {
         id: Option<String>,
@@ -81,6 +84,7 @@ mod tests {
                 approval_id: "a1".to_owned(),
                 approved: true,
                 note: None,
+                cache: ApprovalCacheScope::None,
             }
             .id(),
             Some("approval".to_owned())
@@ -116,5 +120,35 @@ mod tests {
         assert_eq!(json["type"], "response");
         assert_eq!(json["id"], "1");
         assert_eq!(json["ok"], true);
+    }
+
+    #[test]
+    fn approval_request_accepts_optional_cache_scope() {
+        let without_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+            "type": "approval",
+            "approval_id": "a1",
+            "approved": true,
+            "note": null
+        }))
+        .expect("approval request without cache deserializes");
+        let with_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+            "type": "approval",
+            "approval_id": "a1",
+            "approved": true,
+            "note": null,
+            "cache": "exact_call"
+        }))
+        .expect("approval request with cache deserializes");
+
+        match without_cache {
+            StdioRequest::Approval { cache, .. } => assert_eq!(cache, ApprovalCacheScope::None),
+            other => panic!("expected approval request, got {other:?}"),
+        }
+        match with_cache {
+            StdioRequest::Approval { cache, .. } => {
+                assert_eq!(cache, ApprovalCacheScope::ExactCall)
+            }
+            other => panic!("expected approval request, got {other:?}"),
+        }
     }
 }

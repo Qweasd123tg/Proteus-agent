@@ -18,6 +18,7 @@ cargo test
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` применяет `ApprovalPolicy::evaluate_visibility` без fake `ToolCall` и исполняет `ToolSpec.timeout_ms`;
+- session-level approval cache переиспользует только exact calls с canonical JSON args;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
 - builder может принять существующие `SessionId`/`ThreadId` и восстановить history из existing session directory;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;

@@ -11,7 +11,7 @@ use clap::{Parser, ValueEnum};
 use modular_agent::app_server::stdio::run_stdio_app_server;
 use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety};
 use modular_agent::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
+    contracts::{ApprovalCacheScope, ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{AgentRuntime, AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
 };
 use serde_json::Value;
@@ -266,6 +266,7 @@ impl ApprovalTransport for TerminalApprovalTransport {
                     "approval transport is not interactive: {}",
                     request.reason
                 )),
+                cache: ApprovalCacheScope::None,
             });
         }
 
@@ -293,6 +294,7 @@ impl ApprovalTransport for TerminalApprovalTransport {
         Ok(ApprovalResponse {
             approved,
             note: (!approved).then(|| format!("tool call was not approved: {}", request.reason)),
+            cache: ApprovalCacheScope::None,
         })
     }
 }
