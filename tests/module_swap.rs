@@ -9,8 +9,9 @@ use std::{
 use async_trait::async_trait;
 use modular_agent::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, EventEmitter, ModelAdapter,
-        ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput, EventEmitter,
+        ModelAdapter, ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource,
+        Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
@@ -27,8 +28,8 @@ use modular_agent::{
         MessageRole, ModelCapabilities,
     },
     modules::{
-        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService,
-        ReadFileTool, SingleLoopWorkflow, WriteFileTool,
+        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService, NoMemory,
+        NullSearch, ReadFileTool, SingleLoopWorkflow, WriteFileTool,
     },
 };
 use serde_json::json;
@@ -110,6 +111,11 @@ fn builtin_module_catalog_lists_builtin_slots() {
         .into_iter()
         .map(|manifest| manifest.id)
         .collect::<Vec<_>>();
+    let context_ids = catalog
+        .manifests_by_kind(ModuleKind::Context)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
 
     assert_eq!(
         model_ids,
@@ -117,6 +123,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
     );
     assert_eq!(search_ids, ["null", "rg"]);
     assert_eq!(memory_policy_ids, ["none"]);
+    assert_eq!(context_ids, ["repo_aware", "simple"]);
     assert_eq!(
         catalog
             .manifest(ModuleKind::Workflow, "single_loop")
@@ -201,6 +208,131 @@ fn statusline_renderer_rejects_unknown_frame_at_startup() {
         error
             .to_string()
             .contains("unsupported statusline frame: floating")
+    );
+}
+
+#[tokio::test]
+async fn swapping_context_builder_does_not_change_runtime() {
+    for context in ["simple", "repo_aware"] {
+        let mut config = test_config();
+        config.modules.context = context.to_owned();
+        config.context.repo_aware.providers = vec!["repo_tree".to_owned()];
+
+        let (output, events) = run_with(config, "summarize context").await;
+
+        assert!(output.contains("Fake final answer"));
+        assert!(events.events().await.len() >= 5);
+    }
+}
+
+#[test]
+fn unknown_repo_aware_provider_is_rejected_at_startup() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.context = "repo_aware".to_owned();
+    config.context.repo_aware.providers = vec!["mystery".to_owned()];
+
+    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+        Ok(_) => panic!("unknown repo_aware provider should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported repo_aware context provider: mystery")
+    );
+}
+
+#[tokio::test]
+async fn repo_aware_context_collects_provider_chunks_with_metadata() {
+    let dir = temp_workspace();
+    std::fs::write(
+        dir.path().join("AGENTS.md"),
+        "Run cargo test before finishing.\n",
+    )
+    .expect("agents");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\n",
+    )
+    .expect("manifest");
+    std::fs::write(dir.path().join("src.rs"), "fn main() {}\n").expect("source");
+    let mut config = test_config();
+    config.modules.context = "repo_aware".to_owned();
+    config.context.repo_aware.providers = vec![
+        "project_instructions".to_owned(),
+        "manifest".to_owned(),
+        "repo_tree".to_owned(),
+    ];
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let bundle = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask {
+                text: "summarize repo".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            search: Arc::new(NullSearch),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        bundle
+            .chunks
+            .iter()
+            .any(|chunk| chunk.source == "repo_aware:task")
+    );
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:project_instructions"
+            && chunk.path.as_deref() == Some(std::path::Path::new("AGENTS.md"))
+            && chunk.content.contains("cargo test")
+            && chunk.metadata["provider"] == "project_instructions"
+            && chunk.metadata["reason"] == "project instruction file"
+    }));
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:manifest"
+            && chunk.path.as_deref() == Some(std::path::Path::new("Cargo.toml"))
+            && chunk.content.contains("name = \"demo\"")
+    }));
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:repo_tree" && chunk.content.contains("src.rs")
+    }));
+}
+
+#[tokio::test]
+async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
+    let dir = temp_workspace();
+    let outside = tempfile::tempdir().expect("outside dir");
+    std::fs::write(outside.path().join("secret.md"), "do not read").expect("secret");
+    let mut config = test_config();
+    config.modules.context = "repo_aware".to_owned();
+    config.context.repo_aware.providers = vec!["project_instructions".to_owned()];
+    config.context.repo_aware.project_instruction_files = vec![format!(
+        "../{}/secret.md",
+        outside.path().file_name().unwrap().to_string_lossy()
+    )];
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let bundle = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask {
+                text: "summarize repo".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            search: Arc::new(NullSearch),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        !bundle
+            .chunks
+            .iter()
+            .any(|chunk| chunk.content.contains("do not read"))
     );
 }
 

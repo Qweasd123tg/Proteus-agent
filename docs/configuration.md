@@ -314,12 +314,27 @@ pending approvals.
   "context": {
     "simple": {
       "max_search_results": 50
+    },
+    "repo_aware": {
+      "providers": ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"],
+      "max_context_bytes": 60000,
+      "max_bytes_per_file": 8000,
+      "max_search_results": 50,
+      "memory_limit": 5,
+      "repo_tree_max_entries": 300,
+      "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
+      "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
     }
   }
 }
 ```
 
 `max_search_results` задаёт лимит поисковых chunks, которые `SimpleContextBuilder` запрашивает через `SearchBackend`. Этот параметр не привязан к конкретной реализации search backend.
+
+`context.repo_aware.providers` задаёт ordered pipeline providers. Сейчас это
+internal provider pipeline внутри `RepoAwareContextBuilder`, а не external
+plugin system. `max_context_bytes` ограничивает суммарный объём selected
+chunks, `max_bytes_per_file` ограничивает project instruction/manifest файлы.
 
 ## Memory
 

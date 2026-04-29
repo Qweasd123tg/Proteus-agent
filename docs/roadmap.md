@@ -44,6 +44,7 @@ UI/business logic в CLI.
 - session/events/history отделены от ephemeral context;
 - CLI/UI зафиксирован как внешний слой;
 - process stdout/stderr bounded до общего truncation.
+- `repo_aware` context добавляет provider pipeline за `ContextBuilder` slot.
 
 ### v0.1: Repo-Aware Context
 
@@ -59,6 +60,10 @@ workflow или runtime.
 - учитывать `git status`/diff summary;
 - использовать search/repo map только через contract/helper boundary;
 - возвращать scored context chunks и metadata для renderer/app-server.
+
+Первый вариант реализует internal providers для project instructions,
+manifests, git status, repo tree, memory и search. Repo map остаётся следующим
+расширением provider pipeline.
 
 Не делать на этом этапе:
 

@@ -37,7 +37,11 @@
   },
   "renderer": {
     "statusline": {
-      "components": ["model", "context", "session"],
+      "components": [
+        "model",
+        "context",
+        "session"
+      ],
       "position": "bottom",
       "frame": "block",
       "separator": " | ",
@@ -69,8 +73,16 @@
   },
   "policy": {
     "ask_write": {
-      "ask_before": ["apply_patch", "write_file", "shell"],
-      "allow": ["read_file", "list_dir", "search"]
+      "ask_before": [
+        "apply_patch",
+        "write_file",
+        "shell"
+      ],
+      "allow": [
+        "read_file",
+        "list_dir",
+        "search"
+      ]
     }
   },
   "search": {
@@ -81,6 +93,35 @@
   "context": {
     "simple": {
       "max_search_results": 50
+    },
+    "repo_aware": {
+      "providers": [
+        "project_instructions",
+        "manifest",
+        "git_status",
+        "repo_tree",
+        "memory",
+        "search"
+      ],
+      "max_context_bytes": 60000,
+      "max_bytes_per_file": 8000,
+      "max_search_results": 50,
+      "memory_limit": 5,
+      "repo_tree_max_entries": 300,
+      "project_instruction_files": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".cursorrules"
+      ],
+      "manifest_files": [
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "composer.json"
+      ]
     }
   },
   "memory": {

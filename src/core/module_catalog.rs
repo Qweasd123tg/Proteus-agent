@@ -18,8 +18,8 @@ use crate::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, ConfiguredMcpTool,
         ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier, FakeModelClient,
         JsonlMemory, ListDirTool, NoMemory, NoMemoryPolicy, NullSearch, PlainRenderer,
-        ReadFileTool, RgSearch, SearchTool, ShellTool, SimpleContextBuilder, SingleLoopWorkflow,
-        StatuslineRenderer, WriteFileTool,
+        ReadFileTool, RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch, SearchTool,
+        ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, WriteFileTool,
     },
 };
 
@@ -175,6 +175,18 @@ impl BuiltinModuleCatalog {
                     "Simple memory/search context builder.",
                 ),
                 build_simple_context,
+            ),
+        );
+        context.insert(
+            "repo_aware".to_owned(),
+            ModuleFactory::new(
+                manifest(
+                    "repo_aware",
+                    ModuleKind::Context,
+                    &["workspace", "providers", "budget"],
+                    "Provider-based workspace context builder.",
+                ),
+                build_repo_aware_context,
             ),
         );
 
@@ -706,6 +718,22 @@ fn build_simple_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextB
     Ok(Arc::new(SimpleContextBuilder {
         max_search_results: ctx.config.context.simple.max_search_results,
     }))
+}
+
+fn build_repo_aware_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
+    let config = &ctx.config.context.repo_aware;
+    Ok(Arc::new(RepoAwareContextBuilder::new(
+        RepoAwareContextConfig {
+            providers: config.providers.clone(),
+            max_context_bytes: config.max_context_bytes,
+            max_bytes_per_file: config.max_bytes_per_file,
+            max_search_results: config.max_search_results,
+            memory_limit: config.memory_limit,
+            repo_tree_max_entries: config.repo_tree_max_entries,
+            project_instruction_files: config.project_instruction_files.clone(),
+            manifest_files: config.manifest_files.clone(),
+        },
+    )?))
 }
 
 fn build_allow_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {

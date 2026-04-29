@@ -633,6 +633,8 @@ fn default_max_results() -> usize {
 pub struct ContextConfig {
     #[serde(default)]
     pub simple: SimpleContextConfig,
+    #[serde(default)]
+    pub repo_aware: RepoAwareContextConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -649,8 +651,95 @@ impl Default for SimpleContextConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoAwareContextConfig {
+    #[serde(default = "default_repo_aware_providers")]
+    pub providers: Vec<String>,
+    #[serde(default = "default_repo_aware_max_context_bytes")]
+    pub max_context_bytes: usize,
+    #[serde(default = "default_repo_aware_max_bytes_per_file")]
+    pub max_bytes_per_file: usize,
+    #[serde(default = "default_max_context_search_results")]
+    pub max_search_results: usize,
+    #[serde(default = "default_repo_aware_memory_limit")]
+    pub memory_limit: usize,
+    #[serde(default = "default_repo_tree_max_entries")]
+    pub repo_tree_max_entries: usize,
+    #[serde(default = "default_project_instruction_files")]
+    pub project_instruction_files: Vec<String>,
+    #[serde(default = "default_manifest_files")]
+    pub manifest_files: Vec<String>,
+}
+
+impl Default for RepoAwareContextConfig {
+    fn default() -> Self {
+        Self {
+            providers: default_repo_aware_providers(),
+            max_context_bytes: default_repo_aware_max_context_bytes(),
+            max_bytes_per_file: default_repo_aware_max_bytes_per_file(),
+            max_search_results: default_max_context_search_results(),
+            memory_limit: default_repo_aware_memory_limit(),
+            repo_tree_max_entries: default_repo_tree_max_entries(),
+            project_instruction_files: default_project_instruction_files(),
+            manifest_files: default_manifest_files(),
+        }
+    }
+}
+
 fn default_max_context_search_results() -> usize {
     50
+}
+
+fn default_repo_aware_providers() -> Vec<String> {
+    [
+        "project_instructions",
+        "manifest",
+        "git_status",
+        "repo_tree",
+        "memory",
+        "search",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+fn default_repo_aware_max_context_bytes() -> usize {
+    60_000
+}
+
+fn default_repo_aware_max_bytes_per_file() -> usize {
+    8_000
+}
+
+fn default_repo_aware_memory_limit() -> usize {
+    5
+}
+
+fn default_repo_tree_max_entries() -> usize {
+    300
+}
+
+fn default_project_instruction_files() -> Vec<String> {
+    ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
+fn default_manifest_files() -> Vec<String> {
+    [
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "composer.json",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 fn default_memory_path() -> PathBuf {
