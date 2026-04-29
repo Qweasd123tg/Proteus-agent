@@ -14,8 +14,19 @@ pub struct ToolResult {
     pub call_id: CallId,
     pub ok: bool,
     pub output: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content: Vec<ToolContent>,
     pub error: Option<String>,
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ToolContent {
+    Text { text: String },
+    Json { value: serde_json::Value },
+    Image { mime_type: String, data: String },
+    Binary { mime_type: String, data: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

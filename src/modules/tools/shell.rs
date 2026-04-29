@@ -69,6 +69,7 @@ impl Tool for ShellTool {
             call_id: call.id.clone(),
             ok: output.status.success(),
             output: rendered,
+            content: Vec::new(),
             error: output.status.code().and_then(|code| {
                 if output.status.success() {
                     None
@@ -107,12 +108,7 @@ mod tests {
         };
 
         let result = ShellTool
-            .invoke(
-                &call,
-                ToolContext {
-                    cwd: cwd.path().to_path_buf(),
-                },
-            )
+            .invoke(&call, ToolContext::new(cwd.path().to_path_buf()))
             .await
             .expect("shell result");
 

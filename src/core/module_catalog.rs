@@ -697,8 +697,11 @@ fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBack
 }
 
 fn build_rg_search(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
+    let config =
+        ctx.config
+            .module_config_or(ModuleKind::Search, "rg", ctx.config.search.rg.clone())?;
     Ok(Arc::new(RgSearch {
-        max_results: ctx.config.search.rg.max_results,
+        max_results: config.max_results,
     }))
 }
 
@@ -707,7 +710,7 @@ fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>
 }
 
 fn build_jsonl_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
-    Ok(Arc::new(JsonlMemory::new(memory_path(ctx))))
+    Ok(Arc::new(JsonlMemory::new(memory_path(ctx)?)))
 }
 
 fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
@@ -715,23 +718,32 @@ fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Memor
 }
 
 fn build_simple_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
+    let config = ctx.config.module_config_or(
+        ModuleKind::Context,
+        "simple",
+        ctx.config.context.simple.clone(),
+    )?;
     Ok(Arc::new(SimpleContextBuilder {
-        max_search_results: ctx.config.context.simple.max_search_results,
+        max_search_results: config.max_search_results,
     }))
 }
 
 fn build_repo_aware_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
-    let config = &ctx.config.context.repo_aware;
+    let config = ctx.config.module_config_or(
+        ModuleKind::Context,
+        "repo_aware",
+        ctx.config.context.repo_aware.clone(),
+    )?;
     Ok(Arc::new(RepoAwareContextBuilder::new(
         RepoAwareContextConfig {
-            providers: config.providers.clone(),
+            providers: config.providers,
             max_context_bytes: config.max_context_bytes,
             max_bytes_per_file: config.max_bytes_per_file,
             max_search_results: config.max_search_results,
             memory_limit: config.memory_limit,
             repo_tree_max_entries: config.repo_tree_max_entries,
-            project_instruction_files: config.project_instruction_files.clone(),
-            manifest_files: config.manifest_files.clone(),
+            project_instruction_files: config.project_instruction_files,
+            manifest_files: config.manifest_files,
         },
     )?))
 }
@@ -741,19 +753,24 @@ fn build_allow_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn Appro
 }
 
 fn build_ask_write_policy(ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
-    validate_policy_tool_names(
-        ctx.tools,
-        "policy.ask_write.allow",
-        &ctx.config.policy.ask_write.allow,
+    let config = ctx.config.module_config_or(
+        ModuleKind::Policy,
+        "ask_write",
+        ctx.config.policy.ask_write.clone(),
     )?;
     validate_policy_tool_names(
         ctx.tools,
-        "policy.ask_write.ask_before",
-        &ctx.config.policy.ask_write.ask_before,
+        "module_config.policy.ask_write.allow",
+        &config.allow,
+    )?;
+    validate_policy_tool_names(
+        ctx.tools,
+        "module_config.policy.ask_write.ask_before",
+        &config.ask_before,
     )?;
     Ok(Arc::new(AskWritePolicy::new(
-        ctx.config.policy.ask_write.allow.clone(),
-        ctx.config.policy.ask_write.ask_before.clone(),
+        config.allow,
+        config.ask_before,
     )))
 }
 
@@ -770,13 +787,21 @@ fn build_plain_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Rendere
 }
 
 fn build_statusline_renderer(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {
-    Ok(Arc::new(StatuslineRenderer::from_config(
-        &ctx.config.renderer.statusline,
-    )?))
+    let config = ctx.config.module_config_or(
+        ModuleKind::Renderer,
+        "statusline",
+        ctx.config.renderer.statusline.clone(),
+    )?;
+    Ok(Arc::new(StatuslineRenderer::from_config(&config)?))
 }
 
-fn memory_path(ctx: &ModuleBuildContext<'_>) -> PathBuf {
-    ctx.cwd.join(&ctx.config.memory.jsonl.path)
+fn memory_path(ctx: &ModuleBuildContext<'_>) -> Result<PathBuf> {
+    let config = ctx.config.module_config_or(
+        ModuleKind::Memory,
+        "jsonl",
+        ctx.config.memory.jsonl.clone(),
+    )?;
+    Ok(ctx.cwd.join(&config.path))
 }
 
 fn validate_policy_tool_names(

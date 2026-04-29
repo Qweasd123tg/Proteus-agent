@@ -1,4 +1,11 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -8,6 +15,35 @@ use crate::domain::{ToolCall, ToolResult, ToolSpec};
 #[derive(Debug, Clone)]
 pub struct ToolContext {
     pub cwd: PathBuf,
+    pub cancellation: CancellationToken,
+}
+
+impl ToolContext {
+    pub fn new(cwd: PathBuf) -> Self {
+        Self {
+            cwd,
+            cancellation: CancellationToken::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]

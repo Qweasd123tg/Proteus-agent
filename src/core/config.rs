@@ -5,10 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::domain::{ModelRef, PermissionMode};
+use crate::domain::{ModelRef, ModuleKind, PermissionMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -22,6 +23,8 @@ pub struct AppConfig {
     pub model: ModelConfig,
     #[serde(default)]
     pub modules: ModulesConfig,
+    #[serde(default)]
+    pub module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
@@ -132,6 +135,21 @@ impl AppConfig {
         Ok(self.model.clone())
     }
 
+    pub fn module_config_or<T>(&self, kind: ModuleKind, id: &str, fallback: T) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        let key = module_kind_config_key(kind);
+        let Some(slot) = self.module_config.get(key) else {
+            return Ok(fallback);
+        };
+        let Some(value) = slot.get(id) else {
+            return Ok(fallback);
+        };
+        serde_json::from_value(value.clone())
+            .with_context(|| format!("failed to parse module_config.{key}.{id}"))
+    }
+
     async fn with_tool_manifests(mut self, config_path: Option<&Path>) -> Result<Self> {
         let Some(path) = self.tools_path(config_path) else {
             return Ok(self);
@@ -163,6 +181,21 @@ impl AppConfig {
         }
 
         config_root(config_path).map(|root| root.join("tools"))
+    }
+}
+
+fn module_kind_config_key(kind: ModuleKind) -> &'static str {
+    match kind {
+        ModuleKind::Model => "model",
+        ModuleKind::Search => "search",
+        ModuleKind::Memory => "memory",
+        ModuleKind::MemoryPolicy => "memory_policy",
+        ModuleKind::Context => "context",
+        ModuleKind::Tool => "tool",
+        ModuleKind::Policy => "policy",
+        ModuleKind::Patch => "patch",
+        ModuleKind::Workflow => "workflow",
+        ModuleKind::Renderer => "renderer",
     }
 }
 

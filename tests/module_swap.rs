@@ -7,6 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures_util::stream;
 use modular_agent::{
     contracts::{
         ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput, EventEmitter,
@@ -25,7 +26,7 @@ use modular_agent::{
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole, ModelCapabilities,
+        MessageRole, ModelCapabilities, ModelStreamEvent,
     },
     modules::{
         ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService, NoMemory,
@@ -1329,6 +1330,7 @@ impl Tool for NetworkTool {
             call_id: call.id.clone(),
             ok: true,
             output: "network".to_owned(),
+            content: Vec::new(),
             error: None,
             metadata: serde_json::Value::Null,
         })
@@ -1337,6 +1339,24 @@ impl Tool for NetworkTool {
 
 #[async_trait]
 impl ModelClient for FinalAfterToolLimitModel {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "test.final_after_tool_limit".into()
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities::basic_text_and_tools()
+    }
+
+    async fn stream(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<modular_agent::contracts::ModelEventStream> {
+        let response = self.complete(request).await?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(ModelStreamEvent::Response { response })
+        })))
+    }
+
     async fn complete(
         &self,
         request: CanonicalModelRequest,
@@ -1378,6 +1398,24 @@ impl ModelClient for FinalAfterToolLimitModel {
 
 #[async_trait]
 impl ModelClient for LengthToolCallModel {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "test.length_tool_call".into()
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities::basic_text_and_tools()
+    }
+
+    async fn stream(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<modular_agent::contracts::ModelEventStream> {
+        let response = self.complete(request).await?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(ModelStreamEvent::Response { response })
+        })))
+    }
+
     async fn complete(
         &self,
         _request: CanonicalModelRequest,
@@ -1431,6 +1469,7 @@ impl Tool for SlowTool {
             call_id: call.id.clone(),
             ok: true,
             output: "done".to_owned(),
+            content: Vec::new(),
             error: None,
             metadata: serde_json::Value::Null,
         })
@@ -1536,12 +1575,7 @@ async fn list_dir_lists_workspace_entries() {
     };
 
     let result = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap();
 
@@ -1561,12 +1595,7 @@ async fn list_dir_rejects_parent_traversal() {
     };
 
     let error = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
@@ -1584,12 +1613,7 @@ async fn read_file_directory_error_points_to_list_dir() {
     };
 
     let error = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
@@ -1609,12 +1633,7 @@ async fn apply_patch_replaces_exact_text_once() {
     };
 
     let result = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap();
 
@@ -1639,12 +1658,7 @@ async fn apply_patch_adds_new_file_from_internal_format() {
     };
 
     let result = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap();
 
@@ -1669,12 +1683,7 @@ async fn apply_patch_rejects_parent_traversal() {
     };
 
     let error = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
@@ -1757,12 +1766,7 @@ async fn write_file_rejects_parent_traversal() {
     };
 
     let error = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
@@ -1785,12 +1789,7 @@ async fn write_file_rejects_symlink_escape() {
     };
 
     let error = tool
-        .invoke(
-            &call,
-            ToolContext {
-                cwd: dir.path().to_path_buf(),
-            },
-        )
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
@@ -1879,8 +1878,8 @@ struct NoToolsAdapter;
 
 #[async_trait]
 impl ModelAdapter for NoToolsAdapter {
-    fn id(&self) -> &'static str {
-        "test.no_tools"
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "test.no_tools".into()
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
@@ -1922,6 +1921,16 @@ impl ModelAdapter for NoToolsAdapter {
             }),
         })
     }
+
+    async fn stream(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<modular_agent::contracts::ModelEventStream> {
+        let response = self.complete(request).await?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(ModelStreamEvent::Response { response })
+        })))
+    }
 }
 
 #[tokio::test]
@@ -1939,7 +1948,10 @@ async fn json_config_file_can_select_anthropic_provider() {
         model_config.provider_config["base_url"],
         "https://api.anthropic.com"
     );
-    assert_eq!(config.context.simple.max_search_results, 50);
+    let simple_context: modular_agent::core::SimpleContextConfig = config
+        .module_config_or(ModuleKind::Context, "simple", config.context.simple.clone())
+        .unwrap();
+    assert_eq!(simple_context.max_search_results, 50);
     assert_eq!(config.tools.enabled, standard_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 }
@@ -1952,12 +1964,16 @@ async fn toml_config_file_can_select_statusline_renderer() {
             .unwrap();
 
     assert_eq!(config.modules.renderer, "statusline");
-    assert_eq!(
-        config.renderer.statusline.components,
-        ["model", "context", "session"]
-    );
-    assert_eq!(config.renderer.statusline.position, "bottom");
-    assert_eq!(config.renderer.statusline.frame, "block");
+    let statusline: modular_agent::core::StatuslineRendererConfig = config
+        .module_config_or(
+            ModuleKind::Renderer,
+            "statusline",
+            config.renderer.statusline.clone(),
+        )
+        .unwrap();
+    assert_eq!(statusline.components, ["model", "context", "session"]);
+    assert_eq!(statusline.position, "bottom");
+    assert_eq!(statusline.frame, "block");
     assert_eq!(config.tools.enabled, standard_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 }
@@ -2014,6 +2030,44 @@ ansi = false
     assert_eq!(config.tools.enabled, ["read_file", "search"]);
     assert_eq!(config.renderer.statusline.components, ["model", "context"]);
     assert!(!config.renderer.statusline.ansi);
+}
+
+#[tokio::test]
+async fn module_config_overrides_builtin_module_legacy_config() {
+    let dir = tempfile::tempdir().expect("config dir");
+    let config_path = dir.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[modules]
+renderer = "statusline"
+
+[renderer.statusline]
+components = ["session"]
+ansi = true
+
+[module_config.renderer.statusline]
+components = ["model", "context"]
+ansi = false
+"#,
+    )
+    .expect("config file");
+
+    let config = modular_agent::core::AppConfig::load(Some(&config_path))
+        .await
+        .unwrap();
+    let statusline: modular_agent::core::StatuslineRendererConfig = config
+        .module_config_or(
+            ModuleKind::Renderer,
+            "statusline",
+            config.renderer.statusline.clone(),
+        )
+        .unwrap();
+
+    assert_eq!(config.renderer.statusline.components, ["session"]);
+    assert!(config.renderer.statusline.ansi);
+    assert_eq!(statusline.components, ["model", "context"]);
+    assert!(!statusline.ansi);
 }
 
 #[tokio::test]

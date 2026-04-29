@@ -16,18 +16,18 @@ policy = "ask_write"
 patch = "direct"
 renderer = "statusline"
 
-[renderer.statusline]
+[module_config.renderer.statusline]
 components = ["model", "context", "session"]
 position = "bottom"
 frame = "block"
 separator = " | "
 ansi = true
 
-[renderer.statusline.model]
+[module_config.renderer.statusline.model]
 label = "model"
 show_provider = true
 
-[renderer.statusline.context]
+[module_config.renderer.statusline.context]
 label = "ctx"
 max_tokens = 200000
 bar_width = 10
@@ -38,17 +38,17 @@ enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_fil
 [permissions]
 mode = "normal"
 
-[policy.ask_write]
+[module_config.policy.ask_write]
 ask_before = ["apply_patch", "write_file", "shell"]
 allow = ["read_file", "list_dir", "search"]
 
-[search.rg]
+[module_config.search.rg]
 max_results = 50
 
-[context.simple]
+[module_config.context.simple]
 max_search_results = 50
 
-[context.repo_aware]
+[module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]
 max_context_bytes = 60000
 max_bytes_per_file = 8000
@@ -58,7 +58,7 @@ repo_tree_max_entries = 300
 project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
 
-[memory.jsonl]
+[module_config.memory.jsonl]
 path = ".agent/memory.jsonl"
 
 [app_server]

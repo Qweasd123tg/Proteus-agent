@@ -1,11 +1,12 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use futures_util::stream;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
     adapters::secrets::read_secret_from_config,
-    contracts::ModelAdapter,
+    contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -71,8 +72,8 @@ impl AnthropicAuth {
 
 #[async_trait]
 impl ModelAdapter for AnthropicMessagesClient {
-    fn id(&self) -> &'static str {
-        "anthropic.messages"
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "anthropic.messages".into()
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
@@ -92,7 +93,19 @@ impl ModelAdapter for AnthropicMessagesClient {
         }
     }
 
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+        let response = self.complete_response(request).await?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(crate::model_standard::ModelStreamEvent::Response { response })
+        })))
+    }
+}
+
+impl AnthropicMessagesClient {
+    async fn complete_response(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<CanonicalModelResponse> {
         let body = to_anthropic_request(&request)?;
         let url = format!("{}/v1/messages", self.base_url);
         let builder = self

@@ -119,6 +119,7 @@ impl Tool for ConfiguredProcessTool {
             call_id: call.id.clone(),
             ok: output.status.success(),
             output: output.stdout.text.clone(),
+            content: Vec::new(),
             error: if output.status.success() {
                 None
             } else if output.stderr.text.is_empty() {
@@ -236,6 +237,7 @@ impl ConfiguredMcpTool {
             call_id: call.id.clone(),
             ok: !is_error,
             output: render_mcp_content(result.get("content")),
+            content: Vec::new(),
             error: is_error.then(|| render_mcp_content(result.get("content"))),
             metadata: json!({
                 "tool": call.name,
@@ -331,12 +333,7 @@ mod tests {
         };
 
         let result = tool
-            .invoke(
-                &call,
-                ToolContext {
-                    cwd: cwd.path().to_path_buf(),
-                },
-            )
+            .invoke(&call, ToolContext::new(cwd.path().to_path_buf()))
             .await
             .expect("process result");
 

@@ -16,6 +16,7 @@ use crate::{
 };
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct RuntimeContext {
     pub session_id: SessionId,
     pub thread_id: ThreadId,
@@ -58,6 +59,7 @@ pub trait Workflow: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct WorkflowOutput {
     pub output: AgentOutput,
     pub messages: Vec<CanonicalMessage>,

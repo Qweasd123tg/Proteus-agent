@@ -62,6 +62,7 @@ impl Tool for SearchTool {
             call_id: call.id.clone(),
             ok: true,
             output: serde_json::to_string_pretty(&chunks)?,
+            content: Vec::new(),
             error: None,
             metadata: json!({ "results": chunks.len() }),
         })

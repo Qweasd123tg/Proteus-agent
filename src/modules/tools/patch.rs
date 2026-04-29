@@ -59,6 +59,7 @@ impl Tool for ApplyPatchTool {
             call_id: call.id.clone(),
             ok: result.ok,
             output: result.summary,
+            content: Vec::new(),
             error: None,
             metadata: json!({ "format": "internal_patch" }),
         })

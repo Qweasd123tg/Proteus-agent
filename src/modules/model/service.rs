@@ -4,8 +4,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{ModelAdapter, ModelClient},
-    model_standard::{CanonicalModelRequest, CanonicalModelResponse, RequestShaper},
+    contracts::{ModelAdapter, ModelClient, ModelEventStream},
+    domain::ModelRef,
+    model_standard::{CanonicalModelRequest, ModelCapabilities, RequestShaper},
 };
 
 pub struct ModelService {
@@ -28,9 +29,17 @@ impl ModelService {
 
 #[async_trait]
 impl ModelClient for ModelService {
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        self.adapter.id()
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
+        self.adapter.capabilities(model)
+    }
+
+    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let capabilities = self.adapter.capabilities(&request.model);
         let request = self.shaper.shape(request, &capabilities)?;
-        self.adapter.complete(request).await
+        self.adapter.stream(request).await
     }
 }

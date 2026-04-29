@@ -50,6 +50,7 @@ impl Tool for ReadFileTool {
             call_id: call.id.clone(),
             ok: true,
             output,
+            content: Vec::new(),
             error: None,
             metadata: json!({ "path": path }),
         })

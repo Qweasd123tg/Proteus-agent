@@ -1,9 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use futures_util::stream;
 use serde_json::json;
 
 use crate::{
-    contracts::ModelAdapter,
+    contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, new_call_id},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -16,15 +17,24 @@ pub struct FakeModelClient;
 
 #[async_trait]
 impl ModelAdapter for FakeModelClient {
-    fn id(&self) -> &'static str {
-        "fake"
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "fake".into()
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
         ModelCapabilities::basic_text_and_tools()
     }
 
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+        let response = self.complete_response(request)?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(crate::model_standard::ModelStreamEvent::Response { response })
+        })))
+    }
+}
+
+impl FakeModelClient {
+    fn complete_response(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
         if let Some(result_text) = latest_tool_result_text(&request) {
             let message = CanonicalMessage::text(
                 MessageRole::Assistant,

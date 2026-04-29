@@ -1,11 +1,12 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use futures_util::stream;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
     adapters::secrets::read_secret_from_config,
-    contracts::ModelAdapter,
+    contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -40,8 +41,8 @@ impl OpenAiResponsesClient {
 
 #[async_trait]
 impl ModelAdapter for OpenAiResponsesClient {
-    fn id(&self) -> &'static str {
-        "openai.responses"
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "openai.responses".into()
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
@@ -61,7 +62,19 @@ impl ModelAdapter for OpenAiResponsesClient {
         }
     }
 
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+        let response = self.complete_response(request).await?;
+        Ok(Box::pin(stream::once(async move {
+            Ok(crate::model_standard::ModelStreamEvent::Response { response })
+        })))
+    }
+}
+
+impl OpenAiResponsesClient {
+    async fn complete_response(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<CanonicalModelResponse> {
         let body = to_openai_request(&request)?;
         let url = format!("{}/responses", self.base_url);
         let response: Value = self
@@ -227,6 +240,8 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
     let mut text_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
+    let length_limited = is_length_limited_response(&response);
+
     for item in response
         .get("output")
         .and_then(Value::as_array)
@@ -244,7 +259,7 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
                     }
                 }
             }
-            Some("function_call") => {
+            Some("function_call") if !length_limited => {
                 let call_id = item
                     .get("call_id")
                     .and_then(Value::as_str)
@@ -272,7 +287,9 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
         }
     }
 
-    let finish_reason = if tool_calls.is_empty() {
+    let finish_reason = if length_limited {
+        FinishReason::Length
+    } else if tool_calls.is_empty() {
         FinishReason::Stop
     } else {
         FinishReason::ToolCalls
@@ -312,4 +329,158 @@ fn parse_usage(response: &Value) -> Option<TokenUsage> {
         input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
         output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
     })
+}
+
+fn is_length_limited_response(response: &Value) -> bool {
+    response.get("status").and_then(Value::as_str) == Some("incomplete")
+        && response
+            .get("incomplete_details")
+            .and_then(|details| details.get("reason"))
+            .and_then(Value::as_str)
+            == Some("max_output_tokens")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        domain::{
+            CacheHints, ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolSafety,
+        },
+        model_standard::InstructionBlock,
+    };
+
+    #[test]
+    fn completed_function_call_is_returned_as_executable_call() {
+        let response = json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "write_file",
+                    "arguments": "{\"path\":\"site/index.html\",\"content\":\"<html></html>\"}"
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 120 }
+        });
+
+        let canonical = from_openai_response(response).unwrap();
+
+        assert_eq!(canonical.finish_reason, FinishReason::ToolCalls);
+        assert_eq!(canonical.tool_calls.len(), 1);
+        assert_eq!(canonical.tool_calls[0].id, "call_1");
+        assert_eq!(canonical.tool_calls[0].name, "write_file");
+        assert_eq!(canonical.tool_calls[0].args["path"], "site/index.html");
+        assert!(
+            canonical
+                .message
+                .parts
+                .iter()
+                .any(|part| matches!(part, ContentPart::ToolCall { .. }))
+        );
+    }
+
+    #[test]
+    fn incomplete_max_output_tokens_function_call_is_not_returned_as_executable_call() {
+        let response = json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "incomplete",
+            "incomplete_details": { "reason": "max_output_tokens" },
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "writing file" }]
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "write_file",
+                    "arguments": "{\"path\":\"site/index.html\"}"
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 2048 }
+        });
+
+        let canonical = from_openai_response(response).unwrap();
+
+        assert_eq!(canonical.finish_reason, FinishReason::Length);
+        assert!(canonical.tool_calls.is_empty());
+        assert!(
+            canonical
+                .message
+                .parts
+                .iter()
+                .all(|part| !matches!(part, ContentPart::ToolCall { .. }))
+        );
+    }
+
+    #[test]
+    fn request_serializes_tools_tool_choice_reasoning_and_json_format() {
+        let request = CanonicalModelRequest {
+            model: ModelRef {
+                provider: "openai".to_owned(),
+                model: "gpt-test".to_owned(),
+            },
+            instructions: Vec::<InstructionBlock>::new(),
+            messages: vec![CanonicalMessage::text(MessageRole::User, "write a file")],
+            tools: vec![ToolSpec {
+                name: "write_file".to_owned(),
+                description: "Write a file".to_owned(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "content": { "type": "string" }
+                    },
+                    "required": ["path", "content"]
+                }),
+                safety: ToolSafety::WritesFiles,
+                timeout_ms: Some(1_000),
+                metadata: serde_json::Value::Null,
+            }],
+            tool_choice: ToolChoice::Tool("write_file".to_owned()),
+            response_format: ResponseFormat::Json,
+            sampling: SamplingConfig {
+                temperature: Some(0.2),
+                top_p: Some(0.9),
+            },
+            reasoning: ReasoningConfig {
+                effort: Some("medium".to_owned()),
+                summary: true,
+            },
+            limits: ModelLimits {
+                max_input_tokens: None,
+                max_output_tokens: Some(123),
+            },
+            cache: CacheHints::default(),
+            metadata: serde_json::Value::Null,
+        };
+
+        let body = to_openai_request(&request).unwrap();
+
+        assert_eq!(body["model"], "gpt-test");
+        assert_eq!(body["store"], false);
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], "write_file");
+        assert_eq!(body["tools"][0]["parameters"]["required"][0], "path");
+        assert_eq!(body["tools"][0]["strict"], false);
+        assert_eq!(
+            body["tool_choice"],
+            json!({ "type": "function", "name": "write_file" })
+        );
+        assert_eq!(body["text"]["format"]["type"], "json_object");
+        assert_eq!(
+            body["reasoning"],
+            json!({ "effort": "medium", "summary": "auto" })
+        );
+        assert_eq!(body["max_output_tokens"], 123);
+        assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    }
 }

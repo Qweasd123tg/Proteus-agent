@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{CallId, ToolCall};
-use crate::model_standard::{FinishReason, TokenUsage};
+use crate::model_standard::{CanonicalModelResponse, FinishReason, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ModelStreamEvent {
+    Response {
+        response: CanonicalModelResponse,
+    },
     TextDelta {
         text: String,
     },

@@ -45,6 +45,7 @@ impl Tool for WriteFileTool {
             call_id: call.id.clone(),
             ok: true,
             output: format!("wrote {} bytes to {}", content.len(), path.display()),
+            content: Vec::new(),
             error: None,
             metadata: json!({ "path": path }),
         })

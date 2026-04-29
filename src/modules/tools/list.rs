@@ -63,6 +63,7 @@ impl Tool for ListDirTool {
             call_id: call.id.clone(),
             ok: true,
             output: rendered.join("\n"),
+            content: Vec::new(),
             error: None,
             metadata: json!({
                 "path": path,

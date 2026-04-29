@@ -38,14 +38,16 @@ cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
 
 `config.example.json` - полный single-file пример с `active_provider` и `providers`.
 
-`agent.example.toml` - quickstart/dev пример с прямым `[model]`, явными
-runtime sections и включёнными built-in tools.
+`agent.example.toml` - quickstart/dev пример с прямым `[model]`, selection
+sections, `module_config.*` payloads и включёнными built-in tools.
 
 `agent.advanced.example.toml` - advanced пример для bring-your-own tools:
 `tools.enabled = []`, а полный набор tools приходит из директории `tools`
 рядом с config root.
 
-Все форматы поддерживаются одной struct schema.
+Core-owned sections имеют фиксированную schema. Payloads конкретных модулей
+живут в `module_config.<slot>.<module_id>` и считаются module-owned config:
+core выбирает id модуля, а выбранная реализация парсит свой payload.
 
 ## Provider Profiles
 
@@ -113,6 +115,30 @@ Default env vars:
 
 Поддерживаемые значения перечислены в [modules.md](modules.md).
 
+## Module Config
+
+`modules.*` выбирает реализацию slot-а. Настройки самой реализации задаются в
+`module_config.<slot>.<module_id>`:
+
+```toml
+[modules]
+search = "rg"
+renderer = "statusline"
+
+[module_config.search.rg]
+max_results = 50
+
+[module_config.renderer.statusline]
+components = ["model", "context", "session"]
+ansi = true
+```
+
+Старые sections вида `[search.rg]`, `[renderer.statusline]`,
+`[policy.ask_write]`, `[context.simple]` и `[memory.jsonl]` пока читаются как
+compatibility fallback для built-in модулей. Новый код и новые модули должны
+использовать `module_config`, чтобы core не расширял `AppConfig` под каждую
+реализацию.
+
 ## Renderer
 
 `modules.renderer = "plain"` печатает только текст ответа.
@@ -121,21 +147,23 @@ Default env vars:
 
 ```json
 {
-  "renderer": {
-    "statusline": {
-      "components": ["model", "context", "session"],
-      "position": "bottom",
-      "frame": "block",
-      "separator": " | ",
-      "ansi": true,
-      "model": {
-        "label": "model",
-        "show_provider": true
-      },
-      "context": {
-        "label": "ctx",
-        "max_tokens": 200000,
-        "bar_width": 10
+  "module_config": {
+    "renderer": {
+      "statusline": {
+        "components": ["model", "context", "session"],
+        "position": "bottom",
+        "frame": "block",
+        "separator": " | ",
+        "ansi": true,
+        "model": {
+          "label": "model",
+          "show_provider": true
+        },
+        "context": {
+          "label": "ctx",
+          "max_tokens": 200000,
+          "bar_width": 10
+        }
       }
     }
   }

@@ -74,6 +74,7 @@ impl ToolOrchestrator {
                 call_id: call.id.clone(),
                 ok: false,
                 output: String::new(),
+                content: Vec::new(),
                 error: Some(error),
                 metadata: json!({
                     "tool": call.name,
@@ -115,6 +116,7 @@ impl ToolOrchestrator {
                     call_id: call.id.clone(),
                     ok: false,
                     output: String::new(),
+                    content: Vec::new(),
                     error: Some(
                         approval
                             .note
@@ -129,6 +131,7 @@ impl ToolOrchestrator {
                     call_id: call.id.clone(),
                     ok: false,
                     output: String::new(),
+                    content: Vec::new(),
                     error: Some(reason),
                     metadata: serde_json::Value::Null,
                 };
@@ -199,12 +202,7 @@ impl ToolOrchestrator {
         let started = Instant::now();
         let result = match timeout(
             Duration::from_millis(timeout_ms),
-            tool.invoke(
-                call,
-                ToolContext {
-                    cwd: task.cwd.clone(),
-                },
-            ),
+            tool.invoke(call, ToolContext::new(task.cwd.clone())),
         )
         .await
         {
@@ -213,6 +211,7 @@ impl ToolOrchestrator {
                 call_id: call.id.clone(),
                 ok: false,
                 output: String::new(),
+                content: Vec::new(),
                 error: Some(error.to_string()),
                 metadata: json!({ "tool": call.name }),
             },
@@ -220,6 +219,7 @@ impl ToolOrchestrator {
                 call_id: call.id.clone(),
                 ok: false,
                 output: String::new(),
+                content: Vec::new(),
                 error: Some(format!("tool timed out after {timeout_ms}ms")),
                 metadata: json!({
                     "tool": call.name,
