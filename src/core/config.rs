@@ -717,6 +717,10 @@ pub struct RepoAwareContextConfig {
     pub memory_limit: usize,
     #[serde(default = "default_repo_tree_max_entries")]
     pub repo_tree_max_entries: usize,
+    #[serde(default = "default_repo_tree_max_depth")]
+    pub repo_tree_max_depth: usize,
+    #[serde(default = "default_repo_tree_skip_entries")]
+    pub repo_tree_skip_entries: Vec<String>,
     #[serde(default = "default_project_instruction_files")]
     pub project_instruction_files: Vec<String>,
     #[serde(default = "default_manifest_files")]
@@ -732,6 +736,8 @@ impl Default for RepoAwareContextConfig {
             max_search_results: default_max_context_search_results(),
             memory_limit: default_repo_aware_memory_limit(),
             repo_tree_max_entries: default_repo_tree_max_entries(),
+            repo_tree_max_depth: default_repo_tree_max_depth(),
+            repo_tree_skip_entries: default_repo_tree_skip_entries(),
             project_instruction_files: default_project_instruction_files(),
             manifest_files: default_manifest_files(),
         }
@@ -770,6 +776,28 @@ fn default_repo_aware_memory_limit() -> usize {
 
 fn default_repo_tree_max_entries() -> usize {
     300
+}
+
+fn default_repo_tree_max_depth() -> usize {
+    3
+}
+
+fn default_repo_tree_skip_entries() -> Vec<String> {
+    [
+        ".git",
+        "target",
+        "node_modules",
+        ".agent",
+        "sessions",
+        "dist",
+        "build",
+        ".env",
+        "secrets.json",
+        "config.local.json",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 fn default_project_instruction_files() -> Vec<String> {

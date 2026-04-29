@@ -742,6 +742,8 @@ fn build_repo_aware_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Cont
             max_search_results: config.max_search_results,
             memory_limit: config.memory_limit,
             repo_tree_max_entries: config.repo_tree_max_entries,
+            repo_tree_max_depth: config.repo_tree_max_depth,
+            repo_tree_skip_entries: config.repo_tree_skip_entries,
             project_instruction_files: config.project_instruction_files,
             manifest_files: config.manifest_files,
         },

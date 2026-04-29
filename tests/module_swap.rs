@@ -13,17 +13,18 @@ use modular_agent::{
     contracts::{
         ApprovalCacheScope, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
         ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PolicyContext,
-        PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
+        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry,
+        ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
         ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ToolOrchestrator,
     },
     domain::{
-        AgentTask, CacheHints, Event, EventContext, ModelLimits, ModelRef, ModuleKind,
-        PermissionMode, PolicyDecision, ReasoningConfig, ResponseFormat, SamplingConfig, ToolCall,
-        ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id,
-        new_turn_id,
+        AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
+        ModuleKind, PermissionMode, PolicyDecision, ReasoningConfig, ResponseFormat,
+        SamplingConfig, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -259,7 +260,15 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
         "[package]\nname = \"demo\"\n",
     )
     .expect("manifest");
+    std::fs::create_dir_all(dir.path().join("src/core")).expect("src/core");
     std::fs::write(dir.path().join("src.rs"), "fn main() {}\n").expect("source");
+    std::fs::write(
+        dir.path().join("src/core/runtime.rs"),
+        "pub struct Runtime;\n",
+    )
+    .expect("nested source");
+    std::fs::create_dir_all(dir.path().join("target/debug")).expect("target dir");
+    std::fs::write(dir.path().join("target/debug/build.log"), "skip me\n").expect("target file");
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
     config.context.repo_aware.providers = vec![
@@ -302,6 +311,12 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
     assert!(bundle.chunks.iter().any(|chunk| {
         chunk.source == "repo_aware:repo_tree" && chunk.content.contains("src.rs")
     }));
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:repo_tree" && chunk.content.contains("src/core/runtime.rs")
+    }));
+    assert!(!bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:repo_tree" && chunk.content.contains("target/debug")
+    }));
 }
 
 #[tokio::test]
@@ -336,6 +351,47 @@ async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
             .iter()
             .any(|chunk| chunk.content.contains("do not read"))
     );
+}
+
+#[tokio::test]
+async fn repo_aware_search_extracts_targeted_queries_from_task() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.context = "repo_aware".to_owned();
+    config.context.repo_aware.providers = vec!["search".to_owned()];
+    config.context.repo_aware.max_search_results = 4;
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let queries = Arc::new(Mutex::new(Vec::new()));
+    let bundle = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask {
+                text:
+                    "почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
+                        .to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            search: Arc::new(RecordingSearch {
+                queries: queries.clone(),
+            }),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .unwrap();
+
+    let queries = queries.lock().unwrap().clone();
+    assert!(queries.iter().any(|query| query == "PermissionMode"));
+    assert!(queries.iter().any(|query| query == "ToolOrchestrator"));
+    assert!(
+        !queries
+            .iter()
+            .any(|query| query.contains("почему approval"))
+    );
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "repo_aware:search:recording"
+            && chunk.metadata["provider"] == "search"
+            && chunk.metadata["query"] == "PermissionMode"
+    }));
 }
 
 #[tokio::test]
@@ -1451,6 +1507,25 @@ struct TestApprovalTransport {
 }
 
 #[derive(Debug)]
+struct RecordingSearch {
+    queries: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl SearchBackend for RecordingSearch {
+    async fn search(&self, query: SearchQuery) -> anyhow::Result<Vec<ContextChunk>> {
+        self.queries.lock().unwrap().push(query.text.clone());
+        Ok(vec![ContextChunk {
+            source: "recording".to_owned(),
+            path: Some("src/core/tool_orchestrator.rs".into()),
+            content: format!("hit {}", query.text),
+            score: None,
+            metadata: serde_json::Value::Null,
+        }])
+    }
+}
+
+#[derive(Debug)]
 struct VisibilityOnlyPolicy {
     visibility_calls: Arc<AtomicUsize>,
 }
@@ -2275,6 +2350,13 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
             .providers
             .iter()
             .any(|provider| provider == "search")
+    );
+    assert_eq!(repo_aware.repo_tree_max_depth, 3);
+    assert!(
+        repo_aware
+            .repo_tree_skip_entries
+            .iter()
+            .any(|entry| entry == "target")
     );
 }
 

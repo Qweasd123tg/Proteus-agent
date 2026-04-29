@@ -83,6 +83,19 @@
         "max_search_results": 50,
         "memory_limit": 5,
         "repo_tree_max_entries": 300,
+        "repo_tree_max_depth": 3,
+        "repo_tree_skip_entries": [
+          ".git",
+          "target",
+          "node_modules",
+          ".agent",
+          "sessions",
+          "dist",
+          "build",
+          ".env",
+          "secrets.json",
+          "config.local.json"
+        ],
         "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
         "manifest_files": [
           "Cargo.toml",

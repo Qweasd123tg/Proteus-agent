@@ -131,9 +131,8 @@ Runtime должен сохранять эти свойства:
 
 - usable local-agent profile: `agent init`, `agent doctor`, понятная
   diagnostics вокруг config/tools;
-- усиление `repo_aware`: nested `AGENTS.md`, README/docs providers, recursive
-  repo tree, query extraction и targeted search без записи в conversation
-  history;
+- усиление `repo_aware`: nested `AGENTS.md`, README/docs providers, provider
+  scoring/budget и git diff summary без записи в conversation history;
 - line-oriented read/edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
 - `plan_execute_review` как новый `Workflow`, не замена core;

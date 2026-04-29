@@ -369,6 +369,8 @@ model request. При timeout turn завершается ошибкой вме�
       "max_search_results": 50,
       "memory_limit": 5,
       "repo_tree_max_entries": 300,
+      "repo_tree_max_depth": 3,
+      "repo_tree_skip_entries": [".git", "target", "node_modules", ".agent", "sessions", "dist", "build"],
       "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
       "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
     }
@@ -382,6 +384,10 @@ model request. При timeout turn завершается ошибкой вме�
 internal provider pipeline внутри `RepoAwareContextBuilder`, а не external
 plugin system. `max_context_bytes` ограничивает суммарный объём selected
 chunks, `max_bytes_per_file` ограничивает project instruction/manifest файлы.
+`repo_tree_max_depth`, `repo_tree_max_entries` и `repo_tree_skip_entries`
+ограничивают recursive tree provider. Search provider извлекает несколько
+targeted queries из текущей задачи и вызывает `SearchBackend` по ним, вместо
+того чтобы всегда искать сырой prompt целиком.
 
 ## Memory
 

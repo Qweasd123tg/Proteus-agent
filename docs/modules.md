@@ -107,10 +107,11 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 - `manifest` - bounded чтение `Cargo.toml`, `package.json`, `pyproject.toml` и
   других manifest files из config;
 - `git_status` - краткий `git status --short --branch`, если `git` доступен;
-- `repo_tree` - bounded top-level tree без `.git`, `target`, `node_modules`,
-  `.agent`, `sessions`;
+- `repo_tree` - bounded recursive tree с `repo_tree_max_depth`,
+  `repo_tree_max_entries` и `repo_tree_skip_entries`;
 - `memory` - `MemoryStore::recall`;
-- `search` - `SearchBackend::search`.
+- `search` - targeted queries через `SearchBackend::search`, извлечённые из
+  текущей задачи.
 
 Каждый chunk получает metadata `provider` и `reason`. Это будущая основа для
 UI/debug view “что занимает контекст”, но visual layer не входит в этот module.

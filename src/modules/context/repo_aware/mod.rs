@@ -24,6 +24,8 @@ pub struct RepoAwareContextConfig {
     pub max_search_results: usize,
     pub memory_limit: usize,
     pub repo_tree_max_entries: usize,
+    pub repo_tree_max_depth: usize,
+    pub repo_tree_skip_entries: Vec<String>,
     pub project_instruction_files: Vec<String>,
     pub manifest_files: Vec<String>,
 }
@@ -50,6 +52,8 @@ impl RepoAwareContextBuilder {
                 "git_status" => Arc::new(GitStatusProvider),
                 "repo_tree" => Arc::new(RepoTreeProvider {
                     max_entries: config.repo_tree_max_entries,
+                    max_depth: config.repo_tree_max_depth,
+                    skip_entries: config.repo_tree_skip_entries.clone(),
                 }),
                 "memory" => Arc::new(MemoryProvider {
                     limit: config.memory_limit,

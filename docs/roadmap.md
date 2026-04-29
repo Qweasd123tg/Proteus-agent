@@ -59,13 +59,13 @@ UI/business logic в CLI.
 - читать project instructions (`AGENTS.md`) и top-level docs;
 - учитывать manifest files (`Cargo.toml`, `package.json`, etc.);
 - учитывать `git status`;
+- recursive repo tree с depth/max/skip settings;
+- query extraction из user task вместо raw prompt search;
+- несколько targeted searches через `SearchBackend`;
 - возвращать scored context chunks и metadata для renderer/app-server.
 
 Следующий scope:
 
-- recursive repo tree с depth/max/skip settings;
-- query extraction из user task вместо raw prompt search;
-- несколько targeted searches через `SearchBackend`;
 - context budget по provider score;
 - git diff summary через отдельный provider/tool boundary.
 
