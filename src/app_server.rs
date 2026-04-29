@@ -128,6 +128,10 @@ impl AppServerHandle {
         .await;
         let _ = self.events.send(AppServerEvent::Shutdown);
     }
+
+    pub async fn cancel_pending_approvals(&self, note: String) {
+        deny_pending_approvals(self.pending_approvals.clone(), self.events.clone(), note).await;
+    }
 }
 
 pub struct AgentAppServer;
@@ -447,5 +451,45 @@ mod tests {
                 approved: false,
             } if id == approval_id
         ));
+    }
+
+    #[tokio::test]
+    async fn cancel_pending_approvals_denies_pending_requests() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let handle = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let mut event_rx = handle.subscribe();
+        let (responder, response_rx) = oneshot::channel();
+        let approval_id = "approval-cancel".to_owned();
+        handle
+            .pending_approvals
+            .lock()
+            .await
+            .insert(approval_id.clone(), responder);
+
+        handle
+            .cancel_pending_approvals("turn canceled by client".to_owned())
+            .await;
+
+        let response = response_rx
+            .await
+            .expect("cancel should send approval response");
+        assert!(!response.approved);
+        assert_eq!(response.note.as_deref(), Some("turn canceled by client"));
+        assert!(handle.pending_approvals.lock().await.is_empty());
+
+        let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("approval resolved event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            resolved_event,
+            AppServerEvent::ApprovalResolved {
+                approval_id: id,
+                approved: false,
+            } if id == approval_id
+        ));
+
+        handle.shutdown().await;
     }
 }

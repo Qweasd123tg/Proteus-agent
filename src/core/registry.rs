@@ -15,6 +15,7 @@ use crate::{
 #[derive(Clone)]
 pub struct BuiltinRegistry {
     pub model_config: crate::core::ModelConfig,
+    pub runtime_config: crate::core::RuntimeConfig,
     pub model: Arc<dyn ModelClient>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
@@ -53,6 +54,7 @@ impl BuiltinRegistry {
 
         Ok(Self {
             model_config,
+            runtime_config: config.runtime.clone(),
             model,
             search,
             memory,
@@ -80,6 +82,8 @@ impl BuiltinRegistry {
             thread_id,
             turn_id,
             model_ref: self.model_config.model_ref(),
+            model_timeout_ms: self.runtime_config.model_timeout_ms,
+            context_timeout_ms: self.runtime_config.context_timeout_ms,
             events,
             model: self.model.clone(),
             search: self.search.clone(),

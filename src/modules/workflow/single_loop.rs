@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use tokio::time::timeout;
 
 use crate::{
     contracts::{ContextBuildInput, RuntimeContext, Workflow, WorkflowOutput},
@@ -35,14 +36,16 @@ impl Workflow for SingleLoopWorkflow {
     ) -> Result<WorkflowOutput> {
         ctx.emit(Event::TaskReceived { task: task.clone() }).await?;
 
-        let bundle = ctx
-            .context
-            .build(ContextBuildInput {
+        let bundle = timeout(
+            Duration::from_millis(ctx.context_timeout_ms),
+            ctx.context.build(ContextBuildInput {
                 task: task.clone(),
                 search: ctx.search.clone(),
                 memory: ctx.memory.clone(),
-            })
-            .await?;
+            }),
+        )
+        .await
+        .map_err(|_| anyhow!("context build timed out after {}ms", ctx.context_timeout_ms))??;
         ctx.emit(Event::ContextBuilt {
             chunks: bundle.chunks.len(),
             token_estimate: bundle.token_estimate,
@@ -76,7 +79,7 @@ impl Workflow for SingleLoopWorkflow {
                 model: request.model.clone(),
             })
             .await?;
-            let response = ctx.model.complete(request).await?;
+            let response = complete_model(&ctx, request).await?;
             ctx.emit(Event::ModelResponseReceived {
                 finish_reason: response.finish_reason.clone(),
             })
@@ -130,7 +133,7 @@ impl Workflow for SingleLoopWorkflow {
             model: request.model.clone(),
         })
         .await?;
-        let response = ctx.model.complete(request).await?;
+        let response = complete_model(&ctx, request).await?;
         ctx.emit(Event::ModelResponseReceived {
             finish_reason: response.finish_reason.clone(),
         })
@@ -160,6 +163,18 @@ impl Workflow for SingleLoopWorkflow {
             messages: persistent_messages,
         })
     }
+}
+
+async fn complete_model(
+    ctx: &RuntimeContext,
+    request: CanonicalModelRequest,
+) -> Result<crate::model_standard::CanonicalModelResponse> {
+    timeout(
+        Duration::from_millis(ctx.model_timeout_ms),
+        ctx.model.complete(request),
+    )
+    .await
+    .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
 }
 
 async fn maybe_add_directory_listing_context(

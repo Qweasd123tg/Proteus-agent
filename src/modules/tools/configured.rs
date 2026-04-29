@@ -4,11 +4,13 @@ use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
 
 use std::sync::Arc;
+
+const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES;
 
 use crate::{
     contracts::{Tool, ToolContext},
@@ -256,13 +258,46 @@ async fn write_json_line(stdin: &mut ChildStdin, message: Value) -> Result<()> {
     Ok(())
 }
 
-async fn read_json_line(stdout: &mut BufReader<ChildStdout>) -> Result<Value> {
-    let mut line = String::new();
-    let bytes = stdout.read_line(&mut line).await?;
-    if bytes == 0 {
-        bail!("MCP server closed stdout before sending a response");
+async fn read_json_line<R>(stdout: &mut R) -> Result<Value>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut line = Vec::with_capacity(MCP_STDIO_RESPONSE_LIMIT_BYTES.min(8192));
+
+    loop {
+        let buffer = stdout.fill_buf().await?;
+        if buffer.is_empty() {
+            if line.is_empty() {
+                bail!("MCP server closed stdout before sending a response");
+            }
+            break;
+        }
+
+        let bytes_to_take = buffer
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(buffer.len(), |position| position + 1);
+        if line.len().saturating_add(bytes_to_take) > MCP_STDIO_RESPONSE_LIMIT_BYTES {
+            bail!("MCP response exceeded {MCP_STDIO_RESPONSE_LIMIT_BYTES} bytes before newline");
+        }
+
+        line.extend_from_slice(&buffer[..bytes_to_take]);
+        stdout.consume(bytes_to_take);
+
+        if line.last() == Some(&b'\n') {
+            break;
+        }
     }
-    serde_json::from_str(line.trim_end()).map_err(Into::into)
+
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+
+    let line = std::str::from_utf8(&line)?;
+    serde_json::from_str(line).map_err(Into::into)
 }
 
 fn ensure_jsonrpc_success(response: &Value, expected_id: i64) -> Result<&Value> {
@@ -341,5 +376,21 @@ mod tests {
         assert_eq!(result.output.len(), DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES);
         assert_eq!(result.metadata["stdout_truncated"], true);
         assert_eq!(result.metadata["stdout_original_bytes"], 50_000);
+    }
+
+    #[tokio::test]
+    async fn mcp_json_line_rejects_oversized_response_without_newline() {
+        let response = vec![b' '; MCP_STDIO_RESPONSE_LIMIT_BYTES + 1];
+        let mut stdout = BufReader::new(&response[..]);
+
+        let error = read_json_line(&mut stdout)
+            .await
+            .expect_err("oversized MCP response should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("MCP response exceeded 20000 bytes before newline")
+        );
     }
 }

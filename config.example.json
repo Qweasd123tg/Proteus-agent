@@ -118,6 +118,10 @@
   "app_server": {
     "approval_timeout_ms": 300000
   },
+  "runtime": {
+    "model_timeout_ms": 120000,
+    "context_timeout_ms": 30000
+  },
   "event_log": {
     "path": ".agent/events.jsonl"
   }

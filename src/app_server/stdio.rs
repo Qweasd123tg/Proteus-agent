@@ -144,7 +144,8 @@ pub async fn run_stdio_app_server(
             }
             StdioRequest::Cancel { target_id, .. } => {
                 let result =
-                    cancel_stdio_turn(&mut keyed_turn_handles, &output_tx, &target_id).await;
+                    cancel_stdio_turn(&server, &mut keyed_turn_handles, &output_tx, &target_id)
+                        .await;
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
             }
             StdioRequest::Shutdown { .. } => {
@@ -195,6 +196,7 @@ fn spawn_stdio_turn(
 }
 
 async fn cancel_stdio_turn(
+    server: &AppServerHandle,
     turn_handles: &mut HashMap<String, tokio::task::JoinHandle<()>>,
     output_tx: &mpsc::Sender<StdioOutput>,
     target_id: &str,
@@ -210,6 +212,9 @@ async fn cancel_stdio_turn(
         Err(anyhow!("turn canceled by client")),
     )
     .await;
+    server
+        .cancel_pending_approvals("turn canceled by client".to_owned())
+        .await;
     Ok(())
 }
 
@@ -249,6 +254,9 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
         turn_handles.insert(
@@ -258,7 +266,7 @@ mod tests {
             }),
         );
 
-        cancel_stdio_turn(&mut turn_handles, &output_tx, "send-1")
+        cancel_stdio_turn(&server, &mut turn_handles, &output_tx, "send-1")
             .await
             .expect("cancel turn");
 
@@ -278,5 +286,6 @@ mod tests {
             }
             StdioOutput::Event { .. } => panic!("expected response"),
         }
+        server.shutdown().await;
     }
 }

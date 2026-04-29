@@ -22,6 +22,8 @@ pub struct RuntimeContext {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    pub model_timeout_ms: u64,
+    pub context_timeout_ms: u64,
     pub events: Arc<EventEmitter>,
     pub model: Arc<dyn ModelClient>,
     pub search: Arc<dyn SearchBackend>,

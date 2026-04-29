@@ -1,4 +1,5 @@
 use std::{
+    future::pending,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -1287,6 +1288,42 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
 }
 
 #[tokio::test]
+async fn workflow_times_out_hung_model_request() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.runtime.model_timeout_ms = 5;
+    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    registry.model = Arc::new(NeverModel);
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+
+    let error = SingleLoopWorkflow::default()
+        .run(
+            AgentTask {
+                text: "hang".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            Vec::new(),
+            ctx,
+        )
+        .await
+        .expect_err("hung model request should time out");
+
+    assert!(
+        error
+            .to_string()
+            .contains("model request timed out after 5ms")
+    );
+}
+
+#[tokio::test]
 async fn allow_all_keeps_all_registered_tools_visible_to_model() {
     let mut config = test_config();
     config.modules.policy = "allow_all".to_owned();
@@ -1450,6 +1487,8 @@ impl ModelClient for LengthToolCallModel {
 #[derive(Debug)]
 struct SlowTool;
 
+struct NeverModel;
+
 #[async_trait]
 impl Tool for SlowTool {
     fn spec(&self) -> ToolSpec {
@@ -1473,6 +1512,24 @@ impl Tool for SlowTool {
             error: None,
             metadata: serde_json::Value::Null,
         })
+    }
+}
+
+#[async_trait]
+impl ModelClient for NeverModel {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        "test.never".into()
+    }
+
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities::basic_text_and_tools()
+    }
+
+    async fn stream(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> anyhow::Result<modular_agent::contracts::ModelEventStream> {
+        pending().await
     }
 }
 

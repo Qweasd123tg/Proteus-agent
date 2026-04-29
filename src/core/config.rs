@@ -42,6 +42,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub app_server: AppServerConfig,
     #[serde(default)]
+    pub runtime: RuntimeConfig,
+    #[serde(default)]
     pub event_log: EventLogConfig,
 }
 
@@ -453,6 +455,14 @@ pub struct AppServerConfig {
     pub approval_timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeConfig {
+    #[serde(default = "default_model_timeout_ms")]
+    pub model_timeout_ms: u64,
+    #[serde(default = "default_context_timeout_ms")]
+    pub context_timeout_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RendererConfig {
     #[serde(default)]
@@ -540,6 +550,15 @@ impl Default for AppServerConfig {
     fn default() -> Self {
         Self {
             approval_timeout_ms: default_approval_timeout_ms(),
+        }
+    }
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            model_timeout_ms: default_model_timeout_ms(),
+            context_timeout_ms: default_context_timeout_ms(),
         }
     }
 }
@@ -785,6 +804,14 @@ fn default_event_log_path() -> PathBuf {
 
 fn default_approval_timeout_ms() -> u64 {
     300_000
+}
+
+fn default_model_timeout_ms() -> u64 {
+    120_000
+}
+
+fn default_context_timeout_ms() -> u64 {
+    30_000
 }
 
 fn default_config_path() -> Option<PathBuf> {
