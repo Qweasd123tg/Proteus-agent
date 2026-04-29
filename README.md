@@ -25,6 +25,7 @@ Rust core-first каркас для модульного coding-agent.
 - встроенные модули в `src/modules`, сгруппированные по slot/type;
 - fake model, OpenAI Responses adapter, Anthropic Messages adapter;
 - `null`/`rg` search, `none`/`jsonl` memory;
+- `simple` и `repo_aware` context builders;
 - `read_file`, `list_dir`, `apply_patch`, `write_file`, `shell`, `search` tools;
 - `ToolProvider` -> `ToolRegistry` слой с source-aware регистрацией tools;
 - permission modes: `plan`, `normal`, `auto`;
@@ -63,7 +64,9 @@ cargo run -- read_file Cargo.toml
 Запустить с явным конфигом:
 
 ```bash
-cargo run -- --config agent.example.toml summarize project
+export ANTHROPIC_API_KEY=...
+cargo run -- --config agent.coding.example.toml summarize project
+cargo run -- --config agent.example.toml read_file Cargo.toml
 cargo run -- --config config.example.json
 ```
 
@@ -90,7 +93,7 @@ cargo run -- modules list
 Посмотреть реально зарегистрированные tools для выбранного config:
 
 ```bash
-cargo run -- --config agent.example.toml tools list
+cargo run -- --config agent.coding.example.toml tools list
 ```
 
 ## Установка
@@ -162,8 +165,10 @@ mkdir -p "$HOME/.config/agent-qweasd123tg/configs"
 ```
 
 Single-file JSON/TOML через `--config` остаётся поддержан для smoke tests и
-переносимых профилей. Полная schema, provider profiles, tools и renderer
-описаны в [docs/configuration.md](docs/configuration.md).
+переносимых профилей. `agent.coding.example.toml` является quickstart-профилем
+для локальной работы с кодом; `agent.example.toml` остаётся safe dev-basic
+примером на fake/null/simple defaults. Полная schema, provider profiles, tools и
+renderer описаны в [docs/configuration.md](docs/configuration.md).
 
 ## Runtime Данные
 

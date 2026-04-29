@@ -50,16 +50,24 @@ UI/business logic в CLI.
 
 Цель - агент лучше понимает проект и тратит меньше токенов.
 
-Реализовать как новую `ContextBuilder` implementation, а не как ветки в
-workflow или runtime.
+Базовая `ContextBuilder` implementation уже добавлена как `repo_aware`.
+Следующий scope - сделать её практически сильнее, не перенося логику в workflow
+или runtime.
 
-Минимальный scope:
+Сделано в базовом виде:
 
 - читать project instructions (`AGENTS.md`) и top-level docs;
 - учитывать manifest files (`Cargo.toml`, `package.json`, etc.);
-- учитывать `git status`/diff summary;
-- использовать search/repo map только через contract/helper boundary;
+- учитывать `git status`;
 - возвращать scored context chunks и metadata для renderer/app-server.
+
+Следующий scope:
+
+- recursive repo tree с depth/max/skip settings;
+- query extraction из user task вместо raw prompt search;
+- несколько targeted searches через `SearchBackend`;
+- context budget по provider score;
+- git diff summary через отдельный provider/tool boundary.
 
 Первый вариант реализует internal providers для project instructions,
 manifests, git status, repo tree, memory и search. Repo map остаётся следующим

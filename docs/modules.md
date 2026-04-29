@@ -125,7 +125,7 @@ enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_fil
 # path omitted: no external tool manifests in quickstart profile
 ```
 
-Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Quickstart/coding profile включает built-in tools через `tools.enabled`, а advanced profile может поставить полный набор через `tools.path` или `tools.configured` при `tools.enabled = []`.
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Quickstart/coding profile `agent.coding.example.toml` включает built-in tools через `tools.enabled`, а advanced profile может поставить полный набор через `tools.path` или `tools.configured` при `tools.enabled = []`.
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это

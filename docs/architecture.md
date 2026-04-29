@@ -250,7 +250,7 @@ task
 - `ModuleManifest` участвует во внутреннем `BuiltinModuleCatalog`, но dynamic plugin loader, package manager и hot-reload ещё не реализованы.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider` и config-defined executors; полноценный MCP provider/registry ещё не реализован, но `ToolRegistry` уже хранит source.
-- `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому активный путь использует только `recall` через `SimpleContextBuilder`.
+- `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому `recall` работает только если выбранный context builder включает memory provider.
 - Streaming enum есть в model standard, но текущие OpenAI/Anthropic clients используют non-streaming `complete`.
 - Approval transport подключён для CLI single-run, line REPL и app-server
   clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если
@@ -258,6 +258,6 @@ task
   как отказ.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
 - Resume из event log, session restore, derived SQLite/index, real subagents/multiple threads и eval harness пока planned.
-- Repo-aware context builder, line-oriented read/edit/git tools, `plan_execute_review`, diff-first approval и JSON output mode для `modules list` пока planned.
+- Repo-aware context builder реализован как provider pipeline за `ContextBuilder` slot. Line-oriented read/edit/git tools, `plan_execute_review`, diff-first approval и JSON output mode для `modules list` пока planned.
 
 Эти ограничения нужно описывать как состояние v0, а не как архитектурный дефект.

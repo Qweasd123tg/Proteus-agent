@@ -38,8 +38,12 @@ cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
 
 `config.example.json` - полный single-file пример с `active_provider` и `providers`.
 
-`agent.example.toml` - quickstart/dev пример с прямым `[model]`, selection
-sections, `module_config.*` payloads и включёнными built-in tools.
+`agent.coding.example.toml` - quickstart coding profile: real provider через
+env key, `modules.search = "rg"`, `modules.context = "repo_aware"` и
+стандартные built-in tools.
+
+`agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
+`context = "simple"`, `module_config.*` payloads и включёнными built-in tools.
 
 `agent.advanced.example.toml` - advanced пример для bring-your-own tools:
 `tools.enabled = []`, а полный набор tools приходит из директории `tools`
@@ -183,9 +187,9 @@ compatibility fallback для built-in модулей. Новый код и но
 }
 ```
 
-`tools.enabled` включает встроенные tools по имени. Quickstart/coding профили
-должны перечислять built-in tools явно, чтобы policy ссылалась на реально
-зарегистрированные names.
+`tools.enabled` включает встроенные tools по имени. Quickstart/coding profile
+`agent.coding.example.toml` перечисляет built-in tools явно, чтобы policy
+ссылалась на реально зарегистрированные names.
 
 В advanced/config-first режиме используйте `tools.path` или
 `tools.configured`, а `tools.enabled = []`.

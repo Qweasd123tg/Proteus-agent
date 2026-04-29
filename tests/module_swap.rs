@@ -2238,6 +2238,47 @@ async fn toml_config_file_can_select_statusline_renderer() {
 }
 
 #[tokio::test]
+async fn coding_toml_config_enables_repo_aware_rg_profile() {
+    let config = modular_agent::core::AppConfig::load(Some(std::path::Path::new(
+        "agent.coding.example.toml",
+    )))
+    .await
+    .unwrap();
+    let model_config = config.active_model_config().unwrap();
+
+    assert_eq!(config.profile.name, "coding-local");
+    assert_eq!(model_config.provider, "anthropic");
+    assert_eq!(
+        model_config.provider_config["api_key_env"],
+        "ANTHROPIC_API_KEY"
+    );
+    assert_eq!(config.modules.search, "rg");
+    assert_eq!(config.modules.context, "repo_aware");
+    assert_eq!(config.tools.enabled, standard_tool_names());
+    assert!(configured_tool_names(&config).is_empty());
+
+    let repo_aware: modular_agent::core::RepoAwareContextConfig = config
+        .module_config_or(
+            ModuleKind::Context,
+            "repo_aware",
+            config.context.repo_aware.clone(),
+        )
+        .unwrap();
+    assert!(
+        repo_aware
+            .providers
+            .iter()
+            .any(|provider| provider == "repo_tree")
+    );
+    assert!(
+        repo_aware
+            .providers
+            .iter()
+            .any(|provider| provider == "search")
+    );
+}
+
+#[tokio::test]
 async fn config_directory_merges_sorted_config_files() {
     let dir = tempfile::tempdir().expect("config dir");
     std::fs::write(
