@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use tokio::time::timeout;
 
 use crate::{
-    contracts::{ApprovalRequest, PolicyContext, RuntimeContext, ToolContext},
+    contracts::{
+        ApprovalRequest, PolicyContext, PolicyVisibilityContext, RuntimeContext, ToolContext,
+    },
     domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
 };
 
@@ -40,12 +42,10 @@ impl ToolOrchestrator {
             .specs()
             .into_iter()
             .filter(|spec| {
-                let call = ToolCall {
-                    id: crate::domain::new_call_id(),
-                    name: spec.name.clone(),
-                    args: serde_json::Value::Null,
-                };
-                match self.evaluate_access(ctx, cwd, &call, Some(spec.clone())) {
+                match ctx.policy.evaluate_visibility(&PolicyVisibilityContext {
+                    cwd: cwd.to_path_buf(),
+                    tool_spec: spec.clone(),
+                }) {
                     PolicyDecision::Allow => true,
                     PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
                     PolicyDecision::Deny { .. } => false,

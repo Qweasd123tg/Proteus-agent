@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    contracts::{ApprovalPolicy, PolicyContext},
+    contracts::{ApprovalPolicy, PolicyContext, PolicyVisibilityContext},
     domain::{PermissionMode, PolicyDecision, ToolCall, ToolSafety},
 };
 
@@ -48,6 +48,32 @@ impl ApprovalPolicy for ModeAwarePolicy {
             PermissionMode::Normal => self.inner.evaluate(call, ctx),
         }
     }
+
+    fn evaluate_visibility(&self, ctx: &PolicyVisibilityContext) -> PolicyDecision {
+        match self.mode {
+            PermissionMode::Plan => match ctx.tool_spec.safety {
+                ToolSafety::ReadOnly => PolicyDecision::Allow,
+                _ => PolicyDecision::Deny {
+                    reason: format!(
+                        "permission mode plan allows only read-only tools: {}",
+                        ctx.tool_spec.name
+                    ),
+                },
+            },
+            PermissionMode::Auto => match ctx.tool_spec.safety {
+                ToolSafety::ReadOnly | ToolSafety::WritesFiles => PolicyDecision::Allow,
+                ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous => {
+                    PolicyDecision::Deny {
+                        reason: format!(
+                            "permission mode auto denies command, network, and dangerous tools: {}",
+                            ctx.tool_spec.name
+                        ),
+                    }
+                }
+            },
+            PermissionMode::Normal => self.inner.evaluate_visibility(ctx),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -62,6 +88,10 @@ mod tests {
 
     impl ApprovalPolicy for FixedPolicy {
         fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
+            self.0.clone()
+        }
+
+        fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
             self.0.clone()
         }
     }
@@ -88,6 +118,20 @@ mod tests {
         }
     }
 
+    fn visibility_ctx(name: &str, safety: ToolSafety) -> PolicyVisibilityContext {
+        PolicyVisibilityContext {
+            cwd: PathBuf::from("/workspace"),
+            tool_spec: crate::domain::ToolSpec {
+                name: name.to_owned(),
+                description: "test tool".to_owned(),
+                input_schema: json!({ "type": "object" }),
+                safety,
+                timeout_ms: None,
+                metadata: json!({}),
+            },
+        }
+    }
+
     #[test]
     fn normal_mode_delegates_to_inner_policy() {
         let policy = ModeAwarePolicy::new(
@@ -102,6 +146,12 @@ mod tests {
                 &call("write_file"),
                 &ctx("write_file", ToolSafety::WritesFiles)
             ),
+            PolicyDecision::Ask {
+                reason: "inner".to_owned(),
+            }
+        );
+        assert_eq!(
+            policy.evaluate_visibility(&visibility_ctx("write_file", ToolSafety::WritesFiles)),
             PolicyDecision::Ask {
                 reason: "inner".to_owned(),
             }

@@ -1,7 +1,7 @@
 use std::{
     future::pending,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -11,9 +11,9 @@ use async_trait::async_trait;
 use futures_util::stream;
 use modular_agent::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput, EventEmitter,
-        ModelAdapter, ModelClient, PolicyContext, Tool, ToolContext, ToolRegistry, ToolSource,
-        Workflow,
+        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
+        EventEmitter, ModelAdapter, ModelClient, PolicyContext, PolicyVisibilityContext, Tool,
+        ToolContext, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
@@ -552,6 +552,80 @@ async fn tool_visibility_and_execution_policy_are_separate() {
     );
 
     assert!(matches!(decision, PolicyDecision::Ask { .. }));
+}
+
+#[tokio::test]
+async fn tool_visibility_uses_visibility_policy_not_execution_evaluate() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let mut ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    let visibility_calls = Arc::new(AtomicUsize::new(0));
+    ctx.policy = Arc::new(VisibilityOnlyPolicy {
+        visibility_calls: visibility_calls.clone(),
+    });
+
+    let specs = ToolOrchestrator::default().visible_tool_specs(&ctx, dir.path());
+
+    assert_eq!(
+        visibility_calls.load(Ordering::SeqCst),
+        registry.tools.specs().len()
+    );
+    assert!(specs.iter().any(|spec| spec.name == "read_file"));
+}
+
+#[tokio::test]
+async fn execution_policy_receives_real_tool_call_args() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let mut ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    let seen_path = Arc::new(Mutex::new(None));
+    ctx.policy = Arc::new(ArgsCapturingPolicy {
+        seen_path: seen_path.clone(),
+    });
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask {
+                text: "write".to_owned(),
+                cwd: dir.path().to_path_buf(),
+            },
+            ToolCall {
+                id: new_call_id(),
+                name: "write_file".to_owned(),
+                args: json!({ "path": "policy-args.txt", "content": "seen" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(
+        seen_path.lock().unwrap().as_deref(),
+        Some("policy-args.txt")
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("policy-args.txt")).unwrap(),
+        "seen"
+    );
 }
 
 #[test]
@@ -1374,6 +1448,44 @@ async fn allow_all_keeps_all_registered_tools_visible_to_model() {
 #[derive(Debug)]
 struct TestApprovalTransport {
     interactive: bool,
+}
+
+#[derive(Debug)]
+struct VisibilityOnlyPolicy {
+    visibility_calls: Arc<AtomicUsize>,
+}
+
+impl ApprovalPolicy for VisibilityOnlyPolicy {
+    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
+        panic!("visibility must not call execution policy evaluation")
+    }
+
+    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
+        self.visibility_calls.fetch_add(1, Ordering::SeqCst);
+        PolicyDecision::Allow
+    }
+}
+
+#[derive(Debug)]
+struct ArgsCapturingPolicy {
+    seen_path: Arc<Mutex<Option<String>>>,
+}
+
+impl ApprovalPolicy for ArgsCapturingPolicy {
+    fn evaluate(&self, call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
+        *self.seen_path.lock().unwrap() = call
+            .args
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        PolicyDecision::Allow
+    }
+
+    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
+        PolicyDecision::Deny {
+            reason: "not used by execution".to_owned(),
+        }
+    }
 }
 
 #[derive(Debug)]

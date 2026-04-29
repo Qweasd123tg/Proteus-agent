@@ -230,7 +230,7 @@ task
 -> Event::ModelResponseReceived
 -> если есть tool calls:
      ToolOrchestrator
-     mode-aware ApprovalPolicy::evaluate
+     mode-aware ApprovalPolicy::evaluate с реальным ToolCall
      timeout/output cap
      Tool::invoke или denied/timeout result
      Event::ToolFinished

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    contracts::{ApprovalPolicy, PolicyContext},
+    contracts::{ApprovalPolicy, PolicyContext, PolicyVisibilityContext},
     domain::{PolicyDecision, ToolCall, ToolSafety},
 };
 
@@ -44,6 +44,29 @@ impl ApprovalPolicy for AskWritePolicy {
             None => PolicyDecision::Deny {
                 reason: format!("unknown tool '{}'", call.name),
             },
+        }
+    }
+
+    fn evaluate_visibility(&self, ctx: &PolicyVisibilityContext) -> PolicyDecision {
+        if self.allow.contains(&ctx.tool_spec.name) {
+            return PolicyDecision::Allow;
+        }
+        if self.ask_before.contains(&ctx.tool_spec.name) {
+            return PolicyDecision::Ask {
+                reason: format!("tool '{}' requires approval", ctx.tool_spec.name),
+            };
+        }
+
+        match &ctx.tool_spec.safety {
+            ToolSafety::ReadOnly => PolicyDecision::Allow,
+            ToolSafety::Dangerous => PolicyDecision::Deny {
+                reason: "dangerous tool denied by ask_write policy".to_owned(),
+            },
+            ToolSafety::WritesFiles | ToolSafety::RunsCommands | ToolSafety::Network => {
+                PolicyDecision::Ask {
+                    reason: format!("tool '{}' is not read-only", ctx.tool_spec.name),
+                }
+            }
         }
     }
 }

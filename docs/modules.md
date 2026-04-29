@@ -142,7 +142,7 @@ Config-defined tools добавляются через manifests в `tools.path`
 
 Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool и показывает labels вида `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
 
-`ToolRegistry` хранит все включённые tools. `SingleLoopWorkflow` обращается к `ToolOrchestrator`, а тот показывает модели tools через `ApprovalPolicy`. Runtime заранее оборачивает configured policy в `ModeAwarePolicy`: в `plan` доступны только `ReadOnly`, в `normal` решение делегируется configured policy/approval, в `auto` доступны только `ReadOnly` и `WritesFiles`. `RunsCommands`, `Network` и `Dangerous` в `auto` не показываются и не исполняются. Execution path повторно проверяет каждый `ToolCall` через тот же policy перед `Tool::invoke`.
+`ToolRegistry` хранит все включённые tools. `SingleLoopWorkflow` обращается к `ToolOrchestrator`, а тот показывает модели tools через `ApprovalPolicy::evaluate_visibility`. Runtime заранее оборачивает configured policy в `ModeAwarePolicy`: в `plan` доступны только `ReadOnly`, в `normal` visibility делегируется configured policy/approval, в `auto` доступны только `ReadOnly` и `WritesFiles`. `RunsCommands`, `Network` и `Dangerous` в `auto` не показываются и не исполняются. Execution path повторно проверяет каждый настоящий `ToolCall` через `ApprovalPolicy::evaluate` перед `Tool::invoke`.
 
 ## Permissions
 

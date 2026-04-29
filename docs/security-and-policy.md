@@ -4,7 +4,7 @@ Security v0 держится на четырёх уровнях:
 
 1. tools объявляют `ToolSafety`;
 2. `PermissionMode` оборачивает configured `ApprovalPolicy` в mode-aware policy;
-3. `ToolOrchestrator` перед visibility/execution спрашивает один `ApprovalPolicy`;
+3. `ToolOrchestrator` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
 4. сами tools проверяют workspace/path ограничения.
 
 Этот документ описывает текущую реализацию v0. Более гибкая config-editable
@@ -108,9 +108,13 @@ Headless runtime без approval transport отказывает `Ask`. App-serve
 запрос некому доставить, он отклоняется. Если клиент получил запрос и не
 ответил до `app_server.approval_timeout_ms`, app-server тоже отклоняет approval
 и очищает pending request. При shutdown app-server отклоняет все pending
-approvals. `ToolOrchestrator` передаёт модели tools, которые policy разрешает
-сразу, а tools с `Ask` показывает только если transport умеет интерактивно
-запросить approval. `Deny` tools не попадают в `CanonicalModelRequest.tools`.
+approvals. `ToolOrchestrator` передаёт модели tools через
+`ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
+`Ask` видны только если transport умеет интерактивно запросить approval, а
+`Deny` tools не попадают в `CanonicalModelRequest.tools`. При фактическом
+вызове `ToolOrchestrator` использует `ApprovalPolicy::evaluate` с реальным
+`ToolCall`, поэтому execution policy видит аргументы модели и не зависит от
+fake visibility call.
 
 Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
 
