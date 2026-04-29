@@ -62,7 +62,8 @@ provider wire formats, конкретный search/memory/patch algorithm, promp
 
 Hot path файлы, требующие focused tests при изменениях:
 
-- `src/core/runtime.rs` - session/thread/turn lifecycle, history, memory hook.
+- `src/core/runtime.rs` - runtime services, session/thread/turn lifecycle,
+  session state, history, memory hook.
 - `src/core/registry.rs` - сборка runtime trait-объектов.
 - `src/core/module_catalog.rs` - built-in manifests и factories.
 - `src/core/tool_orchestrator.rs` - visibility, approval, timeout, execution.
@@ -117,6 +118,7 @@ transport поверх той же boundary.
 - загрузку конфига;
 - wiring встроенных реализаций;
 - создание `RuntimeContext`;
+- разделение runtime services и `SessionState`;
 - владение `SessionId`, primary `ThreadId`, per-run `TurnId` и `run_lock`;
 - event store;
 - session store;

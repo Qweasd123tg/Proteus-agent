@@ -454,6 +454,44 @@ async fn runtime_keeps_session_id_and_creates_new_turn_id_per_run() {
 }
 
 #[tokio::test]
+async fn runtime_builder_can_reuse_existing_session_and_thread_ids() {
+    let dir = temp_workspace();
+    let events = Arc::new(InMemoryEventStore::new());
+    let session_id = new_session_id();
+    let thread_id = new_thread_id();
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_event_sink(events.clone())
+        .with_session_ids(session_id, thread_id)
+        .build()
+        .unwrap();
+
+    let output = runtime
+        .run("summarize reused ids".to_owned())
+        .await
+        .unwrap();
+    let records = events.events().await;
+
+    assert!(records.iter().any(|event| {
+        matches!(
+            event,
+            Event::SessionStarted { session_id: id, .. } if *id == session_id
+        )
+    }));
+    assert!(records.iter().any(|event| {
+        matches!(
+            event,
+            Event::TurnStarted {
+                session_id: sid,
+                thread_id: tid,
+                ..
+            } if *sid == session_id && *tid == thread_id
+        )
+    }));
+    assert_eq!(output.metadata["session_id"], session_id.to_string());
+    assert_eq!(output.metadata["thread_id"], thread_id.to_string());
+}
+
+#[tokio::test]
 async fn fanout_preserves_event_envelope_identity_across_sinks() {
     let left = Arc::new(InMemoryEventStore::new());
     let right = Arc::new(InMemoryEventStore::new());

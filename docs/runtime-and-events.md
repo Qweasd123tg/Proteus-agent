@@ -153,13 +153,30 @@ failed `response` для отменённого `send`.
 
 ## History
 
-`AgentRuntime` держит history сообщений в памяти. После каждого turn новые сообщения дописываются в `messages.jsonl`, если session store подключён.
+`AgentRuntime` разделяет runtime services и session state. Runtime services
+держат cwd, registry, event emitter, approval transport и permission mode.
+`SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history и
+optional session store.
+
+Session state держит history сообщений в памяти. После каждого turn новые
+
+сообщения дописываются в `messages.jsonl`, если session store подключён.
 
 Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` и preflight context вроде `tool:list_dir` добавляются только в model request текущего turn и не дописываются в runtime history/session store.
 
-`SessionId` создаётся один раз при построении `AgentRuntime` и остаётся тем же для всех `run()` этого runtime. Каждый `run()` создаёт новый `TurnId`; `run_lock` не даёт двум turns одного runtime одновременно читать и перезаписывать history.
+`SessionId` ии `ThreadId``ThreadId` по умолчанию создаютсяпо умолчанию создаются при построении `AgentRuntime`.
+Builder такжетакже умеетумеет принятьпринять existingexisting idsids черезчерез `with_session_idswith_session_ids`, чточто является
+первым шагом к resumeявляется
+первым шагом к resume. Каждый `run()` создаёт новый `TurnId`; `run_lock` живёт в
+`SessionState` и не даёт двум turns однойодной sessionsession одновременно читать и
 
-При построении runtime новая session directory создаётся заново. Текущий код не восстанавливает историю из предыдущей session.
+перезаписывать history.
+
+При построении runtime новая session directory создаётся заново,, еслиесли session
+store подключён и existing session directory явноsession
+store подключён и existing session directory явно не восстанавливается.восстанавливается. Текущий
+код пока не читает historyТекущий
+код пока не читает history из предыдущей session.
 
 ## SingleLoopWorkflow
 

@@ -110,9 +110,10 @@ renderer -> workflow internals
 
 Runtime должен сохранять эти свойства:
 
-- один `SessionId` на runtime/session;
+- runtime services отделены от session state;
+- один `SessionId` на session;
 - новый `TurnId` на каждый `run()`;
-- один активный turn на runtime;
+- один активный turn на session;
 - event log как append-only trace;
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;

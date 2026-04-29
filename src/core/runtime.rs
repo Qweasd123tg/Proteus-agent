@@ -15,17 +15,42 @@ use crate::{
 };
 
 pub struct AgentRuntime {
+    services: RuntimeServices,
+    session: SessionState,
+}
+
+struct RuntimeServices {
     cwd: PathBuf,
-    session_id: SessionId,
-    thread_id: ThreadId,
     registry: BuiltinRegistry,
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     permission_mode: PermissionMode,
+}
+
+struct SessionState {
+    session_id: SessionId,
+    thread_id: ThreadId,
     run_lock: Mutex<()>,
     session_started: Mutex<bool>,
     history: Mutex<Vec<CanonicalMessage>>,
     session_store: Option<SessionStore>,
+}
+
+impl SessionState {
+    fn new(
+        session_id: SessionId,
+        thread_id: ThreadId,
+        session_store: Option<SessionStore>,
+    ) -> Self {
+        Self {
+            session_id,
+            thread_id,
+            run_lock: Mutex::new(()),
+            session_started: Mutex::new(false),
+            history: Mutex::new(Vec::new()),
+            session_store,
+        }
+    }
 }
 
 impl AgentRuntime {
@@ -88,39 +113,41 @@ impl AgentRuntime {
     }
 
     pub async fn run(&self, text: String) -> Result<AgentOutput> {
-        let _run_guard = self.run_lock.lock().await;
+        let _run_guard = self.session.run_lock.lock().await;
         self.ensure_session_started().await?;
         let turn_id = new_turn_id();
         let event_context = EventContext {
-            session_id: self.session_id,
-            thread_id: self.thread_id,
+            session_id: self.session.session_id,
+            thread_id: self.session.thread_id,
             turn_id: Some(turn_id),
         };
-        self.events
+        self.services
+            .events
             .emit(
                 event_context,
                 Event::TurnStarted {
-                    session_id: self.session_id,
-                    thread_id: self.thread_id,
+                    session_id: self.session.session_id,
+                    thread_id: self.session.thread_id,
                     turn_id,
                 },
             )
             .await?;
         let task = AgentTask {
             text,
-            cwd: self.cwd.clone(),
+            cwd: self.services.cwd.clone(),
         };
-        let runtime_context = self.registry.runtime_context(
-            self.session_id,
-            self.thread_id,
+        let runtime_context = self.services.registry.runtime_context(
+            self.session.session_id,
+            self.session.thread_id,
             turn_id,
-            self.events.clone(),
-            self.approval.clone(),
-            self.permission_mode,
+            self.services.events.clone(),
+            self.services.approval.clone(),
+            self.services.permission_mode,
         );
-        let history = self.history.lock().await.clone();
+        let history = self.session.history.lock().await.clone();
         let previous_history_len = history.len();
         let workflow_output = self
+            .services
             .registry
             .workflow
             .run(task.clone(), history, runtime_context)
@@ -133,6 +160,7 @@ impl AgentRuntime {
         );
         let new_messages = &workflow_output.messages[previous_history_len..];
         let memory_output = self
+            .services
             .registry
             .memory_policy
             .after_turn(
@@ -141,23 +169,24 @@ impl AgentRuntime {
                     output: &workflow_output.output,
                     new_messages,
                 },
-                self.registry.memory.as_ref(),
+                self.services.registry.memory.as_ref(),
             )
             .await?;
         for kind in memory_output.written_kinds {
-            self.events
+            self.services
+                .events
                 .emit(
                     EventContext {
-                        session_id: self.session_id,
-                        thread_id: self.thread_id,
+                        session_id: self.session.session_id,
+                        thread_id: self.session.thread_id,
                         turn_id: Some(turn_id),
                     },
                     Event::MemoryWritten { kind },
                 )
                 .await?;
         }
-        let mut history = self.history.lock().await;
-        if let Some(session_store) = &self.session_store {
+        let mut history = self.session.history.lock().await;
+        if let Some(session_store) = &self.session.session_store {
             session_store
                 .append_messages(&workflow_output.messages[previous_history_len..])
                 .await?;
@@ -167,21 +196,22 @@ impl AgentRuntime {
     }
 
     async fn ensure_session_started(&self) -> Result<()> {
-        let mut started = self.session_started.lock().await;
+        let mut started = self.session.session_started.lock().await;
         if *started {
             return Ok(());
         }
 
-        self.events
+        self.services
+            .events
             .emit(
                 EventContext {
-                    session_id: self.session_id,
-                    thread_id: self.thread_id,
+                    session_id: self.session.session_id,
+                    thread_id: self.session.thread_id,
                     turn_id: None,
                 },
                 Event::SessionStarted {
-                    session_id: self.session_id,
-                    cwd: self.cwd.clone(),
+                    session_id: self.session.session_id,
+                    cwd: self.services.cwd.clone(),
                 },
             )
             .await?;
@@ -190,24 +220,27 @@ impl AgentRuntime {
     }
 
     pub async fn render(&self, output: &AgentOutput) -> Result<String> {
-        self.registry.renderer.render(output).await
+        self.services.registry.renderer.render(output).await
     }
 
     pub async fn clear_history(&self) -> Result<()> {
-        let _run_guard = self.run_lock.lock().await;
-        self.history.lock().await.clear();
-        if let Some(session_store) = &self.session_store {
+        let _run_guard = self.session.run_lock.lock().await;
+        self.session.history.lock().await.clear();
+        if let Some(session_store) = &self.session.session_store {
             session_store.clear().await?;
         }
         Ok(())
     }
 
     pub async fn history_len(&self) -> usize {
-        self.history.lock().await.len()
+        self.session.history.lock().await.len()
     }
 
     pub fn session_dir(&self) -> Option<&std::path::Path> {
-        self.session_store.as_ref().map(|store| store.session_dir())
+        self.session
+            .session_store
+            .as_ref()
+            .map(|store| store.session_dir())
     }
 }
 
@@ -220,6 +253,8 @@ pub struct AgentRuntimeBuilder {
     config_path: Option<PathBuf>,
     event_sink: Option<Arc<dyn EventSink>>,
     approval: Option<Arc<dyn ApprovalTransport>>,
+    session_id: Option<SessionId>,
+    thread_id: Option<ThreadId>,
 }
 
 impl AgentRuntimeBuilder {
@@ -230,6 +265,8 @@ impl AgentRuntimeBuilder {
             config_path: None,
             event_sink: None,
             approval: None,
+            session_id: None,
+            thread_id: None,
         }
     }
 
@@ -248,6 +285,12 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    pub fn with_session_ids(mut self, session_id: SessionId, thread_id: ThreadId) -> Self {
+        self.session_id = Some(session_id);
+        self.thread_id = Some(thread_id);
+        self
+    }
+
     pub fn build(self) -> Result<AgentRuntime> {
         let Self {
             config,
@@ -255,6 +298,8 @@ impl AgentRuntimeBuilder {
             config_path,
             event_sink,
             approval,
+            session_id,
+            thread_id,
         } = self;
 
         let permission_mode = config.permissions.mode;
@@ -264,25 +309,22 @@ impl AgentRuntimeBuilder {
         let events = Arc::new(EventEmitter::new(event_sink));
         let approval: Arc<dyn ApprovalTransport> =
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport));
-        let session_id = new_session_id();
-        let thread_id = new_thread_id();
+        let session_id = session_id.unwrap_or_else(new_session_id);
+        let thread_id = thread_id.unwrap_or_else(new_thread_id);
         let session_store = config_path
             .as_deref()
             .map(config_store_root)
             .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id));
 
         Ok(AgentRuntime {
-            cwd,
-            session_id,
-            thread_id,
-            registry,
-            events,
-            approval,
-            permission_mode,
-            run_lock: Mutex::new(()),
-            session_started: Mutex::new(false),
-            history: Mutex::new(Vec::new()),
-            session_store,
+            services: RuntimeServices {
+                cwd,
+                registry,
+                events,
+                approval,
+                permission_mode,
+            },
+            session: SessionState::new(session_id, thread_id, session_store),
         })
     }
 }
@@ -341,8 +383,9 @@ mod tests {
             .build()
             .expect("runtime");
 
-        runtime.registry.workflow = Arc::new(ShortHistoryWorkflow);
+        runtime.services.registry.workflow = Arc::new(ShortHistoryWorkflow);
         runtime
+            .session
             .history
             .lock()
             .await
