@@ -39,9 +39,9 @@ marketplace, MCP host или multi-agent runtime.
   отправляется модели в текущем turn, но не сохраняется в history или
   `messages.jsonl`.
 - Tool execution проходит через `ToolOrchestrator`: visibility gate,
-  `ApprovalPolicy`, timeout и output truncation.
+  mode-aware `ApprovalPolicy`, timeout и output truncation.
 - `PermissionMode::Auto` не разрешает `RunsCommands`, `Network` и `Dangerous`
-  tools по умолчанию.
+  tools по умолчанию; это правило живёт в policy wrapper, а не в orchestrator.
 - Providers реализуют `ModelAdapter`; runtime вызывает их через `ModelService`,
   который применяет `RequestShaper` с `ModelCapabilities`.
 - Provider-specific request/response shapes остаются в `src/adapters`.
@@ -230,7 +230,7 @@ task
 -> Event::ModelResponseReceived
 -> если есть tool calls:
      ToolOrchestrator
-     PermissionMode gate + ApprovalPolicy::evaluate в normal mode
+     mode-aware ApprovalPolicy::evaluate
      timeout/output cap
      Tool::invoke или denied/timeout result
      Event::ToolFinished

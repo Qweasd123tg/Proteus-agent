@@ -9,10 +9,7 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{ApprovalRequest, PolicyContext, RuntimeContext, ToolContext},
-    domain::{
-        AgentTask, Event, PermissionMode, PolicyDecision, ToolCall, ToolResult, ToolSafety,
-        ToolSpec,
-    },
+    domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
 };
 
 #[derive(Debug, Clone)]
@@ -153,35 +150,13 @@ impl ToolOrchestrator {
             };
         };
 
-        match ctx.permission_mode {
-            PermissionMode::Plan => match spec.safety {
-                ToolSafety::ReadOnly => PolicyDecision::Allow,
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode plan allows only read-only tools: {}",
-                        call.name
-                    ),
-                },
+        ctx.policy.evaluate(
+            call,
+            &PolicyContext {
+                cwd: cwd.to_path_buf(),
+                tool_spec: Some(spec),
             },
-            PermissionMode::Auto => match spec.safety {
-                ToolSafety::ReadOnly | ToolSafety::WritesFiles => PolicyDecision::Allow,
-                ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous => {
-                    PolicyDecision::Deny {
-                        reason: format!(
-                            "permission mode auto denies command, network, and dangerous tools: {}",
-                            call.name
-                        ),
-                    }
-                }
-            },
-            PermissionMode::Normal => ctx.policy.evaluate(
-                call,
-                &PolicyContext {
-                    cwd: cwd.to_path_buf(),
-                    tool_spec: Some(spec),
-                },
-            ),
-        }
+        )
     }
 
     async fn invoke_allowed(

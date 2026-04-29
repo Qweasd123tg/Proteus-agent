@@ -17,13 +17,13 @@ cargo test
 - `memory_policy = none` подключается как отдельный lifecycle slot и не пишет память автоматически;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - tool visibility и execution policy разделены;
-- `ToolOrchestrator` скрывает command/network tools в `auto` и исполняет `ToolSpec.timeout_ms`;
+- `ToolOrchestrator` применяет policy visibility и исполняет `ToolSpec.timeout_ms`;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
-- builder может принять существующие `SessionId`/`ThreadId` ии восстановитьвосстановить historyhistory из existing session directoryиз existing session directory;
+- builder может принять существующие `SessionId`/`ThreadId` и восстановить history из existing session directory;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
-- `PermissionMode::Plan` и `PermissionMode::Auto` меняют видимость tools без изменения runtime;
+- `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `apply_patch` применяет internal patch format только внутри workspace;
 - `write_file` не может выйти за workspace через parent traversal или symlink;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;

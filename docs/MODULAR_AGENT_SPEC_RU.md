@@ -118,8 +118,8 @@ Runtime должен сохранять эти свойства:
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;
 - session resume загружает persistent `messages.jsonl`, не ephemeral context;
-- tool execution только через `ToolRegistry`, `PermissionMode`,
-  `ApprovalPolicy` и `ToolOrchestrator`.
+- tool execution только через `ToolRegistry`, mode-aware `ApprovalPolicy` и
+  `ToolOrchestrator`.
 
 Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
 

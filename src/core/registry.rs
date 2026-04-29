@@ -9,7 +9,7 @@ use crate::{
     },
     core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext},
     domain::{SessionId, ThreadId, TurnId},
-    modules::ModelService,
+    modules::{ModeAwarePolicy, ModelService},
 };
 
 #[derive(Clone)]
@@ -90,9 +90,8 @@ impl BuiltinRegistry {
             memory: self.memory.clone(),
             context: self.context.clone(),
             tools: self.tools.clone(),
-            policy: self.policy.clone(),
+            policy: Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
-            permission_mode,
             patch: self.patch.clone(),
         }
     }
