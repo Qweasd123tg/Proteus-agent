@@ -128,6 +128,10 @@ enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_fil
 
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Quickstart/coding profile `agent.coding.example.toml` включает built-in tools через `tools.enabled`, а advanced profile может поставить полный набор через `tools.path` или `tools.configured` при `tools.enabled = []`.
 
+`read_file` принимает обязательный `path` и optional `start_line`, `limit`,
+`line_numbers`. Без optional args он сохраняет старое поведение и возвращает
+файл целиком; с `line_numbers = true` строки возвращаются как `N<TAB>text`.
+
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это
 `~/.config/agent-qweasd123tg/tools`, а configs лежат в соседней директории

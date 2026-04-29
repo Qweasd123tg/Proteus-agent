@@ -191,6 +191,10 @@ compatibility fallback для built-in модулей. Новый код и но
 `agent.coding.example.toml` перечисляет built-in tools явно, чтобы policy
 ссылалась на реально зарегистрированные names.
 
+Built-in `read_file` поддерживает optional args `start_line`, `limit` и
+`line_numbers`; это не требует отдельной config секции и остаётся тем же tool
+name для policy.
+
 В advanced/config-first режиме используйте `tools.path` или
 `tools.configured`, а `tools.enabled = []`.
 

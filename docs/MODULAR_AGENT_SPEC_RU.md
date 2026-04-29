@@ -133,7 +133,7 @@ Runtime должен сохранять эти свойства:
   diagnostics вокруг config/tools;
 - усиление `repo_aware`: nested `AGENTS.md`, README/docs providers, provider
   scoring/budget и git diff summary без записи в conversation history;
-- line-oriented read/edit/git tools через `ToolRegistry`;
+- line-oriented edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
 - `plan_execute_review` как новый `Workflow`, не замена core;
 - eval report поверх event log для сравнения workflow/context/edit связок;
