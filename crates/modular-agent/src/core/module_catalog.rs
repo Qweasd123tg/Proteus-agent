@@ -1,5 +1,6 @@
 use std::{
-    collections::BTreeMap,
+    any::Any,
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -13,7 +14,7 @@ use crate::{
         Renderer, SearchBackend, ToolRegistry, Workflow, register_provider_tools,
     },
     core::{AppConfig, ModelConfig},
-    domain::{ModuleKind, ModuleManifest},
+    domain::{ModuleKind, ModuleManifest, SlotId, slot},
     modules::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, ConfiguredMcpTool,
         ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier, FakeModelClient,
@@ -34,286 +35,334 @@ pub struct PolicyBuildContext<'a> {
     pub tools: &'a ToolRegistry,
 }
 
+/// Унифицированный вход для всех build-функций модулей. Разные slot'ы
+/// требуют разный контекст (ядро / policy / model); enum объединяет их
+/// для того, чтобы в Registry можно было хранить одну фабрику любого slot.
+pub enum ModuleBuildInput<'a, 'b: 'a> {
+    Module(&'a ModuleBuildContext<'b>),
+    Policy(&'a PolicyBuildContext<'b>),
+    Model(&'a ModelConfig),
+}
+
+impl<'a, 'b: 'a> ModuleBuildInput<'a, 'b> {
+    pub fn module(&self) -> Result<&'a ModuleBuildContext<'b>> {
+        match self {
+            Self::Module(ctx) => Ok(ctx),
+            _ => bail!("expected ModuleBuildInput::Module"),
+        }
+    }
+
+    pub fn policy(&self) -> Result<&'a PolicyBuildContext<'b>> {
+        match self {
+            Self::Policy(ctx) => Ok(ctx),
+            _ => bail!("expected ModuleBuildInput::Policy"),
+        }
+    }
+
+    pub fn model(&self) -> Result<&'a ModelConfig> {
+        match self {
+            Self::Model(config) => Ok(config),
+            _ => bail!("expected ModuleBuildInput::Model"),
+        }
+    }
+}
+
+/// Type-erased фабрика модуля. Возвращает `Arc<dyn Any + Send + Sync>`,
+/// который потребитель downcast'ит в правильный `Arc<dyn Trait>`.
+///
+/// Безопасность downcast обеспечивается тем, что фабрика строится внутри
+/// typed регистрационного хелпера (register_module и подобные),
+/// который контролирует соответствие SlotId и возвращаемого типа.
+type ErasedFactory =
+    Box<dyn for<'a, 'b> Fn(&ModuleBuildInput<'a, 'b>) -> Result<Arc<dyn Any + Send + Sync>> + Send + Sync>;
+
+struct ModuleEntry {
+    manifest: ModuleManifest,
+    factory: ErasedFactory,
+}
+
+/// Единый реестр встроенных модулей. Все slot'ы хранятся в одной карте,
+/// ключ — `(SlotId, module_id)`. Открытый SlotId позволит плагинам
+/// регистрировать модули под новыми slot'ами без правок ядра.
 pub struct BuiltinModuleCatalog {
-    model_providers: BTreeMap<String, ModelProviderFactory>,
-    search: BTreeMap<String, ModuleFactory<dyn SearchBackend>>,
-    memory: BTreeMap<String, ModuleFactory<dyn MemoryStore>>,
-    memory_policy: BTreeMap<String, ModuleFactory<dyn MemoryPolicy>>,
-    context: BTreeMap<String, ModuleFactory<dyn ContextBuilder>>,
-    policy: BTreeMap<String, PolicyFactory>,
-    patch: BTreeMap<String, ModuleFactory<dyn PatchApplier>>,
-    workflow: BTreeMap<String, ModuleFactory<dyn Workflow>>,
-    renderer: BTreeMap<String, ModuleFactory<dyn Renderer>>,
+    entries: HashMap<(SlotId, String), ModuleEntry>,
 }
 
 impl BuiltinModuleCatalog {
     pub fn new() -> Self {
-        let mut model_providers = BTreeMap::new();
-        model_providers.insert(
-            "fake".to_owned(),
-            ModelProviderFactory::new(
-                manifest(
-                    "fake",
-                    ModuleKind::Model,
-                    &["testing", "tools"],
-                    "Fake model adapter for tests and local development.",
-                ),
-                build_fake_model_adapter,
+        let mut catalog = Self {
+            entries: HashMap::new(),
+        };
+
+        // Model adapters
+        catalog.register_model(
+            "fake",
+            manifest(
+                "fake",
+                ModuleKind::Model,
+                &["testing", "tools"],
+                "Fake model adapter for tests and local development.",
             ),
+            build_fake_model_adapter,
         );
-        model_providers.insert(
-            "openai".to_owned(),
-            ModelProviderFactory::new(
-                manifest(
-                    "openai",
-                    ModuleKind::Model,
-                    &["responses", "tools"],
-                    "OpenAI Responses API adapter.",
-                ),
-                build_openai_model_adapter,
+        catalog.register_model(
+            "openai",
+            manifest(
+                "openai",
+                ModuleKind::Model,
+                &["responses", "tools"],
+                "OpenAI Responses API adapter.",
             ),
+            build_openai_model_adapter,
         );
-        model_providers.insert(
-            "openai_compatible".to_owned(),
-            ModelProviderFactory::new(
-                manifest(
-                    "openai_compatible",
-                    ModuleKind::Model,
-                    &["responses", "tools", "custom_base_url"],
-                    "OpenAI-compatible Responses API adapter.",
-                ),
-                build_openai_model_adapter,
+        catalog.register_model(
+            "openai_compatible",
+            manifest(
+                "openai_compatible",
+                ModuleKind::Model,
+                &["responses", "tools", "custom_base_url"],
+                "OpenAI-compatible Responses API adapter.",
             ),
+            build_openai_model_adapter,
         );
-        model_providers.insert(
-            "anthropic".to_owned(),
-            ModelProviderFactory::new(
-                manifest(
-                    "anthropic",
-                    ModuleKind::Model,
-                    &["messages", "tools"],
-                    "Anthropic Messages API adapter.",
-                ),
-                build_anthropic_model_adapter,
+        catalog.register_model(
+            "anthropic",
+            manifest(
+                "anthropic",
+                ModuleKind::Model,
+                &["messages", "tools"],
+                "Anthropic Messages API adapter.",
             ),
+            build_anthropic_model_adapter,
         );
 
-        let mut search = BTreeMap::new();
-        search.insert(
-            "null".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "null",
-                    ModuleKind::Search,
-                    &["disabled"],
-                    "No-op search backend.",
-                ),
-                build_null_search,
+        // Search backends
+        catalog.register_module::<dyn SearchBackend>(
+            slot::SEARCH,
+            "null",
+            manifest(
+                "null",
+                ModuleKind::Search,
+                &["disabled"],
+                "No-op search backend.",
             ),
+            build_null_search,
         );
-        search.insert(
-            "rg".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "rg",
-                    ModuleKind::Search,
-                    &["workspace", "ripgrep"],
-                    "Workspace search backed by ripgrep.",
-                ),
-                build_rg_search,
+        catalog.register_module::<dyn SearchBackend>(
+            slot::SEARCH,
+            "rg",
+            manifest(
+                "rg",
+                ModuleKind::Search,
+                &["workspace", "ripgrep"],
+                "Workspace search backed by ripgrep.",
             ),
+            build_rg_search,
         );
 
-        let mut memory = BTreeMap::new();
-        memory.insert(
-            "none".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "none",
-                    ModuleKind::Memory,
-                    &["disabled"],
-                    "No-op memory store.",
-                ),
-                build_no_memory,
+        // Memory stores
+        catalog.register_module::<dyn MemoryStore>(
+            slot::MEMORY,
+            "none",
+            manifest(
+                "none",
+                ModuleKind::Memory,
+                &["disabled"],
+                "No-op memory store.",
             ),
+            build_no_memory,
         );
-        memory.insert(
-            "jsonl".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "jsonl",
-                    ModuleKind::Memory,
-                    &["local_file", "jsonl"],
-                    "JSONL-backed memory store.",
-                ),
-                build_jsonl_memory,
+        catalog.register_module::<dyn MemoryStore>(
+            slot::MEMORY,
+            "jsonl",
+            manifest(
+                "jsonl",
+                ModuleKind::Memory,
+                &["local_file", "jsonl"],
+                "JSONL-backed memory store.",
             ),
+            build_jsonl_memory,
         );
 
-        let mut memory_policy = BTreeMap::new();
-        memory_policy.insert(
-            "none".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "none",
-                    ModuleKind::MemoryPolicy,
-                    &["disabled"],
-                    "No-op memory lifecycle policy.",
-                ),
-                build_no_memory_policy,
+        // Memory policies
+        catalog.register_module::<dyn MemoryPolicy>(
+            slot::MEMORY_POLICY,
+            "none",
+            manifest(
+                "none",
+                ModuleKind::MemoryPolicy,
+                &["disabled"],
+                "No-op memory lifecycle policy.",
             ),
+            build_no_memory_policy,
         );
 
-        let mut context = BTreeMap::new();
-        context.insert(
-            "simple".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "simple",
-                    ModuleKind::Context,
-                    &["memory", "search"],
-                    "Simple memory/search context builder.",
-                ),
-                build_simple_context,
+        // Context builders
+        catalog.register_module::<dyn ContextBuilder>(
+            slot::CONTEXT,
+            "simple",
+            manifest(
+                "simple",
+                ModuleKind::Context,
+                &["memory", "search"],
+                "Simple memory/search context builder.",
             ),
+            build_simple_context,
         );
-        context.insert(
-            "repo_aware".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "repo_aware",
-                    ModuleKind::Context,
-                    &["workspace", "providers", "budget"],
-                    "Provider-based workspace context builder.",
-                ),
-                build_repo_aware_context,
+        catalog.register_module::<dyn ContextBuilder>(
+            slot::CONTEXT,
+            "repo_aware",
+            manifest(
+                "repo_aware",
+                ModuleKind::Context,
+                &["workspace", "providers", "budget"],
+                "Provider-based workspace context builder.",
             ),
+            build_repo_aware_context,
         );
 
-        let mut policy = BTreeMap::new();
-        policy.insert(
-            "allow_all".to_owned(),
-            PolicyFactory::new(
-                manifest(
-                    "allow_all",
-                    ModuleKind::Policy,
-                    &["unsafe", "development"],
-                    "Approval policy that allows every tool call.",
-                ),
-                build_allow_all_policy,
+        // Approval policies
+        catalog.register_policy(
+            "allow_all",
+            manifest(
+                "allow_all",
+                ModuleKind::Policy,
+                &["unsafe", "development"],
+                "Approval policy that allows every tool call.",
             ),
+            build_allow_all_policy,
         );
-        policy.insert(
-            "ask_write".to_owned(),
-            PolicyFactory::new(
-                manifest(
-                    "ask_write",
-                    ModuleKind::Policy,
-                    &["approval", "tool_safety"],
-                    "Approval policy that asks before write/command/network tools.",
-                ),
-                build_ask_write_policy,
+        catalog.register_policy(
+            "ask_write",
+            manifest(
+                "ask_write",
+                ModuleKind::Policy,
+                &["approval", "tool_safety"],
+                "Approval policy that asks before write/command/network tools.",
             ),
+            build_ask_write_policy,
         );
 
-        let mut patch = BTreeMap::new();
-        patch.insert(
-            "direct".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "direct",
-                    ModuleKind::Patch,
-                    &["workspace"],
-                    "Workspace-scoped patch applier.",
-                ),
-                build_direct_patch,
+        // Patch appliers
+        catalog.register_module::<dyn PatchApplier>(
+            slot::PATCH,
+            "direct",
+            manifest(
+                "direct",
+                ModuleKind::Patch,
+                &["workspace"],
+                "Workspace-scoped patch applier.",
             ),
+            build_direct_patch,
         );
 
-        let mut workflow = BTreeMap::new();
-        workflow.insert(
-            "single_loop".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "single_loop",
-                    ModuleKind::Workflow,
-                    &["model", "tools", "context"],
-                    "Single-loop model/tool workflow.",
-                ),
-                build_single_loop_workflow,
+        // Workflows
+        catalog.register_module::<dyn Workflow>(
+            slot::WORKFLOW,
+            "single_loop",
+            manifest(
+                "single_loop",
+                ModuleKind::Workflow,
+                &["model", "tools", "context"],
+                "Single-loop model/tool workflow.",
             ),
+            build_single_loop_workflow,
         );
 
-        let mut renderer = BTreeMap::new();
-        renderer.insert(
-            "plain".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "plain",
-                    ModuleKind::Renderer,
-                    &["text"],
-                    "Plain text renderer.",
-                ),
-                build_plain_renderer,
+        // Renderers
+        catalog.register_module::<dyn Renderer>(
+            slot::RENDERER,
+            "plain",
+            manifest(
+                "plain",
+                ModuleKind::Renderer,
+                &["text"],
+                "Plain text renderer.",
             ),
+            build_plain_renderer,
         );
-        renderer.insert(
-            "statusline".to_owned(),
-            ModuleFactory::new(
-                manifest(
-                    "statusline",
-                    ModuleKind::Renderer,
-                    &["text", "statusline"],
-                    "Renderer with configurable status line.",
-                ),
-                build_statusline_renderer,
+        catalog.register_module::<dyn Renderer>(
+            slot::RENDERER,
+            "statusline",
+            manifest(
+                "statusline",
+                ModuleKind::Renderer,
+                &["text", "statusline"],
+                "Renderer with configurable status line.",
             ),
+            build_statusline_renderer,
         );
 
-        Self {
-            model_providers,
-            search,
-            memory,
-            memory_policy,
-            context,
-            policy,
-            patch,
-            workflow,
-            renderer,
-        }
+        catalog
+    }
+
+    /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
+    /// Typed wrapper: factory возвращает `Arc<dyn T>`, который стирается
+    /// в `Arc<dyn Any + Send + Sync>` для хранения.
+    fn register_module<T>(
+        &mut self,
+        slot_id: SlotId,
+        module_id: &str,
+        manifest: ModuleManifest,
+        build: for<'a> fn(&ModuleBuildContext<'a>) -> Result<Arc<T>>,
+    ) where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        let erased: ErasedFactory = Box::new(move |input| {
+            let ctx = input.module()?;
+            let instance = build(ctx)?;
+            Ok(arc_to_any(instance))
+        });
+        self.insert_entry(slot_id, module_id, manifest, erased);
+    }
+
+    fn register_policy(
+        &mut self,
+        module_id: &str,
+        manifest: ModuleManifest,
+        build: for<'a> fn(&PolicyBuildContext<'a>) -> Result<Arc<dyn ApprovalPolicy>>,
+    ) {
+        let erased: ErasedFactory = Box::new(move |input| {
+            let ctx = input.policy()?;
+            let instance = build(ctx)?;
+            Ok(arc_to_any(instance))
+        });
+        self.insert_entry(slot::POLICY, module_id, manifest, erased);
+    }
+
+    fn register_model(
+        &mut self,
+        module_id: &str,
+        manifest: ModuleManifest,
+        build: fn(&ModelConfig) -> Result<Arc<dyn ModelAdapter>>,
+    ) {
+        let erased: ErasedFactory = Box::new(move |input| {
+            let config = input.model()?;
+            let instance = build(config)?;
+            Ok(arc_to_any(instance))
+        });
+        self.insert_entry(slot::MODEL, module_id, manifest, erased);
+    }
+
+    fn insert_entry(
+        &mut self,
+        slot_id: SlotId,
+        module_id: &str,
+        manifest: ModuleManifest,
+        factory: ErasedFactory,
+    ) {
+        self.entries.insert(
+            (slot_id, module_id.to_owned()),
+            ModuleEntry { manifest, factory },
+        );
     }
 
     pub fn manifests(&self) -> Vec<ModuleManifest> {
-        let mut manifests = Vec::new();
-        manifests.extend(
-            self.model_providers
-                .values()
-                .map(|factory| factory.manifest.clone()),
-        );
-        manifests.extend(self.search.values().map(|factory| factory.manifest.clone()));
-        manifests.extend(self.memory.values().map(|factory| factory.manifest.clone()));
-        manifests.extend(
-            self.memory_policy
-                .values()
-                .map(|factory| factory.manifest.clone()),
-        );
-        manifests.extend(
-            self.context
-                .values()
-                .map(|factory| factory.manifest.clone()),
-        );
-        manifests.extend(self.policy.values().map(|factory| factory.manifest.clone()));
-        manifests.extend(self.patch.values().map(|factory| factory.manifest.clone()));
-        manifests.extend(
-            self.workflow
-                .values()
-                .map(|factory| factory.manifest.clone()),
-        );
-        manifests.extend(
-            self.renderer
-                .values()
-                .map(|factory| factory.manifest.clone()),
-        );
+        let mut manifests: Vec<ModuleManifest> = self
+            .entries
+            .values()
+            .map(|entry| entry.manifest.clone())
+            .collect();
         manifests.sort_by(|left, right| {
             left.kind
                 .cmp(&right.kind)
@@ -330,30 +379,37 @@ impl BuiltinModuleCatalog {
     }
 
     pub fn manifest(&self, kind: ModuleKind, id: &str) -> Option<&ModuleManifest> {
-        match kind {
-            ModuleKind::Model => self
-                .model_providers
-                .get(id)
-                .map(|factory| &factory.manifest),
-            ModuleKind::Search => self.search.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Memory => self.memory.get(id).map(|factory| &factory.manifest),
-            ModuleKind::MemoryPolicy => self.memory_policy.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Context => self.context.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Policy => self.policy.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Patch => self.patch.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Workflow => self.workflow.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Renderer => self.renderer.get(id).map(|factory| &factory.manifest),
-            ModuleKind::Tool => None,
+        // Tool kind не хранится в catalog'е как отдельный slot: builtin tools
+        // приходят через BuiltinToolProvider при сборке ToolRegistry.
+        if matches!(kind, ModuleKind::Tool) {
+            return None;
         }
+        let slot_id = kind.slot_id();
+        self.entries
+            .get(&(slot_id, id.to_owned()))
+            .map(|entry| &entry.manifest)
+    }
+
+    fn build_typed<T>(&self, slot_id: SlotId, id: &str, input: &ModuleBuildInput) -> Result<Arc<T>>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        let entry = self
+            .entries
+            .get(&(slot_id.clone(), id.to_owned()))
+            .ok_or_else(|| anyhow::anyhow!("unsupported {} module: {}", slot_id, id))?;
+        let erased = (entry.factory)(input)?;
+        any_to_arc::<T>(erased)
+            .ok_or_else(|| anyhow::anyhow!("module {} in slot {} has unexpected type", id, slot_id))
     }
 
     pub fn build_model_adapter(&self, model_config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
         let provider = model_config.provider.as_str();
-        let factory = self
-            .model_providers
-            .get(provider)
-            .ok_or_else(|| anyhow::anyhow!("unsupported model provider: {provider}"))?;
-        (factory.build)(model_config)
+        self.build_typed::<dyn ModelAdapter>(
+            slot::MODEL,
+            provider,
+            &ModuleBuildInput::Model(model_config),
+        )
     }
 
     pub fn build_search(
@@ -361,11 +417,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn SearchBackend>> {
-        let factory = self
-            .search
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported search module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn SearchBackend>(slot::SEARCH, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub fn build_memory(
@@ -373,11 +425,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn MemoryStore>> {
-        let factory = self
-            .memory
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported memory module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn MemoryStore>(slot::MEMORY, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub fn build_memory_policy(
@@ -385,11 +433,11 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn MemoryPolicy>> {
-        let factory = self
-            .memory_policy
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported memory_policy module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn MemoryPolicy>(
+            slot::MEMORY_POLICY,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
     }
 
     pub fn build_context(
@@ -397,11 +445,11 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn ContextBuilder>> {
-        let factory = self
-            .context
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported context module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn ContextBuilder>(
+            slot::CONTEXT,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
     }
 
     pub fn build_policy(
@@ -409,11 +457,11 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &PolicyBuildContext<'_>,
     ) -> Result<Arc<dyn ApprovalPolicy>> {
-        let factory = self
-            .policy
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported policy module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn ApprovalPolicy>(
+            slot::POLICY,
+            module,
+            &ModuleBuildInput::Policy(ctx),
+        )
     }
 
     pub fn build_patch(
@@ -421,11 +469,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn PatchApplier>> {
-        let factory = self
-            .patch
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported patch module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn PatchApplier>(slot::PATCH, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub fn build_workflow(
@@ -433,11 +477,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn Workflow>> {
-        let factory = self
-            .workflow
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported workflow module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn Workflow>(slot::WORKFLOW, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub fn build_renderer(
@@ -445,11 +485,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn Renderer>> {
-        let factory = self
-            .renderer
-            .get(module)
-            .ok_or_else(|| anyhow::anyhow!("unsupported renderer module: {module}"))?;
-        (factory.build)(ctx)
+        self.build_typed::<dyn Renderer>(slot::RENDERER, module, &ModuleBuildInput::Module(ctx))
     }
 
     pub fn build_tools(
@@ -547,6 +583,23 @@ impl BuiltinModuleCatalog {
     }
 }
 
+/// Преобразует `Arc<T: ?Sized>` в `Arc<dyn Any + Send + Sync>` через
+/// промежуточную обёртку. Это единственный способ стереть `?Sized` тип.
+fn arc_to_any<T>(value: Arc<T>) -> Arc<dyn Any + Send + Sync>
+where
+    T: ?Sized + Send + Sync + 'static,
+{
+    Arc::new(value) as Arc<dyn Any + Send + Sync>
+}
+
+/// Обратное преобразование: downcast обёртки в `Arc<T: ?Sized>`.
+fn any_to_arc<T>(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<T>>
+where
+    T: ?Sized + Send + Sync + 'static,
+{
+    erased.downcast::<Arc<T>>().ok().map(|boxed| (*boxed).clone())
+}
+
 fn effective_configured_tool_safety(
     configured: &crate::core::ConfiguredToolConfig,
 ) -> crate::domain::ToolSafety {
@@ -620,48 +673,6 @@ fn tool_safety_rank(safety: &crate::domain::ToolSafety) -> u8 {
 impl Default for BuiltinModuleCatalog {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-struct ModelProviderFactory {
-    manifest: ModuleManifest,
-    build: fn(&ModelConfig) -> Result<Arc<dyn ModelAdapter>>,
-}
-
-impl ModelProviderFactory {
-    fn new(
-        manifest: ModuleManifest,
-        build: fn(&ModelConfig) -> Result<Arc<dyn ModelAdapter>>,
-    ) -> Self {
-        Self { manifest, build }
-    }
-}
-
-struct ModuleFactory<T: ?Sized> {
-    manifest: ModuleManifest,
-    build: for<'a> fn(&ModuleBuildContext<'a>) -> Result<Arc<T>>,
-}
-
-impl<T: ?Sized> ModuleFactory<T> {
-    fn new(
-        manifest: ModuleManifest,
-        build: for<'a> fn(&ModuleBuildContext<'a>) -> Result<Arc<T>>,
-    ) -> Self {
-        Self { manifest, build }
-    }
-}
-
-struct PolicyFactory {
-    manifest: ModuleManifest,
-    build: for<'a> fn(&PolicyBuildContext<'a>) -> Result<Arc<dyn ApprovalPolicy>>,
-}
-
-impl PolicyFactory {
-    fn new(
-        manifest: ModuleManifest,
-        build: for<'a> fn(&PolicyBuildContext<'a>) -> Result<Arc<dyn ApprovalPolicy>>,
-    ) -> Self {
-        Self { manifest, build }
     }
 }
 
