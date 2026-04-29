@@ -117,6 +117,7 @@ Runtime должен сохранять эти свойства:
 - event log как append-only trace;
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;
+- session resume загружает persistent `messages.jsonl`, не ephemeral context;
 - tool execution только через `ToolRegistry`, `PermissionMode`,
   `ApprovalPolicy` и `ToolOrchestrator`.
 

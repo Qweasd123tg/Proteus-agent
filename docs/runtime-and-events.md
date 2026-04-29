@@ -159,24 +159,22 @@ failed `response` для отменённого `send`.
 optional session store.
 
 Session state держит history сообщений в памяти. После каждого turn новые
-
 сообщения дописываются в `messages.jsonl`, если session store подключён.
 
 Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` и preflight context вроде `tool:list_dir` добавляются только в model request текущего turn и не дописываются в runtime history/session store.
 
-`SessionId` ии `ThreadId``ThreadId` по умолчанию создаютсяпо умолчанию создаются при построении `AgentRuntime`.
-Builder такжетакже умеетумеет принятьпринять existingexisting idsids черезчерез `with_session_idswith_session_ids`, чточто является
-первым шагом к resumeявляется
-первым шагом к resume. Каждый `run()` создаёт новый `TurnId`; `run_lock` живёт в
-`SessionState` и не даёт двум turns однойодной sessionsession одновременно читать и
+`SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
+Builder умеет принять existing ids через `with_session_ids` или открыть
+существующую session directory через `resume_from_session_dir`. При resume
+runtime загружает `messages.jsonl` в in-memory history и следующие turns
+дописывают только новые сообщения.
 
-перезаписывать history.
+Каждый `run()` создаёт новый `TurnId`; `run_lock` живёт в `SessionState` и не
+даёт двум turns одной session одновременно читать и перезаписывать history.
 
-При построении runtime новая session directory создаётся заново,, еслиесли session
-store подключён и existing session directory явноsession
-store подключён и existing session directory явно не восстанавливается.восстанавливается. Текущий
-код пока не читает historyТекущий
-код пока не читает history из предыдущей session.
+При обычном построении runtime новая session directory создаётся заново, если
+session store подключён. Для восстановления нужно явно передать путь к старой
+session directory.
 
 ## SingleLoopWorkflow
 

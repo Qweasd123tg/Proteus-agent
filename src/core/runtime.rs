@@ -41,13 +41,15 @@ impl SessionState {
         session_id: SessionId,
         thread_id: ThreadId,
         session_store: Option<SessionStore>,
+        history: Vec<CanonicalMessage>,
+        session_started: bool,
     ) -> Self {
         Self {
             session_id,
             thread_id,
             run_lock: Mutex::new(()),
-            session_started: Mutex::new(false),
-            history: Mutex::new(Vec::new()),
+            session_started: Mutex::new(session_started),
+            history: Mutex::new(history),
             session_store,
         }
     }
@@ -255,6 +257,8 @@ pub struct AgentRuntimeBuilder {
     approval: Option<Arc<dyn ApprovalTransport>>,
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
+    session_dir: Option<PathBuf>,
+    resume_history: bool,
 }
 
 impl AgentRuntimeBuilder {
@@ -267,6 +271,8 @@ impl AgentRuntimeBuilder {
             approval: None,
             session_id: None,
             thread_id: None,
+            session_dir: None,
+            resume_history: false,
         }
     }
 
@@ -291,6 +297,19 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    pub fn resume_from_session_dir(
+        mut self,
+        session_dir: impl Into<PathBuf>,
+        session_id: SessionId,
+        thread_id: ThreadId,
+    ) -> Self {
+        self.session_dir = Some(session_dir.into());
+        self.session_id = Some(session_id);
+        self.thread_id = Some(thread_id);
+        self.resume_history = true;
+        self
+    }
+
     pub fn build(self) -> Result<AgentRuntime> {
         let Self {
             config,
@@ -300,6 +319,8 @@ impl AgentRuntimeBuilder {
             approval,
             session_id,
             thread_id,
+            session_dir,
+            resume_history,
         } = self;
 
         let permission_mode = config.permissions.mode;
@@ -311,10 +332,24 @@ impl AgentRuntimeBuilder {
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport));
         let session_id = session_id.unwrap_or_else(new_session_id);
         let thread_id = thread_id.unwrap_or_else(new_thread_id);
-        let session_store = config_path
-            .as_deref()
-            .map(config_store_root)
-            .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id));
+        let session_store = if let Some(session_dir) = session_dir {
+            Some(SessionStore::from_session_dir(session_dir))
+        } else {
+            config_path
+                .as_deref()
+                .map(config_store_root)
+                .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id))
+        };
+        let history = if resume_history {
+            session_store
+                .as_ref()
+                .map(SessionStore::load_messages)
+                .transpose()?
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let session_started = resume_history && !history.is_empty();
 
         Ok(AgentRuntime {
             services: RuntimeServices {
@@ -324,7 +359,13 @@ impl AgentRuntimeBuilder {
                 approval,
                 permission_mode,
             },
-            session: SessionState::new(session_id, thread_id, session_store),
+            session: SessionState::new(
+                session_id,
+                thread_id,
+                session_store,
+                history,
+                session_started,
+            ),
         })
     }
 }

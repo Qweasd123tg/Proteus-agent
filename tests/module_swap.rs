@@ -1658,6 +1658,57 @@ async fn context_chunks_are_not_written_to_session_store() {
 }
 
 #[tokio::test]
+async fn runtime_can_resume_history_from_existing_session_dir() {
+    let dir = temp_workspace();
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    std::fs::write(&config_path, "").expect("config file");
+    let first_runtime = AgentRuntime::new_with_config_path(
+        test_config(),
+        dir.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .unwrap();
+
+    let first = first_runtime
+        .run("summarize before resume".to_owned())
+        .await
+        .unwrap();
+    let session_dir = first_runtime.session_dir().unwrap().to_path_buf();
+    let session_id = first.metadata["session_id"]
+        .as_str()
+        .expect("session id")
+        .parse()
+        .expect("session uuid");
+    let thread_id = first.metadata["thread_id"]
+        .as_str()
+        .expect("thread id")
+        .parse()
+        .expect("thread uuid");
+
+    let resumed = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .resume_from_session_dir(session_dir.clone(), session_id, thread_id)
+        .build()
+        .unwrap();
+    assert_eq!(resumed.history_len().await, 2);
+
+    let second = resumed
+        .run("summarize after resume".to_owned())
+        .await
+        .unwrap();
+    assert_eq!(second.metadata["session_id"], session_id.to_string());
+    assert_eq!(second.metadata["thread_id"], thread_id.to_string());
+    assert_eq!(resumed.history_len().await, 4);
+
+    let messages_path = session_dir.join("messages.jsonl");
+    let lines = std::fs::read_to_string(messages_path)
+        .expect("messages jsonl")
+        .lines()
+        .count();
+    assert_eq!(lines, 4);
+}
+
+#[tokio::test]
 async fn list_dir_lists_workspace_entries() {
     let dir = temp_workspace();
     std::fs::create_dir(dir.path().join("src")).expect("src dir");

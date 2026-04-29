@@ -37,8 +37,43 @@ impl SessionStore {
         }
     }
 
+    pub fn from_session_dir(session_dir: PathBuf) -> Self {
+        let messages_path = session_dir.join("messages.jsonl");
+        Self {
+            session_dir,
+            messages_path,
+            lock: Arc::new(Mutex::new(())),
+        }
+    }
+
     pub fn session_dir(&self) -> &Path {
         &self.session_dir
+    }
+
+    pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
+        let content = match std::fs::read_to_string(&self.messages_path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read {}", self.messages_path.display()));
+            }
+        };
+
+        content
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
+            .map(|(index, line)| {
+                serde_json::from_str::<CanonicalMessage>(line).with_context(|| {
+                    format!(
+                        "failed to parse {} line {}",
+                        self.messages_path.display(),
+                        index + 1
+                    )
+                })
+            })
+            .collect()
     }
 
     pub async fn append_messages(&self, messages: &[CanonicalMessage]) -> Result<()> {
@@ -125,6 +160,7 @@ fn sanitize_path_part(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::domain::new_session_id;
+    use crate::model_standard::{CanonicalMessage, MessageRole};
 
     use super::*;
 
@@ -137,5 +173,33 @@ mod tests {
         let second = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
 
         assert_ne!(first.session_dir(), second.session_dir());
+    }
+
+    #[test]
+    fn missing_messages_file_loads_empty_history() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let store = SessionStore::from_session_dir(dir.path().join("missing-session"));
+
+        let messages = store.load_messages().expect("load messages");
+
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn messages_round_trip_through_jsonl_store() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let store = SessionStore::from_session_dir(dir.path().join("session"));
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "hello"),
+            CanonicalMessage::text(MessageRole::Assistant, "hi"),
+        ];
+
+        store
+            .append_messages(&messages)
+            .await
+            .expect("append messages");
+        let loaded = store.load_messages().expect("load messages");
+
+        assert_eq!(loaded, messages);
     }
 }

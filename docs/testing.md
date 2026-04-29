@@ -19,7 +19,7 @@ cargo test
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` скрывает command/network tools в `auto` и исполняет `ToolSpec.timeout_ms`;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
-- builder может принять существующие `SessionId`/`ThreadId` как подготовку к resume;
+- builder может принять существующие `SessionId`/`ThreadId` ии восстановитьвосстановить historyhistory из existing session directoryиз existing session directory;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
