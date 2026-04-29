@@ -103,10 +103,7 @@ impl Workflow for SingleLoopWorkflow {
                     output: output.clone(),
                 })
                 .await?;
-                return Ok(WorkflowOutput {
-                    output,
-                    messages: persistent_messages,
-                });
+                return Ok(WorkflowOutput::new(output, persistent_messages));
             }
 
             for call in response.tool_calls {
@@ -158,10 +155,7 @@ impl Workflow for SingleLoopWorkflow {
             output: output.clone(),
         })
         .await?;
-        Ok(WorkflowOutput {
-            output,
-            messages: persistent_messages,
-        })
+        Ok(WorkflowOutput::new(output, persistent_messages))
     }
 }
 

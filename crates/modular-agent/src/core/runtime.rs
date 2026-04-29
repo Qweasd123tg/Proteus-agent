@@ -408,13 +408,13 @@ mod tests {
             _history: Vec<CanonicalMessage>,
             _ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
-            Ok(WorkflowOutput {
-                output: AgentOutput {
+            Ok(WorkflowOutput::new(
+                AgentOutput {
                     text: "bad workflow".to_owned(),
                     metadata: serde_json::Value::Null,
                 },
-                messages: Vec::new(),
-            })
+                Vec::new(),
+            ))
         }
     }
 

@@ -34,7 +34,7 @@ Headless app-server для внешнего UI:
 cargo run -- server stdio
 ```
 
-`server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `src/app_server/stdio.rs` поверх `src/app_server.rs`, а не новая runtime-логика.
+`server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/modular-agent/src/app_server/stdio.rs` поверх `crates/modular-agent/src/app_server.rs`, а не новая runtime-логика.
 
 ## REPL Commands
 
@@ -103,7 +103,7 @@ event
 
 ## App Server Boundary
 
-`src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport в `src/app_server/stdio.rs`, а JSONL DTO лежат в `src/app_server/protocol.rs`. Будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
+`crates/modular-agent/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport в `crates/modular-agent/src/app_server/stdio.rs`, а JSONL DTO лежат в `crates/modular-agent/src/app_server/protocol.rs`. Будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
 
 События app-server:
 

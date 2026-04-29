@@ -33,6 +33,43 @@ pub struct RuntimeContext {
 }
 
 impl RuntimeContext {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        session_id: SessionId,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        model_ref: ModelRef,
+        model_timeout_ms: u64,
+        context_timeout_ms: u64,
+        events: Arc<EventEmitter>,
+        model: Arc<dyn ModelClient>,
+        search: Arc<dyn SearchBackend>,
+        memory: Arc<dyn MemoryStore>,
+        context: Arc<dyn ContextBuilder>,
+        tools: ToolRegistry,
+        policy: Arc<dyn ApprovalPolicy>,
+        approval: Arc<dyn ApprovalTransport>,
+        patch: Arc<dyn PatchApplier>,
+    ) -> Self {
+        Self {
+            session_id,
+            thread_id,
+            turn_id,
+            model_ref,
+            model_timeout_ms,
+            context_timeout_ms,
+            events,
+            model,
+            search,
+            memory,
+            context,
+            tools,
+            policy,
+            approval,
+            patch,
+        }
+    }
+
     pub fn event_context(&self) -> EventContext {
         EventContext {
             session_id: self.session_id,
@@ -61,4 +98,10 @@ pub trait Workflow: Send + Sync {
 pub struct WorkflowOutput {
     pub output: AgentOutput,
     pub messages: Vec<CanonicalMessage>,
+}
+
+impl WorkflowOutput {
+    pub fn new(output: AgentOutput, messages: Vec<CanonicalMessage>) -> Self {
+        Self { output, messages }
+    }
 }

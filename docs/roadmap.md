@@ -19,11 +19,11 @@ module implementations без переписывания core или форка 
 
 ## Приоритеты
 
-1. Core-first: `src/core` остаётся lifecycle/wiring слоем.
+1. Core-first: `crates/modular-agent/src/core` остаётся lifecycle/wiring слоем.
 2. Config-driven behavior: спорные режимы поведения должны выноситься в config,
    policy или workflow settings, а не хардкодиться в CLI.
 3. External UI: terminal/TUI/web/desktop клиенты живут поверх app-server
-   boundary. `src/main.rs` остаётся dev shell и transport launcher.
+   boundary. `crates/modular-agent/src/main.rs` остаётся dev shell и transport launcher.
 4. Token discipline: context/workflow должны уметь экономить контекст, а не
    просто читать всё подряд.
 5. Tests before platform claims: каждый новый slot/module behavior получает
@@ -118,7 +118,7 @@ Scope:
 - стабилизировать app-server JSONL DTO;
 - добавить protocol tests;
 - описать commands/events как client contract;
-- оставить `src/main.rs` тонким launcher-ом;
+- оставить `crates/modular-agent/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
 ### v0.5: Module Manifest And External Modules
@@ -142,7 +142,7 @@ Scope:
 - multi-agent DAG;
 - полноценный RAG/index daemon;
 - продуктовый UI внутри core repo;
-- provider-specific DTO вне `src/adapters` и model shaping слоя.
+- provider-specific DTO вне `crates/modular-agent/src/adapters` и model shaping слоя.
 
 ## Как Выбирать Следующую Задачу
 

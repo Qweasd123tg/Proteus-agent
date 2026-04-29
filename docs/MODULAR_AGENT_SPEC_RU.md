@@ -68,11 +68,11 @@ renderer -> workflow internals
 
 Одинаковые понятия в разных слоях имеют разные роли:
 
-- `src/domain` - данные на границе;
-- `src/contracts` - заменяемые traits;
-- `src/modules` - built-in реализации;
-- `src/adapters` - внешние provider wire formats;
-- `src/core` - config, wiring, runtime lifecycle.
+- `crates/agent-contracts/src/domain` - данные на границе;
+- `crates/agent-contracts/src/contracts` - заменяемые traits;
+- `crates/modular-agent/src/modules` - built-in реализации;
+- `crates/modular-agent/src/adapters` - внешние provider wire formats;
+- `crates/modular-agent/src/core` - config, wiring, runtime lifecycle.
 
 ## Module Slots
 

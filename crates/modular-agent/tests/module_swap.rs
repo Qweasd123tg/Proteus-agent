@@ -44,6 +44,13 @@ fn temp_workspace() -> TempDir {
     dir
 }
 
+fn workspace_root_file(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(name)
+}
+
 async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventStore>) {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
@@ -2270,7 +2277,7 @@ impl ModelAdapter for NoToolsAdapter {
 #[tokio::test]
 async fn json_config_file_can_select_anthropic_provider() {
     let config =
-        modular_agent::core::AppConfig::load(Some(std::path::Path::new("config.example.json")))
+        modular_agent::core::AppConfig::load(Some(&workspace_root_file("config.example.json")))
             .await
             .unwrap();
     let model_config = config.active_model_config().unwrap();
@@ -2293,7 +2300,7 @@ async fn json_config_file_can_select_anthropic_provider() {
 #[tokio::test]
 async fn toml_config_file_can_select_statusline_renderer() {
     let config =
-        modular_agent::core::AppConfig::load(Some(std::path::Path::new("agent.example.toml")))
+        modular_agent::core::AppConfig::load(Some(&workspace_root_file("agent.example.toml")))
             .await
             .unwrap();
 
@@ -2314,11 +2321,10 @@ async fn toml_config_file_can_select_statusline_renderer() {
 
 #[tokio::test]
 async fn coding_toml_config_enables_repo_aware_rg_profile() {
-    let config = modular_agent::core::AppConfig::load(Some(std::path::Path::new(
-        "agent.coding.example.toml",
-    )))
-    .await
-    .unwrap();
+    let config =
+        modular_agent::core::AppConfig::load(Some(&workspace_root_file("agent.coding.example.toml")))
+            .await
+            .unwrap();
     let model_config = config.active_model_config().unwrap();
 
     assert_eq!(config.profile.name, "coding-local");
@@ -2493,7 +2499,7 @@ handler = "read_file"
 #[tokio::test]
 async fn json_config_can_switch_to_custom_provider_url() {
     let mut config =
-        modular_agent::core::AppConfig::load(Some(std::path::Path::new("config.example.json")))
+        modular_agent::core::AppConfig::load(Some(&workspace_root_file("config.example.json")))
             .await
             .unwrap();
     config.active_provider = Some("local".to_owned());

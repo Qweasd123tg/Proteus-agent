@@ -15,7 +15,7 @@ Core не должен знать детали конкретного поиск
 ## Что Нельзя Ломать
 
 - Не связывать модули напрямую друг с другом.
-- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `src/adapters` и model shaping слоя.
+- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/modular-agent/src/adapters` и model shaping слоя.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
@@ -23,8 +23,8 @@ Core не должен знать детали конкретного поиск
 
 ## Как Добавлять Модуль
 
-1. Найти подходящий trait в `src/contracts`.
-2. Реализовать модуль в подходящей подпапке `src/modules` или adapter в `src/adapters`.
+1. Найти подходящий trait в `crates/agent-contracts/src/contracts`.
+2. Реализовать модуль в подходящей подпапке `crates/modular-agent/src/modules` или adapter в `crates/modular-agent/src/adapters`.
 3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить или обновить конфиг-пример.
 5. Добавить тест на заменяемость, если модуль относится к slot.

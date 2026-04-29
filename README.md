@@ -18,11 +18,11 @@ Rust core-first каркас для модульного coding-agent.
 
 ## Что Уже Есть
 
-- стабильные DTO в `src/domain` и `src/model_standard`;
-- trait-контракты в `src/contracts`;
-- wiring и lifecycle в `src/core`;
+- стабильные DTO в `crates/agent-contracts/src/domain` и `crates/agent-contracts/src/model_standard`;
+- trait-контракты в `crates/agent-contracts/src/contracts`;
+- wiring и lifecycle в `crates/modular-agent/src/core`;
 - список built-in modules через `agent modules list`;
-- встроенные модули в `src/modules`, сгруппированные по slot/type;
+- встроенные модули в `crates/modular-agent/src/modules`, сгруппированные по slot/type;
 - fake model, OpenAI Responses adapter, Anthropic Messages adapter;
 - `null`/`rg` search, `none`/`jsonl` memory;
 - `simple` и `repo_aware` context builders;

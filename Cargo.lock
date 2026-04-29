@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "agent-contracts"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -699,6 +714,7 @@ dependencies = [
 name = "modular-agent"
 version = "0.1.0"
 dependencies = [
+ "agent-contracts",
  "anyhow",
  "async-trait",
  "chrono",

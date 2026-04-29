@@ -1,8 +1,8 @@
 # Модули
 
-Модульность v0 означает выбор встроенной реализации через config. Все текущие реализации живут в подпапках `src/modules`, сгруппированных по slot/type. Строки выбора и metadata встроенных модулей описаны в `src/core/module_catalog.rs`, а `src/core/registry.rs` использует catalog для сборки runtime trait-объектов.
+Модульность v0 означает выбор встроенной реализации через config. Все текущие реализации живут в подпапках `crates/modular-agent/src/modules`, сгруппированных по slot/type. Строки выбора и metadata встроенных модулей описаны в `crates/modular-agent/src/core/module_catalog.rs`, а `crates/modular-agent/src/core/registry.rs` использует catalog для сборки runtime trait-объектов.
 
-`src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `src/domain` или `src/contracts`, это другой слой: например `src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `src/modules/memory` содержит `NoMemory` и `JsonlMemory`.
+`crates/modular-agent/src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `crates/agent-contracts/src/domain` или `crates/agent-contracts/src/contracts`, это другой слой: например `crates/agent-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `crates/agent-contracts/src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `crates/modular-agent/src/modules/memory` содержит `NoMemory` и `JsonlMemory`.
 
 Список встроенных manifests можно посмотреть без запуска runtime:
 
@@ -68,7 +68,7 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 
 ## Memory
 
-`modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `src/domain/memory.rs` и не зависят от выбранного backend.
+`modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/agent-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
 
 `modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. В v0 реализован только `none`, то есть автоматической записи памяти нет. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
 
@@ -223,8 +223,8 @@ Workflow не знает о статусной строке. Он публику
 
 ## Как Добавить Новый Модуль
 
-1. Реализовать подходящий trait из `src/contracts`.
-2. Разместить встроенную реализацию в подходящей подпапке `src/modules` или adapter в `src/adapters`.
+1. Реализовать подходящий trait из `crates/agent-contracts/src/contracts`.
+2. Разместить встроенную реализацию в подходящей подпапке `crates/modular-agent/src/modules` или adapter в `crates/modular-agent/src/adapters`.
 3. Добавить строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить config example.
 5. Добавить test, который доказывает заменяемость без изменения `AgentRuntime`.

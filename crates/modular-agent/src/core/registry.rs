@@ -77,22 +77,22 @@ impl BuiltinRegistry {
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> RuntimeContext {
-        RuntimeContext {
+        RuntimeContext::new(
             session_id,
             thread_id,
             turn_id,
-            model_ref: self.model_config.model_ref(),
-            model_timeout_ms: self.runtime_config.model_timeout_ms,
-            context_timeout_ms: self.runtime_config.context_timeout_ms,
+            self.model_config.model_ref(),
+            self.runtime_config.model_timeout_ms,
+            self.runtime_config.context_timeout_ms,
             events,
-            model: self.model.clone(),
-            search: self.search.clone(),
-            memory: self.memory.clone(),
-            context: self.context.clone(),
-            tools: self.tools.clone(),
-            policy: Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
+            self.model.clone(),
+            self.search.clone(),
+            self.memory.clone(),
+            self.context.clone(),
+            self.tools.clone(),
+            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
-            patch: self.patch.clone(),
-        }
+            self.patch.clone(),
+        )
     }
 }
