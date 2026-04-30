@@ -103,6 +103,104 @@ impl std::error::Error for PluginToolError {}
 /// Ffi-safe trait object для PluginTool.
 pub type PluginToolObject = PluginTool_TO<abi_stable::std_types::RBox<()>>;
 
+/// Sync sabi_trait для approval-policy плагинов.
+///
+/// Ядро-trait `ApprovalPolicy` уже sync — маппинг 1:1, без spawn_blocking.
+/// DTO передаются через FFI как JSON (`RString`), аналогично `PluginTool`.
+///
+/// ## JSON-форма
+///
+/// - `call_json` — сериализованный `ToolCall`.
+/// - `ctx_json` для `evaluate_json` — `PluginPolicyContextDto` (см. ниже).
+/// - `ctx_json` для `evaluate_visibility_json` — `PluginPolicyVisibilityContextDto`.
+/// - Возврат — сериализованный `PolicyDecision`.
+#[sabi_trait]
+pub trait PluginApprovalPolicy: Send + Sync + 'static {
+    fn evaluate_json(
+        &self,
+        call_json: RString,
+        ctx_json: RString,
+    ) -> RResult<RString, PluginPolicyError>;
+
+    fn evaluate_visibility_json(
+        &self,
+        ctx_json: RString,
+    ) -> RResult<RString, PluginPolicyError>;
+}
+
+/// Ошибка выполнения approval-policy плагина.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginPolicyError {
+    pub message: RString,
+}
+
+impl PluginPolicyError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginPolicyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginPolicyError {}
+
+/// Ffi-safe trait object для PluginApprovalPolicy.
+pub type PolicyObject = PluginApprovalPolicy_TO<abi_stable::std_types::RBox<()>>;
+
+/// Sync sabi_trait для patch-applier плагинов.
+///
+/// Ядро-trait `PatchApplier` async, поэтому адаптер в ядре оборачивает
+/// sync-вызов плагина в `spawn_blocking`. DTO через JSON.
+///
+/// ## JSON-форма
+///
+/// - `patch_json` — сериализованный `Patch` (только поле `content: String`).
+/// - `cwd` — рабочая директория.
+/// - Возврат — сериализованный `PatchResult`.
+#[sabi_trait]
+pub trait PluginPatchApplier: Send + Sync + 'static {
+    fn apply_json(
+        &self,
+        patch_json: RString,
+        cwd: RString,
+    ) -> RResult<RString, PluginPatchError>;
+}
+
+/// Ошибка выполнения patch-applier плагина.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginPatchError {
+    pub message: RString,
+}
+
+impl PluginPatchError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginPatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginPatchError {}
+
+/// Ffi-safe trait object для PluginPatchApplier.
+pub type PatchApplierObject = PluginPatchApplier_TO<abi_stable::std_types::RBox<()>>;
+
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
@@ -148,9 +246,25 @@ pub trait PluginRegistry: Send + Sync {
         tool: PluginToolObject,
     ) -> RResult<(), PluginRegisterError>;
 
+    /// Регистрирует ApprovalPolicy под module_id в slot `policy`.
+    /// Ядро-trait `ApprovalPolicy` sync, маппинг прямой.
+    fn register_approval_policy(
+        &mut self,
+        module_id: RString,
+        policy: PolicyObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует PatchApplier под module_id в slot `patch`.
+    /// Ядро-trait `PatchApplier` async — адаптер в ядре мостит через
+    /// spawn_blocking.
+    fn register_patch_applier(
+        &mut self,
+        module_id: RString,
+        applier: PatchApplierObject,
+    ) -> RResult<(), PluginRegisterError>;
+
     // Будущие: register_search_backend, register_context_builder,
-    // register_memory_store, register_memory_policy, register_approval_policy,
-    // register_patch_applier. Добавляются как prefix-fields (sabi-совместимо).
+    // register_memory_store, register_memory_policy.
 }
 
 /// Тип trait-объекта PluginRegistry, передаваемого в плагин.
