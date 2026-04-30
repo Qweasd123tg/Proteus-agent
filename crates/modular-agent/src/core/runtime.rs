@@ -340,8 +340,21 @@ impl AgentRuntimeBuilder {
 
         let permission_mode = config.permissions.mode;
         let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
-        let event_sink: Arc<dyn EventSink> = event_sink
-            .unwrap_or_else(|| Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path))));
+        let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
+            let raw: Arc<dyn EventSink> =
+                Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+            if config.event_log.persist_deltas {
+                raw
+            } else {
+                // Фильтруем дельты из durable JSONL. Кастомный `event_sink`
+                // (выставленный через builder) не трогаем — пользователь
+                // может сам управлять что записывать, например в
+                // AppServer'е где нужно и broadcast без фильтра.
+                Arc::new(crate::contracts::FilteredEventSink::new(raw, |event| {
+                    !crate::contracts::is_streaming_delta(event)
+                }))
+            }
+        });
         let events = Arc::new(EventEmitter::new(event_sink));
         let approval: Arc<dyn ApprovalTransport> = Arc::new(CachedApprovalTransport::new(
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport)),
