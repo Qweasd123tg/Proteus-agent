@@ -93,6 +93,7 @@ impl ModelAdapter for AnthropicMessagesClient {
             .with_parallel_tool_calls(true)
             .with_system_role(true)
             .with_reasoning_config(true)
+            .with_streaming(true)
             .with_max_input_tokens(Some(200_000))
             .with_max_output_tokens(Some(64_000))
     }

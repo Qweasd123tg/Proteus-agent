@@ -131,15 +131,22 @@ Scope:
 - ✅ Волна 1 — `agent-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
   Renderer через sabi_trait.
 - ✅ Волна 2 (частично) — dylib loader; PluginRegistry с `register_renderer`,
-  `register_tool`, `register_approval_policy`, `register_patch_applier`;
-  реальные плагины (`hello-renderer`, `hello-tool`, `hello-policy-patch`,
-  `file-tools`); политика дубликатов; `plugin.toml` manifest (видимость
-  плагина в `modules list` даже при ошибке загрузки).
+  `register_tool`, `register_approval_policy`, `register_patch_applier`,
+  `register_search_backend`; реальные плагины (`hello-renderer`, `hello-tool`,
+  `hello-policy-patch`, `file-tools`); политика дубликатов; `plugin.toml`
+  manifest (видимость плагина в `modules list` даже при ошибке загрузки);
+  `modules list` показывает блок Plugins со статусом загрузки.
+- ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
+  `stream = true`; ModelService транслирует TextDelta/ToolArgsDelta/
+  ReasoningDelta как runtime events; `agent-tui` дописывает deltas в tail
+  активного assistant-bubble. `FilteredEventSink` не пишет дельты в
+  durable JSONL по умолчанию.
 
 Следующий scope:
 
 - остальные sabi_trait-ы в PluginRegistry: MemoryStore, MemoryPolicy,
-  SearchBackend, ContextBuilder;
+  ContextBuilder (требует решения по FFI callbacks — ContextBuilder/
+  MemoryPolicy зовут другие slots через `&dyn`);
 - persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.

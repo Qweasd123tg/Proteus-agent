@@ -63,6 +63,7 @@ impl ModelAdapter for OpenAiResponsesClient {
             .with_system_role(true)
             .with_developer_role(true)
             .with_reasoning_config(true)
+            .with_streaming(true)
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
