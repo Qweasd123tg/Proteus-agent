@@ -111,39 +111,19 @@ mod tests {
     }
 
     fn call(name: &str) -> ToolCall {
-        ToolCall {
-            id: "call-1".to_owned(),
-            name: name.to_owned(),
-            args: json!({}),
-        }
+        ToolCall::new("call-1", name, json!({}))
+    }
+
+    fn tool_spec(name: &str, safety: ToolSafety) -> crate::domain::ToolSpec {
+        crate::domain::ToolSpec::new(name, "test tool", json!({ "type": "object" }), safety)
     }
 
     fn ctx(name: &str, safety: ToolSafety) -> PolicyContext {
-        PolicyContext {
-            cwd: PathBuf::from("/workspace"),
-            tool_spec: Some(crate::domain::ToolSpec {
-                name: name.to_owned(),
-                description: "test tool".to_owned(),
-                input_schema: json!({ "type": "object" }),
-                safety,
-                timeout_ms: None,
-                metadata: json!({}),
-            }),
-        }
+        PolicyContext::new(PathBuf::from("/workspace"), Some(tool_spec(name, safety)))
     }
 
     fn visibility_ctx(name: &str, safety: ToolSafety) -> PolicyVisibilityContext {
-        PolicyVisibilityContext {
-            cwd: PathBuf::from("/workspace"),
-            tool_spec: crate::domain::ToolSpec {
-                name: name.to_owned(),
-                description: "test tool".to_owned(),
-                input_schema: json!({ "type": "object" }),
-                safety,
-                timeout_ms: None,
-                metadata: json!({}),
-            },
-        }
+        PolicyVisibilityContext::new(PathBuf::from("/workspace"), tool_spec(name, safety))
     }
 
     #[test]

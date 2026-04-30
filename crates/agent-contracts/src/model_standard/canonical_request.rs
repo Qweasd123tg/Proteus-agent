@@ -24,10 +24,21 @@ pub struct CanonicalModelRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InstructionBlock {
     pub kind: InstructionKind,
     pub text: String,
     pub priority: u8,
+}
+
+impl InstructionBlock {
+    pub fn new(kind: InstructionKind, text: impl Into<String>, priority: u8) -> Self {
+        Self {
+            kind,
+            text: text.into(),
+            priority,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

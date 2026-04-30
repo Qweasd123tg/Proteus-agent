@@ -49,19 +49,14 @@ impl Tool for ApplyPatchTool {
             .get("patch")
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow!("apply_patch requires string arg 'patch'"))?;
-        let result = self
-            .patch
-            .apply(Patch {
-                content: patch.to_owned(),
-            })
-            .await?;
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: result.ok,
-            output: result.summary,
-            content: Vec::new(),
-            error: None,
-            metadata: json!({ "format": "internal_patch" }),
-        })
+        let result = self.patch.apply(Patch::new(patch)).await?;
+        Ok(ToolResult::new(
+            call.id.clone(),
+            result.ok,
+            result.summary,
+            Vec::new(),
+            None,
+            json!({ "format": "internal_patch" }),
+        ))
     }
 }

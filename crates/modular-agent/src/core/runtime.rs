@@ -118,11 +118,11 @@ impl AgentRuntime {
         let _run_guard = self.session.run_lock.lock().await;
         self.ensure_session_started().await?;
         let turn_id = new_turn_id();
-        let event_context = EventContext {
-            session_id: self.session.session_id,
-            thread_id: self.session.thread_id,
-            turn_id: Some(turn_id),
-        };
+        let event_context = EventContext::new(
+            self.session.session_id,
+            self.session.thread_id,
+            Some(turn_id),
+        );
         self.services
             .events
             .emit(
@@ -134,10 +134,7 @@ impl AgentRuntime {
                 },
             )
             .await?;
-        let task = AgentTask {
-            text,
-            cwd: self.services.cwd.clone(),
-        };
+        let task = AgentTask::new(text, self.services.cwd.clone());
         let runtime_context = self.services.registry.runtime_context(
             self.session.session_id,
             self.session.thread_id,
@@ -178,11 +175,11 @@ impl AgentRuntime {
             self.services
                 .events
                 .emit(
-                    EventContext {
-                        session_id: self.session.session_id,
-                        thread_id: self.session.thread_id,
-                        turn_id: Some(turn_id),
-                    },
+                    EventContext::new(
+                        self.session.session_id,
+                        self.session.thread_id,
+                        Some(turn_id),
+                    ),
                     Event::MemoryWritten { kind },
                 )
                 .await?;
@@ -206,11 +203,7 @@ impl AgentRuntime {
         self.services
             .events
             .emit(
-                EventContext {
-                    session_id: self.session.session_id,
-                    thread_id: self.session.thread_id,
-                    turn_id: None,
-                },
+                EventContext::new(self.session.session_id, self.session.thread_id, None),
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
@@ -409,10 +402,7 @@ mod tests {
             _ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
             Ok(WorkflowOutput::new(
-                AgentOutput {
-                    text: "bad workflow".to_owned(),
-                    metadata: serde_json::Value::Null,
-                },
+                AgentOutput::text("bad workflow"),
                 Vec::new(),
             ))
         }

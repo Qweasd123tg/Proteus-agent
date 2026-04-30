@@ -15,39 +15,31 @@ pub struct SimpleContextBuilder {
 #[async_trait]
 impl ContextBuilder for SimpleContextBuilder {
     async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle> {
-        let mut chunks = vec![ContextChunk {
-            source: "task".to_owned(),
-            path: None,
-            content: input.task.text.clone(),
-            score: Some(1.0),
-            metadata: json!({}),
-        }];
+        let mut chunks = vec![
+            ContextChunk::new("task", input.task.text.clone())
+                .with_score(1.0)
+                .with_metadata(json!({})),
+        ];
 
         for item in input
             .memory
-            .recall(MemoryQuery {
-                text: input.task.text.clone(),
-                limit: 5,
-            })
+            .recall(MemoryQuery::new(input.task.text.clone(), 5))
             .await?
         {
-            chunks.push(ContextChunk {
-                source: format!("memory:{}", item.kind),
-                path: None,
-                content: item.content,
-                score: None,
-                metadata: item.metadata,
-            });
+            chunks.push(
+                ContextChunk::new(format!("memory:{}", item.kind), item.content)
+                    .with_metadata(item.metadata),
+            );
         }
 
         chunks.extend(
             input
                 .search
-                .search(SearchQuery {
-                    text: input.task.text.clone(),
-                    cwd: input.task.cwd.clone(),
-                    max_results: self.max_search_results,
-                })
+                .search(SearchQuery::new(
+                    input.task.text.clone(),
+                    input.task.cwd.clone(),
+                    self.max_search_results,
+                ))
                 .await?,
         );
 
@@ -55,10 +47,6 @@ impl ContextBuilder for SimpleContextBuilder {
             .iter()
             .map(|chunk| chunk.content.len() / 4 + 1)
             .sum::<usize>() as u32;
-        Ok(ContextBundle {
-            chunks,
-            summary: None,
-            token_estimate: Some(token_estimate),
-        })
+        Ok(ContextBundle::new(chunks).with_token_estimate(token_estimate))
     }
 }

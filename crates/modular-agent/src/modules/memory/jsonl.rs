@@ -85,16 +85,8 @@ mod tests {
     async fn recall_skips_malformed_jsonl_lines() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("memory.jsonl");
-        let first = MemoryItem {
-            kind: "decision".to_owned(),
-            content: "keep this".to_owned(),
-            metadata: serde_json::Value::Null,
-        };
-        let second = MemoryItem {
-            kind: "preference".to_owned(),
-            content: "keep that".to_owned(),
-            metadata: serde_json::Value::Null,
-        };
+        let first = MemoryItem::new("decision", "keep this", serde_json::Value::Null);
+        let second = MemoryItem::new("preference", "keep that", serde_json::Value::Null);
         let contents = format!(
             "{}\nnot-json\n{}\n",
             serde_json::to_string(&first).expect("first item"),
@@ -106,10 +98,7 @@ mod tests {
 
         let memory = JsonlMemory::new(path);
         let items = memory
-            .recall(MemoryQuery {
-                text: "keep".to_owned(),
-                limit: 10,
-            })
+            .recall(MemoryQuery::new("keep", 10))
             .await
             .expect("recall");
 

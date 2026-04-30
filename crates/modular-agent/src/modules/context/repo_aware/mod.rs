@@ -76,16 +76,14 @@ impl RepoAwareContextBuilder {
 #[async_trait]
 impl ContextBuilder for RepoAwareContextBuilder {
     async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle> {
-        let mut chunks = vec![ContextChunk {
-            source: "repo_aware:task".to_owned(),
-            path: None,
-            content: input.task.text.clone(),
-            score: Some(1.0),
-            metadata: json!({
-                "provider": "task",
-                "reason": "current user task",
-            }),
-        }];
+        let mut chunks = vec![
+            ContextChunk::new("repo_aware:task", input.task.text.clone())
+                .with_score(1.0)
+                .with_metadata(json!({
+                    "provider": "task",
+                    "reason": "current user task",
+                })),
+        ];
 
         for (_id, provider) in &self.providers {
             chunks.extend(provider.provide(&input).await?);
@@ -97,14 +95,12 @@ impl ContextBuilder for RepoAwareContextBuilder {
             .map(|chunk| chunk.content.len() / 4 + 1)
             .sum::<usize>() as u32;
 
-        Ok(ContextBundle {
-            chunks,
-            summary: Some(format!(
+        Ok(ContextBundle::new(chunks)
+            .with_summary(format!(
                 "repo_aware context with {} providers",
                 self.providers.len()
-            )),
-            token_estimate: Some(token_estimate),
-        })
+            ))
+            .with_token_estimate(token_estimate))
     }
 }
 

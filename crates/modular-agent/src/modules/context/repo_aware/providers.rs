@@ -165,19 +165,14 @@ impl RepoContextProvider for MemoryProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let items = input
             .memory
-            .recall(MemoryQuery {
-                text: input.task.text.clone(),
-                limit: self.limit,
-            })
+            .recall(MemoryQuery::new(input.task.text.clone(), self.limit))
             .await?;
         Ok(items
             .into_iter()
-            .map(|item| ContextChunk {
-                source: format!("repo_aware:memory:{}", item.kind),
-                path: None,
-                content: item.content,
-                score: Some(0.7),
-                metadata: metadata("memory", "memory recall", item.metadata),
+            .map(|item| {
+                ContextChunk::new(format!("repo_aware:memory:{}", item.kind), item.content)
+                    .with_score(0.7)
+                    .with_metadata(metadata("memory", "memory recall", item.metadata))
             })
             .collect())
     }
@@ -196,11 +191,11 @@ impl RepoContextProvider for SearchProvider {
         for query in queries {
             let results = input
                 .search
-                .search(SearchQuery {
-                    text: query.clone(),
-                    cwd: input.task.cwd.clone(),
-                    max_results: per_query_limit,
-                })
+                .search(SearchQuery::new(
+                    query.clone(),
+                    input.task.cwd.clone(),
+                    per_query_limit,
+                ))
                 .await?;
             for mut chunk in results {
                 let dedupe_key = format!(
@@ -241,13 +236,13 @@ fn chunk(
     provider: &str,
     reason: &str,
 ) -> ContextChunk {
-    ContextChunk {
-        source: source.to_owned(),
-        path,
-        content,
-        score: Some(score),
-        metadata: metadata(provider, reason, serde_json::Value::Null),
+    let mut chunk = ContextChunk::new(source, content)
+        .with_score(score)
+        .with_metadata(metadata(provider, reason, serde_json::Value::Null));
+    if let Some(path) = path {
+        chunk = chunk.with_path(path);
     }
+    chunk
 }
 
 fn metadata(provider: &str, reason: &str, extra: serde_json::Value) -> serde_json::Value {

@@ -11,7 +11,7 @@ use clap::{Parser, ValueEnum};
 use modular_agent::app_server::stdio::run_stdio_app_server;
 use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety};
 use modular_agent::{
-    contracts::{ApprovalCacheScope, ApprovalRequest, ApprovalResponse, ApprovalTransport},
+    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{AgentRuntime, AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
 };
 use serde_json::Value;
@@ -262,14 +262,10 @@ impl ApprovalTransport for TerminalApprovalTransport {
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
         if !self.enabled {
-            return Ok(ApprovalResponse {
-                approved: false,
-                note: Some(format!(
-                    "approval transport is not interactive: {}",
-                    request.reason
-                )),
-                cache: ApprovalCacheScope::None,
-            });
+            return Ok(ApprovalResponse::deny(format!(
+                "approval transport is not interactive: {}",
+                request.reason
+            )));
         }
 
         let args = request.call.args.to_string();
@@ -293,11 +289,14 @@ impl ApprovalTransport for TerminalApprovalTransport {
         let mut answer = String::new();
         io::stdin().read_line(&mut answer)?;
         let approved = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-        Ok(ApprovalResponse {
-            approved,
-            note: (!approved).then(|| format!("tool call was not approved: {}", request.reason)),
-            cache: ApprovalCacheScope::None,
-        })
+        if approved {
+            Ok(ApprovalResponse::approve())
+        } else {
+            Ok(ApprovalResponse::deny(format!(
+                "tool call was not approved: {}",
+                request.reason
+            )))
+        }
     }
 }
 

@@ -42,10 +42,12 @@ impl ToolOrchestrator {
             .specs()
             .into_iter()
             .filter(|spec| {
-                match ctx.policy.evaluate_visibility(&PolicyVisibilityContext {
-                    cwd: cwd.to_path_buf(),
-                    tool_spec: spec.clone(),
-                }) {
+                match ctx
+                    .policy
+                    .evaluate_visibility(&PolicyVisibilityContext::new(
+                        cwd.to_path_buf(),
+                        spec.clone(),
+                    )) {
                     PolicyDecision::Allow => true,
                     PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
                     PolicyDecision::Deny { .. } => false,
@@ -68,17 +70,10 @@ impl ToolOrchestrator {
         if let Some(spec) = tool_spec.as_ref()
             && let Some(error) = validate_tool_call_args(&call, spec)
         {
-            let result = ToolResult {
-                call_id: call.id.clone(),
-                ok: false,
-                output: String::new(),
-                content: Vec::new(),
-                error: Some(error),
-                metadata: json!({
-                    "tool": call.name,
-                    "validation_error": true,
-                }),
-            };
+            let result = ToolResult::error(call.id.clone(), error).with_metadata(json!({
+                "tool": call.name,
+                "validation_error": true,
+            }));
             return self.finish(ctx, result).await;
         }
 
@@ -94,12 +89,12 @@ impl ToolOrchestrator {
                 .await?;
                 let approval = ctx
                     .approval
-                    .request_approval(ApprovalRequest {
-                        call: call.clone(),
-                        cwd: task.cwd.clone(),
-                        reason: reason.clone(),
-                        tool_spec: tool_spec.clone(),
-                    })
+                    .request_approval(ApprovalRequest::new(
+                        call.clone(),
+                        task.cwd.clone(),
+                        reason.clone(),
+                        tool_spec.clone(),
+                    ))
                     .await?;
                 ctx.emit(Event::ApprovalResolved {
                     call_id: call.id.clone(),
@@ -110,40 +105,23 @@ impl ToolOrchestrator {
                     return self.invoke_allowed(ctx, task, &call, tool_spec).await;
                 }
 
-                let result = ToolResult {
-                    call_id: call.id.clone(),
-                    ok: false,
-                    output: String::new(),
-                    content: Vec::new(),
-                    error: Some(
-                        approval
-                            .note
-                            .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
-                    ),
-                    metadata: serde_json::Value::Null,
-                };
+                let result = ToolResult::error(
+                    call.id.clone(),
+                    approval
+                        .note
+                        .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
+                );
                 self.finish(ctx, result).await
             }
             PolicyDecision::Deny { reason } => {
-                let result = ToolResult {
-                    call_id: call.id.clone(),
-                    ok: false,
-                    output: String::new(),
-                    content: Vec::new(),
-                    error: Some(reason),
-                    metadata: serde_json::Value::Null,
-                };
+                let result = ToolResult::error(call.id.clone(), reason);
                 self.finish(ctx, result).await
             }
             other => {
-                let result = ToolResult {
-                    call_id: call.id.clone(),
-                    ok: false,
-                    output: String::new(),
-                    content: Vec::new(),
-                    error: Some(format!("unsupported policy decision: {other:?}")),
-                    metadata: serde_json::Value::Null,
-                };
+                let result = ToolResult::error(
+                    call.id.clone(),
+                    format!("unsupported policy decision: {other:?}"),
+                );
                 self.finish(ctx, result).await
             }
         }
@@ -162,13 +140,8 @@ impl ToolOrchestrator {
             };
         };
 
-        ctx.policy.evaluate(
-            call,
-            &PolicyContext {
-                cwd: cwd.to_path_buf(),
-                tool_spec: Some(spec),
-            },
-        )
+        ctx.policy
+            .evaluate(call, &PolicyContext::new(cwd.to_path_buf(), Some(spec)))
     }
 
     async fn invoke_allowed(
@@ -194,26 +167,17 @@ impl ToolOrchestrator {
         .await
         {
             Ok(Ok(result)) => result,
-            Ok(Err(error)) => ToolResult {
-                call_id: call.id.clone(),
-                ok: false,
-                output: String::new(),
-                content: Vec::new(),
-                error: Some(error.to_string()),
-                metadata: json!({ "tool": call.name }),
-            },
-            Err(_) => ToolResult {
-                call_id: call.id.clone(),
-                ok: false,
-                output: String::new(),
-                content: Vec::new(),
-                error: Some(format!("tool timed out after {timeout_ms}ms")),
-                metadata: json!({
-                    "tool": call.name,
-                    "timed_out": true,
-                    "timeout_ms": timeout_ms,
-                }),
-            },
+            Ok(Err(error)) => ToolResult::error(call.id.clone(), error.to_string())
+                .with_metadata(json!({ "tool": call.name })),
+            Err(_) => ToolResult::error(
+                call.id.clone(),
+                format!("tool timed out after {timeout_ms}ms"),
+            )
+            .with_metadata(json!({
+                "tool": call.name,
+                "timed_out": true,
+                "timeout_ms": timeout_ms,
+            })),
         };
 
         let mut result = self.truncate_result(result);

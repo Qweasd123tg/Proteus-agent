@@ -52,19 +52,15 @@ impl Tool for SearchTool {
             .unwrap_or(20) as usize;
         let chunks = self
             .search
-            .search(SearchQuery {
-                text: query.to_owned(),
-                cwd: ctx.cwd,
-                max_results,
-            })
+            .search(SearchQuery::new(query, ctx.cwd, max_results))
             .await?;
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output: serde_json::to_string_pretty(&chunks)?,
-            content: Vec::new(),
-            error: None,
-            metadata: json!({ "results": chunks.len() }),
-        })
+        Ok(ToolResult::new(
+            call.id.clone(),
+            true,
+            serde_json::to_string_pretty(&chunks)?,
+            Vec::new(),
+            None,
+            json!({ "results": chunks.len() }),
+        ))
     }
 }

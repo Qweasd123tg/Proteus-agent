@@ -9,10 +9,21 @@ use crate::domain::{
 use crate::model_standard::FinishReason;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct EventContext {
     pub session_id: SessionId,
     pub thread_id: ThreadId,
     pub turn_id: Option<TurnId>,
+}
+
+impl EventContext {
+    pub fn new(session_id: SessionId, thread_id: ThreadId, turn_id: Option<TurnId>) -> Self {
+        Self {
+            session_id,
+            thread_id,
+            turn_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

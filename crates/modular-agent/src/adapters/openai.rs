@@ -328,10 +328,10 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
     let usage = response.get("usage")?;
-    Some(TokenUsage {
-        input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
-        output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
-    })
+    Some(TokenUsage::new(
+        usage.get("input_tokens")?.as_u64()? as u32,
+        usage.get("output_tokens")?.as_u64()? as u32,
+    ))
 }
 
 fn is_length_limited_response(response: &Value) -> bool {
@@ -427,27 +427,25 @@ mod tests {
     #[test]
     fn request_serializes_tools_tool_choice_reasoning_and_json_format() {
         let request = CanonicalModelRequest {
-            model: ModelRef {
-                provider: "openai".to_owned(),
-                model: "gpt-test".to_owned(),
-            },
+            model: ModelRef::new("openai", "gpt-test"),
             instructions: Vec::<InstructionBlock>::new(),
             messages: vec![CanonicalMessage::text(MessageRole::User, "write a file")],
-            tools: vec![ToolSpec {
-                name: "write_file".to_owned(),
-                description: "Write a file".to_owned(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string" },
-                        "content": { "type": "string" }
-                    },
-                    "required": ["path", "content"]
-                }),
-                safety: ToolSafety::WritesFiles,
-                timeout_ms: Some(1_000),
-                metadata: serde_json::Value::Null,
-            }],
+            tools: vec![
+                ToolSpec::new(
+                    "write_file",
+                    "Write a file",
+                    json!({
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string" },
+                            "content": { "type": "string" }
+                        },
+                        "required": ["path", "content"]
+                    }),
+                    ToolSafety::WritesFiles,
+                )
+                .with_timeout(1_000),
+            ],
             tool_choice: ToolChoice::Tool("write_file".to_owned()),
             response_format: ResponseFormat::Json,
             sampling: SamplingConfig {

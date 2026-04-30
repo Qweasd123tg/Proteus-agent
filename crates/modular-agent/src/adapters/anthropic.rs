@@ -379,10 +379,10 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
     let usage = response.get("usage")?;
-    Some(TokenUsage {
-        input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
-        output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
-    })
+    Some(TokenUsage::new(
+        usage.get("input_tokens")?.as_u64()? as u32,
+        usage.get("output_tokens")?.as_u64()? as u32,
+    ))
 }
 
 #[cfg(test)]

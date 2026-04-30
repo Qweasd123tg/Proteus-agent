@@ -265,10 +265,7 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     pub fn model_ref(&self) -> ModelRef {
-        ModelRef {
-            provider: self.provider.clone(),
-            model: self.model.clone(),
-        }
+        ModelRef::new(self.provider.clone(), self.model.clone())
     }
 }
 

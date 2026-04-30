@@ -33,10 +33,7 @@ impl PatchApplier for DirectPatchApplier {
             summaries.push(apply_operation(&workspace, operation).await?);
         }
 
-        Ok(PatchResult {
-            ok: true,
-            summary: summaries.join("; "),
-        })
+        Ok(PatchResult::new(true, summaries.join("; ")))
     }
 }
 

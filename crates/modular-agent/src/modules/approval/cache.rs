@@ -30,11 +30,8 @@ impl ApprovalTransport for CachedApprovalTransport {
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
         if self.is_cached(&request).await {
-            return Ok(ApprovalResponse {
-                approved: true,
-                note: Some("approval reused from session cache".to_owned()),
-                cache: ApprovalCacheScope::None,
-            });
+            return Ok(ApprovalResponse::approve()
+                .with_note("approval reused from session cache"));
         }
 
         let response = self.inner.request_approval(request.clone()).await?;
@@ -124,25 +121,21 @@ mod tests {
 
         async fn request_approval(&self, _request: ApprovalRequest) -> Result<ApprovalResponse> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            Ok(ApprovalResponse {
-                approved: true,
-                note: None,
-                cache: self.cache,
-            })
+            Ok(ApprovalResponse::approve().with_cache(self.cache))
         }
     }
 
     fn request(path: &str) -> ApprovalRequest {
-        ApprovalRequest {
-            call: ToolCall {
-                id: new_call_id(),
-                name: "write_file".to_owned(),
-                args: json!({ "path": path, "content": "x" }),
-            },
-            cwd: PathBuf::from("/workspace"),
-            reason: "test".to_owned(),
-            tool_spec: None,
-        }
+        ApprovalRequest::new(
+            ToolCall::new(
+                new_call_id(),
+                "write_file",
+                json!({ "path": path, "content": "x" }),
+            ),
+            PathBuf::from("/workspace"),
+            "test",
+            None,
+        )
     }
 
     #[tokio::test]

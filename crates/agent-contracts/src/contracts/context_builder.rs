@@ -15,6 +15,20 @@ pub struct ContextBuildInput {
     pub memory: Arc<dyn MemoryStore>,
 }
 
+impl ContextBuildInput {
+    pub fn new(
+        task: AgentTask,
+        search: Arc<dyn SearchBackend>,
+        memory: Arc<dyn MemoryStore>,
+    ) -> Self {
+        Self {
+            task,
+            search,
+            memory,
+        }
+    }
+}
+
 #[async_trait]
 pub trait ContextBuilder: Send + Sync {
     async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle>;

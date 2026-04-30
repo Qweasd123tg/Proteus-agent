@@ -63,11 +63,9 @@ fn parse_rg_line(line: &str) -> Option<ContextChunk> {
     let path = parts.next()?;
     let line_number = parts.next()?.parse::<usize>().ok()?;
     let content = parts.next()?.to_owned();
-    Some(ContextChunk {
-        source: "rg".to_owned(),
-        path: Some(path.into()),
-        content,
-        score: None,
-        metadata: json!({ "line": line_number }),
-    })
+    Some(
+        ContextChunk::new("rg", content)
+            .with_path(path.into())
+            .with_metadata(json!({ "line": line_number })),
+    )
 }

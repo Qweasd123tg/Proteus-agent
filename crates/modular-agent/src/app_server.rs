@@ -111,11 +111,7 @@ impl AppServerHandle {
             .remove(approval_id)
             .ok_or_else(|| anyhow!("unknown approval id: {approval_id}"))?;
         responder
-            .send(ApprovalResponse {
-                approved,
-                note,
-                cache,
-            })
+            .send(ApprovalResponse::new(approved, note, cache))
             .map_err(|_| anyhow!("approval response channel dropped"))?;
         let _ = self.events.send(AppServerEvent::ApprovalResolved {
             approval_id: approval_id.to_owned(),
@@ -229,14 +225,9 @@ fn spawn_approval_forwarder(
                 .is_err()
                 && let Some(responder) = pending_approvals.lock().await.remove(&approval_id)
             {
-                let _ = responder.send(ApprovalResponse {
-                    approved: false,
-                    note: Some(
-                        "approval request could not be delivered to any app-server client"
-                            .to_owned(),
-                    ),
-                    cache: ApprovalCacheScope::None,
-                });
+                let _ = responder.send(ApprovalResponse::deny(
+                    "approval request could not be delivered to any app-server client",
+                ));
                 let _ = events.send(AppServerEvent::ApprovalResolved {
                     approval_id,
                     approved: false,
@@ -265,11 +256,9 @@ fn spawn_approval_timeout(
         let responder = pending_approvals.lock().await.remove(&approval_id);
         if let Some(responder) = responder {
             let timeout_ms = approval_timeout.as_millis() as u64;
-            let _ = responder.send(ApprovalResponse {
-                approved: false,
-                note: Some(format!("approval request timed out after {timeout_ms}ms")),
-                cache: ApprovalCacheScope::None,
-            });
+            let _ = responder.send(ApprovalResponse::deny(format!(
+                "approval request timed out after {timeout_ms}ms"
+            )));
             let _ = events.send(AppServerEvent::ApprovalResolved {
                 approval_id,
                 approved: false,
@@ -285,11 +274,7 @@ async fn deny_pending_approvals(
 ) {
     let pending = std::mem::take(&mut *pending_approvals.lock().await);
     for (approval_id, responder) in pending {
-        let _ = responder.send(ApprovalResponse {
-            approved: false,
-            note: Some(note.clone()),
-            cache: ApprovalCacheScope::None,
-        });
+        let _ = responder.send(ApprovalResponse::deny(note.clone()));
         let _ = events.send(AppServerEvent::ApprovalResolved {
             approval_id,
             approved: false,
@@ -325,16 +310,12 @@ mod tests {
         let (responder, response_rx) = oneshot::channel();
         approval_tx
             .send(PendingApproval {
-                request: ApprovalRequest {
-                    call: ToolCall {
-                        id: new_call_id(),
-                        name: "write_file".to_owned(),
-                        args: serde_json::json!({}),
-                    },
-                    cwd: PathBuf::from("."),
-                    reason: "test approval".to_owned(),
-                    tool_spec: None,
-                },
+                request: ApprovalRequest::new(
+                    ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
+                    PathBuf::from("."),
+                    "test approval",
+                    None,
+                ),
                 responder,
             })
             .await
@@ -371,16 +352,12 @@ mod tests {
         let (responder, response_rx) = oneshot::channel();
         approval_tx
             .send(PendingApproval {
-                request: ApprovalRequest {
-                    call: ToolCall {
-                        id: new_call_id(),
-                        name: "write_file".to_owned(),
-                        args: serde_json::json!({}),
-                    },
-                    cwd: PathBuf::from("."),
-                    reason: "test approval".to_owned(),
-                    tool_spec: None,
-                },
+                request: ApprovalRequest::new(
+                    ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
+                    PathBuf::from("."),
+                    "test approval",
+                    None,
+                ),
                 responder,
             })
             .await

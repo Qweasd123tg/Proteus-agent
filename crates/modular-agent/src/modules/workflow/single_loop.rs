@@ -90,15 +90,15 @@ impl Workflow for SingleLoopWorkflow {
             let should_run_tools = response.finish_reason == FinishReason::ToolCalls
                 && !response.tool_calls.is_empty();
             if !should_run_tools {
-                let output = AgentOutput {
-                    text: message_text(&response.message),
-                    metadata: output_metadata(
+                let output = AgentOutput::new(
+                    message_text(&response.message),
+                    output_metadata(
                         &ctx,
                         &model_messages,
                         context_chunks,
                         context_token_estimate,
                     ),
-                };
+                );
                 ctx.emit(Event::TurnFinished {
                     output: output.clone(),
                 })
@@ -138,9 +138,9 @@ impl Workflow for SingleLoopWorkflow {
 
         model_messages.push(response.message.clone());
         persistent_messages.push(response.message.clone());
-        let output = AgentOutput {
-            text: message_text(&response.message),
-            metadata: output_metadata_with_extra(
+        let output = AgentOutput::new(
+            message_text(&response.message),
+            output_metadata_with_extra(
                 &ctx,
                 &model_messages,
                 context_chunks,
@@ -150,7 +150,7 @@ impl Workflow for SingleLoopWorkflow {
                     "tool_round_limit_reached": true,
                 }),
             ),
-        };
+        );
         ctx.emit(Event::TurnFinished {
             output: output.clone(),
         })
@@ -181,32 +181,32 @@ async fn maybe_add_directory_listing_context(
         return Ok(());
     }
 
-    let call = ToolCall {
-        id: crate::domain::new_call_id(),
-        name: "list_dir".to_owned(),
-        args: json!({ "path": "." }),
-    };
+    let call = ToolCall::new(
+        crate::domain::new_call_id(),
+        "list_dir",
+        json!({ "path": "." }),
+    );
     let result = tool_orchestrator.execute(ctx, task, call).await?;
     if !result.ok {
         return Ok(());
     }
 
+    let chunk = ContextChunk::new(
+        "tool:list_dir",
+        if result.output.is_empty() {
+            "<empty directory>".to_owned()
+        } else {
+            result.output
+        },
+    )
+    .with_path(task.cwd.clone())
+    .with_score(1.0)
+    .with_metadata(result.metadata);
+
     messages.push(CanonicalMessage {
         id: crate::domain::new_message_id(),
         role: MessageRole::User,
-        parts: vec![ContentPart::Context {
-            chunk: ContextChunk {
-                source: "tool:list_dir".to_owned(),
-                path: Some(task.cwd.clone()),
-                content: if result.output.is_empty() {
-                    "<empty directory>".to_owned()
-                } else {
-                    result.output
-                },
-                score: Some(1.0),
-                metadata: result.metadata,
-            },
-        }],
+        parts: vec![ContentPart::Context { chunk }],
         name: Some("context".to_owned()),
         tool_call_id: None,
         metadata: serde_json::Value::Null,
@@ -317,11 +317,11 @@ fn request_from_state(
 ) -> CanonicalModelRequest {
     CanonicalModelRequest {
         model: ctx.model_ref.clone(),
-        instructions: vec![InstructionBlock {
-            kind: InstructionKind::System,
-            text: "You are running inside a modular v0 agent skeleton. Answer normal conversational questions directly. Use tools only when they are necessary and only if they are included in the current tool list.".to_owned(),
-            priority: 100,
-        }],
+        instructions: vec![InstructionBlock::new(
+            InstructionKind::System,
+            "You are running inside a modular v0 agent skeleton. Answer normal conversational questions directly. Use tools only when they are necessary and only if they are included in the current tool list.",
+            100,
+        )],
         messages: messages.to_vec(),
         tools: tool_orchestrator.visible_tool_specs(ctx, cwd),
         tool_choice: crate::domain::ToolChoice::Auto,

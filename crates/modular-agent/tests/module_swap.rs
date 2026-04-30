@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use modular_agent::{
     contracts::{
-        ApprovalCacheScope, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
+        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
         ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PolicyContext,
         PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry,
         ToolSource, Workflow,
@@ -287,10 +287,7 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
     let bundle = registry
         .context
         .build(ContextBuildInput {
-            task: AgentTask {
-                text: "summarize repo".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            task: AgentTask::new("summarize repo".to_owned(), dir.path().to_path_buf()),
             search: Arc::new(NullSearch),
             memory: Arc::new(NoMemory),
         })
@@ -342,10 +339,7 @@ async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
     let bundle = registry
         .context
         .build(ContextBuildInput {
-            task: AgentTask {
-                text: "summarize repo".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            task: AgentTask::new("summarize repo".to_owned(), dir.path().to_path_buf()),
             search: Arc::new(NullSearch),
             memory: Arc::new(NoMemory),
         })
@@ -372,12 +366,8 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
     let bundle = registry
         .context
         .build(ContextBuildInput {
-            task: AgentTask {
-                text:
-                    "почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
-                        .to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            task: AgentTask::new("почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
+                        .to_owned(), dir.path().to_path_buf()),
             search: Arc::new(RecordingSearch {
                 queries: queries.clone(),
             }),
@@ -567,11 +557,7 @@ async fn fanout_preserves_event_envelope_identity_across_sinks() {
 
     emitter
         .emit(
-            EventContext {
-                session_id,
-                thread_id,
-                turn_id: None,
-            },
+            EventContext::new(session_id, thread_id, None),
             Event::Error {
                 message: "same envelope".to_owned(),
             },
@@ -608,10 +594,10 @@ async fn tool_visibility_and_execution_policy_are_separate() {
     };
     let decision = registry.policy.evaluate(
         &call,
-        &PolicyContext {
-            cwd: dir.path().to_path_buf(),
-            tool_spec: registry.tools.spec("write_file").ok(),
-        },
+        &PolicyContext::new(
+            dir.path().to_path_buf(),
+            registry.tools.spec("write_file").ok(),
+        ),
     );
 
     assert!(matches!(decision, PolicyDecision::Ask { .. }));
@@ -667,10 +653,7 @@ async fn execution_policy_receives_real_tool_call_args() {
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask {
-                text: "write".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "write_file".to_owned(),
@@ -795,10 +778,7 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask {
-                text: "read".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("read".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "read_file".to_owned(),
@@ -888,10 +868,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask {
-                text: "echo".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("echo".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "echo_args".to_owned(),
@@ -952,10 +929,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
     let result = orchestrator
         .execute(
             &ctx,
-            &AgentTask {
-                text: "touch".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("touch".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "touch_marker".to_owned(),
@@ -1052,10 +1026,7 @@ done
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask {
-                text: "mcp".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "mcp_echo".to_owned(),
@@ -1118,10 +1089,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
     let result = orchestrator
         .execute(
             &ctx,
-            &AgentTask {
-                text: "mcp".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "mcp_hidden".to_owned(),
@@ -1208,10 +1176,7 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
     let denied = orchestrator
         .execute(
             &ctx,
-            &AgentTask {
-                text: "try shell".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("try shell".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "shell".to_owned(),
@@ -1261,10 +1226,7 @@ async fn tool_orchestrator_enforces_tool_timeout() {
     let result = orchestrator
         .execute(
             &ctx,
-            &AgentTask {
-                text: "slow".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("slow".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "slow".to_owned(),
@@ -1326,10 +1288,7 @@ async fn malformed_tool_call_is_rejected_before_approval() {
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask {
-                text: "write malformed".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            &AgentTask::new("write malformed".to_owned(), dir.path().to_path_buf()),
             ToolCall {
                 id: new_call_id(),
                 name: "write_file".to_owned(),
@@ -1389,10 +1348,7 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
 
     let output = SingleLoopWorkflow::default()
         .run(
-            AgentTask {
-                text: "write".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
             ctx,
         )
@@ -1433,10 +1389,7 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
 
     let output = SingleLoopWorkflow { max_tool_rounds: 1 }
         .run(
-            AgentTask {
-                text: "write then finish".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            AgentTask::new("write then finish".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
             ctx,
         )
@@ -1481,10 +1434,7 @@ async fn workflow_times_out_hung_model_request() {
 
     let error = SingleLoopWorkflow::default()
         .run(
-            AgentTask {
-                text: "hang".to_owned(),
-                cwd: dir.path().to_path_buf(),
-            },
+            AgentTask::new("hang".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
             ctx,
         )
@@ -1522,13 +1472,10 @@ struct RecordingSearch {
 impl SearchBackend for RecordingSearch {
     async fn search(&self, query: SearchQuery) -> anyhow::Result<Vec<ContextChunk>> {
         self.queries.lock().unwrap().push(query.text.clone());
-        Ok(vec![ContextChunk {
-            source: "recording".to_owned(),
-            path: Some("src/core/tool_orchestrator.rs".into()),
-            content: format!("hit {}", query.text),
-            score: None,
-            metadata: serde_json::Value::Null,
-        }])
+        Ok(vec![
+            ContextChunk::new("recording", format!("hit {}", query.text))
+                .with_path("src/core/tool_orchestrator.rs".into()),
+        ])
     }
 }
 
@@ -1775,11 +1722,7 @@ impl ApprovalTransport for TestApprovalTransport {
         &self,
         _request: ApprovalRequest,
     ) -> anyhow::Result<ApprovalResponse> {
-        Ok(ApprovalResponse {
-            approved: false,
-            note: Some("test approval denied".to_owned()),
-            cache: ApprovalCacheScope::None,
-        })
+        Ok(ApprovalResponse::deny("test approval denied"))
     }
 }
 
@@ -2142,10 +2085,7 @@ async fn write_file_rejects_symlink_escape() {
 async fn fake_model_uses_canonical_contract() {
     let model = ModelService::new(Arc::new(FakeModelClient));
     let request = CanonicalModelRequest {
-        model: ModelRef {
-            provider: "fake".to_owned(),
-            model: "fake-tool-model".to_owned(),
-        },
+        model: ModelRef::new("fake", "fake-tool-model"),
         instructions: Vec::new(),
         messages: vec![CanonicalMessage::text(
             MessageRole::User,
@@ -2171,20 +2111,15 @@ async fn fake_model_uses_canonical_contract() {
 async fn model_service_shapes_request_before_adapter_call() {
     let model = ModelService::new(Arc::new(NoToolsAdapter));
     let request = CanonicalModelRequest {
-        model: ModelRef {
-            provider: "test".to_owned(),
-            model: "no-tools".to_owned(),
-        },
+        model: ModelRef::new("test", "no-tools"),
         instructions: Vec::new(),
         messages: vec![CanonicalMessage::text(MessageRole::User, "hello")],
-        tools: vec![ToolSpec {
-            name: "read_file".to_owned(),
-            description: "read file".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: None,
-            metadata: serde_json::Value::Null,
-        }],
+        tools: vec![ToolSpec::new(
+            "read_file",
+            "read file",
+            json!({ "type": "object" }),
+            ToolSafety::ReadOnly,
+        )],
         tool_choice: ToolChoice::Auto,
         response_format: ResponseFormat::Text,
         sampling: SamplingConfig::default(),
