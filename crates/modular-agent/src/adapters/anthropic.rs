@@ -1,6 +1,9 @@
+use std::sync::{Arc, Mutex};
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use futures_util::stream;
+use eventsource_stream::Eventsource;
+use futures_util::{StreamExt, stream};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
@@ -10,7 +13,7 @@ use crate::{
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole, ModelCapabilities, TokenUsage,
+        MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
     },
 };
 
@@ -21,6 +24,9 @@ pub struct AnthropicMessagesClient {
     base_url: String,
     api_version: String,
     auth: AnthropicAuth,
+    /// Включает SSE-стрим через `"stream": true` в body. Управляется
+    /// полем `stream: true` в provider config, default false.
+    stream_enabled: bool,
 }
 
 impl AnthropicMessagesClient {
@@ -43,6 +49,10 @@ impl AnthropicMessagesClient {
                 .and_then(Value::as_str)
                 .unwrap_or("x-api-key"),
         )?;
+        let stream_enabled = config
+            .get("stream")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         Ok(Self {
             http: reqwest::Client::new(),
@@ -50,6 +60,7 @@ impl AnthropicMessagesClient {
             base_url,
             api_version,
             auth,
+            stream_enabled,
         })
     }
 }
@@ -87,10 +98,14 @@ impl ModelAdapter for AnthropicMessagesClient {
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let response = self.complete_response(request).await?;
-        Ok(Box::pin(stream::once(async move {
-            Ok(crate::model_standard::ModelStreamEvent::Response { response })
-        })))
+        if self.stream_enabled {
+            self.stream_response(request).await
+        } else {
+            let response = self.complete_response(request).await?;
+            Ok(Box::pin(stream::once(async move {
+                Ok(ModelStreamEvent::Response { response })
+            })))
+        }
     }
 }
 
@@ -123,6 +138,250 @@ impl AnthropicMessagesClient {
 
         let response: Value = serde_json::from_str(&response_text)?;
         from_anthropic_response(response)
+    }
+
+    async fn stream_response(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<ModelEventStream> {
+        let mut body = to_anthropic_request(&request)?;
+        body["stream"] = json!(true);
+        let url = format!("{}/v1/messages", self.base_url);
+        let builder = self
+            .http
+            .post(url)
+            .header("anthropic-version", &self.api_version)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body);
+        let builder = match self.auth {
+            AnthropicAuth::XApiKey => builder.header("x-api-key", &self.api_key),
+            AnthropicAuth::Bearer => {
+                builder.header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            }
+        };
+        let response = builder.send().await?.error_for_status()?;
+
+        // Anthropic SSE stateful: content_block_start открывает блок,
+        // множество content_block_delta расширяют его, content_block_stop
+        // закрывает. Для tool_use input_json_delta приходит инкрементально;
+        // собираем всё в state и на message_stop отдаём Response.
+        let state = Arc::new(Mutex::new(AnthropicStreamState::default()));
+        let events = response
+            .bytes_stream()
+            .eventsource()
+            .flat_map(move |chunk| {
+                let state = state.clone();
+                let mapped = match chunk {
+                    Ok(event) => {
+                        let mut guard = state.lock().unwrap();
+                        guard.translate(&event.event, &event.data)
+                    }
+                    Err(error) => vec![ModelStreamEvent::Error {
+                        message: format!("sse transport error: {error}"),
+                    }],
+                };
+                stream::iter(mapped.into_iter().map(Ok).collect::<Vec<_>>())
+            });
+        Ok(Box::pin(events))
+    }
+}
+
+/// Stateful аккумулятор для Anthropic SSE-потока: копит text parts и
+/// tool_use блоки по мере прихода, на `message_stop` отдаёт финальный
+/// CanonicalModelResponse.
+#[derive(Default)]
+struct AnthropicStreamState {
+    blocks: Vec<AnthropicBlock>,
+    usage: Option<TokenUsage>,
+    stop_reason: Option<String>,
+    // Anthropic SSE референсит блоки по index, так что нужен index → block mapping.
+}
+
+#[derive(Debug, Clone)]
+enum AnthropicBlock {
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input_json: String,
+    },
+}
+
+impl AnthropicStreamState {
+    fn translate(&mut self, event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
+        let Ok(parsed) = serde_json::from_str::<Value>(data) else {
+            return Vec::new();
+        };
+        match event_type {
+            "content_block_start" => {
+                let index = parsed.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let block = parsed.get("content_block");
+                let block_type = block
+                    .and_then(|b| b.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let new_block = match block_type {
+                    "text" => Some(AnthropicBlock::Text {
+                        text: String::new(),
+                    }),
+                    "tool_use" => {
+                        let id = block
+                            .and_then(|b| b.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let name = block
+                            .and_then(|b| b.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        Some(AnthropicBlock::ToolUse {
+                            id,
+                            name,
+                            input_json: String::new(),
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(block) = new_block {
+                    if self.blocks.len() <= index {
+                        self.blocks.resize(index + 1, AnthropicBlock::Text {
+                            text: String::new(),
+                        });
+                    }
+                    self.blocks[index] = block;
+                }
+                Vec::new()
+            }
+            "content_block_delta" => {
+                let index = parsed.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let delta = parsed.get("delta");
+                let delta_type = delta
+                    .and_then(|d| d.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                match delta_type {
+                    "text_delta" => {
+                        let text = delta
+                            .and_then(|d| d.get("text"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if let Some(AnthropicBlock::Text { text: buf }) =
+                            self.blocks.get_mut(index)
+                        {
+                            buf.push_str(text);
+                        }
+                        if text.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![ModelStreamEvent::TextDelta {
+                                text: text.to_owned(),
+                            }]
+                        }
+                    }
+                    "input_json_delta" => {
+                        let partial = delta
+                            .and_then(|d| d.get("partial_json"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        let call_id = if let Some(AnthropicBlock::ToolUse {
+                            id, input_json, ..
+                        }) = self.blocks.get_mut(index)
+                        {
+                            input_json.push_str(partial);
+                            id.clone()
+                        } else {
+                            return Vec::new();
+                        };
+                        if partial.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![ModelStreamEvent::ToolCallDelta {
+                                call_id,
+                                name: None,
+                                args_delta: partial.to_owned(),
+                            }]
+                        }
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            "content_block_stop" => Vec::new(),
+            "message_delta" => {
+                if let Some(stop) = parsed
+                    .get("delta")
+                    .and_then(|d| d.get("stop_reason"))
+                    .and_then(Value::as_str)
+                {
+                    self.stop_reason = Some(stop.to_owned());
+                }
+                if let Some(usage) = parsed.get("usage") {
+                    let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                    let output = usage
+                        .get("output_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    self.usage = Some(TokenUsage::new(input as u32, output as u32));
+                }
+                Vec::new()
+            }
+            "message_stop" => {
+                vec![self.finalise()]
+            }
+            "error" => {
+                let message = parsed
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| "unknown anthropic error".to_owned());
+                vec![ModelStreamEvent::Error { message }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn finalise(&mut self) -> ModelStreamEvent {
+        let mut parts = Vec::new();
+        let mut tool_calls = Vec::new();
+        for block in self.blocks.drain(..) {
+            match block {
+                AnthropicBlock::Text { text } if !text.is_empty() => {
+                    parts.push(ContentPart::Text { text });
+                }
+                AnthropicBlock::Text { .. } => {}
+                AnthropicBlock::ToolUse {
+                    id,
+                    name,
+                    input_json,
+                } => {
+                    let args = if input_json.is_empty() {
+                        Value::Null
+                    } else {
+                        serde_json::from_str(&input_json).unwrap_or(Value::Null)
+                    };
+                    let call = ToolCall::new(id, name, args);
+                    parts.push(ContentPart::ToolCall { call: call.clone() });
+                    tool_calls.push(call);
+                }
+            }
+        }
+
+        let finish_reason = match self.stop_reason.as_deref() {
+            Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
+            Some("max_tokens") => FinishReason::Length,
+            Some("tool_use") if !tool_calls.is_empty() => FinishReason::ToolCalls,
+            _ if !tool_calls.is_empty() => FinishReason::ToolCalls,
+            _ => FinishReason::Stop,
+        };
+        let message = CanonicalMessage::new(MessageRole::Assistant, parts);
+        let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
+        if let Some(u) = self.usage.take() {
+            resp = resp.with_usage(u);
+        }
+        ModelStreamEvent::Response { response: resp }
     }
 }
 
@@ -432,5 +691,168 @@ mod tests {
         assert_eq!(canonical.finish_reason, FinishReason::ToolCalls);
         assert_eq!(canonical.tool_calls.len(), 1);
         assert_eq!(canonical.tool_calls[0].args["path"], "site/index.html");
+    }
+
+    // Хелпер: проигрывает SSE-трассу через стейт-парсер и возвращает
+    // список всех эмитнутых ModelStreamEvent'ов.
+    fn run_trace(trace: &[(&str, Value)]) -> Vec<ModelStreamEvent> {
+        let mut state = AnthropicStreamState::default();
+        let mut out = Vec::new();
+        for (event_type, data) in trace {
+            out.extend(state.translate(event_type, &data.to_string()));
+        }
+        out
+    }
+
+    #[test]
+    fn stream_trace_plain_text_emits_deltas_and_final_response() {
+        let trace = vec![
+            (
+                "content_block_start",
+                json!({
+                    "index": 0,
+                    "content_block": { "type": "text", "text": "" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "Hello" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": " world" }
+                }),
+            ),
+            ("content_block_stop", json!({ "index": 0 })),
+            (
+                "message_delta",
+                json!({
+                    "delta": { "stop_reason": "end_turn" },
+                    "usage": { "input_tokens": 10, "output_tokens": 2 }
+                }),
+            ),
+            ("message_stop", json!({})),
+        ];
+        let events = run_trace(&trace);
+
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|e| match e {
+                ModelStreamEvent::TextDelta { .. } => "text",
+                ModelStreamEvent::Response { .. } => "response",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["text", "text", "response"]);
+
+        if let ModelStreamEvent::Response { response } = events.last().unwrap() {
+            assert_eq!(response.finish_reason, FinishReason::Stop);
+            let text = response
+                .message
+                .parts
+                .iter()
+                .filter_map(|p| match p {
+                    ContentPart::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            assert_eq!(text, "Hello world");
+            assert_eq!(response.usage.as_ref().unwrap().output_tokens, 2);
+        } else {
+            panic!("last event must be Response");
+        }
+    }
+
+    #[test]
+    fn stream_trace_tool_use_accumulates_input_json() {
+        let trace = vec![
+            (
+                "content_block_start",
+                json!({
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "toolu_abc",
+                        "name": "write_file",
+                        "input": {}
+                    }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "input_json_delta", "partial_json": "{\"path\":" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "input_json_delta", "partial_json": "\"x.txt\"}" }
+                }),
+            ),
+            ("content_block_stop", json!({ "index": 0 })),
+            (
+                "message_delta",
+                json!({
+                    "delta": { "stop_reason": "tool_use" }
+                }),
+            ),
+            ("message_stop", json!({})),
+        ];
+        let events = run_trace(&trace);
+
+        let tool_deltas: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ModelStreamEvent::ToolCallDelta {
+                    call_id,
+                    args_delta,
+                    ..
+                } => Some((call_id.clone(), args_delta.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_deltas.len(), 2);
+        assert_eq!(tool_deltas[0].0, "toolu_abc");
+        assert_eq!(
+            tool_deltas.iter().map(|(_, d)| d.as_str()).collect::<Vec<_>>(),
+            vec!["{\"path\":", "\"x.txt\"}"]
+        );
+
+        match events.last().unwrap() {
+            ModelStreamEvent::Response { response } => {
+                assert_eq!(response.finish_reason, FinishReason::ToolCalls);
+                assert_eq!(response.tool_calls.len(), 1);
+                assert_eq!(response.tool_calls[0].id, "toolu_abc");
+                assert_eq!(response.tool_calls[0].args["path"], "x.txt");
+            }
+            other => panic!("expected Response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_trace_error_event() {
+        let events = run_trace(&[(
+            "error",
+            json!({ "error": { "type": "overloaded_error", "message": "overloaded" } }),
+        )]);
+        match events.as_slice() {
+            [ModelStreamEvent::Error { message }] => assert_eq!(message, "overloaded"),
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_trace_unknown_events_are_ignored() {
+        let events = run_trace(&[("ping", json!({}))]);
+        assert!(events.is_empty());
     }
 }
