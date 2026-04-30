@@ -7,4 +7,5 @@ members = [
     "plugins/hello-renderer",
     "plugins/hello-tool",
     "plugins/file-tools",
+    "plugins/hello-policy-patch",
 ]

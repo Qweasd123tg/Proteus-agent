@@ -1,0 +1,3 @@
+name = "hello-policy-patch"
+version = "0.1.0"
+description = "Sample plugin registering an Ask-always approval policy and a noop patch applier"
