@@ -1,10 +1,11 @@
 //! Hello-policy-patch plugin.
 //!
-//! Регистрирует два модуля:
-//! - ApprovalPolicy под id `"hello"` — всегда `Ask`, описание `"hello-policy says ask"`.
-//! - PatchApplier под id `"hello"` — noop, возвращает `PatchResult { ok: true, summary: "hello-patch noop" }`.
+//! Регистрирует три модуля под id `"hello"`:
+//! - ApprovalPolicy — всегда `Ask`, описание `"hello-policy says ask"`.
+//! - PatchApplier — noop, возвращает `PatchResult { ok: true, summary: "hello-patch noop" }`.
+//! - SearchBackend — всегда один chunk с пометкой "hello-search noop".
 //!
-//! Польза ноль, цель — показать что policy/patch slot'ы доступны плагинам.
+//! Польза ноль, цель — показать что policy/patch/search slot'ы доступны плагинам.
 
 #![allow(non_local_definitions)]
 #![allow(non_camel_case_types)]
@@ -20,7 +21,8 @@ use agent_contracts::{
     plugin::{
         PatchApplierObject, PluginApprovalPolicy, PluginApprovalPolicy_TO, PluginPatchApplier,
         PluginPatchApplier_TO, PluginPatchError, PluginPolicyError, PluginRegisterError,
-        PluginRegistryMut, PluginRoot, PluginRoot_Ref, PolicyObject,
+        PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginSearchBackend, PluginSearchBackend_TO,
+        PluginSearchError, PolicyObject, SearchBackendObject,
     },
 };
 use serde_json::json;
@@ -64,6 +66,23 @@ impl PluginPatchApplier for HelloPatch {
     }
 }
 
+struct HelloSearch;
+
+impl PluginSearchBackend for HelloSearch {
+    fn search_json(&self, _query_json: RString) -> RResult<RString, PluginSearchError> {
+        // Возвращаем один chunk с пометкой — этого хватит, чтобы подтвердить
+        // что plugin SearchBackend действительно дёргается ядром.
+        let chunks = json!([{
+            "source": "plugin:hello-search",
+            "content": "hello-search noop",
+            "score": 1.0,
+            "path": null,
+            "metadata": {}
+        }]);
+        RResult::ROk(RString::from(chunks.to_string()))
+    }
+}
+
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
@@ -77,6 +96,14 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
+    let search: SearchBackendObject =
+        PluginSearchBackend_TO::from_value(HelloSearch, TD_Opaque);
+    if let RResult::RErr(err) =
+        registry.register_search_backend(RString::from("hello"), search)
+    {
+        return RResult::RErr(err);
+    }
+
     RResult::ROk(())
 }
 
@@ -85,7 +112,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("hello-policy-patch"),
         description: RStr::from_str(
-            "Sample plugin: registers 'hello' ApprovalPolicy (Ask) and 'hello' PatchApplier (noop)",
+            "Sample plugin: registers 'hello' ApprovalPolicy (Ask), PatchApplier (noop), and SearchBackend (noop)",
         ),
         register_modules,
     }
