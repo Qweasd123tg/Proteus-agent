@@ -12,8 +12,11 @@ mod visual;
 use std::{io, path::PathBuf, time::Duration};
 
 use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
+use std::fmt;
+
 use anyhow::{Context, Result};
 use crossterm::{
+    Command,
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -25,6 +28,44 @@ use crate::{
     state::AppState,
     visual::VisualSurface,
 };
+
+/// DECSET 1007 — alternate scroll mode. Терминал сам переводит wheel
+/// в клавиши Up/Down. Выделение текста мышью остаётся стандартным,
+/// потому что мы НЕ включаем EnableMouseCapture. Подсмотрено в
+/// OpenAI codex-rs/tui/src/tui.rs.
+#[derive(Debug, Clone, Copy)]
+struct EnableAlternateScroll;
+
+impl Command for EnableAlternateScroll {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[?1007h")
+    }
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Err(std::io::Error::other("use ANSI instead"))
+    }
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DisableAlternateScroll;
+
+impl Command for DisableAlternateScroll {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[?1007l")
+    }
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Err(std::io::Error::other("use ANSI instead"))
+    }
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -137,18 +178,26 @@ fn print_help() {
 fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut out = io::stdout();
-    // Не включаем EnableMouseCapture: с capture выделение текста мышью
-    // перехватывается приложением и стандартное копирование в терминале
-    // отключается. Скролл колёсиком тогда тоже не работает через events,
-    // но это приемлемая цена: скролл есть через PageUp/PageDown/End.
-    execute!(out, EnterAlternateScreen)?;
+    // EnterAlternateScreen + alternate scroll mode.
+    //
+    // EnableMouseCapture НЕ включаем — с ним терминал отдаёт все мышиные
+    // события приложению, и штатное выделение текста + копирование через
+    // ОС ломаются. Вместо этого используется alternate scroll (DECSET 1007):
+    // терминал сам транслирует колёсико в Up/Down arrows, которые мы ловим
+    // как обычные KeyCode::Up/Down. Выделение мышью при этом работает
+    // ровно как в bash. Паттерн подсмотрен у OpenAI Codex CLI.
+    execute!(out, EnterAlternateScreen, EnableAlternateScroll)?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
 
 fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableAlternateScroll,
+        LeaveAlternateScreen,
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -340,6 +389,16 @@ async fn handle_term_event(
                 }
                 KeyCode::PageDown => {
                     state.scroll_down(5);
+                    return Ok(true);
+                }
+                // Wheel scroll через alternate-scroll mode приходит как
+                // Up/Down arrows. Ловим и скроллим транскрипт на 1 строку.
+                KeyCode::Up => {
+                    state.scroll_up(1);
+                    return Ok(true);
+                }
+                KeyCode::Down => {
+                    state.scroll_down(1);
                     return Ok(true);
                 }
                 KeyCode::End => {
