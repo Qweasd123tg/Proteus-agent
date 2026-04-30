@@ -8,4 +8,5 @@ members = [
     "plugins/hello-tool",
     "plugins/file-tools",
     "plugins/hello-policy-patch",
+    "plugins/sqlite-memory",
 ]

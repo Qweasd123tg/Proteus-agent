@@ -1,0 +1,7 @@
+name = "sqlite-memory"
+version = "0.1.0"
+description = "SQLite FTS5 memory store packaged as a dylib plugin (id: sqlite_plugin)"
+author = "modular-agent examples"
+tags = ["memory", "sqlite", "fts5"]
+library = "libsqlite_memory.so"
+requires_agent_contracts = "0.1"
