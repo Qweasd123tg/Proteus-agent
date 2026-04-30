@@ -136,7 +136,10 @@ fn build_tool_registry_for_listing(
     config: &AppConfig,
     cwd: &std::path::Path,
 ) -> Result<modular_agent::contracts::ToolRegistry> {
-    let catalog = BuiltinModuleCatalog::new();
+    let mut catalog = BuiltinModuleCatalog::new();
+    if let Some(plugins_dir) = modular_agent::core::default_plugins_dir() {
+        let _ = modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
+    }
     let build_ctx = ModuleBuildContext { config, cwd };
     let search = catalog.build_search(&config.modules.search, &build_ctx)?;
     let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;

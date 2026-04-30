@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 agent-contracts = { path = "../agent-contracts" }
+libloading = "0.8"
 anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

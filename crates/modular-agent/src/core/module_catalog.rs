@@ -86,12 +86,17 @@ struct ModuleEntry {
 /// регистрировать модули под новыми slot'ами без правок ядра.
 pub struct BuiltinModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
+    /// Tool-плагины, зарегистрированные через `register_plugin_tool`.
+    /// Их специ получены и провалидированы при регистрации.
+    /// Во время `build_tools` они добавляются в `ToolRegistry` поверх builtin.
+    plugin_tools: Vec<Arc<dyn crate::contracts::Tool>>,
 }
 
 impl BuiltinModuleCatalog {
     pub fn new() -> Self {
         let mut catalog = Self {
             entries: HashMap::new(),
+            plugin_tools: Vec::new(),
         };
 
         // Model adapters
@@ -294,6 +299,24 @@ impl BuiltinModuleCatalog {
         );
 
         catalog
+    }
+
+    /// Регистрирует Tool от плагина.
+    ///
+    /// Плагин передаёт `PluginToolObject` (sabi_trait объект), мы заворачиваем
+    /// его в `PluginToolAdapter` который implements обычный `Tool` trait через
+    /// JSON-сериализацию + spawn_blocking. Адаптер сохраняется в списке
+    /// `plugin_tools` — во время `build_tools` он добавляется в ToolRegistry
+    /// поверх builtin tools.
+    pub fn register_plugin_tool(
+        &mut self,
+        tool: agent_contracts::plugin::PluginToolObject,
+    ) -> Result<()> {
+        use crate::modules::PluginToolAdapter;
+        let adapter = PluginToolAdapter::new(tool)?;
+        let tool_arc: Arc<dyn crate::contracts::Tool> = Arc::new(adapter);
+        self.plugin_tools.push(tool_arc);
+        Ok(())
     }
 
     /// Регистрирует Renderer от плагина под указанным module_id.
@@ -629,6 +652,18 @@ impl BuiltinModuleCatalog {
                 )?,
             }
         }
+
+        // Plugin tools — зарегистрированы заранее через register_plugin_tool,
+        // добавляются поверх builtin и configured tools.
+        for plugin_tool in &self.plugin_tools {
+            tools.register_arc(
+                crate::contracts::ToolSource::Dynamic {
+                    origin: "plugin:dylib".to_owned(),
+                },
+                plugin_tool.clone(),
+            )?;
+        }
+
         Ok(tools)
     }
 }

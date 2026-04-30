@@ -38,7 +38,23 @@ use modular_agent::{
 use serde_json::json;
 use tempfile::TempDir;
 
+/// Инициализатор тестов: выключает плагин-loader чтобы глобальные плагины
+/// из `~/.agent/plugins` не попадали в тесты и не искажали проверку счёта
+/// модулей. Выставляется при первом обращении — тесты в одном процессе
+/// используют одну и ту же env var.
+static DISABLE_PLUGINS: std::sync::Once = std::sync::Once::new();
+
+fn disable_plugin_loader() {
+    DISABLE_PLUGINS.call_once(|| {
+        // SAFETY: env var выставляется один раз, до создания любого runtime.
+        unsafe {
+            std::env::set_var("AGENT_PLUGINS_DISABLE", "1");
+        }
+    });
+}
+
 fn temp_workspace() -> TempDir {
+    disable_plugin_loader();
     let dir = tempfile::tempdir().expect("temp dir");
     std::fs::write(dir.path().join("sample.txt"), "hello modular agent\n").expect("sample file");
     dir
@@ -61,6 +77,7 @@ async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventSt
 }
 
 fn test_config() -> AppConfig {
+    disable_plugin_loader();
     let mut config = AppConfig::default();
     config.tools.enabled = standard_tool_names()
         .into_iter()

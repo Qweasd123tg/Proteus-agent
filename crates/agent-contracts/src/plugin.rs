@@ -40,6 +40,69 @@ use abi_stable::{
 
 use crate::contracts::RendererObject;
 
+/// Sync sabi_trait для tool-плагинов.
+///
+/// Builtin tools в ядре остаются async (используют `tokio::fs`, `tokio::process`).
+/// Плагины же реализуют sync-версию, которая внутри может создавать свой
+/// локальный tokio runtime или использовать blocking I/O (`reqwest::blocking`,
+/// `std::fs`, `std::process::Command`).
+///
+/// Ядро оборачивает `PluginTool` в обычный `Tool` через `spawn_blocking`, так
+/// что concurrency не страдает.
+///
+/// ## DTO через границу
+///
+/// `ToolCall` и `ToolResult` сериализуются в JSON (`RString`) для передачи
+/// через FFI. Плагин десериализует через `serde_json` обратно в native DTO.
+/// Это избавляет от необходимости переделывать DTO в `#[repr(C)]` (у них есть
+/// `serde_json::Value`-поля, которые не прямо перекладываются в FFI-safe).
+///
+/// ## ToolSpec
+///
+/// `spec()` возвращает JSON с описанием tool. Ядро десериализует в `ToolSpec`
+/// и регистрирует в ToolRegistry.
+#[sabi_trait]
+pub trait PluginTool: Send + Sync + 'static {
+    /// Возвращает JSON-сериализованный `ToolSpec`.
+    fn spec_json(&self) -> RString;
+
+    /// Вызывает tool. `call_json` — сериализованный `ToolCall`.
+    /// `cwd` — рабочая директория для tool'а.
+    /// Возврат — сериализованный `ToolResult` или ошибка.
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        cwd: RString,
+    ) -> RResult<RString, PluginToolError>;
+}
+
+/// Ошибка выполнения tool-плагина.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginToolError {
+    pub message: RString,
+}
+
+impl PluginToolError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginToolError {}
+
+/// Ffi-safe trait object для PluginTool.
+pub type PluginToolObject = PluginTool_TO<abi_stable::std_types::RBox<()>>;
+
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
@@ -77,7 +140,15 @@ pub trait PluginRegistry: Send + Sync {
         renderer: RendererObject,
     ) -> RResult<(), PluginRegisterError>;
 
-    // Будущие методы: register_tool, register_search_backend, register_context_builder,
+    /// Регистрирует Tool от плагина. Внутри плагина tool реализует
+    /// sync-версию `PluginTool` (поскольку sabi_trait не поддерживает async).
+    /// Ядро оборачивает его в обычный async `Tool` через spawn_blocking.
+    fn register_tool(
+        &mut self,
+        tool: PluginToolObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    // Будущие: register_search_backend, register_context_builder,
     // register_memory_store, register_memory_policy, register_approval_policy,
     // register_patch_applier. Добавляются как prefix-fields (sabi-совместимо).
 }

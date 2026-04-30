@@ -14,7 +14,7 @@ dependencies = [
  "core_extensions",
  "crossbeam-channel",
  "generational-arena",
- "libloading",
+ "libloading 0.7.4",
  "lock_api",
  "parking_lot",
  "paste",
@@ -492,6 +492,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hello-tool"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "agent-contracts",
+ "serde_json",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -797,6 +806,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -857,6 +876,7 @@ dependencies = [
  "clap",
  "futures-core",
  "futures-util",
+ "libloading 0.8.9",
  "reqwest",
  "serde",
  "serde_json",
