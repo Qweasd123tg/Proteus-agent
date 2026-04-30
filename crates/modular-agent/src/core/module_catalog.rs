@@ -411,6 +411,47 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    /// Регистрирует SearchBackend от плагина под указанным module_id.
+    ///
+    /// SearchBackend stateless (cwd приходит в каждом `search(query)`), поэтому
+    /// адаптер создаётся один раз и возвращается через `Arc<dyn SearchBackend>`
+    /// при каждом build. Политика дубликатов: bail при конфликте id.
+    pub fn register_plugin_search_backend(
+        &mut self,
+        module_id: &str,
+        backend: agent_contracts::plugin::SearchBackendObject,
+    ) -> Result<()> {
+        use crate::modules::PluginSearchAdapter;
+        let slot_id = slot::SEARCH;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "search backend module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn SearchBackend> = Arc::new(PluginSearchAdapter::new(backend));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest = ModuleManifest::builtin(
+            module_id,
+            ModuleKind::Search,
+            &["plugin", "dylib"],
+        );
+        manifest.description = Some(format!("Search backend from plugin (module id: {module_id})"));
+
+        self.entries
+            .insert(key, ModuleEntry { manifest, factory: erased });
+        drop(shared);
+        Ok(())
+    }
+
     /// Регистрирует PatchApplier от плагина под указанным module_id.
     ///
     /// В отличие от policy, patch-адаптер требует cwd из `ModuleBuildContext` —
