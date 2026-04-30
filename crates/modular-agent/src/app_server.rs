@@ -6,59 +6,28 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
     contracts::{ApprovalCacheScope, ApprovalResponse, EventSink},
     core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
-    domain::{AgentOutput, Event, ToolCall, ToolSpec},
+    domain::AgentOutput,
     modules::{ChannelApprovalTransport, PendingApproval},
 };
 
 pub mod protocol;
 pub mod stdio;
 
-pub type AppApprovalId = String;
+// Wire protocol вынесен в agent-contracts чтобы клиенты depend на него
+// без зависимости на ядро. Здесь просто re-export для обратной
+// совместимости внутри modular-agent.
+pub use agent_contracts::app_protocol::{
+    AppApprovalId, AppApprovalRequest, AppServerEvent, StdioOutput, StdioRequest,
+};
+
 type PendingApprovalResponders =
     Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>;
-
-/// Protocol event exposed by the local app-server boundary. UI clients should
-/// depend on this stream instead of depending directly on runtime internals.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AppServerEvent {
-    Runtime {
-        event: Event,
-    },
-    UserMessageSubmitted {
-        text: String,
-    },
-    TurnOutput {
-        output: AgentOutput,
-    },
-    ApprovalRequested {
-        request: AppApprovalRequest,
-    },
-    ApprovalResolved {
-        approval_id: AppApprovalId,
-        approved: bool,
-    },
-    Error {
-        message: String,
-    },
-    Shutdown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppApprovalRequest {
-    pub approval_id: AppApprovalId,
-    pub call: ToolCall,
-    pub cwd: PathBuf,
-    pub reason: String,
-    pub tool_spec: Option<ToolSpec>,
-}
 
 #[derive(Clone)]
 pub struct AppServerHandle {
@@ -211,13 +180,13 @@ fn spawn_approval_forwarder(
                 .lock()
                 .await
                 .insert(approval_id.clone(), responder);
-            let app_request = AppApprovalRequest {
-                approval_id: approval_id.clone(),
-                call: request.call,
-                cwd: request.cwd,
-                reason: request.reason,
-                tool_spec: request.tool_spec,
-            };
+            let app_request = AppApprovalRequest::new(
+                approval_id.clone(),
+                request.call,
+                request.cwd,
+                request.reason,
+                request.tool_spec,
+            );
             if events
                 .send(AppServerEvent::ApprovalRequested {
                     request: app_request,

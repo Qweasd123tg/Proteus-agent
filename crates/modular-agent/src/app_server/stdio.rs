@@ -155,6 +155,14 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, Ok(None)).await;
                 break;
             }
+            _ => {
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    Err(anyhow!("unsupported StdioRequest variant")),
+                )
+                .await;
+            }
         }
     }
 
@@ -286,6 +294,7 @@ mod tests {
                 assert_eq!(error.as_deref(), Some("turn canceled by client"));
             }
             StdioOutput::Event { .. } => panic!("expected response"),
+            _ => panic!("unexpected output variant"),
         }
         server.shutdown().await;
     }

@@ -1,0 +1,18 @@
+[package]
+name = "agent-tui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Terminal UI client for modular-agent over AppServer stdio"
+
+[[bin]]
+name = "agent-tui"
+path = "src/main.rs"
+
+[dependencies]
+agent-contracts = { path = "../../crates/agent-contracts" }
+anyhow = "1"
+crossterm = "0.28"
+ratatui = "0.29"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }

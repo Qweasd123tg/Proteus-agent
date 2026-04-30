@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/agent-contracts",
     "crates/modular-agent",
+    "clients/tui",
     "plugins/hello-renderer",
     "plugins/hello-tool",
     "plugins/file-tools",

@@ -1,65 +1,15 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+//! Wire protocol re-exports из agent-contracts.
+//!
+//! Типы `StdioRequest` и `StdioOutput` определены в `agent-contracts::app_protocol`,
+//! чтобы клиенты (TUI, GUI) могли depend на них без зависимости на ядро.
+//! Здесь — только re-export для обратной совместимости внутреннего кода.
 
-use super::AppServerEvent;
-use crate::contracts::ApprovalCacheScope;
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StdioRequest {
-    Send {
-        id: Option<String>,
-        text: String,
-    },
-    ClearHistory {
-        id: Option<String>,
-    },
-    Approval {
-        id: Option<String>,
-        approval_id: String,
-        approved: bool,
-        note: Option<String>,
-        #[serde(default)]
-        cache: ApprovalCacheScope,
-    },
-    Cancel {
-        id: Option<String>,
-        target_id: String,
-    },
-    Shutdown {
-        id: Option<String>,
-    },
-}
-
-impl StdioRequest {
-    pub fn id(&self) -> Option<String> {
-        match self {
-            Self::Send { id, .. }
-            | Self::ClearHistory { id }
-            | Self::Approval { id, .. }
-            | Self::Cancel { id, .. }
-            | Self::Shutdown { id } => id.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StdioOutput {
-    Event {
-        event: Box<AppServerEvent>,
-    },
-    Response {
-        id: Option<String>,
-        ok: bool,
-        output: Option<Value>,
-        error: Option<String>,
-    },
-}
+pub use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_contracts::contracts::ApprovalCacheScope;
 
     #[test]
     fn request_id_is_extracted_for_all_commands() {
@@ -89,21 +39,6 @@ mod tests {
             .id(),
             Some("approval".to_owned())
         );
-        assert_eq!(
-            StdioRequest::Cancel {
-                id: Some("cancel".to_owned()),
-                target_id: "send".to_owned(),
-            }
-            .id(),
-            Some("cancel".to_owned())
-        );
-        assert_eq!(
-            StdioRequest::Shutdown {
-                id: Some("shutdown".to_owned()),
-            }
-            .id(),
-            Some("shutdown".to_owned())
-        );
     }
 
     #[test]
@@ -114,9 +49,7 @@ mod tests {
             output: None,
             error: None,
         };
-
         let json = serde_json::to_value(output).expect("stdio output serializes");
-
         assert_eq!(json["type"], "response");
         assert_eq!(json["id"], "1");
         assert_eq!(json["ok"], true);
