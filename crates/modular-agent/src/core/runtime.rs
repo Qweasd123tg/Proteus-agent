@@ -135,6 +135,18 @@ impl AgentRuntime {
             )
             .await?;
         let task = AgentTask::new(text, self.services.cwd.clone());
+        // Выставляем delta event context для ModelService, чтобы
+        // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
+        // правильным envelope (session/thread/turn). Без этого дельты
+        // тихо дропаются (штатное поведение без runtime).
+        if let Some(service) = &self.services.registry.model_service {
+            service.set_event_context(crate::modules::DeltaEventContext {
+                emitter: Some(self.services.events.clone()),
+                session_id: Some(self.session.session_id),
+                thread_id: Some(self.session.thread_id),
+                turn_id: Some(turn_id),
+            });
+        }
         let runtime_context = self.services.registry.runtime_context(
             self.session.session_id,
             self.session.thread_id,

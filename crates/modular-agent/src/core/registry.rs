@@ -17,6 +17,10 @@ pub struct BuiltinRegistry {
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
     pub model: Arc<dyn ModelClient>,
+    /// Отдельная ссылка на ModelService для доступа к `set_event_context`
+    /// (не выражается через trait ModelClient). `None` если model выбран
+    /// как кастомный плагинный ModelClient, не ModelService.
+    pub model_service: Option<Arc<ModelService>>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
     pub memory_policy: Arc<dyn MemoryPolicy>,
@@ -44,7 +48,8 @@ impl BuiltinRegistry {
         let build_ctx = ModuleBuildContext { config, cwd: &cwd };
         let model_config = config.active_model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
-        let model: Arc<dyn ModelClient> = Arc::new(ModelService::new(model_adapter));
+        let model_service = Arc::new(ModelService::new(model_adapter));
+        let model: Arc<dyn ModelClient> = model_service.clone();
 
         let search = catalog.build_search(&config.modules.search, &build_ctx)?;
         let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
@@ -66,6 +71,7 @@ impl BuiltinRegistry {
             model_config,
             runtime_config: config.runtime.clone(),
             model,
+            model_service: Some(model_service),
             search,
             memory,
             memory_policy,
