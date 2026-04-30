@@ -1,210 +1,184 @@
 # Modular Agent
 
-Rust core-first каркас для модульного coding-agent.
+Rust-first coding-agent harness с dylib плагинами.
 
-Проект строится вокруг простой идеи:
+Проект устроен так:
 
 ```text
-маленькое стабильное ядро
-+ заменяемые module slots
-+ простые DTO-контракты
-+ встроенные реализации для v0
-+ adapter-слой для провайдеров и чужих идей
+стабильное ядро (runtime + registry + app-server)
+  +  contracts crate (публичный API)
+  +  dylib-плагины через abi_stable
+  +  клиенты через stdio wire protocol
 ```
 
-Это не динамическая plugin-система и не клон Claude Code, Codex CLI, OpenCode или ForgeCode. В текущей версии модульность означает выбор встроенных реализаций через config.
+Ядро почти не обрастает фичами — они приезжают как плагины в папке
+`~/.agent/plugins/`. Клиенты (TUI, потенциально GUI/web) живут отдельными
+процессами и общаются с ядром через AppServer stdio JSONL protocol.
 
-Текущая граница ядра описана в [docs/architecture.md](docs/architecture.md).
+Высокоуровневая архитектура: [docs/architecture.md](docs/architecture.md).
+Плагинная система: [docs/plugin-architecture.md](docs/plugin-architecture.md).
 
-## Что Уже Есть
+## Структура репо
 
-- стабильные DTO в `crates/agent-contracts/src/domain` и `crates/agent-contracts/src/model_standard`;
-- trait-контракты в `crates/agent-contracts/src/contracts`;
-- wiring и lifecycle в `crates/modular-agent/src/core`;
-- список built-in modules через `agent modules list`;
-- встроенные модули в `crates/modular-agent/src/modules`, сгруппированные по slot/type;
-- fake model, OpenAI Responses adapter, Anthropic Messages adapter;
-- `null`/`rg` search, `none`/`jsonl` memory;
-- `simple` и `repo_aware` context builders;
-- `read_file`, `list_dir`, `apply_patch`, `write_file`, `shell`, `search` tools;
-- `ToolProvider` -> `ToolRegistry` слой с source-aware регистрацией tools;
-- permission modes: `plan`, `normal`, `auto`;
-- `ask_write` и `allow_all` policies;
-- JSONL event log и session history;
-- временный CLI/dev shell и app-server boundary для внешних UI-клиентов через
-  `AppServerEvent`;
-- module-swap тесты для search, memory, policy и canonical model contract.
+```text
+crates/
+  agent-contracts/  — публичные trait'ы и DTO; плагины и клиенты depend сюда
+  modular-agent/    — ядро: runtime, registry, loaders, app-server, CLI
+clients/
+  tui/              — два TUI клиента (fullscreen + codex-style inline)
+plugins/
+  hello-renderer/   — демо: декоративная рамка вокруг ответа
+  hello-tool/       — демо: tool current_time
+  file-tools/       — реальный набор: read_file / write_file / list_dir / grep
+docs/               — architecture, plugin-architecture, configuration, etc.
+```
 
-## Быстрый Запуск
+## Что умеет сейчас
 
-Открыть временный интерактивный терминал для разработки ядра:
+**Ядро:**
+- Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
+- Unified registry с открытым `SlotId`, 10 slot'ов (model, search, memory,
+  memory_policy, context, tool, policy, patch, workflow, renderer).
+- Builtin модули во всех slot'ах: fake / openai / openai_compatible / anthropic
+  models, `null`/`rg` search, `none`/`jsonl` memory, `simple`/`repo_aware`
+  context, `allow_all`/`ask_write` policies, `direct` patch, `single_loop`
+  workflow, `plain`/`statusline` renderers.
+- Builtin tools: `read_file`, `write_file`, `list_dir`, `apply_patch`,
+  `shell`, `search`; плюс configured native/process/MCP wrappers через main config.
+- Permission modes: `plan` / `normal` / `auto`.
+- Session approval cache (ExactCall scope).
+- Event log и session resume.
+
+**Плагины (Wave 2):**
+- Dylib plugin loader через abi_stable.
+- Два slot'а поддерживают плагины: `renderer` и `tool`.
+- Multi-plugin loading через lower-level libloading API (обход type-cache
+  в `RootModule::load_from_file`).
+- Опциональный `plugin.toml` manifest рядом с `.so`.
+- Политика конфликтов: builtin всегда выигрывает по имени; плагин
+  пропускается с warning.
+- `AGENT_PLUGINS_DISABLE=1` для тестов.
+
+**Клиенты:**
+- `agent-tui` — fullscreen ratatui UI над `agent server stdio`.
+- `agent-tui-codex` — экспериментальный inline-viewport клиент в духе
+  OpenAI Codex TUI (транскрипт в scrollback терминала, только
+  bottom-composer "живой").
+
+## Быстрый запуск
+
+### Собрать всё
+
+```bash
+cargo build --workspace
+```
+
+### REPL ядра (без внешнего клиента)
 
 ```bash
 cargo run
-```
-
-Интерактивный режим использует line REPL. Продуктовые CLI/UI клиенты должны жить отдельным процессом поверх `agent server stdio`; этот репозиторий держит ядро и транспортную границу.
-
-Внутри REPL:
-
-```text
-❯ read_file Cargo.toml
-❯ summarize project
-❯ /history
-❯ /clear
-❯ /exit
-```
-
-Выполнить одну задачу:
-
-```bash
+# или single turn
 cargo run -- read_file Cargo.toml
 ```
 
-Запустить с явным конфигом:
+### TUI клиент
 
 ```bash
-export ANTHROPIC_API_KEY=...
-cargo run -- --config agent.coding.example.toml summarize project
-cargo run -- --config agent.example.toml read_file Cargo.toml
-cargo run -- --config config.example.json
+# fullscreen
+target/debug/agent-tui \
+  --agent-bin target/debug/modular-agent \
+  --config ~/.config/agent-qweasd123tg/config.json \
+  --cwd .
+
+# codex-style (история в scrollback)
+target/debug/agent-tui-codex \
+  --agent-bin target/debug/modular-agent \
+  --config ~/.config/agent-qweasd123tg/config.json \
+  --cwd .
 ```
 
-Запустить из другого рабочего каталога:
+Клавиши TUI: **Enter** отправить, **Ctrl+C** выйти, **Ctrl+L** очистить
+историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
+(или колёсиком через alternate scroll).
+
+### Плагины
 
 ```bash
-cargo run -- --cwd /path/to/project summarize project
+# собрать демо-плагины
+cargo build --release -p hello-renderer -p hello-tool -p file-tools
+
+# установить глобально
+mkdir -p ~/.agent/plugins/hello-tool ~/.agent/plugins/file-tools
+cp target/release/libhello_renderer.so ~/.agent/plugins/
+cp target/release/libhello_tool.so ~/.agent/plugins/hello-tool/
+cp plugins/hello-tool/plugin.toml ~/.agent/plugins/hello-tool/
+cp target/release/libfile_tools.so ~/.agent/plugins/file-tools/
+cp plugins/file-tools/plugin.toml ~/.agent/plugins/file-tools/
+
+# проверить что подхватились
+cargo run -- modules list      # renderer "hello" в списке
+cargo run -- tools list        # current_time, grep и пр. из плагинов
 ```
 
-Режимы доступа:
-
-```bash
-cargo run -- --plan summarize project
-cargo run -- --auto "run tests"
-cargo run -- --permission-mode normal "edit file"
-```
-
-Посмотреть встроенные module slots и manifests:
-
-```bash
-cargo run -- modules list
-```
-
-Посмотреть реально зарегистрированные tools для выбранного config:
-
-```bash
-cargo run -- --config agent.coding.example.toml tools list
-```
-
-## Установка
+### Установка wrapper'а
 
 ```bash
 ./install.sh
+# добавляет ~/.local/bin/agent с cd + cargo run
 ```
-
-Скрипт собирает release binary и создаёт wrapper:
-
-```text
-~/.local/bin/agent
-```
-
-После этого:
-
-```bash
-cd /path/to/project
-agent
-```
-
-Если `~/.local/bin` не входит в `PATH`, добавьте:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-## CLI
-
-```text
-agent [--config PATH] [--cwd PATH] [-i|--interactive] [TASK...]
-agent modules list
-agent server stdio
-```
-
-- `--config PATH` читает JSON/TOML файл или директорию с `*.toml`/`*.json`;
-- `--cwd PATH` задаёт рабочий каталог агента;
-- `-i`, `--interactive` принудительно открывает REPL;
-- `modules list` показывает встроенный `BuiltinModuleCatalog`;
-- `server stdio` запускает экспериментальный headless app-server с JSONL-протоколом поверх stdin/stdout;
-- `TASK...` запускает одну задачу без REPL.
-
-Если `TASK` не указан, агент открывает REPL.
-
-Интерактивный режим внутри этого binary использует line REPL. Полноценный visual
-layer не входит в проект и должен подключаться как внешний client через
-`agent server stdio`. JSONL protocol и event/session details описаны в
-[docs/runtime-and-events.md](docs/runtime-and-events.md).
 
 ## Конфигурация
 
-Без `--config` агент ищет пользовательский config через `AGENT_CONFIG_PATH`,
-`AGENT_CONFIG_HOME/configs` и стандартный
-`$HOME/.config/agent-qweasd123tg/configs`. Если путь не найден, используются
-defaults из `AppConfig`.
+Без `--config` ядро ищет:
 
-Рекомендуемый layout:
+1. `$AGENT_CONFIG_PATH`
+2. `$AGENT_CONFIG_HOME/configs`
+3. `$HOME/.config/agent-qweasd123tg/configs/` (default)
 
-```bash
-mkdir -p "$HOME/.config/agent-qweasd123tg/configs"
-```
+Если не найдено — используются fake/null defaults из `AppConfig`.
 
-```text
-~/.config/agent-qweasd123tg/
-  configs/
-    01-model.toml
-    02-tools.toml
-    03-runtime.toml
-```
+Примеры:
+- `agent.example.toml` — safe dev-basic (fake model, null search, без tools).
+- `agent.coding.example.toml` — quickstart для реальной работы
+  (anthropic/openai, repo_aware, rg, полный tool set, ask_write policy).
+- `config.example.json` — JSON-вариант.
 
-Single-file JSON/TOML через `--config` остаётся поддержан для smoke tests и
-переносимых профилей. `agent.coding.example.toml` является quickstart-профилем
-для локальной работы с кодом; `agent.example.toml` остаётся safe dev-basic
-примером на fake/null/simple defaults. Полная schema, provider profiles, tools и
-renderer описаны в [docs/configuration.md](docs/configuration.md).
+Полная schema, provider profiles, secrets, tools и renderers в
+[docs/configuration.md](docs/configuration.md).
 
-## Runtime Данные
-
-Event log по умолчанию пишется в рабочем каталоге, а session history при
-наличии config path хранится рядом с config root:
+## Runtime данные
 
 ```text
-.agent/events.jsonl
-sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>|<session-id>/messages.jsonl
+~/.config/agent-qweasd123tg/sessions/<encoded-workspace>/<session>/messages.jsonl
+.agent/events.jsonl   (в workspace'е)
 ```
 
 Подробнее: [docs/runtime-and-events.md](docs/runtime-and-events.md).
 
 ## Документация
 
-- [docs/architecture.md](docs/architecture.md) - фактическая архитектура v0 и текущая граница ядра;
-- [docs/modules.md](docs/modules.md) - module slots и встроенные реализации;
-- [docs/configuration.md](docs/configuration.md) - конфиг, providers, modules, secrets;
-- [docs/runtime-and-events.md](docs/runtime-and-events.md) - REPL, session store, event log;
-- [docs/security-and-policy.md](docs/security-and-policy.md) - tools, workspace boundary, approval policy;
-- [docs/testing.md](docs/testing.md) - тестирование модульности и контрактов;
-- [docs/roadmap.md](docs/roadmap.md) - направление проекта и порядок следующих этапов;
-- [docs/MODULAR_AGENT_SPEC_RU.md](docs/MODULAR_AGENT_SPEC_RU.md) - длинный vision/spec и planned направления;
-- [AGENTS.md](AGENTS.md) - правила работы для агентов и контрибьюторов.
+- [docs/architecture.md](docs/architecture.md) — архитектура ядра и runtime.
+- [docs/plugin-architecture.md](docs/plugin-architecture.md) — как устроены плагины.
+- [docs/modules.md](docs/modules.md) — builtin модули по slot'ам.
+- [docs/configuration.md](docs/configuration.md) — config schema, secrets, tools.
+- [docs/runtime-and-events.md](docs/runtime-and-events.md) — REPL, session store, event log, AppServer protocol.
+- [docs/security-and-policy.md](docs/security-and-policy.md) — tool safety, approval policy, workspace boundary.
+- [docs/testing.md](docs/testing.md) — тестирование модульности.
+- [docs/roadmap.md](docs/roadmap.md) — направление проекта и следующие волны.
+- [AGENTS.md](AGENTS.md) — правила работы для агентов/контрибьюторов.
 
 ## Проверка
 
 ```bash
-cargo test
+cargo test --workspace
 ```
 
-Главная архитектурная проверка:
+Главный архитектурный инвариант:
 
 ```text
-если заменить search=rg на search=null,
+замена search=rg на search=null,
 или memory=none на memory=jsonl,
-или model=fake на model=openai,
-core runtime не должен меняться.
+или model=fake на model=anthropic,
+или добавление плагина в ~/.agent/plugins/
+— не меняет core runtime.
 ```
