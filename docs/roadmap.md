@@ -130,15 +130,16 @@ Scope:
 
 - ✅ Волна 1 — `agent-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
   Renderer через sabi_trait.
-- ✅ Волна 2 (частично) — dylib loader, PluginRegistry с `register_renderer` /
-  `register_tool`, реальные плагины (`hello-renderer`, `hello-tool`,
-  `file-tools`), политика дубликатов.
+- ✅ Волна 2 (частично) — dylib loader; PluginRegistry с `register_renderer`,
+  `register_tool`, `register_approval_policy`, `register_patch_applier`;
+  реальные плагины (`hello-renderer`, `hello-tool`, `hello-policy-patch`,
+  `file-tools`); политика дубликатов; `plugin.toml` manifest (видимость
+  плагина в `modules list` даже при ошибке загрузки).
 
 Следующий scope:
 
-- `plugin.toml` manifest рядом с `.so` (видимость без загрузки);
-- остальные sabi_trait-ы в PluginRegistry: ApprovalPolicy, PatchApplier,
-  MemoryStore, MemoryPolicy, SearchBackend, ContextBuilder;
+- остальные sabi_trait-ы в PluginRegistry: MemoryStore, MemoryPolicy,
+  SearchBackend, ContextBuilder;
 - persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.
