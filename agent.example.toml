@@ -33,14 +33,16 @@ max_tokens = 200000
 bar_width = 10
 
 [tools]
-enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_file"]
+# Core-resident tools. File I/O and shell come from plugins:
+# install file-tools and shell-tool into ~/.agent/plugins/ and extend this list.
+enabled = ["apply_patch", "remember_fact", "search"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-ask_before = ["apply_patch", "write_file", "shell"]
-allow = ["read_file", "list_dir", "search"]
+ask_before = ["apply_patch", "remember_fact"]
+allow = ["search"]
 
 [module_config.search.rg]
 max_results = 50

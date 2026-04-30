@@ -56,8 +56,8 @@
     },
     "policy": {
       "ask_write": {
-        "ask_before": ["apply_patch", "write_file", "shell"],
-        "allow": ["read_file", "list_dir", "search"]
+        "ask_before": ["apply_patch", "remember_fact"],
+        "allow": ["search"]
       }
     },
     "search": {
@@ -117,11 +117,8 @@
   "tools": {
     "enabled": [
       "apply_patch",
-      "list_dir",
-      "read_file",
-      "search",
-      "shell",
-      "write_file"
+      "remember_fact",
+      "search"
     ],
     "path": null
   },

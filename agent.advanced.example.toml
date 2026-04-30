@@ -33,8 +33,10 @@ enabled = []
 mode = "normal"
 
 [policy.ask_write]
-ask_before = ["apply_patch", "write_file", "shell"]
-allow = ["read_file", "list_dir", "search"]
+# Core tools ship only apply_patch, remember_fact, and search — file_io/shell
+# are plugin-provided (file-tools, shell-tool).
+ask_before = ["apply_patch", "remember_fact"]
+allow = ["search"]
 
 [search.rg]
 max_results = 50
