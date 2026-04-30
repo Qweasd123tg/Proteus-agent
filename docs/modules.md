@@ -21,7 +21,7 @@ executors, но external process modules и package manager ещё не реал
 |---|---|---|---|
 | Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
 | Search | `SearchBackend` | `modules.search` | `null`, `rg` |
-| Memory | `MemoryStore` | `modules.memory` | `none`, `jsonl` |
+| Memory | `MemoryStore` | `modules.memory` | `none`, `jsonl`, `sqlite`, plugin-provided (`sqlite_plugin` если подключён `sqlite-memory`) |
 | Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none` |
 | Context | `ContextBuilder` | `modules.context` | `simple`, `repo_aware` |
 | Policy | `ApprovalPolicy` | `modules.policy` | `ask_write`, `allow_all` |
@@ -73,6 +73,8 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 `modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. В v0 реализован только `none`, то есть автоматической записи памяти нет. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
 
 `modules.memory = "none"` ничего не сохраняет и ничего не возвращает.
+
+`modules.memory = "sqlite"` использует SQLite FTS5 базу `{cwd}/.agent/memory.sqlite`; создаётся при старте, если файла нет. FTS5-индекс поверх поля `content` + `kind`, `recall` выполняет `MATCH` с rank-ordered `LIMIT`. Подключает `rusqlite` (bundled) — SQLite статически линкуется в бинарь.
 
 `modules.memory = "jsonl"` использует файл:
 

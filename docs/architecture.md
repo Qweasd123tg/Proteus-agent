@@ -280,7 +280,7 @@ task
 
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy` и `patch` slots; остальные slots (`memory`, `memory_policy`, `search`, `context`, `model`, `workflow`) пока регистрируются только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search` и `memory` slots; остальные slots (`memory_policy`, `context`, `model`, `workflow`) пока регистрируются только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors и dylib-плагины; полноценный MCP provider/registry (persistent host) ещё не реализован, но `ToolRegistry` уже хранит source.

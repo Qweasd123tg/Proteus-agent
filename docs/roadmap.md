@@ -132,21 +132,26 @@ Scope:
   Renderer через sabi_trait.
 - ✅ Волна 2 (частично) — dylib loader; PluginRegistry с `register_renderer`,
   `register_tool`, `register_approval_policy`, `register_patch_applier`,
-  `register_search_backend`; реальные плагины (`hello-renderer`, `hello-tool`,
-  `hello-policy-patch`, `file-tools`); политика дубликатов; `plugin.toml`
-  manifest (видимость плагина в `modules list` даже при ошибке загрузки);
-  `modules list` показывает блок Plugins со статусом загрузки.
+  `register_search_backend`, `register_memory_store`; реальные плагины
+  (`hello-renderer`, `hello-tool`, `hello-policy-patch`, `file-tools`,
+  `sqlite-memory`); политика дубликатов; `plugin.toml` manifest (видимость
+  плагина в `modules list` даже при ошибке загрузки); `modules list`
+  показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
   `stream = true`; ModelService транслирует TextDelta/ToolArgsDelta/
   ReasoningDelta как runtime events; `agent-tui` дописывает deltas в tail
   активного assistant-bubble. `FilteredEventSink` не пишет дельты в
   durable JSONL по умолчанию.
+- ✅ SQLite FTS5 memory backend в ядре (modules.memory = "sqlite") и как
+  отдельный плагин (modules.memory = "sqlite_plugin") — proof что
+  PluginMemoryStore ABI работает с реальной I/O-зависимой реализацией.
 
 Следующий scope:
 
-- остальные sabi_trait-ы в PluginRegistry: MemoryStore, MemoryPolicy,
-  ContextBuilder (требует решения по FFI callbacks — ContextBuilder/
-  MemoryPolicy зовут другие slots через `&dyn`);
+- MemoryPolicy и ContextBuilder как плагины — требуют FFI callback bridge
+  (плагин зовёт `MemoryStore::recall` / `SearchBackend::search` из ядра
+  во время своей работы); архитектура в `example/research/deep-research-report.md`
+  и заметке `project_memory_plan.md` (per-call capability + mailbox);
 - persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.
