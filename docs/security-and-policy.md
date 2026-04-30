@@ -48,6 +48,7 @@ CLI может переопределить config через `--plan`, `--auto`
 | `apply_patch` | `WritesFiles` | применяет workspace-scoped patch через `PatchApplier` |
 | `list_dir` | `ReadOnly` | показывает файлы и директории внутри workspace |
 | `read_file` | `ReadOnly` | читает UTF-8 файл внутри workspace целиком или по line range |
+| `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
 | `write_file` | `WritesFiles` | пишет UTF-8 файл внутри workspace |
 | `shell` | `RunsCommands` | запускает команду в `cwd` |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |

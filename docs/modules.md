@@ -22,7 +22,7 @@ executors, но external process modules и package manager ещё не реал
 | Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
 | Search | `SearchBackend` | `modules.search` | `null`, `rg` |
 | Memory | `MemoryStore` | `modules.memory` | `none`, `jsonl`, `sqlite`, plugin-provided (`sqlite_plugin` если подключён `sqlite-memory`) |
-| Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none` |
+| Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, `carry_forward` |
 | Context | `ContextBuilder` | `modules.context` | `simple`, `repo_aware` |
 | Policy | `ApprovalPolicy` | `modules.policy` | `ask_write`, `allow_all` |
 | Patch | `PatchApplier` | `modules.patch` | `direct` |
@@ -70,7 +70,18 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 
 `modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/agent-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
 
-`modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. В v0 реализован только `none`, то есть автоматической записи памяти нет. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
+`modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
+
+`modules.memory_policy = "none"` — no-op, ничего автоматически не пишется.
+
+`modules.memory_policy = "carry_forward"` пишет один `MemoryItem` с `kind = "carry_forward:latest"` после каждого turn'а: последнее assistant-сообщение turn'а, обрезанное до 500 символов. Это heuristic handoff note. Старые записи не удаляются — `recall` по `kind` возвращает все в обратном порядке по id, свежайшая первой.
+
+Явная запись независимо от policy идёт через два канала:
+
+- Tool `remember_fact` — модель вызывает его в ходе turn'а, чтобы явно положить preference/fact. Spec принимает `{ kind: "preference" | "fact", content, metadata? }`.
+- REPL-команда `/remember [preference|fact] <text>` — ручная запись пользователя. Если первое слово не валидный kind, всё идёт как `fact`.
+
+Plugin-provided `MemoryPolicy` ещё не поддерживается (требует FFI callback bridge — см. `docs/memory-research.md`).
 
 `modules.memory = "none"` ничего не сохраняет и ничего не возвращает.
 
@@ -84,7 +95,7 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 
 Путь настраивается через `module_config.memory.jsonl.path`. Старый `memory.jsonl.path` пока читается как compatibility fallback.
 
-При активной `memory_policy = "none"` `remember` не вызывается автоматически. `SimpleContextBuilder` использует только `recall`.
+При активной `memory_policy = "none"` автоматической записи нет (но `remember_fact` tool и `/remember` REPL-команда остаются доступны). `SimpleContextBuilder` использует только `recall`.
 
 `domain/memory.rs` описывает формат данных памяти, а `modules/memory/*.rs` определяет, как эти данные сохраняются и читаются.
 

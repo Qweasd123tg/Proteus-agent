@@ -145,13 +145,18 @@ Scope:
 - ✅ SQLite FTS5 memory backend в ядре (modules.memory = "sqlite") и как
   отдельный плагин (modules.memory = "sqlite_plugin") — proof что
   PluginMemoryStore ABI работает с реальной I/O-зависимой реализацией.
+- ✅ Memory end-to-end: builtin `CarryForwardPolicy` (пишет один
+  handoff-snippet после каждого turn'а) + tool `remember_fact` (модель
+  явно кладёт preference/fact) + REPL-команда `/remember`. Store
+  реально наполняется и recall попадает в context через
+  `SimpleContextBuilder`.
 
 Следующий scope:
 
-- MemoryPolicy и ContextBuilder как плагины — требуют FFI callback bridge
-  (плагин зовёт `MemoryStore::recall` / `SearchBackend::search` из ядра
-  во время своей работы); архитектура в `example/research/deep-research-report.md`
-  и заметке `project_memory_plan.md` (per-call capability + mailbox);
+- MemoryPolicy как плагин (требует FFI callback bridge — плагин зовёт
+  `MemoryStore::recall` из ядра во время `after_turn`); ContextBuilder
+  как плагин (та же инфра — плагин зовёт `search`/`recall`); blueprint
+  в `docs/memory-research.md` (per-call capability + mailbox);
 - persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.
