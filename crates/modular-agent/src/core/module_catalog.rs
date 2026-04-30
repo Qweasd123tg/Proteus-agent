@@ -369,6 +369,90 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    /// Регистрирует ApprovalPolicy от плагина под указанным module_id.
+    ///
+    /// Policy-адаптер (`PluginPolicyAdapter`) stateless относительно cwd —
+    /// создаётся один раз и возвращается через `Arc<dyn ApprovalPolicy>` при
+    /// каждом build. Политика дубликатов: bail при конфликте id (plugin loader
+    /// превратит в warning).
+    pub fn register_plugin_policy(
+        &mut self,
+        module_id: &str,
+        policy: agent_contracts::plugin::PolicyObject,
+    ) -> Result<()> {
+        use crate::modules::PluginPolicyAdapter;
+        let slot_id = slot::POLICY;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "approval policy module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn ApprovalPolicy> = Arc::new(PluginPolicyAdapter::new(policy));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.policy()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest = ModuleManifest::builtin(
+            module_id,
+            ModuleKind::Policy,
+            &["plugin", "dylib"],
+        );
+        manifest.description = Some(format!("Approval policy from plugin (module id: {module_id})"));
+
+        self.entries
+            .insert(key, ModuleEntry { manifest, factory: erased });
+        drop(shared);
+        Ok(())
+    }
+
+    /// Регистрирует PatchApplier от плагина под указанным module_id.
+    ///
+    /// В отличие от policy, patch-адаптер требует cwd из `ModuleBuildContext` —
+    /// поэтому адаптер создаётся внутри factory closure, не заранее. Сам
+    /// `PatchApplierObject` хранится в `Arc` и клонируется между build'ами
+    /// (sabi_trait объект переиспользуется).
+    pub fn register_plugin_patch(
+        &mut self,
+        module_id: &str,
+        applier: agent_contracts::plugin::PatchApplierObject,
+    ) -> Result<()> {
+        use crate::modules::PluginPatchAdapter;
+        let slot_id = slot::PATCH;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "patch applier module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared_obj = Arc::new(applier);
+        let erased: ErasedFactory = Box::new(move |input| {
+            let ctx = input.module()?;
+            let adapter = PluginPatchAdapter::new(shared_obj.clone(), ctx.cwd.to_path_buf());
+            let arc: Arc<dyn PatchApplier> = Arc::new(adapter);
+            Ok(arc_to_any(arc))
+        });
+
+        let mut manifest = ModuleManifest::builtin(
+            module_id,
+            ModuleKind::Patch,
+            &["plugin", "dylib"],
+        );
+        manifest.description = Some(format!("Patch applier from plugin (module id: {module_id})"));
+
+        self.entries
+            .insert(key, ModuleEntry { manifest, factory: erased });
+        Ok(())
+    }
+
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
     /// Typed wrapper: factory возвращает `Arc<dyn T>`, который стирается
     /// в `Arc<dyn Any + Send + Sync>` для хранения.

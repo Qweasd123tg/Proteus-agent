@@ -26,7 +26,8 @@ use agent_contracts::{
     },
     contracts::RendererObject,
     plugin::{
-        PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref, PluginToolObject,
+        PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref,
+        PluginToolObject, PolicyObject,
     },
 };
 use anyhow::Result;
@@ -56,6 +57,30 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
         tool: PluginToolObject,
     ) -> RResult<(), PluginRegisterError> {
         match self.catalog.register_plugin_tool(tool) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_approval_policy(
+        &mut self,
+        module_id: RString,
+        policy: PolicyObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_policy(&id, policy) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_patch_applier(
+        &mut self,
+        module_id: RString,
+        applier: PatchApplierObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_patch(&id, applier) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }
