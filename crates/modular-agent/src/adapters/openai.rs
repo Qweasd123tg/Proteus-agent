@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use futures_util::stream;
+use eventsource_stream::Eventsource;
+use futures_util::{StreamExt, stream};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
@@ -10,7 +11,7 @@ use crate::{
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole, ModelCapabilities, TokenUsage,
+        MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
     },
 };
 
@@ -19,6 +20,10 @@ pub struct OpenAiResponsesClient {
     http: reqwest::Client,
     api_key: String,
     base_url: String,
+    /// Включает SSE-стрим на `/responses`. Управляется через поле
+    /// `stream: true` в provider config. По умолчанию выключено —
+    /// non-stream path существует дольше и остаётся fallback'ом.
+    stream_enabled: bool,
 }
 
 impl OpenAiResponsesClient {
@@ -30,11 +35,16 @@ impl OpenAiResponsesClient {
             .unwrap_or("https://api.openai.com/v1")
             .trim_end_matches('/')
             .to_owned();
+        let stream_enabled = config
+            .get("stream")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         Ok(Self {
             http: reqwest::Client::new(),
             api_key,
             base_url,
+            stream_enabled,
         })
     }
 }
@@ -56,10 +66,14 @@ impl ModelAdapter for OpenAiResponsesClient {
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let response = self.complete_response(request).await?;
-        Ok(Box::pin(stream::once(async move {
-            Ok(crate::model_standard::ModelStreamEvent::Response { response })
-        })))
+        if self.stream_enabled {
+            self.stream_response(request).await
+        } else {
+            let response = self.complete_response(request).await?;
+            Ok(Box::pin(stream::once(async move {
+                Ok(ModelStreamEvent::Response { response })
+            })))
+        }
     }
 }
 
@@ -83,6 +97,121 @@ impl OpenAiResponsesClient {
             .await?;
 
         from_openai_response(response)
+    }
+
+    async fn stream_response(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<ModelEventStream> {
+        let mut body = to_openai_request(&request)?;
+        body["stream"] = json!(true);
+        let url = format!("{}/responses", self.base_url);
+        let response = self
+            .http
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        // reqwest bytes_stream → eventsource-stream Event → наши ModelStreamEvent.
+        // State-parser хранит накопленные text parts / tool_calls / usage и
+        // выплёвывает финальный `Response` на event `response.completed`.
+        let bytes = response.bytes_stream();
+        let sse = bytes.eventsource();
+        let events = sse.flat_map(|chunk| match chunk {
+            Ok(event) => {
+                let mapped = translate_sse_event(&event.event, &event.data);
+                stream::iter(mapped.into_iter().map(Ok).collect::<Vec<_>>())
+            }
+            Err(error) => stream::iter(vec![Ok(ModelStreamEvent::Error {
+                message: format!("sse transport error: {error}"),
+            })]),
+        });
+        Ok(Box::pin(events))
+    }
+}
+
+/// Трансляция одного SSE event'а от OpenAI Responses API в наши
+/// `ModelStreamEvent`. Вариантов много; всё что не распознали —
+/// игнорируем (возвращаем пустой вектор), это безопасно потому что
+/// финальный `Response` приходит на `response.completed`.
+fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
+    // [DONE] sentinel у OpenAI не используется в Responses API, но на
+    // всякий случай — безопасный фаст-path.
+    if data == "[DONE]" {
+        return Vec::new();
+    }
+    let Ok(parsed) = serde_json::from_str::<Value>(data) else {
+        return Vec::new();
+    };
+    match event_type {
+        "response.output_text.delta" => {
+            if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
+                return vec![ModelStreamEvent::TextDelta {
+                    text: delta.to_owned(),
+                }];
+            }
+            Vec::new()
+        }
+        "response.reasoning_summary_text.delta" | "response.reasoning_summary.delta" => {
+            if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
+                return vec![ModelStreamEvent::ReasoningSummaryDelta {
+                    text: delta.to_owned(),
+                }];
+            }
+            Vec::new()
+        }
+        "response.function_call_arguments.delta" => {
+            let call_id = parsed
+                .get("item_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let args_delta = parsed
+                .get("delta")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            if call_id.is_empty() || args_delta.is_empty() {
+                return Vec::new();
+            }
+            vec![ModelStreamEvent::ToolCallDelta {
+                call_id,
+                name: None,
+                args_delta,
+            }]
+        }
+        "response.completed" => {
+            // В payload-е объект полного `response`, парсим через
+            // существующий `from_openai_response`. Если парсинг упал —
+            // эмитим Error, чтобы drain-loop не ждал вечно.
+            let response_value = parsed.get("response").cloned().unwrap_or(parsed);
+            match from_openai_response(response_value) {
+                Ok(response) => vec![ModelStreamEvent::Response { response }],
+                Err(error) => vec![ModelStreamEvent::Error {
+                    message: format!("failed to parse final response: {error}"),
+                }],
+            }
+        }
+        "response.error" | "error" => {
+            let message = parsed
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| {
+                    parsed
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "unknown openai error".to_owned());
+            vec![ModelStreamEvent::Error { message }]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -446,5 +575,110 @@ mod tests {
         );
         assert_eq!(body["max_output_tokens"], 123);
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    }
+
+    #[test]
+    fn translate_sse_text_delta() {
+        let events = translate_sse_event(
+            "response.output_text.delta",
+            &json!({ "delta": "hello" }).to_string(),
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ModelStreamEvent::TextDelta { text } => assert_eq!(text, "hello"),
+            other => panic!("expected TextDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn translate_sse_reasoning_delta_both_variants() {
+        for name in [
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_summary.delta",
+        ] {
+            let events = translate_sse_event(name, &json!({ "delta": "thinking" }).to_string());
+            assert_eq!(events.len(), 1, "{name}");
+            assert!(matches!(
+                &events[0],
+                ModelStreamEvent::ReasoningSummaryDelta { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn translate_sse_function_call_delta() {
+        let events = translate_sse_event(
+            "response.function_call_arguments.delta",
+            &json!({ "item_id": "call_1", "delta": "{\"a\"" }).to_string(),
+        );
+        match events.as_slice() {
+            [ModelStreamEvent::ToolCallDelta {
+                call_id,
+                name,
+                args_delta,
+            }] => {
+                assert_eq!(call_id, "call_1");
+                assert_eq!(name, &None);
+                assert_eq!(args_delta, "{\"a\"");
+            }
+            other => panic!("expected single ToolCallDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn translate_sse_completed_emits_final_response() {
+        let data = json!({
+            "response": {
+                "id": "resp_1",
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    { "type": "message", "content": [{ "type": "output_text", "text": "done" }] }
+                ],
+                "usage": { "input_tokens": 5, "output_tokens": 1 }
+            }
+        });
+        let events = translate_sse_event("response.completed", &data.to_string());
+        match events.as_slice() {
+            [ModelStreamEvent::Response { response }] => {
+                assert_eq!(response.finish_reason, FinishReason::Stop);
+                let text = response
+                    .message
+                    .parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        ContentPart::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+                assert_eq!(text, "done");
+            }
+            other => panic!("expected Response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn translate_sse_error_event() {
+        let events = translate_sse_event(
+            "response.error",
+            &json!({ "error": { "message": "boom" } }).to_string(),
+        );
+        match events.as_slice() {
+            [ModelStreamEvent::Error { message }] => assert_eq!(message, "boom"),
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn translate_sse_unknown_event_is_ignored() {
+        let events = translate_sse_event("response.weird.thing", "{}");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn translate_sse_done_sentinel_ignored() {
+        let events = translate_sse_event("message", "[DONE]");
+        assert!(events.is_empty());
     }
 }
