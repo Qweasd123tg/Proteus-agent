@@ -77,20 +77,13 @@ impl ModelAdapter for AnthropicMessagesClient {
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities {
-            supports_tools: true,
-            supports_parallel_tool_calls: true,
-            supports_streaming: false,
-            supports_json_schema: false,
-            supports_system_role: true,
-            supports_developer_role: false,
-            supports_cache_hints: false,
-            supports_reasoning_config: true,
-            supports_image_input: false,
-            supports_file_input: false,
-            max_input_tokens: Some(200_000),
-            max_output_tokens: Some(64_000),
-        }
+        ModelCapabilities::empty()
+            .with_tools(true)
+            .with_parallel_tool_calls(true)
+            .with_system_role(true)
+            .with_reasoning_config(true)
+            .with_max_input_tokens(Some(200_000))
+            .with_max_output_tokens(Some(64_000))
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -340,19 +333,18 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
                 }
             }
             Some("tool_use") if accept_tool_calls => {
-                let call = ToolCall {
-                    id: item
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| anyhow!("tool_use missing id"))?
-                        .to_owned(),
-                    name: item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| anyhow!("tool_use missing name"))?
-                        .to_owned(),
-                    args: item.get("input").cloned().unwrap_or(Value::Null),
-                };
+                let id = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("tool_use missing id"))?
+                    .to_owned();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("tool_use missing name"))?
+                    .to_owned();
+                let args = item.get("input").cloned().unwrap_or(Value::Null);
+                let call = ToolCall::new(id, name, args);
                 parts.push(ContentPart::ToolCall { call: call.clone() });
                 tool_calls.push(call);
             }
@@ -361,20 +353,14 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
         }
     }
 
-    Ok(CanonicalModelResponse {
-        message: CanonicalMessage {
-            id: crate::domain::new_message_id(),
-            role: MessageRole::Assistant,
-            parts,
-            name: None,
-            tool_call_id: None,
-            metadata: serde_json::Value::Null,
-        },
-        tool_calls,
-        finish_reason,
-        usage: parse_usage(&response),
-        provider_metadata: response,
-    })
+    let message = CanonicalMessage::new(MessageRole::Assistant, parts);
+    let usage = parse_usage(&response);
+    let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
+    if let Some(u) = usage {
+        resp = resp.with_usage(u);
+    }
+    resp = resp.with_provider_metadata(response);
+    Ok(resp)
 }
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {

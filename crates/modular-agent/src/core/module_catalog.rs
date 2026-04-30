@@ -592,39 +592,30 @@ impl BuiltinModuleCatalog {
                     }
                 }
             };
+            let spec = crate::domain::ToolSpec::new(
+                configured.name.clone(),
+                configured.description.clone(),
+                configured.input_schema.clone(),
+                effective_configured_tool_safety(configured),
+            )
+            .with_metadata(configured.metadata.clone());
+            let spec = if let Some(timeout_ms) = configured.timeout_ms {
+                spec.with_timeout(timeout_ms)
+            } else {
+                spec
+            };
             match &configured.executor {
                 crate::core::ConfiguredToolExecutorConfig::Native { handler } => {
                     let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
                     tools.register_with_source(
                         source,
-                        ConfiguredNativeTool::new(
-                            crate::domain::ToolSpec {
-                                name: configured.name.clone(),
-                                description: configured.description.clone(),
-                                input_schema: configured.input_schema.clone(),
-                                safety: effective_configured_tool_safety(configured),
-                                timeout_ms: configured.timeout_ms,
-                                metadata: configured.metadata.clone(),
-                            },
-                            inner,
-                        ),
+                        ConfiguredNativeTool::new(spec, inner),
                     )?;
                 }
                 crate::core::ConfiguredToolExecutorConfig::Process { command, args } => {
                     tools.register_with_source(
                         source,
-                        ConfiguredProcessTool::new(
-                            crate::domain::ToolSpec {
-                                name: configured.name.clone(),
-                                description: configured.description.clone(),
-                                input_schema: configured.input_schema.clone(),
-                                safety: effective_configured_tool_safety(configured),
-                                timeout_ms: configured.timeout_ms,
-                                metadata: configured.metadata.clone(),
-                            },
-                            command.clone(),
-                            args.clone(),
-                        ),
+                        ConfiguredProcessTool::new(spec, command.clone(), args.clone()),
                     )?;
                 }
                 crate::core::ConfiguredToolExecutorConfig::Mcp {
@@ -636,14 +627,7 @@ impl BuiltinModuleCatalog {
                 } => tools.register_with_source(
                     source,
                     ConfiguredMcpTool::new(
-                        crate::domain::ToolSpec {
-                            name: configured.name.clone(),
-                            description: configured.description.clone(),
-                            input_schema: configured.input_schema.clone(),
-                            safety: effective_configured_tool_safety(configured),
-                            timeout_ms: configured.timeout_ms,
-                            metadata: configured.metadata.clone(),
-                        },
+                        spec,
                         command.clone(),
                         args.clone(),
                         tool.clone(),

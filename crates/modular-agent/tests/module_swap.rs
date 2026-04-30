@@ -22,9 +22,8 @@ use modular_agent::{
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
-        ModuleKind, PermissionMode, PolicyDecision, ReasoningConfig, ResponseFormat,
-        SamplingConfig, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id,
-        new_session_id, new_thread_id, new_turn_id,
+        ModuleKind, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall, ToolChoice,
+        ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -604,11 +603,7 @@ async fn tool_visibility_and_execution_policy_are_separate() {
 
     assert!(registry.tools.spec("write_file").is_ok());
 
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "write_file".to_owned(),
-        args: json!({ "path": "x.txt", "content": "x" }),
-    };
+    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "x.txt", "content": "x" }));
     let decision = registry.policy.evaluate(
         &call,
         &PolicyContext::new(
@@ -671,11 +666,7 @@ async fn execution_policy_receives_real_tool_call_args() {
         .execute(
             &ctx,
             &AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "write_file".to_owned(),
-                args: json!({ "path": "policy-args.txt", "content": "seen" }),
-            },
+            ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "policy-args.txt", "content": "seen" })),
         )
         .await
         .unwrap();
@@ -796,11 +787,7 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
         .execute(
             &ctx,
             &AgentTask::new("read".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "read_file".to_owned(),
-                args: json!({ "path": "sample.txt" }),
-            },
+            ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "sample.txt" })),
         )
         .await
         .unwrap();
@@ -886,11 +873,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
         .execute(
             &ctx,
             &AgentTask::new("echo".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "echo_args".to_owned(),
-                args: json!({ "message": "hello" }),
-            },
+            ToolCall::new(new_call_id(), "echo_args".to_owned(), json!({ "message": "hello" })),
         )
         .await
         .unwrap();
@@ -947,11 +930,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
         .execute(
             &ctx,
             &AgentTask::new("touch".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "touch_marker".to_owned(),
-                args: json!({}),
-            },
+            ToolCall::new(new_call_id(), "touch_marker".to_owned(), json!({})),
         )
         .await
         .unwrap();
@@ -1044,11 +1023,7 @@ done
         .execute(
             &ctx,
             &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "mcp_echo".to_owned(),
-                args: json!({ "name": "attempted_override" }),
-            },
+            ToolCall::new(new_call_id(), "mcp_echo".to_owned(), json!({ "name": "attempted_override" })),
         )
         .await
         .unwrap();
@@ -1107,11 +1082,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
         .execute(
             &ctx,
             &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "mcp_hidden".to_owned(),
-                args: json!({}),
-            },
+            ToolCall::new(new_call_id(), "mcp_hidden".to_owned(), json!({})),
         )
         .await
         .unwrap();
@@ -1194,11 +1165,7 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
         .execute(
             &ctx,
             &AgentTask::new("try shell".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "shell".to_owned(),
-                args: json!({ "command": "echo should-not-run" }),
-            },
+            ToolCall::new(new_call_id(), "shell".to_owned(), json!({ "command": "echo should-not-run" })),
         )
         .await
         .unwrap();
@@ -1244,11 +1211,7 @@ async fn tool_orchestrator_enforces_tool_timeout() {
         .execute(
             &ctx,
             &AgentTask::new("slow".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "slow".to_owned(),
-                args: serde_json::Value::Null,
-            },
+            ToolCall::new(new_call_id(), "slow".to_owned(), serde_json::Value::Null),
         )
         .await
         .unwrap();
@@ -1306,11 +1269,7 @@ async fn malformed_tool_call_is_rejected_before_approval() {
         .execute(
             &ctx,
             &AgentTask::new("write malformed".to_owned(), dir.path().to_path_buf()),
-            ToolCall {
-                id: new_call_id(),
-                name: "write_file".to_owned(),
-                args: json!({}),
-            },
+            ToolCall::new(new_call_id(), "write_file".to_owned(), json!({})),
         )
         .await
         .unwrap();
@@ -1548,25 +1507,17 @@ struct FinalAfterToolLimitModel {
 #[async_trait]
 impl Tool for NetworkTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "network_probe".to_owned(),
-            description: "Synthetic network tool for policy tests".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            safety: ToolSafety::Network,
-            timeout_ms: Some(1_000),
-            metadata: serde_json::Value::Null,
-        }
+        ToolSpec::new(
+            "network_probe",
+            "Synthetic network tool for policy tests",
+            json!({ "type": "object" }),
+            ToolSafety::Network,
+        )
+        .with_timeout(1_000)
     }
 
     async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output: "network".to_owned(),
-            content: Vec::new(),
-            error: None,
-            metadata: serde_json::Value::Null,
-        })
+        Ok(ToolResult::ok(call.id.clone(), "network"))
     }
 }
 
@@ -1596,36 +1547,25 @@ impl ModelClient for FinalAfterToolLimitModel {
     ) -> anyhow::Result<CanonicalModelResponse> {
         let call_number = self.calls.fetch_add(1, Ordering::SeqCst);
         if call_number == 0 {
-            let call = ToolCall {
-                id: new_call_id(),
-                name: "write_file".to_owned(),
-                args: json!({ "path": "limit-final.txt", "content": "done" }),
-            };
-            return Ok(CanonicalModelResponse {
-                message: CanonicalMessage {
-                    id: modular_agent::domain::new_message_id(),
-                    role: MessageRole::Assistant,
-                    parts: vec![ContentPart::ToolCall { call: call.clone() }],
-                    name: None,
-                    tool_call_id: None,
-                    metadata: serde_json::Value::Null,
-                },
-                tool_calls: vec![call],
-                finish_reason: FinishReason::ToolCalls,
-                usage: None,
-                provider_metadata: serde_json::Value::Null,
-            });
+            let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "limit-final.txt", "content": "done" }));
+            let message = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            );
+            return Ok(CanonicalModelResponse::new(
+                message,
+                vec![call],
+                FinishReason::ToolCalls,
+            ));
         }
 
         assert!(request.tools.is_empty());
         assert_eq!(request.tool_choice, ToolChoice::None);
-        Ok(CanonicalModelResponse {
-            message: CanonicalMessage::text(MessageRole::Assistant, "final after tool limit"),
-            tool_calls: Vec::new(),
-            finish_reason: FinishReason::Stop,
-            usage: None,
-            provider_metadata: serde_json::Value::Null,
-        })
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "final after tool limit"),
+            Vec::new(),
+            FinishReason::Stop,
+        ))
     }
 }
 
@@ -1653,30 +1593,21 @@ impl ModelClient for LengthToolCallModel {
         &self,
         _request: CanonicalModelRequest,
     ) -> anyhow::Result<CanonicalModelResponse> {
-        let call = ToolCall {
-            id: new_call_id(),
-            name: "write_file".to_owned(),
-            args: json!({ "path": "partial.txt", "content": "should not write" }),
-        };
-        Ok(CanonicalModelResponse {
-            message: CanonicalMessage {
-                id: modular_agent::domain::new_message_id(),
-                role: MessageRole::Assistant,
-                parts: vec![
-                    ContentPart::Text {
-                        text: "partial write".to_owned(),
-                    },
-                    ContentPart::ToolCall { call: call.clone() },
-                ],
-                name: None,
-                tool_call_id: None,
-                metadata: serde_json::Value::Null,
-            },
-            tool_calls: vec![call],
-            finish_reason: FinishReason::Length,
-            usage: None,
-            provider_metadata: serde_json::Value::Null,
-        })
+        let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "partial.txt", "content": "should not write" }));
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                ContentPart::Text {
+                    text: "partial write".to_owned(),
+                },
+                ContentPart::ToolCall { call: call.clone() },
+            ],
+        );
+        Ok(CanonicalModelResponse::new(
+            message,
+            vec![call],
+            FinishReason::Length,
+        ))
     }
 }
 
@@ -1688,26 +1619,18 @@ struct NeverModel;
 #[async_trait]
 impl Tool for SlowTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "slow".to_owned(),
-            description: "Synthetic slow tool for timeout tests".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: Some(5),
-            metadata: serde_json::Value::Null,
-        }
+        ToolSpec::new(
+            "slow",
+            "Synthetic slow tool for timeout tests",
+            json!({ "type": "object" }),
+            ToolSafety::ReadOnly,
+        )
+        .with_timeout(5)
     }
 
     async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
         tokio::time::sleep(Duration::from_secs(60)).await;
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output: "done".to_owned(),
-            content: Vec::new(),
-            error: None,
-            metadata: serde_json::Value::Null,
-        })
+        Ok(ToolResult::ok(call.id.clone(), "done"))
     }
 }
 
@@ -1869,11 +1792,7 @@ async fn list_dir_lists_workspace_entries() {
     std::fs::create_dir(dir.path().join("src")).expect("src dir");
     std::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n").expect("main file");
     let tool = ListDirTool;
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "list_dir".to_owned(),
-        args: json!({ "path": "." }),
-    };
+    let call = ToolCall::new(new_call_id(), "list_dir".to_owned(), json!({ "path": "." }));
 
     let result = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1889,11 +1808,7 @@ async fn list_dir_lists_workspace_entries() {
 async fn list_dir_rejects_parent_traversal() {
     let dir = temp_workspace();
     let tool = ListDirTool;
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "list_dir".to_owned(),
-        args: json!({ "path": ".." }),
-    };
+    let call = ToolCall::new(new_call_id(), "list_dir".to_owned(), json!({ "path": ".." }));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1907,11 +1822,7 @@ async fn list_dir_rejects_parent_traversal() {
 async fn read_file_directory_error_points_to_list_dir() {
     let dir = temp_workspace();
     let tool = ReadFileTool;
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "read_file".to_owned(),
-        args: json!({ "path": "." }),
-    };
+    let call = ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "." }));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1925,13 +1836,9 @@ async fn read_file_directory_error_points_to_list_dir() {
 async fn apply_patch_replaces_exact_text_once() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "apply_patch".to_owned(),
-        args: json!({
+    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
             "patch": "*** Begin Patch\n*** Update File: sample.txt\n@@\n-hello modular agent\n+patched modular agent\n*** End Patch",
-        }),
-    };
+        }));
 
     let result = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1950,13 +1857,9 @@ async fn apply_patch_replaces_exact_text_once() {
 async fn apply_patch_adds_new_file_from_internal_format() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "apply_patch".to_owned(),
-        args: json!({
+    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
             "patch": "*** Begin Patch\n*** Add File: nested/new.txt\n+hello\n+patch\n*** End Patch",
-        }),
-    };
+        }));
 
     let result = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1975,13 +1878,9 @@ async fn apply_patch_adds_new_file_from_internal_format() {
 async fn apply_patch_rejects_parent_traversal() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "apply_patch".to_owned(),
-        args: json!({
+    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
             "patch": "*** Begin Patch\n*** Add File: ../outside.txt\n+outside\n*** End Patch",
-        }),
-    };
+        }));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -2060,11 +1959,7 @@ async fn write_file_rejects_parent_traversal() {
     let dir = temp_workspace();
     let outside = dir.path().parent().unwrap().join("outside-write.txt");
     let tool = WriteFileTool;
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "write_file".to_owned(),
-        args: json!({ "path": "../outside-write.txt", "content": "escaped" }),
-    };
+    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "../outside-write.txt", "content": "escaped" }));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -2083,11 +1978,7 @@ async fn write_file_rejects_symlink_escape() {
     let link = dir.path().join("outside-link");
     std::os::unix::fs::symlink(outside_dir.path(), &link).expect("symlink");
     let tool = WriteFileTool;
-    let call = ToolCall {
-        id: new_call_id(),
-        name: "write_file".to_owned(),
-        args: json!({ "path": "outside-link/escape.txt", "content": "escaped" }),
-    };
+    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "outside-link/escape.txt", "content": "escaped" }));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -2101,22 +1992,13 @@ async fn write_file_rejects_symlink_escape() {
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {
     let model = ModelService::new(Arc::new(FakeModelClient));
-    let request = CanonicalModelRequest {
-        model: ModelRef::new("fake", "fake-tool-model"),
-        instructions: Vec::new(),
-        messages: vec![CanonicalMessage::text(
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("fake", "fake-tool-model"),
+        vec![CanonicalMessage::text(
             MessageRole::User,
             "read_file sample.txt",
         )],
-        tools: Vec::new(),
-        tool_choice: ToolChoice::Auto,
-        response_format: ResponseFormat::Text,
-        sampling: SamplingConfig::default(),
-        reasoning: ReasoningConfig::default(),
-        limits: ModelLimits::default(),
-        cache: CacheHints::default(),
-        metadata: serde_json::Value::Null,
-    };
+    );
 
     let response = model.complete(request).await.unwrap();
 
@@ -2127,33 +2009,19 @@ async fn fake_model_uses_canonical_contract() {
 #[tokio::test]
 async fn model_service_shapes_request_before_adapter_call() {
     let model = ModelService::new(Arc::new(NoToolsAdapter));
-    let request = CanonicalModelRequest {
-        model: ModelRef::new("test", "no-tools"),
-        instructions: Vec::new(),
-        messages: vec![CanonicalMessage::text(MessageRole::User, "hello")],
-        tools: vec![ToolSpec::new(
-            "read_file",
-            "read file",
-            json!({ "type": "object" }),
-            ToolSafety::ReadOnly,
-        )],
-        tool_choice: ToolChoice::Auto,
-        response_format: ResponseFormat::Text,
-        sampling: SamplingConfig::default(),
-        reasoning: ReasoningConfig {
-            effort: Some("high".to_owned()),
-            summary: true,
-        },
-        limits: ModelLimits {
-            max_input_tokens: Some(10_000),
-            max_output_tokens: Some(10_000),
-        },
-        cache: CacheHints {
-            cache_instructions: true,
-            cache_context: true,
-        },
-        metadata: serde_json::Value::Null,
-    };
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("test", "no-tools"),
+        vec![CanonicalMessage::text(MessageRole::User, "hello")],
+    )
+    .with_tools(vec![ToolSpec::new(
+        "read_file",
+        "read file",
+        json!({ "type": "object" }),
+        ToolSafety::ReadOnly,
+    )])
+    .with_reasoning(ReasoningConfig::new(Some("high".to_owned()), true))
+    .with_limits(ModelLimits::new(Some(10_000), Some(10_000)))
+    .with_cache(CacheHints::new(true, true));
 
     let response = model.complete(request).await.unwrap();
 
@@ -2176,43 +2044,33 @@ impl ModelAdapter for NoToolsAdapter {
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities {
-            supports_tools: false,
-            supports_parallel_tool_calls: false,
-            supports_streaming: false,
-            supports_json_schema: false,
-            supports_system_role: true,
-            supports_developer_role: true,
-            supports_cache_hints: false,
-            supports_reasoning_config: false,
-            supports_image_input: false,
-            supports_file_input: false,
-            max_input_tokens: Some(512),
-            max_output_tokens: Some(128),
-        }
+        ModelCapabilities::empty()
+            .with_system_role(true)
+            .with_developer_role(true)
+            .with_max_input_tokens(Some(512))
+            .with_max_output_tokens(Some(128))
     }
 
     async fn complete(
         &self,
         request: CanonicalModelRequest,
     ) -> anyhow::Result<CanonicalModelResponse> {
-        Ok(CanonicalModelResponse {
-            message: CanonicalMessage::text(MessageRole::Assistant, "ok"),
-            tool_calls: Vec::new(),
-            finish_reason: FinishReason::Stop,
-            usage: None,
-            provider_metadata: json!({
-                "tool_count": request.tools.len(),
-                "tool_choice": format!("{:?}", request.tool_choice),
-                "reasoning": request.reasoning.effort,
-                "cache": if request.cache == CacheHints::default() {
-                    serde_json::Value::Null
-                } else {
-                    json!(request.cache)
-                },
-                "max_output_tokens": request.limits.max_output_tokens,
-            }),
-        })
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "ok"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_provider_metadata(json!({
+            "tool_count": request.tools.len(),
+            "tool_choice": format!("{:?}", request.tool_choice),
+            "reasoning": request.reasoning.effort,
+            "cache": if request.cache == CacheHints::default() {
+                serde_json::Value::Null
+            } else {
+                json!(request.cache)
+            },
+            "max_output_tokens": request.limits.max_output_tokens,
+        })))
     }
 
     async fn stream(

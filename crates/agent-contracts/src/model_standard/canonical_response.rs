@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{domain::ToolCall, model_standard::CanonicalMessage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct CanonicalModelResponse {
     pub message: CanonicalMessage,
     pub tool_calls: Vec<ToolCall>,

@@ -60,14 +60,10 @@ impl Workflow for SingleLoopWorkflow {
 
         let mut model_messages = persistent_messages.clone();
         for chunk in bundle.chunks {
-            model_messages.push(CanonicalMessage {
-                id: crate::domain::new_message_id(),
-                role: MessageRole::User,
-                parts: vec![ContentPart::Context { chunk }],
-                name: Some("context".to_owned()),
-                tool_call_id: None,
-                metadata: serde_json::Value::Null,
-            });
+            model_messages.push(
+                CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
+                    .with_name("context"),
+            );
         }
         let tool_orchestrator = ToolOrchestrator::default();
         maybe_add_directory_listing_context(&tool_orchestrator, &ctx, &task, &mut model_messages)
@@ -108,16 +104,12 @@ impl Workflow for SingleLoopWorkflow {
 
             for call in response.tool_calls {
                 let result = tool_orchestrator.execute(&ctx, &task, call).await?;
-                let tool_result_message = CanonicalMessage {
-                    id: crate::domain::new_message_id(),
-                    role: MessageRole::Tool,
-                    parts: vec![ContentPart::ToolResult {
-                        result: result.clone(),
-                    }],
-                    name: None,
-                    tool_call_id: Some(result.call_id),
-                    metadata: serde_json::Value::Null,
-                };
+                let call_id = result.call_id.clone();
+                let tool_result_message = CanonicalMessage::new(
+                    MessageRole::Tool,
+                    vec![ContentPart::ToolResult { result }],
+                )
+                .with_tool_call_id(call_id);
                 model_messages.push(tool_result_message.clone());
                 persistent_messages.push(tool_result_message);
             }
@@ -203,14 +195,10 @@ async fn maybe_add_directory_listing_context(
     .with_score(1.0)
     .with_metadata(result.metadata);
 
-    messages.push(CanonicalMessage {
-        id: crate::domain::new_message_id(),
-        role: MessageRole::User,
-        parts: vec![ContentPart::Context { chunk }],
-        name: Some("context".to_owned()),
-        tool_call_id: None,
-        metadata: serde_json::Value::Null,
-    });
+    messages.push(
+        CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
+            .with_name("context"),
+    );
 
     Ok(())
 }
@@ -315,23 +303,13 @@ fn request_from_state(
     cwd: &Path,
     messages: &[CanonicalMessage],
 ) -> CanonicalModelRequest {
-    CanonicalModelRequest {
-        model: ctx.model_ref.clone(),
-        instructions: vec![InstructionBlock::new(
+    CanonicalModelRequest::new(ctx.model_ref.clone(), messages.to_vec())
+        .with_instructions(vec![InstructionBlock::new(
             InstructionKind::System,
             "You are running inside a modular v0 agent skeleton. Answer normal conversational questions directly. Use tools only when they are necessary and only if they are included in the current tool list.",
             100,
-        )],
-        messages: messages.to_vec(),
-        tools: tool_orchestrator.visible_tool_specs(ctx, cwd),
-        tool_choice: crate::domain::ToolChoice::Auto,
-        response_format: crate::domain::ResponseFormat::Text,
-        sampling: crate::domain::SamplingConfig::default(),
-        reasoning: crate::domain::ReasoningConfig::default(),
-        limits: crate::domain::ModelLimits::default(),
-        cache: crate::domain::CacheHints::default(),
-        metadata: serde_json::Value::Null,
-    }
+        )])
+        .with_tools(tool_orchestrator.visible_tool_specs(ctx, cwd))
 }
 
 fn message_text(message: &CanonicalMessage) -> String {

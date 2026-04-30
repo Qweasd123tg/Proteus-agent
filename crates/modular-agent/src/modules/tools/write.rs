@@ -17,10 +17,10 @@ pub struct WriteFileTool;
 #[async_trait]
 impl Tool for WriteFileTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "write_file".to_owned(),
-            description: "Write a UTF-8 file inside the current workspace".to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "write_file",
+            "Write a UTF-8 file inside the current workspace",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
@@ -28,10 +28,9 @@ impl Tool for WriteFileTool {
                 },
                 "required": ["path", "content"]
             }),
-            safety: ToolSafety::WritesFiles,
-            timeout_ms: Some(5_000),
-            metadata: serde_json::Value::Null,
-        }
+            ToolSafety::WritesFiles,
+        )
+        .with_timeout(5_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -41,14 +40,11 @@ impl Tool for WriteFileTool {
         tokio::fs::write(&target, content)
             .await
             .with_context(|| format!("failed to write {}", target.display()))?;
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output: format!("wrote {} bytes to {}", content.len(), path.display()),
-            content: Vec::new(),
-            error: None,
-            metadata: json!({ "path": path }),
-        })
+        Ok(ToolResult::ok(
+            call.id.clone(),
+            format!("wrote {} bytes to {}", content.len(), path.display()),
+        )
+        .with_metadata(json!({ "path": path })))
     }
 }
 

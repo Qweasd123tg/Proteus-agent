@@ -17,9 +17,16 @@ impl ModelRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct SamplingConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+}
+
+impl SamplingConfig {
+    pub fn new(temperature: Option<f32>, top_p: Option<f32>) -> Self {
+        Self { temperature, top_p }
+    }
 }
 
 impl Default for SamplingConfig {
@@ -32,15 +39,32 @@ impl Default for SamplingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct ReasoningConfig {
     pub effort: Option<String>,
     pub summary: bool,
 }
 
+impl ReasoningConfig {
+    pub fn new(effort: Option<String>, summary: bool) -> Self {
+        Self { effort, summary }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ModelLimits {
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
+}
+
+impl ModelLimits {
+    pub fn new(max_input_tokens: Option<u32>, max_output_tokens: Option<u32>) -> Self {
+        Self {
+            max_input_tokens,
+            max_output_tokens,
+        }
+    }
 }
 
 impl Default for ModelLimits {
@@ -53,9 +77,19 @@ impl Default for ModelLimits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct CacheHints {
     pub cache_instructions: bool,
     pub cache_context: bool,
+}
+
+impl CacheHints {
+    pub fn new(cache_instructions: bool, cache_context: bool) -> Self {
+        Self {
+            cache_instructions,
+            cache_context,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

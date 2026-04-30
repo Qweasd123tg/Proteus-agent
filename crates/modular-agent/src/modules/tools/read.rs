@@ -15,11 +15,10 @@ pub struct ReadFileTool;
 #[async_trait]
 impl Tool for ReadFileTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "read_file".to_owned(),
-            description: "Read a UTF-8 file inside the current workspace, optionally by line range"
-                .to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "read_file",
+            "Read a UTF-8 file inside the current workspace, optionally by line range",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
@@ -40,10 +39,9 @@ impl Tool for ReadFileTool {
                 },
                 "required": ["path"]
             }),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: Some(5_000),
-            metadata: serde_json::Value::Null,
-        }
+            ToolSafety::ReadOnly,
+        )
+        .with_timeout(5_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -63,14 +61,7 @@ impl Tool for ReadFileTool {
             .with_context(|| format!("failed to read {}", path.display()))?;
         let options = ReadOptions::from_call(call)?;
         let (output, metadata) = render_read_output(&content, &path, options);
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output,
-            content: Vec::new(),
-            error: None,
-            metadata,
-        })
+        Ok(ToolResult::ok(call.id.clone(), output).with_metadata(metadata))
     }
 }
 
@@ -206,11 +197,7 @@ mod tests {
 
         let result = tool
             .invoke(
-                &ToolCall {
-                    id: new_call_id(),
-                    name: "read_file".to_owned(),
-                    args: json!({ "path": "sample.txt" }),
-                },
+                &ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "sample.txt" })),
                 ToolContext::new(dir.path().to_path_buf()),
             )
             .await
@@ -230,16 +217,12 @@ mod tests {
 
         let result = tool
             .invoke(
-                &ToolCall {
-                    id: new_call_id(),
-                    name: "read_file".to_owned(),
-                    args: json!({
+                &ToolCall::new(new_call_id(), "read_file".to_owned(), json!({
                         "path": "sample.txt",
                         "start_line": 2,
                         "limit": 2,
                         "line_numbers": true,
-                    }),
-                },
+                    })),
                 ToolContext::new(dir.path().to_path_buf()),
             )
             .await
@@ -260,11 +243,7 @@ mod tests {
 
         let error = tool
             .invoke(
-                &ToolCall {
-                    id: new_call_id(),
-                    name: "read_file".to_owned(),
-                    args: json!({ "path": "sample.txt", "limit": 0 }),
-                },
+                &ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "sample.txt", "limit": 0 })),
                 ToolContext::new(dir.path().to_path_buf()),
             )
             .await

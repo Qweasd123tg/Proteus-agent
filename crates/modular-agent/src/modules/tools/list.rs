@@ -17,10 +17,10 @@ pub struct ListDirTool;
 #[async_trait]
 impl Tool for ListDirTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "list_dir".to_owned(),
-            description: "List files and directories inside the current workspace".to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "list_dir",
+            "List files and directories inside the current workspace",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {
@@ -29,10 +29,9 @@ impl Tool for ListDirTool {
                     }
                 }
             }),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: Some(5_000),
-            metadata: serde_json::Value::Null,
-        }
+            ToolSafety::ReadOnly,
+        )
+        .with_timeout(5_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -59,17 +58,11 @@ impl Tool for ListDirTool {
         }
 
         rendered.sort();
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: true,
-            output: rendered.join("\n"),
-            content: Vec::new(),
-            error: None,
-            metadata: json!({
-                "path": path,
-                "entries": rendered.len(),
-            }),
-        })
+        let entry_count = rendered.len();
+        Ok(ToolResult::ok(call.id.clone(), rendered.join("\n")).with_metadata(json!({
+            "path": path,
+            "entries": entry_count,
+        })))
     }
 }
 

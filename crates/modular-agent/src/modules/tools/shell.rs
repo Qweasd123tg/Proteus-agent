@@ -19,20 +19,19 @@ pub struct ShellTool;
 #[async_trait]
 impl Tool for ShellTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "shell".to_owned(),
-            description: "Run a shell command in the current workspace".to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "shell",
+            "Run a shell command in the current workspace",
+            json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string" }
                 },
                 "required": ["command"]
             }),
-            safety: ToolSafety::RunsCommands,
-            timeout_ms: Some(30_000),
-            metadata: serde_json::Value::Null,
-        }
+            ToolSafety::RunsCommands,
+        )
+        .with_timeout(30_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -65,25 +64,27 @@ impl Tool for ShellTool {
             rendered.push_str(&output.stderr.text);
         }
 
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: output.status.success(),
-            output: rendered,
-            content: Vec::new(),
-            error: output.status.code().and_then(|code| {
-                if output.status.success() {
-                    None
-                } else {
-                    Some(format!("process exited with code {code}"))
-                }
-            }),
-            metadata: annotate_bounded_output(
-                json!({ "status": output.status.code() }),
-                &output,
-                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
-                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
-            ),
-        })
+        let metadata = annotate_bounded_output(
+            json!({ "status": output.status.code() }),
+            &output,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+        );
+        let error = output.status.code().and_then(|code| {
+            if output.status.success() {
+                None
+            } else {
+                Some(format!("process exited with code {code}"))
+            }
+        });
+        Ok(ToolResult::new(
+            call.id.clone(),
+            output.status.success(),
+            rendered,
+            Vec::new(),
+            error,
+            metadata,
+        ))
     }
 }
 
@@ -99,13 +100,13 @@ mod tests {
     #[tokio::test]
     async fn shell_output_is_bounded_before_returning_result() {
         let cwd = tempfile::tempdir().expect("temp dir");
-        let call = ToolCall {
-            id: new_call_id(),
-            name: "shell".to_owned(),
-            args: json!({
+        let call = ToolCall::new(
+            new_call_id(),
+            "shell",
+            json!({
                 "command": "i=0; while [ \"$i\" -lt 5000 ]; do printf 0123456789; i=$((i+1)); done"
             }),
-        };
+        );
 
         let result = ShellTool
             .invoke(&call, ToolContext::new(cwd.path().to_path_buf()))

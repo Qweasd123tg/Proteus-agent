@@ -15,6 +15,7 @@ pub enum MessageRole {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct CanonicalMessage {
     pub id: MessageId,
     pub role: MessageRole,
@@ -61,5 +62,38 @@ impl CanonicalMessage {
             tool_call_id: None,
             metadata: serde_json::Value::Null,
         }
+    }
+
+    /// Сообщение с произвольными parts. Остальные поля можно выставить
+    /// через `with_*` helpers.
+    pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Self {
+        Self {
+            id: crate::domain::new_message_id(),
+            role,
+            parts,
+            name: None,
+            tool_call_id: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_id(mut self, id: MessageId) -> Self {
+        self.id = id;
+        self
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_tool_call_id(mut self, id: CallId) -> Self {
+        self.tool_call_id = Some(id);
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
     }
 }

@@ -40,37 +40,27 @@ impl FakeModelClient {
                 MessageRole::Assistant,
                 format!("Fake final answer after tool result:\n{result_text}"),
             );
-            return Ok(CanonicalModelResponse {
+            return Ok(CanonicalModelResponse::new(
                 message,
-                tool_calls: Vec::new(),
-                finish_reason: FinishReason::Stop,
-                usage: None,
-                provider_metadata: json!({"provider": "fake"}),
-            });
+                Vec::new(),
+                FinishReason::Stop,
+            )
+            .with_provider_metadata(json!({"provider": "fake"})));
         }
 
         let user_text = latest_user_text(&request).unwrap_or_default();
         if let Some(path) = parse_read_file_request(&user_text) {
-            let call = ToolCall {
-                id: new_call_id(),
-                name: "read_file".to_owned(),
-                args: json!({ "path": path }),
-            };
-            let message = CanonicalMessage {
-                id: crate::domain::new_message_id(),
-                role: MessageRole::Assistant,
-                parts: vec![ContentPart::ToolCall { call: call.clone() }],
-                name: None,
-                tool_call_id: None,
-                metadata: serde_json::Value::Null,
-            };
-            return Ok(CanonicalModelResponse {
+            let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": path }));
+            let message = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            );
+            return Ok(CanonicalModelResponse::new(
                 message,
-                tool_calls: vec![call],
-                finish_reason: FinishReason::ToolCalls,
-                usage: None,
-                provider_metadata: json!({"provider": "fake"}),
-            });
+                vec![call],
+                FinishReason::ToolCalls,
+            )
+            .with_provider_metadata(json!({"provider": "fake"})));
         }
 
         if let Some(listing) = latest_directory_listing_context(&request) {
@@ -78,13 +68,12 @@ impl FakeModelClient {
                 MessageRole::Assistant,
                 format!("Fake final answer after directory listing:\n{listing}"),
             );
-            return Ok(CanonicalModelResponse {
+            return Ok(CanonicalModelResponse::new(
                 message,
-                tool_calls: Vec::new(),
-                finish_reason: FinishReason::Stop,
-                usage: None,
-                provider_metadata: json!({"provider": "fake"}),
-            });
+                Vec::new(),
+                FinishReason::Stop,
+            )
+            .with_provider_metadata(json!({"provider": "fake"})));
         }
 
         let context_chunks = request
@@ -100,13 +89,10 @@ impl FakeModelClient {
                 request.tools.len()
             ),
         );
-        Ok(CanonicalModelResponse {
-            message,
-            tool_calls: Vec::new(),
-            finish_reason: FinishReason::Stop,
-            usage: None,
-            provider_metadata: json!({"provider": "fake"}),
-        })
+        Ok(
+            CanonicalModelResponse::new(message, Vec::new(), FinishReason::Stop)
+                .with_provider_metadata(json!({"provider": "fake"})),
+        )
     }
 }
 

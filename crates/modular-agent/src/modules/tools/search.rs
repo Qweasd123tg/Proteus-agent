@@ -22,10 +22,10 @@ impl SearchTool {
 #[async_trait]
 impl Tool for SearchTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "Search the current workspace".to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "search",
+            "Search the current workspace",
+            json!({
                 "type": "object",
                 "properties": {
                     "query": { "type": "string" },
@@ -33,10 +33,9 @@ impl Tool for SearchTool {
                 },
                 "required": ["query"]
             }),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: Some(10_000),
-            metadata: serde_json::Value::Null,
-        }
+            ToolSafety::ReadOnly,
+        )
+        .with_timeout(10_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {

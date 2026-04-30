@@ -117,33 +117,35 @@ impl Tool for ConfiguredProcessTool {
         )
         .await?;
 
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: output.status.success(),
-            output: output.stdout.text.clone(),
-            content: Vec::new(),
-            error: if output.status.success() {
-                None
-            } else if output.stderr.text.is_empty() {
-                Some(format!(
-                    "process tool '{}' exited with status {:?}",
-                    call.name,
-                    output.status.code()
-                ))
-            } else {
-                Some(output.stderr.text.clone())
-            },
-            metadata: annotate_bounded_output(
-                json!({
-                    "tool": call.name,
-                    "executor": "process",
-                    "status": output.status.code(),
-                }),
-                &output,
-                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
-                DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
-            ),
-        })
+        let error = if output.status.success() {
+            None
+        } else if output.stderr.text.is_empty() {
+            Some(format!(
+                "process tool '{}' exited with status {:?}",
+                call.name,
+                output.status.code()
+            ))
+        } else {
+            Some(output.stderr.text.clone())
+        };
+        let metadata = annotate_bounded_output(
+            json!({
+                "tool": call.name,
+                "executor": "process",
+                "status": output.status.code(),
+            }),
+            &output,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+            DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+        );
+        Ok(ToolResult::new(
+            call.id.clone(),
+            output.status.success(),
+            output.stdout.text.clone(),
+            Vec::new(),
+            error,
+            metadata,
+        ))
     }
 }
 
@@ -235,19 +237,22 @@ impl ConfiguredMcpTool {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        Ok(ToolResult {
-            call_id: call.id.clone(),
-            ok: !is_error,
-            output: render_mcp_content(result.get("content")),
-            content: Vec::new(),
-            error: is_error.then(|| render_mcp_content(result.get("content"))),
-            metadata: json!({
-                "tool": call.name,
-                "executor": "mcp",
-                "remote_tool": self.remote_tool,
-                "structured_content": result.get("structuredContent").cloned().unwrap_or(Value::Null),
-            }),
-        })
+        let content_text = render_mcp_content(result.get("content"));
+        let error = is_error.then(|| content_text.clone());
+        let metadata = json!({
+            "tool": call.name,
+            "executor": "mcp",
+            "remote_tool": self.remote_tool,
+            "structured_content": result.get("structuredContent").cloned().unwrap_or(Value::Null),
+        });
+        Ok(ToolResult::new(
+            call.id.clone(),
+            !is_error,
+            content_text,
+            Vec::new(),
+            error,
+            metadata,
+        ))
     }
 }
 
@@ -347,25 +352,20 @@ mod tests {
     async fn configured_process_output_is_bounded_before_returning_result() {
         let cwd = tempfile::tempdir().expect("temp dir");
         let tool = ConfiguredProcessTool::new(
-            ToolSpec {
-                name: "big_process".to_owned(),
-                description: "prints a large output".to_owned(),
-                input_schema: json!({ "type": "object" }),
-                safety: ToolSafety::RunsCommands,
-                timeout_ms: Some(30_000),
-                metadata: Value::Null,
-            },
+            ToolSpec::new(
+                "big_process",
+                "prints a large output",
+                json!({ "type": "object" }),
+                ToolSafety::RunsCommands,
+            )
+            .with_timeout(30_000),
             "sh".to_owned(),
             vec![
                 "-c".to_owned(),
                 "i=0; while [ \"$i\" -lt 5000 ]; do printf 0123456789; i=$((i+1)); done".to_owned(),
             ],
         );
-        let call = ToolCall {
-            id: new_call_id(),
-            name: "big_process".to_owned(),
-            args: json!({}),
-        };
+        let call = ToolCall::new(new_call_id(), "big_process".to_owned(), json!({}));
 
         let result = tool
             .invoke(&call, ToolContext::new(cwd.path().to_path_buf()))

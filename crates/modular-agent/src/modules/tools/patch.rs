@@ -23,24 +23,23 @@ impl ApplyPatchTool {
 #[async_trait]
 impl Tool for ApplyPatchTool {
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "apply_patch".to_owned(),
-            description: "Apply a workspace-scoped patch using the internal patch format"
-                .to_owned(),
-            input_schema: json!({
+        ToolSpec::new(
+            "apply_patch",
+            "Apply a workspace-scoped patch using the internal patch format",
+            json!({
                 "type": "object",
                 "properties": {
                     "patch": { "type": "string" }
                 },
                 "required": ["patch"]
             }),
-            safety: ToolSafety::WritesFiles,
-            timeout_ms: Some(10_000),
-            metadata: json!({
-                "format": "internal_patch",
-                "example": "*** Begin Patch\n*** Update File: src/main.rs\n@@\n-old line\n+new line\n*** End Patch"
-            }),
-        }
+            ToolSafety::WritesFiles,
+        )
+        .with_timeout(10_000)
+        .with_metadata(json!({
+            "format": "internal_patch",
+            "example": "*** Begin Patch\n*** Update File: src/main.rs\n@@\n-old line\n+new line\n*** End Patch"
+        }))
     }
 
     async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> Result<ToolResult> {

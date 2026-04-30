@@ -46,20 +46,13 @@ impl ModelAdapter for OpenAiResponsesClient {
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities {
-            supports_tools: true,
-            supports_parallel_tool_calls: true,
-            supports_streaming: false,
-            supports_json_schema: true,
-            supports_system_role: true,
-            supports_developer_role: true,
-            supports_cache_hints: false,
-            supports_reasoning_config: true,
-            supports_image_input: false,
-            supports_file_input: false,
-            max_input_tokens: None,
-            max_output_tokens: None,
-        }
+        ModelCapabilities::empty()
+            .with_tools(true)
+            .with_parallel_tool_calls(true)
+            .with_json_schema(true)
+            .with_system_role(true)
+            .with_developer_role(true)
+            .with_reasoning_config(true)
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -280,11 +273,7 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
                     .map(serde_json::from_str)
                     .transpose()?
                     .unwrap_or(Value::Null);
-                tool_calls.push(ToolCall {
-                    id: call_id,
-                    name,
-                    args,
-                });
+                tool_calls.push(ToolCall::new(call_id, name, args));
             }
             _ => {}
         }
@@ -308,22 +297,13 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
             .map(|call| ContentPart::ToolCall { call }),
     );
 
-    let message = CanonicalMessage {
-        id: crate::domain::new_message_id(),
-        role: MessageRole::Assistant,
-        parts,
-        name: None,
-        tool_call_id: None,
-        metadata: serde_json::Value::Null,
-    };
-
-    Ok(CanonicalModelResponse {
-        message,
-        tool_calls,
-        finish_reason,
-        usage: parse_usage(&response),
-        provider_metadata: response,
-    })
+    let message = CanonicalMessage::new(MessageRole::Assistant, parts);
+    let usage = parse_usage(&response);
+    let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
+    if let Some(u) = usage {
+        resp = resp.with_usage(u);
+    }
+    Ok(resp.with_provider_metadata(response))
 }
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
@@ -346,12 +326,7 @@ fn is_length_limited_response(response: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        domain::{
-            CacheHints, ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolSafety,
-        },
-        model_standard::InstructionBlock,
-    };
+    use crate::domain::{ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolSafety};
 
     #[test]
     fn completed_function_call_is_returned_as_executable_call() {
@@ -426,43 +401,31 @@ mod tests {
 
     #[test]
     fn request_serializes_tools_tool_choice_reasoning_and_json_format() {
-        let request = CanonicalModelRequest {
-            model: ModelRef::new("openai", "gpt-test"),
-            instructions: Vec::<InstructionBlock>::new(),
-            messages: vec![CanonicalMessage::text(MessageRole::User, "write a file")],
-            tools: vec![
-                ToolSpec::new(
-                    "write_file",
-                    "Write a file",
-                    json!({
-                        "type": "object",
-                        "properties": {
-                            "path": { "type": "string" },
-                            "content": { "type": "string" }
-                        },
-                        "required": ["path", "content"]
-                    }),
-                    ToolSafety::WritesFiles,
-                )
-                .with_timeout(1_000),
-            ],
-            tool_choice: ToolChoice::Tool("write_file".to_owned()),
-            response_format: ResponseFormat::Json,
-            sampling: SamplingConfig {
-                temperature: Some(0.2),
-                top_p: Some(0.9),
-            },
-            reasoning: ReasoningConfig {
-                effort: Some("medium".to_owned()),
-                summary: true,
-            },
-            limits: ModelLimits {
-                max_input_tokens: None,
-                max_output_tokens: Some(123),
-            },
-            cache: CacheHints::default(),
-            metadata: serde_json::Value::Null,
-        };
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "write a file")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "write_file",
+                "Write a file",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "content": { "type": "string" }
+                    },
+                    "required": ["path", "content"]
+                }),
+                ToolSafety::WritesFiles,
+            )
+            .with_timeout(1_000),
+        ])
+        .with_tool_choice(ToolChoice::Tool("write_file".to_owned()))
+        .with_response_format(ResponseFormat::Json)
+        .with_sampling(SamplingConfig::new(Some(0.2), Some(0.9)))
+        .with_reasoning(ReasoningConfig::new(Some("medium".to_owned()), true))
+        .with_limits(ModelLimits::new(None, Some(123)));
 
         let body = to_openai_request(&request).unwrap();
 

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::ids::CallId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ToolCall {
     pub id: CallId,
     pub name: String,
@@ -20,6 +21,7 @@ impl ToolCall {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ToolResult {
     pub call_id: CallId,
     pub ok: bool,
@@ -96,6 +98,7 @@ pub enum ToolContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
