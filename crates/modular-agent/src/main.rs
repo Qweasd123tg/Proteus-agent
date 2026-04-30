@@ -58,10 +58,16 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     if is_modules_list_command(&cli.task) {
         let mut catalog = BuiltinModuleCatalog::new();
-        if let Some(plugins_dir) = modular_agent::core::default_plugins_dir() {
-            let _ = modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
-        }
+        let plugin_reports = modular_agent::core::default_plugins_dir()
+            .map(|plugins_dir| {
+                modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
+            })
+            .unwrap_or_default();
         println!("{}", render_module_list(&catalog.manifests()));
+        if !plugin_reports.is_empty() {
+            println!();
+            println!("{}", render_plugin_list(&plugin_reports));
+        }
         return Ok(());
     }
 
@@ -130,6 +136,46 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
         .collect::<Vec<_>>();
 
     render_table(["kind", "id", "capabilities", "description"], &rows)
+}
+
+fn render_plugin_list(reports: &[modular_agent::core::PluginLoadReport]) -> String {
+    let rows = reports
+        .iter()
+        .map(|report| {
+            let (name, version, description) = match report.manifest.as_ref() {
+                Some(manifest) => (
+                    manifest.name.clone(),
+                    manifest.version.clone(),
+                    manifest.description.clone().unwrap_or_default(),
+                ),
+                None => match report.result.as_ref() {
+                    Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
+                    // Нет ни manifest'а, ни загруженного info — fallback на путь.
+                    Err(_) => (
+                        report
+                            .path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| report.path.display().to_string()),
+                        "-".to_owned(),
+                        String::new(),
+                    ),
+                },
+            };
+            let status = match &report.result {
+                Ok(_) => "loaded".to_owned(),
+                Err(error) => format!("error: {error}"),
+            };
+            [name, version, status, description]
+        })
+        .collect::<Vec<_>>();
+
+    let mut out = String::from("Plugins:\n");
+    out.push_str(&render_table(
+        ["name", "version", "status", "description"],
+        &rows,
+    ));
+    out
 }
 
 fn build_tool_registry_for_listing(
