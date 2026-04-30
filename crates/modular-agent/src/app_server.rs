@@ -10,7 +10,7 @@ use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
-    contracts::{ApprovalCacheScope, ApprovalResponse, EventSink},
+    contracts::{ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta},
     core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
     domain::AgentOutput,
     modules::{ChannelApprovalTransport, PendingApproval},
@@ -113,9 +113,22 @@ impl AgentAppServer {
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
-        let jsonl = Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
-        let event_sink: Arc<dyn EventSink> =
-            Arc::new(FanoutEventSink::new(vec![jsonl, core_broadcast.clone()]));
+        let jsonl_raw: Arc<dyn EventSink> =
+            Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+        // Дельты по умолчанию не пишем в durable log — они нужны UI (broadcast)
+        // но засоряют файл на длинных ответах. `persist_deltas = true` в конфиге
+        // включает полную запись.
+        let jsonl: Arc<dyn EventSink> = if config.event_log.persist_deltas {
+            jsonl_raw
+        } else {
+            Arc::new(FilteredEventSink::new(jsonl_raw, |event| {
+                !is_streaming_delta(event)
+            }))
+        };
+        let event_sink: Arc<dyn EventSink> = Arc::new(FanoutEventSink::new(vec![
+            jsonl,
+            core_broadcast.clone(),
+        ]));
 
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);

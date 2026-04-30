@@ -79,6 +79,26 @@ pub enum Event {
     ModelResponseReceived {
         finish_reason: FinishReason,
     },
+    /// Частичный текстовый chunk от модели во время стрима. Эмитится по
+    /// мере прихода SSE-event'ов из провайдера, до финального
+    /// `ModelResponseReceived`. UI использует для in-place append;
+    /// persistence по умолчанию пропускает (см. `FilteredEventSink`).
+    AssistantTextDelta {
+        text: String,
+    },
+    /// Частичные аргументы tool call'а от модели. Приходит построчно
+    /// через SSE, дополняет `AssistantTextDelta` при stream'е ответа
+    /// со смешанным содержимым.
+    AssistantToolArgsDelta {
+        call_id: CallId,
+        args_delta: String,
+    },
+    /// Частичное reasoning-summary (только OpenAI o-series), plain text.
+    /// Anthropic этого не шлёт, событие будет отсутствовать для их
+    /// ответов.
+    AssistantReasoningDelta {
+        text: String,
+    },
     ToolCallRequested {
         call: ToolCall,
     },

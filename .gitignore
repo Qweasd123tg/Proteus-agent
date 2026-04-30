@@ -2,6 +2,7 @@
 /.agent/
 /sessions/
 /examples/
+/example/
 .env
 secrets.json
 config.local.json

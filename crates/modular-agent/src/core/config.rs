@@ -445,6 +445,12 @@ impl Default for JsonlMemoryConfig {
 pub struct EventLogConfig {
     #[serde(default = "default_event_log_path")]
     pub path: PathBuf,
+    /// Писать ли streaming-delta события (`AssistantTextDelta` etc.) в
+    /// durable JSONL лог. По умолчанию — нет: при длинных ответах это
+    /// пишет сотни строк за turn и ломает читабельность журнала. Дельты
+    /// всё равно приходят подписчикам через broadcast (UI видит их).
+    #[serde(default)]
+    pub persist_deltas: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -540,6 +546,7 @@ impl Default for EventLogConfig {
     fn default() -> Self {
         Self {
             path: default_event_log_path(),
+            persist_deltas: false,
         }
     }
 }
