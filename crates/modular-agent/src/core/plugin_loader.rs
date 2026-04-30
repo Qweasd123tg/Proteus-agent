@@ -27,7 +27,7 @@ use agent_contracts::{
     contracts::RendererObject,
     plugin::{
         PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref,
-        PluginToolObject, PolicyObject, SearchBackendObject,
+        MemoryStoreObject, PluginToolObject, PolicyObject, SearchBackendObject,
     },
 };
 use anyhow::Result;
@@ -93,6 +93,18 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_search_backend(&id, backend) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_memory_store(
+        &mut self,
+        module_id: RString,
+        store: MemoryStoreObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_memory_store(&id, store) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }

@@ -242,6 +242,50 @@ impl std::error::Error for PluginSearchError {}
 /// Ffi-safe trait object для PluginSearchBackend.
 pub type SearchBackendObject = PluginSearchBackend_TO<abi_stable::std_types::RBox<()>>;
 
+/// Sync sabi_trait для memory-store плагинов.
+///
+/// Ядро-trait `MemoryStore` async, поэтому адаптер в ядре оборачивает
+/// sync-вызов плагина в `spawn_blocking`. DTO через JSON.
+///
+/// ## JSON-форма
+///
+/// - `item_json` для `remember_json` — сериализованный `MemoryItem
+///   { kind, content, metadata }`. Возврат — пустой при успехе.
+/// - `query_json` для `recall_json` — сериализованный `MemoryQuery
+///   { text, limit }`. Возврат — JSON массив `MemoryItem`.
+#[sabi_trait]
+pub trait PluginMemoryStore: Send + Sync + 'static {
+    fn remember_json(&self, item_json: RString) -> RResult<(), PluginMemoryError>;
+    fn recall_json(&self, query_json: RString) -> RResult<RString, PluginMemoryError>;
+}
+
+/// Ошибка выполнения memory-store плагина.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginMemoryError {
+    pub message: RString,
+}
+
+impl PluginMemoryError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginMemoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginMemoryError {}
+
+/// Ffi-safe trait object для PluginMemoryStore.
+pub type MemoryStoreObject = PluginMemoryStore_TO<abi_stable::std_types::RBox<()>>;
+
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
@@ -313,8 +357,16 @@ pub trait PluginRegistry: Send + Sync {
         backend: SearchBackendObject,
     ) -> RResult<(), PluginRegisterError>;
 
-    // Будущие: register_context_builder, register_memory_store,
-    // register_memory_policy.
+    /// Регистрирует MemoryStore под module_id в slot `memory`.
+    /// Ядро-trait `MemoryStore` async — адаптер в ядре мостит через
+    /// spawn_blocking.
+    fn register_memory_store(
+        &mut self,
+        module_id: RString,
+        store: MemoryStoreObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    // Будущие: register_context_builder, register_memory_policy.
 }
 
 /// Тип trait-объекта PluginRegistry, передаваемого в плагин.

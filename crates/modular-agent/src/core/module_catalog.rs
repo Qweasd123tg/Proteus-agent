@@ -411,6 +411,45 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    /// Регистрирует MemoryStore от плагина под указанным module_id.
+    ///
+    /// MemoryStore stateless относительно per-call контекста (всё приходит
+    /// в MemoryItem/MemoryQuery), адаптер создаётся один раз и
+    /// переиспользуется. Политика дубликатов: bail при конфликте id.
+    pub fn register_plugin_memory_store(
+        &mut self,
+        module_id: &str,
+        store: agent_contracts::plugin::MemoryStoreObject,
+    ) -> Result<()> {
+        use crate::modules::PluginMemoryAdapter;
+        let slot_id = slot::MEMORY;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "memory store module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn MemoryStore> = Arc::new(PluginMemoryAdapter::new(store));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Memory, &["plugin", "dylib"]);
+        manifest.description =
+            Some(format!("Memory store from plugin (module id: {module_id})"));
+
+        self.entries
+            .insert(key, ModuleEntry { manifest, factory: erased });
+        drop(shared);
+        Ok(())
+    }
+
     /// Регистрирует SearchBackend от плагина под указанным module_id.
     ///
     /// SearchBackend stateless (cwd приходит в каждом `search(query)`), поэтому
