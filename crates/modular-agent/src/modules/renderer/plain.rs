@@ -1,14 +1,20 @@
-use anyhow::Result;
-use async_trait::async_trait;
+use agent_contracts::abi_stable::std_types::{RResult, RString};
 
-use crate::{contracts::Renderer, domain::AgentOutput};
+use crate::contracts::{RenderError, Renderer, parse_output_json};
 
 #[derive(Debug)]
 pub struct PlainRenderer;
 
-#[async_trait]
 impl Renderer for PlainRenderer {
-    async fn render(&self, output: &AgentOutput) -> Result<String> {
-        Ok(output.text.clone())
+    fn render_json(&self, output_json: RString) -> RResult<RString, RenderError> {
+        let output = match parse_output_json(output_json.as_str()) {
+            Ok(output) => output,
+            Err(error) => {
+                return RResult::RErr(RenderError::new(format!(
+                    "failed to parse agent output: {error}"
+                )));
+            }
+        };
+        RResult::ROk(output.text.into())
     }
 }

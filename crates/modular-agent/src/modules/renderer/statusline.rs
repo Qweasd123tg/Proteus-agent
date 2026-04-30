@@ -1,8 +1,9 @@
+use agent_contracts::abi_stable::std_types::{RResult, RString};
 use anyhow::{Result, bail};
 use serde_json::Value;
 
 use crate::{
-    contracts::{RenderComponent, Renderer},
+    contracts::{RenderComponent, RenderError, Renderer, parse_output_json},
     core::{ContextIndicatorComponentConfig, ModelNameComponentConfig, StatuslineRendererConfig},
     domain::AgentOutput,
 };
@@ -37,9 +38,8 @@ impl StatuslineRenderer {
     }
 }
 
-#[async_trait::async_trait]
-impl Renderer for StatuslineRenderer {
-    async fn render(&self, output: &AgentOutput) -> Result<String> {
+impl StatuslineRenderer {
+    fn render_native(&self, output: &AgentOutput) -> Result<String> {
         let parts = self
             .components
             .iter()
@@ -65,6 +65,23 @@ impl Renderer for StatuslineRenderer {
             "bottom" => Ok(format!("{}\n{}", output.text, status)),
             "top" => Ok(format!("{}\n{}", status, output.text)),
             position => bail!("unsupported statusline position: {position}"),
+        }
+    }
+}
+
+impl Renderer for StatuslineRenderer {
+    fn render_json(&self, output_json: RString) -> RResult<RString, RenderError> {
+        let output = match parse_output_json(output_json.as_str()) {
+            Ok(output) => output,
+            Err(error) => {
+                return RResult::RErr(RenderError::new(format!(
+                    "failed to parse agent output: {error}"
+                )));
+            }
+        };
+        match self.render_native(&output) {
+            Ok(text) => RResult::ROk(text.into()),
+            Err(error) => RResult::RErr(RenderError::new(error.to_string())),
         }
     }
 }

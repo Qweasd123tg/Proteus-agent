@@ -215,7 +215,17 @@ impl AgentRuntime {
     }
 
     pub async fn render(&self, output: &AgentOutput) -> Result<String> {
-        self.services.registry.renderer.render(output).await
+        let json = agent_contracts::abi_stable::std_types::RString::from(
+            serde_json::to_string(output)?,
+        );
+        match self.services.registry.renderer.render_json(json) {
+            agent_contracts::abi_stable::std_types::RResult::ROk(text) => {
+                Ok(text.into_string())
+            }
+            agent_contracts::abi_stable::std_types::RResult::RErr(err) => {
+                Err(anyhow::anyhow!("renderer error: {}", err.message))
+            }
+        }
     }
 
     pub async fn clear_history(&self) -> Result<()> {
