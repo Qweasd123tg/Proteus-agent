@@ -164,7 +164,7 @@ fn render_plugin_list(reports: &[modular_agent::core::PluginLoadReport]) -> Stri
             };
             let status = match &report.result {
                 Ok(_) => "loaded".to_owned(),
-                Err(error) => format!("error: {error}"),
+                Err(error) => format!("error: {}", first_line(&error.to_string())),
             };
             [name, version, status, description]
         })
@@ -176,6 +176,20 @@ fn render_plugin_list(reports: &[modular_agent::core::PluginLoadReport]) -> Stri
         &rows,
     ));
     out
+}
+
+/// Сжимает многострочный текст в первую строку, добавляя " …" если
+/// были ещё строки. Нужно для table-рендеринга: `toml` parser возвращает
+/// многострочный message с caret'ами, который ломает колоночное
+/// выравнивание.
+fn first_line(text: &str) -> String {
+    let mut lines = text.lines();
+    let head = lines.next().unwrap_or("").trim_end().to_owned();
+    if lines.next().is_some() {
+        format!("{head} …")
+    } else {
+        head
+    }
 }
 
 fn build_tool_registry_for_listing(

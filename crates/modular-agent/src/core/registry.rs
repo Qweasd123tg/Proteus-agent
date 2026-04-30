@@ -34,17 +34,11 @@ impl BuiltinRegistry {
 
         // Загружаем внешние плагины перед чтением модулей из config, чтобы
         // config мог ссылаться на плагин по module_id как на обычный builtin.
+        // Успешные загрузки не логируем: для single-run агента это шум, а
+        // полный список плагинов доступен через `modules list`. Ошибки
+        // уже логируются из `load_plugins_from_dir` в stderr.
         if let Some(plugins_dir) = crate::core::default_plugins_dir() {
-            let reports = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
-            for report in &reports {
-                if let Ok(info) = &report.result {
-                    eprintln!(
-                        "loaded plugin: {} ({})",
-                        info.name,
-                        report.path.display()
-                    );
-                }
-            }
+            let _ = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
         }
 
         let build_ctx = ModuleBuildContext { config, cwd: &cwd };
