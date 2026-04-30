@@ -42,23 +42,26 @@ impl AgentDriver {
             .unwrap_or_else(|| PathBuf::from("modular-agent"));
 
         let mut cmd = Command::new(&program);
-        cmd.arg("server").arg("stdio");
+        // Важно: --config / --cwd должны идти ДО positional args
+        // `server stdio`. Иначе clap видит их как часть `task` и ядро
+        // запускает обычный turn с текстом "server stdio --config ...".
         if let Some(config_path) = &cfg.config_path {
             cmd.arg("--config").arg(config_path);
         }
         if let Some(cwd) = &cfg.cwd {
             cmd.arg("--cwd").arg(cwd);
         }
-        // stderr ядра перенаправляем в файл — чтобы plugin-load сообщения и
-        // panic'и не портили alternate screen TUI. Читать логи: `tail -f`
-        // по показанному ниже пути.
+        cmd.arg("server").arg("stdio");
+        // stderr ядра → /tmp/agent-tui-core.log (append).
+        // Никаких eprintln здесь — мы уже можем быть в alternate screen,
+        // и вывод поверх ratatui ломает кадр. Путь к логу фиксирован:
+        // используй `tail -f /tmp/agent-tui-core.log` параллельно.
         let log_path = std::env::temp_dir().join("agent-tui-core.log");
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
             .with_context(|| format!("failed to open log {}", log_path.display()))?;
-        eprintln!("[tui] core stderr will be logged to {}", log_path.display());
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::from(log_file))

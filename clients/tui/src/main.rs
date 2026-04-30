@@ -49,17 +49,24 @@ async fn main() -> Result<()> {
 }
 
 fn install_panic_hook() {
-    let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // Восстанавливаем терминал, чтобы сообщение panic'а было видно.
         let _ = crossterm::terminal::disable_raw_mode();
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::LeaveAlternateScreen,
             crossterm::event::DisableMouseCapture,
         );
-        eprintln!("\n=== TUI panic ===");
-        prev(info);
+
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let msg = format!(
+            "=== TUI panic ===\n{info}\n\nbacktrace:\n{backtrace}\n",
+        );
+
+        eprintln!("{msg}");
+
+        let path = std::env::temp_dir().join("agent-tui-panic.log");
+        let _ = std::fs::write(&path, &msg);
+        eprintln!("panic log: {}", path.display());
     }));
 }
 
