@@ -30,8 +30,8 @@ use modular_agent::{
         MessageRole, ModelCapabilities, ModelStreamEvent,
     },
     modules::{
-        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ListDirTool, ModelService, NoMemory,
-        NullSearch, ReadFileTool, SingleLoopWorkflow, WriteFileTool,
+        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ModelService, NoMemory, NullSearch,
+        RememberFactTool, SearchTool, SingleLoopWorkflow,
     },
 };
 use serde_json::json;
@@ -83,11 +83,11 @@ fn test_config() -> AppConfig {
         .map(str::to_owned)
         .collect();
     config.tools.path = None;
-    config.policy.ask_write.ask_before = ["apply_patch", "write_file", "shell"]
+    config.policy.ask_write.ask_before = ["apply_patch", "remember_fact"]
         .into_iter()
         .map(str::to_owned)
         .collect();
-    config.policy.ask_write.allow = ["read_file", "list_dir", "search"]
+    config.policy.ask_write.allow = ["search"]
         .into_iter()
         .map(str::to_owned)
         .collect();
@@ -106,14 +106,10 @@ fn configured_tool_names(config: &AppConfig) -> Vec<&str> {
 }
 
 fn standard_tool_names() -> Vec<&'static str> {
-    let mut names = vec![
-        "read_file",
-        "list_dir",
-        "apply_patch",
-        "write_file",
-        "shell",
-        "search",
-    ];
+    // File I/O and shell tools moved to plugins (file-tools, shell-tool).
+    // The fixture here covers only core-resident tools so tests don't
+    // depend on plugin state.
+    let mut names = vec!["apply_patch", "search", "remember_fact"];
     names.sort();
     names
 }
@@ -685,9 +681,13 @@ async fn execution_policy_receives_real_tool_call_args() {
 #[test]
 fn tool_registry_rejects_duplicate_names() {
     let mut registry = ToolRegistry::new();
-    registry.register(ReadFileTool).unwrap();
+    registry
+        .register(SearchTool::new(Arc::new(NullSearch)))
+        .unwrap();
 
-    let error = registry.register(ReadFileTool).unwrap_err();
+    let error = registry
+        .register(SearchTool::new(Arc::new(NullSearch)))
+        .unwrap_err();
 
     assert!(error.to_string().contains("duplicate tool registration"));
 }
@@ -700,11 +700,11 @@ fn tool_registry_tracks_tool_source() {
             ToolSource::Mcp {
                 server: "filesystem".to_owned(),
             },
-            ReadFileTool,
+            SearchTool::new(Arc::new(NullSearch)),
         )
         .unwrap();
 
-    let entry = registry.entry("read_file").unwrap();
+    let entry = registry.entry("search").unwrap();
 
     assert_eq!(
         entry.source,
@@ -1786,51 +1786,8 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
     assert_eq!(lines, 4);
 }
 
-#[tokio::test]
-async fn list_dir_lists_workspace_entries() {
-    let dir = temp_workspace();
-    std::fs::create_dir(dir.path().join("src")).expect("src dir");
-    std::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n").expect("main file");
-    let tool = ListDirTool;
-    let call = ToolCall::new(new_call_id(), "list_dir".to_owned(), json!({ "path": "." }));
-
-    let result = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap();
-
-    assert!(result.ok);
-    assert!(result.output.contains("file\tsample.txt"));
-    assert!(result.output.contains("dir\tsrc"));
-}
-
-#[tokio::test]
-async fn list_dir_rejects_parent_traversal() {
-    let dir = temp_workspace();
-    let tool = ListDirTool;
-    let call = ToolCall::new(new_call_id(), "list_dir".to_owned(), json!({ "path": ".." }));
-
-    let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("escapes workspace"));
-}
-
-#[tokio::test]
-async fn read_file_directory_error_points_to_list_dir() {
-    let dir = temp_workspace();
-    let tool = ReadFileTool;
-    let call = ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "." }));
-
-    let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("use list_dir"));
-}
+// list_dir/read_file workspace-escape and error-message tests moved to
+// the file-tools plugin alongside the implementations themselves.
 
 #[tokio::test]
 async fn apply_patch_replaces_exact_text_once() {
@@ -1954,40 +1911,7 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     }));
 }
 
-#[tokio::test]
-async fn write_file_rejects_parent_traversal() {
-    let dir = temp_workspace();
-    let outside = dir.path().parent().unwrap().join("outside-write.txt");
-    let tool = WriteFileTool;
-    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "../outside-write.txt", "content": "escaped" }));
-
-    let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("escapes workspace"));
-    assert!(!outside.exists());
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn write_file_rejects_symlink_escape() {
-    let dir = temp_workspace();
-    let outside_dir = tempfile::tempdir().expect("outside dir");
-    let link = dir.path().join("outside-link");
-    std::os::unix::fs::symlink(outside_dir.path(), &link).expect("symlink");
-    let tool = WriteFileTool;
-    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "outside-link/escape.txt", "content": "escaped" }));
-
-    let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("escapes workspace"));
-    assert!(!outside_dir.path().join("escape.txt").exists());
-}
+// write_file workspace-escape tests moved to the file-tools plugin.
 
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {

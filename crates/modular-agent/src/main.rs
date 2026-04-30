@@ -785,16 +785,18 @@ mod tests {
         disable_plugins();
         let mut config = AppConfig::default();
         config.tools.path = None;
-        config.tools.enabled = vec!["read_file".to_owned(), "shell".to_owned()];
+        // File I/O and shell are plugin-provided; use the remaining builtin
+        // tools to exercise render_tool_list without depending on plugins.
+        config.tools.enabled = vec!["apply_patch".to_owned(), "search".to_owned()];
         let dir = tempfile::tempdir().expect("temp dir");
         let registry = build_tool_registry_for_listing(&config, dir.path()).unwrap();
         let rendered = render_tool_list(&registry);
 
         assert!(rendered.contains("name"));
-        assert!(rendered.contains("read_file"));
+        assert!(rendered.contains("apply_patch"));
         assert!(rendered.contains("builtin:builtin"));
+        assert!(rendered.contains("WritesFiles"));
+        assert!(rendered.contains("search"));
         assert!(rendered.contains("ReadOnly"));
-        assert!(rendered.contains("shell"));
-        assert!(rendered.contains("RunsCommands"));
     }
 }
