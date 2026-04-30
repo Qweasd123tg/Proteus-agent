@@ -57,7 +57,7 @@ impl BuiltinRegistry {
             catalog.build_memory_policy(&config.modules.memory_policy, &build_ctx)?;
         let context = catalog.build_context(&config.modules.context, &build_ctx)?;
         let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-        let tools = catalog.build_tools(&build_ctx, search.clone(), patch.clone())?;
+        let tools = catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
         let policy_ctx = PolicyBuildContext {
             config,
             cwd: &cwd,

@@ -203,7 +203,8 @@ fn build_tool_registry_for_listing(
     let build_ctx = ModuleBuildContext { config, cwd };
     let search = catalog.build_search(&config.modules.search, &build_ctx)?;
     let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-    catalog.build_tools(&build_ctx, search, patch)
+    let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
+    catalog.build_tools(&build_ctx, search, patch, memory)
 }
 
 fn render_tool_list(registry: &modular_agent::contracts::ToolRegistry) -> String {
@@ -366,6 +367,31 @@ impl ApprovalTransport for TerminalApprovalTransport {
     }
 }
 
+/// Реализует slash-команду `/remember KIND TEXT` в REPL.
+///
+/// Парсинг: первое слово — `kind` (`preference` или `fact`). Остальное —
+/// `content`. Если первое слово не валидный kind, всё идёт как `fact`
+/// content. Это удобный shortcut: `/remember project uses pnpm` просто
+/// работает как fact.
+async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
+    let trimmed = rest.trim();
+    if trimmed.is_empty() {
+        bail!("usage: /remember [preference|fact] <content>");
+    }
+    let (kind, content) = match trimmed.split_once(char::is_whitespace) {
+        Some((first, rest_content)) if matches!(first, "preference" | "fact") => {
+            (first.to_owned(), rest_content.trim().to_owned())
+        }
+        _ => ("fact".to_owned(), trimmed.to_owned()),
+    };
+    if content.is_empty() {
+        bail!("/remember: content is empty");
+    }
+    let item = modular_agent::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
+    runtime.memory().remember(item).await?;
+    Ok(format!("stored ({kind}): {content}"))
+}
+
 async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Result<()> {
     println!("{}", repl_header(&config, &cwd, runtime.session_dir())?);
     let tty_composer = io::stdin().is_terminal() && io::stdout().is_terminal();
@@ -415,6 +441,8 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
                             "/help            show this help".to_owned(),
                             "/history         show in-memory history size".to_owned(),
                             "/clear, /reset   clear in-memory history".to_owned(),
+                            "/remember KIND TEXT  store KIND=preference|fact (KIND=fact if omitted)"
+                                .to_owned(),
                             "/exit, /quit     leave the REPL".to_owned(),
                             "examples: read_file Cargo.toml | summarize project".to_owned(),
                         ],
@@ -423,6 +451,18 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
                 continue;
             }
             _ => {}
+        }
+
+        if let Some(rest) = input.strip_prefix("/remember ").map(str::trim) {
+            match handle_remember(&runtime, rest).await {
+                Ok(message) => {
+                    println!("{}", small_block("memory", &[message]));
+                }
+                Err(error) => {
+                    eprintln!("error: {error:#}");
+                }
+            }
+            continue;
         }
 
         match run_with_spinner(&runtime, input.to_owned(), tty_composer).await {

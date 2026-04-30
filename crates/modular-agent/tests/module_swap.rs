@@ -148,7 +148,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
         ["anthropic", "fake", "openai", "openai_compatible"]
     );
     assert_eq!(search_ids, ["null", "rg"]);
-    assert_eq!(memory_policy_ids, ["none"]);
+    assert_eq!(memory_policy_ids, ["carry_forward", "none"]);
     assert_eq!(context_ids, ["repo_aware", "simple"]);
     assert_eq!(
         catalog

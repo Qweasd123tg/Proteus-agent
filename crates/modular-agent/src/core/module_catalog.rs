@@ -16,11 +16,12 @@ use crate::{
     core::{AppConfig, ModelConfig},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     modules::{
-        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, ConfiguredMcpTool,
-        ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier, FakeModelClient,
-        JsonlMemory, ListDirTool, NoMemory, NoMemoryPolicy, NullSearch, PlainRenderer,
-        ReadFileTool, RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch, SearchTool,
-        ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, WriteFileTool,
+        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, CarryForwardPolicy,
+        ConfiguredMcpTool, ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier,
+        FakeModelClient, JsonlMemory, ListDirTool, NoMemory, NoMemoryPolicy, NullSearch,
+        PlainRenderer, ReadFileTool, RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch,
+        SearchTool, ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
+        WriteFileTool,
     },
 };
 
@@ -211,6 +212,17 @@ impl BuiltinModuleCatalog {
                 "No-op memory lifecycle policy.",
             ),
             build_no_memory_policy,
+        );
+        catalog.register_module::<dyn MemoryPolicy>(
+            slot::MEMORY_POLICY,
+            "carry_forward",
+            manifest(
+                "carry_forward",
+                ModuleKind::MemoryPolicy,
+                &["handoff", "heuristic"],
+                "Stores one carry-forward snippet after each turn (last assistant line, 500 chars).",
+            ),
+            build_carry_forward_policy,
         );
 
         // Context builders
@@ -741,12 +753,14 @@ impl BuiltinModuleCatalog {
         ctx: &ModuleBuildContext<'_>,
         search: Arc<dyn SearchBackend>,
         patch: Arc<dyn PatchApplier>,
+        memory: Arc<dyn MemoryStore>,
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
         let builtin_tools = BuiltinToolProvider::new(
             ctx.config.tools.enabled.clone(),
             search.clone(),
             patch.clone(),
+            memory.clone(),
         );
         register_provider_tools(&mut tools, &builtin_tools)?;
         for configured in &ctx.config.tools.configured {
@@ -1004,6 +1018,10 @@ fn build_sqlite_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemorySto
 
 fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
     Ok(Arc::new(NoMemoryPolicy))
+}
+
+fn build_carry_forward_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
+    Ok(Arc::new(CarryForwardPolicy))
 }
 
 fn build_simple_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {

@@ -3,8 +3,11 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 
 use crate::{
-    contracts::{PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource},
-    modules::{ApplyPatchTool, ListDirTool, ReadFileTool, SearchTool, ShellTool, WriteFileTool},
+    contracts::{MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource},
+    modules::{
+        ApplyPatchTool, ListDirTool, ReadFileTool, RememberFactTool, SearchTool, ShellTool,
+        WriteFileTool,
+    },
 };
 
 #[derive(Clone)]
@@ -12,6 +15,7 @@ pub struct BuiltinToolProvider {
     enabled: Vec<String>,
     search: Arc<dyn SearchBackend>,
     patch: Arc<dyn PatchApplier>,
+    memory: Arc<dyn MemoryStore>,
 }
 
 impl BuiltinToolProvider {
@@ -19,11 +23,13 @@ impl BuiltinToolProvider {
         enabled: Vec<String>,
         search: Arc<dyn SearchBackend>,
         patch: Arc<dyn PatchApplier>,
+        memory: Arc<dyn MemoryStore>,
     ) -> Self {
         Self {
             enabled,
             search,
             patch,
+            memory,
         }
     }
 
@@ -39,6 +45,7 @@ impl BuiltinToolProvider {
             "write_file" => Ok(Arc::new(WriteFileTool)),
             "shell" => Ok(Arc::new(ShellTool)),
             "search" => Ok(Arc::new(SearchTool::new(self.search.clone()))),
+            "remember_fact" => Ok(Arc::new(RememberFactTool::new(self.memory.clone()))),
             name => bail!("unsupported tool: {name}"),
         }
     }

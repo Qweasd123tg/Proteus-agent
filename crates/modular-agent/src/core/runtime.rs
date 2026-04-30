@@ -259,6 +259,13 @@ impl AgentRuntime {
             .as_ref()
             .map(|store| store.session_dir())
     }
+
+    /// MemoryStore активной конфигурации. Используется REPL для
+    /// `/remember`-команды — запись идёт напрямую в store, минуя
+    /// Workflow (это не turn, а side-channel ручной записи).
+    pub fn memory(&self) -> Arc<dyn crate::contracts::MemoryStore> {
+        self.services.registry.memory.clone()
+    }
 }
 
 /// Builder for `AgentRuntime`. Every slot has a sensible default
