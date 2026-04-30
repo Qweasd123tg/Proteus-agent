@@ -59,7 +59,8 @@ impl PluginTool for ShellTool {
                 "required": ["command"]
             },
             "safety": "RunsCommands",
-            "timeout_ms": TIMEOUT_MS
+            "timeout_ms": TIMEOUT_MS,
+            "metadata": null
         });
         RString::from(spec.to_string())
     }

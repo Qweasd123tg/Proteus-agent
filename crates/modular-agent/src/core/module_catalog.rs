@@ -755,13 +755,56 @@ impl BuiltinModuleCatalog {
         memory: Arc<dyn MemoryStore>,
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
+
+        // Register plugin-provided tools FIRST so that names like read_file /
+        // write_file / list_dir / shell — which are no longer builtin but do
+        // live in plugins — can satisfy tools.enabled entries. Builtins and
+        // configured tools still win on name collision (see below) because
+        // duplicate registration is rejected by ToolRegistry, but at least
+        // a plugin-only tool doesn't trip the "unsupported tool" error from
+        // BuiltinToolProvider when it appears in tools.enabled.
+        let enabled: std::collections::HashSet<&str> = ctx
+            .config
+            .tools
+            .enabled
+            .iter()
+            .map(String::as_str)
+            .collect();
+        for plugin_tool in &self.plugin_tools {
+            let spec = plugin_tool.spec();
+            if enabled.contains(spec.name.as_str()) {
+                tools.register_arc(
+                    crate::contracts::ToolSource::builtin("plugin"),
+                    Arc::clone(plugin_tool),
+                )?;
+            }
+        }
+
         let builtin_tools = BuiltinToolProvider::new(
             ctx.config.tools.enabled.clone(),
             search.clone(),
             patch.clone(),
             memory.clone(),
         );
-        register_provider_tools(&mut tools, &builtin_tools)?;
+        // Only try to build builtins for names the plugin set didn't already
+        // claim. This stops `tools.enabled = ["read_file"]` from failing when
+        // read_file comes from the file-tools plugin.
+        let plugin_names: std::collections::HashSet<String> = tools
+            .specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect();
+        let remaining: Vec<String> = ctx
+            .config
+            .tools
+            .enabled
+            .iter()
+            .filter(|name| !plugin_names.contains(name.as_str()))
+            .cloned()
+            .collect();
+        let _ = builtin_tools;
+        let scoped = BuiltinToolProvider::new(remaining, search.clone(), patch.clone(), memory.clone());
+        register_provider_tools(&mut tools, &scoped)?;
         for configured in &ctx.config.tools.configured {
             let source = match &configured.executor {
                 crate::core::ConfiguredToolExecutorConfig::Native { .. } => {
