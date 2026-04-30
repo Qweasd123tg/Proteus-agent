@@ -22,7 +22,6 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use tokio::time::Instant;
 
 use crate::{
     driver::{AgentDriver, DriverConfig},
@@ -32,14 +31,36 @@ use crate::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Примитивный CLI парсинг — без clap, чтобы не тянуть лишнего.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cfg = parse_args(&args)?;
+
+    // Перехват panic'а: если TUI упадёт — восстанавливаем терминал в
+    // нормальный режим и пишем stack trace в файл, чтобы ты мог его
+    // увидеть после выхода.
+    install_panic_hook();
 
     let mut terminal = enter_terminal()?;
     let result = run_app(&mut terminal, cfg).await;
     leave_terminal(&mut terminal)?;
+    if let Err(ref err) = result {
+        eprintln!("agent-tui: {err:#}");
+    }
     result
+}
+
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Восстанавливаем терминал, чтобы сообщение panic'а было видно.
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableMouseCapture,
+        );
+        eprintln!("\n=== TUI panic ===");
+        prev(info);
+    }));
 }
 
 struct Cli {
@@ -146,8 +167,24 @@ async fn run_app(
     let mut state = AppState::new(cwd, cli.config_path);
     let surface = VisualSurface::default();
 
-    let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_millis(100);
+    // Crossterm входные события читаем в отдельном blocking thread и
+    // переправляем через mpsc. Из async loop работать с
+    // crossterm::event::read напрямую нельзя — это блокирует tokio worker.
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<CTerm>(64);
+    std::thread::spawn(move || {
+        loop {
+            match event::read() {
+                Ok(ev) => {
+                    if input_tx.blocking_send(ev).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut tick = tokio::time::interval(Duration::from_millis(120));
     let mut dirty = true;
 
     loop {
@@ -160,8 +197,6 @@ async fn run_app(
             break;
         }
 
-        // Select между: keyboard event (polling), event от driver, tick.
-        let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         tokio::select! {
             biased;
 
@@ -177,9 +212,7 @@ async fn run_app(
                             dirty = true;
                         }
                     }
-                    Some(_) => {
-                        // Неизвестный StdioOutput variant — future-proof.
-                    }
+                    Some(_) => {}
                     None => {
                         state.push_error("agent process exited unexpectedly".into());
                         dirty = true;
@@ -188,25 +221,27 @@ async fn run_app(
                 }
             }
 
-            _ = tokio::time::sleep(timeout) => {
+            term_event = input_rx.recv() => {
+                match term_event {
+                    Some(ev) => {
+                        if handle_term_event(&mut state, &mut driver, ev).await? {
+                            dirty = true;
+                        }
+                    }
+                    None => {
+                        // Input thread завершился — редкий случай, продолжаем.
+                    }
+                }
+            }
+
+            _ = tick.tick() => {
                 if state.advance_spinner() {
                     dirty = true;
-                }
-                last_tick = Instant::now();
-
-                // Параллельно poll'им клавиатуру — неблокирующий event::poll
-                // не работает напрямую с async, поэтому опрашиваем в tick.
-                while event::poll(Duration::from_millis(0))? {
-                    let term_event = event::read()?;
-                    if handle_term_event(&mut state, &mut driver, term_event).await? {
-                        dirty = true;
-                    }
                 }
             }
         }
     }
 
-    // Graceful shutdown ядра.
     let _ = driver.shutdown().await;
     Ok(())
 }

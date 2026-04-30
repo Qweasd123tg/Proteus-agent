@@ -49,9 +49,19 @@ impl AgentDriver {
         if let Some(cwd) = &cfg.cwd {
             cmd.arg("--cwd").arg(cwd);
         }
+        // stderr ядра перенаправляем в файл — чтобы plugin-load сообщения и
+        // panic'и не портили alternate screen TUI. Читать логи: `tail -f`
+        // по показанному ниже пути.
+        let log_path = std::env::temp_dir().join("agent-tui-core.log");
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .with_context(|| format!("failed to open log {}", log_path.display()))?;
+        eprintln!("[tui] core stderr will be logged to {}", log_path.display());
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::from(log_file))
             .kill_on_drop(true);
 
         let mut child = cmd
