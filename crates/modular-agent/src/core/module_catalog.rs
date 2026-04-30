@@ -188,6 +188,17 @@ impl BuiltinModuleCatalog {
             ),
             build_jsonl_memory,
         );
+        catalog.register_module::<dyn MemoryStore>(
+            slot::MEMORY,
+            "sqlite",
+            manifest(
+                "sqlite",
+                ModuleKind::Memory,
+                &["local_file", "sqlite", "fts5"],
+                "SQLite FTS5 memory store ({cwd}/.agent/memory.sqlite).",
+            ),
+            build_sqlite_memory,
+        );
 
         // Memory policies
         catalog.register_module::<dyn MemoryPolicy>(
@@ -984,6 +995,11 @@ fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>
 
 fn build_jsonl_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
     Ok(Arc::new(JsonlMemory::new(memory_path(ctx)?)))
+}
+
+fn build_sqlite_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
+    let path = crate::modules::default_sqlite_memory_path(ctx.cwd)?;
+    Ok(Arc::new(crate::modules::SqliteMemory::open(path)?))
 }
 
 fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {

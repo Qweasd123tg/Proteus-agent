@@ -2338,3 +2338,79 @@ fn workspace_path_keeps_cyrillic_folder_names() {
 
     assert_eq!(encoded, "home|qweasd123tg|Проекты|моя_игра");
 }
+
+#[tokio::test]
+async fn sqlite_memory_roundtrip_through_builtin() {
+    use modular_agent::{
+        contracts::MemoryStore,
+        domain::{MemoryItem, MemoryQuery},
+        modules::SqliteMemory,
+    };
+    disable_plugin_loader();
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteMemory::open(dir.path().join("memory.sqlite")).unwrap();
+    store
+        .remember(MemoryItem::new(
+            "preference",
+            "prefer dark mode",
+            serde_json::Value::Null,
+        ))
+        .await
+        .unwrap();
+    store
+        .remember(MemoryItem::new(
+            "fact",
+            "React Router v6 is in use",
+            serde_json::Value::Null,
+        ))
+        .await
+        .unwrap();
+
+    let hits = store
+        .recall(MemoryQuery::new("dark", 5))
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].kind, "preference");
+
+    let hits = store
+        .recall(MemoryQuery::new("React", 5))
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].content.contains("React Router"));
+}
+
+#[tokio::test]
+async fn sqlite_memory_selectable_through_catalog() {
+    use modular_agent::{
+        contracts::MemoryStore,
+        core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
+        domain::{MemoryItem, MemoryQuery},
+    };
+    disable_plugin_loader();
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = AppConfig::default();
+    let catalog = BuiltinModuleCatalog::new();
+    let build_ctx = ModuleBuildContext {
+        config: &config,
+        cwd: dir.path(),
+    };
+    let store: Arc<dyn MemoryStore> = catalog.build_memory("sqlite", &build_ctx).unwrap();
+    store
+        .remember(MemoryItem::new(
+            "fact",
+            "sample content",
+            serde_json::Value::Null,
+        ))
+        .await
+        .unwrap();
+    let hits = store
+        .recall(MemoryQuery::new("sample", 10))
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].content, "sample content");
+}
