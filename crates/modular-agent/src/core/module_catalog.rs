@@ -18,10 +18,9 @@ use crate::{
     modules::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, CarryForwardPolicy,
         ConfiguredMcpTool, ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier,
-        FakeModelClient, JsonlMemory, ListDirTool, NoMemory, NoMemoryPolicy, NullSearch,
-        PlainRenderer, ReadFileTool, RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch,
-        SearchTool, ShellTool, SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
-        WriteFileTool,
+        FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy, NullSearch, PlainRenderer,
+        RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch, SearchTool,
+        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
     },
 };
 
@@ -907,21 +906,21 @@ fn configured_native_handler(
     patch: Arc<dyn PatchApplier>,
 ) -> Result<Arc<dyn crate::contracts::Tool>> {
     match handler {
-        "read_file" => Ok(Arc::new(ReadFileTool)),
-        "list_dir" => Ok(Arc::new(ListDirTool)),
         "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(patch))),
-        "write_file" => Ok(Arc::new(WriteFileTool)),
-        "shell" => Ok(Arc::new(ShellTool)),
         "search" => Ok(Arc::new(SearchTool::new(search))),
-        other => bail!("unsupported native tool handler: {other}"),
+        other => bail!(
+            "unsupported native tool handler: '{other}'. File I/O (read_file, \
+             write_file, list_dir) and shell are now provided by the `file-tools` \
+             and `shell-tool` plugins — use tools.enabled with the plugin names, \
+             not configured.native.handler."
+        ),
     }
 }
 
 fn native_handler_safety(handler: &str) -> crate::domain::ToolSafety {
     match handler {
-        "read_file" | "list_dir" | "search" => crate::domain::ToolSafety::ReadOnly,
-        "apply_patch" | "write_file" => crate::domain::ToolSafety::WritesFiles,
-        "shell" => crate::domain::ToolSafety::RunsCommands,
+        "search" => crate::domain::ToolSafety::ReadOnly,
+        "apply_patch" => crate::domain::ToolSafety::WritesFiles,
         _ => crate::domain::ToolSafety::Dangerous,
     }
 }

@@ -8,7 +8,7 @@ use tokio::time::timeout;
 use crate::{
     contracts::{ContextBuildInput, RuntimeContext, Workflow, WorkflowOutput},
     core::ToolOrchestrator,
-    domain::{AgentOutput, AgentTask, ContextChunk, Event, ToolCall},
+    domain::{AgentOutput, AgentTask, Event},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, ContentPart, FinishReason, InstructionBlock,
         InstructionKind, MessageRole,
@@ -66,8 +66,6 @@ impl Workflow for SingleLoopWorkflow {
             );
         }
         let tool_orchestrator = ToolOrchestrator::default();
-        maybe_add_directory_listing_context(&tool_orchestrator, &ctx, &task, &mut model_messages)
-            .await?;
 
         for _round in 0..self.max_tool_rounds {
             let request = request_from_state(&ctx, &tool_orchestrator, &task.cwd, &model_messages);
@@ -161,69 +159,6 @@ async fn complete_model(
     )
     .await
     .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
-}
-
-async fn maybe_add_directory_listing_context(
-    tool_orchestrator: &ToolOrchestrator,
-    ctx: &RuntimeContext,
-    task: &AgentTask,
-    messages: &mut Vec<CanonicalMessage>,
-) -> Result<()> {
-    if !looks_like_directory_listing_request(&task.text) {
-        return Ok(());
-    }
-
-    let call = ToolCall::new(
-        crate::domain::new_call_id(),
-        "list_dir",
-        json!({ "path": "." }),
-    );
-    let result = tool_orchestrator.execute(ctx, task, call).await?;
-    if !result.ok {
-        return Ok(());
-    }
-
-    let chunk = ContextChunk::new(
-        "tool:list_dir",
-        if result.output.is_empty() {
-            "<empty directory>".to_owned()
-        } else {
-            result.output
-        },
-    )
-    .with_path(task.cwd.clone())
-    .with_score(1.0)
-    .with_metadata(result.metadata);
-
-    messages.push(
-        CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-            .with_name("context"),
-    );
-
-    Ok(())
-}
-
-fn looks_like_directory_listing_request(text: &str) -> bool {
-    let text = text.to_lowercase();
-    [
-        "что в папке",
-        "что в директории",
-        "что в каталоге",
-        "какие файлы",
-        "глянь файлы",
-        "посмотри файлы",
-        "покажи файлы",
-        "список файлов",
-        "list files",
-        "show files",
-        "what files",
-        "what is in the folder",
-        "what's in the folder",
-        "what is in the directory",
-        "what's in the directory",
-    ]
-    .iter()
-    .any(|needle| text.contains(needle))
 }
 
 fn output_metadata(

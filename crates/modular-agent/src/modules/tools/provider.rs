@@ -4,10 +4,7 @@ use anyhow::{Result, bail};
 
 use crate::{
     contracts::{MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource},
-    modules::{
-        ApplyPatchTool, ListDirTool, ReadFileTool, RememberFactTool, SearchTool, ShellTool,
-        WriteFileTool,
-    },
+    modules::{ApplyPatchTool, RememberFactTool, SearchTool},
 };
 
 #[derive(Clone)]
@@ -39,14 +36,14 @@ impl BuiltinToolProvider {
 
     fn boxed_tool(&self, name: &str) -> Result<Arc<dyn Tool>> {
         match name {
-            "read_file" => Ok(Arc::new(ReadFileTool)),
-            "list_dir" => Ok(Arc::new(ListDirTool)),
             "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(self.patch.clone()))),
-            "write_file" => Ok(Arc::new(WriteFileTool)),
-            "shell" => Ok(Arc::new(ShellTool)),
             "search" => Ok(Arc::new(SearchTool::new(self.search.clone()))),
             "remember_fact" => Ok(Arc::new(RememberFactTool::new(self.memory.clone()))),
-            name => bail!("unsupported tool: {name}"),
+            name => bail!(
+                "unsupported tool: '{name}'. File I/O (read_file/write_file/list_dir/grep) \
+                 is provided by the `file-tools` plugin; shell by `shell-tool`. Install those \
+                 plugins into ~/.agent/plugins/ or remove the tool from tools.enabled."
+            ),
         }
     }
 }

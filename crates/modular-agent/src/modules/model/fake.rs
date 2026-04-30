@@ -124,8 +124,17 @@ impl FakeModelClient {
         }
 
         let user_text = latest_user_text(&request).unwrap_or_default();
-        if let Some(path) = parse_read_file_request(&user_text) {
-            let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": path }));
+        // Trigger pattern `remember_fact <content>` emits a real tool call into
+        // the remember_fact builtin. This lets integration tests exercise the
+        // full tool-call round trip without depending on any tool that lives
+        // in a plugin. Historical "read_file <path>" trigger was retired when
+        // file tools moved to the file-tools plugin.
+        if let Some(fact) = parse_remember_fact_request(&user_text) {
+            let call = ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({ "kind": "fact", "content": fact }),
+            );
             let message = CanonicalMessage::new(
                 MessageRole::Assistant,
                 vec![ContentPart::ToolCall { call: call.clone() }],
@@ -134,19 +143,6 @@ impl FakeModelClient {
                 message,
                 vec![call],
                 FinishReason::ToolCalls,
-            )
-            .with_provider_metadata(json!({"provider": "fake"})));
-        }
-
-        if let Some(listing) = latest_directory_listing_context(&request) {
-            let message = CanonicalMessage::text(
-                MessageRole::Assistant,
-                format!("Fake final answer after directory listing:\n{listing}"),
-            );
-            return Ok(CanonicalModelResponse::new(
-                message,
-                Vec::new(),
-                FinishReason::Stop,
             )
             .with_provider_metadata(json!({"provider": "fake"})));
         }
@@ -169,20 +165,6 @@ impl FakeModelClient {
                 .with_provider_metadata(json!({"provider": "fake"})),
         )
     }
-}
-
-fn latest_directory_listing_context(request: &CanonicalModelRequest) -> Option<String> {
-    request
-        .messages
-        .iter()
-        .rev()
-        .flat_map(|message| message.parts.iter().rev())
-        .find_map(|part| match part {
-            ContentPart::Context { chunk } if chunk.source == "tool:list_dir" => {
-                Some(chunk.content.clone())
-            }
-            _ => None,
-        })
 }
 
 fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
@@ -211,20 +193,13 @@ fn latest_user_text(request: &CanonicalModelRequest) -> Option<String> {
     })
 }
 
-fn parse_read_file_request(text: &str) -> Option<String> {
+fn parse_remember_fact_request(text: &str) -> Option<String> {
     let trimmed = text.trim();
-    for prefix in ["read_file ", "read-file ", "read "] {
-        if let Some(rest) = trimmed.strip_prefix(prefix) {
-            let path = rest.trim();
-            if !path.is_empty() {
-                return Some(path.to_owned());
-            }
-        }
-    }
     trimmed
-        .strip_prefix("read_file:")
+        .strip_prefix("remember_fact ")
+        .or_else(|| trimmed.strip_prefix("remember_fact:"))
         .map(str::trim)
-        .filter(|path| !path.is_empty())
+        .filter(|content| !content.is_empty())
         .map(str::to_owned)
 }
 
