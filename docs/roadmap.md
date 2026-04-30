@@ -121,24 +121,34 @@ Scope:
 - оставить `crates/modular-agent/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
-### v0.5: Module Manifest And External Modules
+### v0.5: Расширение plugin boundary
 
-Цель - подготовить почву для модулей без пересборки, но только после
-стабилизации built-in contracts.
+Цель — довести dylib-plugin систему до покрытия всех stateful slots и
+стабилизировать внешнюю границу.
 
-Scope:
+Статус (см. `plugin-architecture.md` по волнам):
 
-- явный manifest для module capabilities/config/schema;
-- versioned contract metadata;
-- diagnostics для несовместимых modules;
-- process/MCP modules как первый внешний слой;
-- только потом рассматривать WASM/package manager/hot reload.
+- ✅ Волна 1 — `agent-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
+  Renderer через sabi_trait.
+- ✅ Волна 2 (частично) — dylib loader, PluginRegistry с `register_renderer` /
+  `register_tool`, реальные плагины (`hello-renderer`, `hello-tool`,
+  `file-tools`), политика дубликатов.
+
+Следующий scope:
+
+- `plugin.toml` manifest рядом с `.so` (видимость без загрузки);
+- остальные sabi_trait-ы в PluginRegistry: ApprovalPolicy, PatchApplier,
+  MemoryStore, MemoryPolicy, SearchBackend, ContextBuilder;
+- persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
+- Волна 3 — вынос builtin-модулей в плагины по одному;
+- Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.
 
 ## Не Делать Сейчас
 
-- marketplace;
-- WASM runtime;
-- dynamic Rust plugin loading;
+- marketplace и signed plugins;
+- WASM runtime и hot-reload;
+- sandbox для dylib плагинов;
+- YAML declarative плагины как отдельный loader (отменено — `ConfiguredProcessTool` покрывает);
 - multi-agent DAG;
 - полноценный RAG/index daemon;
 - продуктовый UI внутри core repo;

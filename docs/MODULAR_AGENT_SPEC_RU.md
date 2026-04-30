@@ -35,16 +35,21 @@ workflow, tool, renderer, memory policy или model adapter. Debug/visibility
 Для v0 не делать:
 
 - marketplace и package manager;
-- dynamic Rust plugin loading;
 - WASM runtime и hot-reload modules;
+- sandbox-изоляцию для dylib плагинов (модель угроз: плагины пишутся автором);
 - ACP/MCP как основу ядра;
 - обязательный RAG;
 - multi-agent DAG;
 - перенос runtime/business logic в CLI/UI;
-- provider-specific DTO за пределами adapters/model shaping слоя.
+- provider-specific DTO за пределами adapters/model shaping слоя;
+- YAML declarative плагины как отдельный loader (отменено, см.
+  `plugin-architecture.md`).
 
-Config-defined process/MCP tools допустимы как tools executor surface, но это не
-означает готовую external module system или полноценный MCP registry.
+Dylib-плагины через `abi_stable` **уже являются частью v0**: loader, PluginRegistry
+и рабочие примеры есть в `~/.agent/plugins/`. Что пока не закрыто —
+полноценный MCP host (вместо spawn-per-call `ConfiguredMcpTool`) и перенос
+builtin-модулей в плагины (Волна 3). Config-defined process/MCP tools остаются
+executor surface-ом для простых shell-обёрток и не дублируют plugin boundary.
 
 ## Принцип Границ
 
@@ -160,17 +165,22 @@ path CLI smoke test.
 Ожидаемый результат: новый метод можно включить конфигом, например
 `modules.context = "dynamic_cursor_like"`, не переписывая runtime.
 
-## External Modules Later
+## External Modules
 
-External modules можно добавлять только после стабилизации built-in contracts.
-Целевая последовательность:
+Стратегия выноса реализаций за границу ядра описана по волнам в
+`plugin-architecture.md`. Краткое текущее состояние:
 
-1. доказать заменяемость built-in slots через tests;
-2. стабилизировать config schema и diagnostics;
-3. добавить table-driven rights для tools;
-4. только потом проектировать external process/WASM/package-manager слой.
+1. ✅ `agent-contracts` выделен в отдельный crate, plugin'ы depend только на него;
+2. ✅ dylib loader через `abi_stable` + `libloading`;
+3. ✅ PluginRegistry покрывает `tool` и `renderer` slots (sabi_trait);
+4. 🔜 добавить sabi_trait-варианты остальных slots (ApprovalPolicy, PatchApplier,
+   MemoryStore, MemoryPolicy, SearchBackend, ContextBuilder) — после freeze их trait'ов;
+5. 🔜 Волна 3: перенос встроенных модулей в отдельные плагины по одному;
+6. ⏳ Волна 4: async-ABI для ModelAdapter/Workflow через `FfiFuture` / `FfiStream`.
 
-До этого process/MCP остаются executor-ами tools, а не общей module system.
+`ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
+простых shell-обёрток и spawn-per-call MCP-вызовов, не замена plugin system и
+не полноценный MCP registry.
 
 ## Как Брать Идеи Из Других Проектов
 

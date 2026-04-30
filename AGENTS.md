@@ -12,6 +12,22 @@ Core -> Contract -> Module Implementation
 
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy, patch algorithm или renderer. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
+## Workspace Layout
+
+```text
+crates/
+    agent-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
+    modular-agent/       - ядро: runtime, core wiring, modules, adapters, app-server
+clients/
+    tui/                 - внешний TUI-клиент (бинарники agent-tui, agent-tui-codex)
+plugins/
+    hello-renderer/      - референсный renderer-плагин (sabi_trait)
+    hello-tool/          - минимальный tool-плагин
+    file-tools/          - полноразмерный пример tool-плагина
+```
+
+Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
+
 ## Что Нельзя Ломать
 
 - Не связывать модули напрямую друг с другом.
@@ -30,7 +46,9 @@ Core не должен знать детали конкретного поиск
 5. Добавить тест на заменяемость, если модуль относится к slot.
 6. Обновить `docs/modules.md` и при необходимости `docs/configuration.md`.
 
-Для v0 модульность означает выбор встроенной реализации через config. Динамическая загрузка, marketplace, WASM runtime и hot-reload не являются текущей целью.
+Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.agent/plugins/`, depends только на `agent-contracts`. См. `docs/plugin-architecture.md`.
+
+Для v0 модульность означает либо выбор встроенной реализации через config, либо загрузку dylib-плагина. Marketplace, WASM runtime, hot-reload и sandbox не являются текущей целью.
 
 ## Документация
 
@@ -41,11 +59,13 @@ Core не должен знать детали конкретного поиск
 - quickstart и CLI: `README.md`;
 - архитектурные границы: `docs/architecture.md`;
 - module slots: `docs/modules.md`;
+- plugin ABI и waves: `docs/plugin-architecture.md`;
 - config schema и examples: `docs/configuration.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
-- vision/spec: `docs/MODULAR_AGENT_SPEC_RU.md`.
+- vision/spec: `docs/MODULAR_AGENT_SPEC_RU.md`;
+- roadmap: `docs/roadmap.md`.
 
 ## Проверка Перед Завершением
 

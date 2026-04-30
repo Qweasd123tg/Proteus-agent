@@ -3,12 +3,14 @@
 Базовая команда:
 
 ```bash
-cargo test
+cargo test --workspace
 ```
+
+Текущий workspace гоняет 108 тестов: unit-тесты `agent-contracts`, unit-тесты адаптеров в `modular-agent`, интеграционные тесты `module_swap.rs` и тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для любого PR.
 
 ## Что Фиксируют Текущие Тесты
 
-`tests/module_swap.rs` проверяет:
+`crates/modular-agent/tests/module_swap.rs` проверяет:
 
 - `search = null` и `search = rg` не требуют изменений runtime;
 - `BuiltinModuleCatalog` перечисляет built-in manifests для model/search/memory_policy/workflow slots;
@@ -32,6 +34,31 @@ cargo test
 - JSON config может выбрать Anthropic provider;
 - JSON config может переключиться на custom local provider URL;
 - workspace path encoding стабилен.
+
+## DTO И Builder-Паттерн
+
+Массовые DTO помечены `#[non_exhaustive]` и конструируются через builder:
+
+- `CanonicalMessage::new(role, parts)` + `.with_id(...)` / `.with_name(...)` / `.with_tool_call_id(...)` / `.with_metadata(...)`;
+- `CanonicalModelRequest::new(model, messages)` + `.with_instructions(...)` / `.with_tools(...)` / `.with_tool_choice(...)` / `.with_response_format(...)` / `.with_sampling(...)` / `.with_reasoning(...)` / `.with_limits(...)` / `.with_cache(...)` / `.with_metadata(...)`;
+- `CanonicalModelResponse::new(message, tool_calls, finish_reason)` + `.with_usage(...)` / `.with_provider_metadata(...)`;
+- `ToolCall::new(id, name, args)`, `ToolResult::ok(call_id, output)` / `::new(...)` + `.with_metadata(...)`;
+- `ToolSpec::new(name, description, input_schema, safety)` + `.with_timeout(...)`;
+- `ModelCapabilities::empty()` + `.with_tools(true)` / `.with_streaming(true)` / `.with_reasoning_config(true)` / ...;
+- `SamplingConfig::new`, `ReasoningConfig::new`, `ModelLimits::new`, `CacheHints::new` — тот же паттерн.
+
+Тесты и адаптеры не должны конструировать эти типы через struct-expression: `#[non_exhaustive]` это блокирует по дизайну, чтобы добавление нового поля не ломало call-sites вне crate.
+
+## Плагины
+
+Plugin invariants покрыты отдельно:
+
+- unit-тесты `agent-contracts::plugin` проверяют `export_root_module!` helper;
+- интеграционные тесты в `modular-agent` сканируют тестовую папку, загружают dylib и проверяют, что зарегистрированные tools/renderers попадают в `BuiltinModuleCatalog`;
+- тест дубликатов проверяет политику "builtin побеждает плагин" (плагин логируется и скипается);
+- `AGENT_PLUGINS_DISABLE=1` — escape hatch для тестов, которым плагины мешают (выставляется через `std::sync::Once`).
+
+При написании нового плагина минимум: добавить компилируемый Cargo project в `plugins/<name>/`, implement `PluginTool`/`PluginRenderer`, вызвать `export_root_module!`, и smoke-тест в `modular-agent` на загрузку.
 
 ## Правило Для Нового Slot Module
 
