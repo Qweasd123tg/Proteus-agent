@@ -90,6 +90,11 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
 #[derive(Debug)]
 pub struct PluginLoadReport {
     pub path: PathBuf,
+    /// Manifest из plugin.toml, если он был прочитан до попытки загрузки
+    /// dylib. Остаётся доступен даже если последующая загрузка провалилась —
+    /// `modules list` может показать метаданные плагина вместе с причиной
+    /// ошибки.
+    pub manifest: Option<PluginManifest>,
     pub result: Result<PluginInfo>,
 }
 
@@ -144,13 +149,21 @@ pub fn load_plugins_from_dir(
     plugins_dir: &Path,
     catalog: &mut BuiltinModuleCatalog,
 ) -> Vec<PluginLoadReport> {
-    let mut reports = Vec::new();
-
     // Escape hatch для тестов и для запуска без плагинов:
     // `AGENT_PLUGINS_DISABLE=1` полностью отключает сканирование.
     if std::env::var_os("AGENT_PLUGINS_DISABLE").is_some() {
-        return reports;
+        return Vec::new();
     }
+    scan_plugins_dir(plugins_dir, catalog)
+}
+
+/// Внутренний вариант `load_plugins_from_dir`, не смотрящий на env.
+/// Полезен в unit-тестах, которые не должны мутировать глобальные переменные.
+fn scan_plugins_dir(
+    plugins_dir: &Path,
+    catalog: &mut BuiltinModuleCatalog,
+) -> Vec<PluginLoadReport> {
+    let mut reports = Vec::new();
 
     let entries = match std::fs::read_dir(plugins_dir) {
         Ok(entries) => entries,
@@ -215,6 +228,7 @@ fn load_from_manifest_dir(
         Err(error) => {
             return PluginLoadReport {
                 path: manifest_path.to_path_buf(),
+                manifest: None,
                 result: Err(error),
             };
         }
@@ -229,6 +243,7 @@ fn load_from_manifest_dir(
             Err(error) => {
                 return PluginLoadReport {
                     path: plugin_dir.to_path_buf(),
+                    manifest: Some(manifest),
                     result: Err(error),
                 };
             }
@@ -277,9 +292,12 @@ fn load_one_plugin(
     manifest: Option<PluginManifest>,
     catalog: &mut BuiltinModuleCatalog,
 ) -> PluginLoadReport {
+    // Сохраняем manifest для отчёта даже если загрузка .so упадёт.
+    let report_manifest = manifest.clone();
     let result = load_one_plugin_inner(path, manifest, catalog);
     PluginLoadReport {
         path: path.to_path_buf(),
+        manifest: report_manifest,
         result,
     }
 }
@@ -315,8 +333,20 @@ fn load_one_plugin_inner(
         .init_root_module::<PluginRoot_Ref>()
         .map_err(|err| anyhow::anyhow!("failed to init root module: {err}"))?;
 
-    let name = root.name().as_str().to_string();
-    let description = root.description().as_str().to_string();
+    // Приоритет: manifest переопределяет значения из PluginRoot. Manifest
+    // читается до загрузки .so, поэтому его имя и описание — authoritative
+    // для listing'а. Если manifest'а нет или поле пустое — fallback на
+    // самообъявленные плагином значения.
+    let root_name = root.name().as_str().to_string();
+    let root_description = root.description().as_str().to_string();
+    let name = manifest
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or(root_name.clone());
+    let description = manifest
+        .as_ref()
+        .and_then(|m| m.description.clone())
+        .unwrap_or(root_description);
 
     // Важно: leak'аем RawLibrary — иначе при drop символы плагина станут
     // dangling, trait objects которые регистрируются плагином крашнутся.
@@ -335,7 +365,7 @@ fn load_one_plugin_inner(
         }),
         RResult::RErr(err) => Err(anyhow::anyhow!(
             "plugin '{}' register_modules failed: {}",
-            name,
+            root_name,
             err.message
         )),
     }
@@ -352,4 +382,133 @@ pub fn default_plugins_dir() -> Option<PathBuf> {
     }
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".agent").join("plugins"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn read_manifest_parses_full_toml() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("plugin.toml");
+        std::fs::write(
+            &path,
+            r#"
+name = "sample"
+version = "1.2.3"
+description = "a sample plugin"
+author = "me"
+tags = ["demo", "test"]
+library = "libsample.so"
+requires_agent_contracts = "^0.1"
+"#,
+        )
+        .unwrap();
+
+        let manifest = read_manifest(&path).unwrap();
+        assert_eq!(manifest.name, "sample");
+        assert_eq!(manifest.version, "1.2.3");
+        assert_eq!(manifest.description.as_deref(), Some("a sample plugin"));
+        assert_eq!(manifest.tags, vec!["demo", "test"]);
+        assert_eq!(manifest.library.as_deref(), Some("libsample.so"));
+    }
+
+    #[test]
+    fn read_manifest_accepts_minimal_toml() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("plugin.toml");
+        std::fs::write(&path, "name = \"x\"\nversion = \"0.0.1\"\n").unwrap();
+        let manifest = read_manifest(&path).unwrap();
+        assert_eq!(manifest.name, "x");
+        assert!(manifest.description.is_none());
+        assert!(manifest.tags.is_empty());
+        assert!(manifest.library.is_none());
+    }
+
+    #[test]
+    fn read_manifest_errors_on_broken_toml() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("plugin.toml");
+        std::fs::write(&path, "name = not-valid-toml").unwrap();
+        let error = read_manifest(&path).unwrap_err();
+        assert!(error.to_string().contains("failed to parse"));
+    }
+
+    #[test]
+    fn find_single_dylib_errors_when_none() {
+        let dir = tempdir().unwrap();
+        let error = find_single_dylib(dir.path()).unwrap_err();
+        assert!(error.to_string().contains("no dylib found"));
+    }
+
+    #[test]
+    fn find_single_dylib_errors_when_multiple() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("a.so"), b"").unwrap();
+        std::fs::write(dir.path().join("b.so"), b"").unwrap();
+        let error = find_single_dylib(dir.path()).unwrap_err();
+        assert!(error.to_string().contains("multiple dylibs"));
+    }
+
+    #[test]
+    fn find_single_dylib_returns_the_only_match() {
+        let dir = tempdir().unwrap();
+        let expected = dir.path().join("only.so");
+        std::fs::write(&expected, b"").unwrap();
+        std::fs::write(dir.path().join("ignore.txt"), b"").unwrap();
+        let path = find_single_dylib(dir.path()).unwrap();
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn scan_plugins_dir_surfaces_broken_manifest() {
+        let plugins_dir = tempdir().unwrap();
+        let sub = plugins_dir.path().join("broken");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("plugin.toml"), "not = valid = toml").unwrap();
+
+        let mut catalog = BuiltinModuleCatalog::new();
+        let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
+
+        assert_eq!(reports.len(), 1);
+        let report = &reports[0];
+        assert!(report.manifest.is_none(), "broken manifest should not be kept");
+        let error = report.result.as_ref().unwrap_err();
+        assert!(error.to_string().contains("failed to parse"));
+    }
+
+    #[test]
+    fn scan_plugins_dir_keeps_manifest_when_dylib_missing() {
+        let plugins_dir = tempdir().unwrap();
+        let sub = plugins_dir.path().join("ghost");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(
+            sub.join("plugin.toml"),
+            "name = \"ghost\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let mut catalog = BuiltinModuleCatalog::new();
+        let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
+
+        assert_eq!(reports.len(), 1);
+        let report = &reports[0];
+        assert_eq!(report.manifest.as_ref().unwrap().name, "ghost");
+        let error = report.result.as_ref().unwrap_err();
+        assert!(error.to_string().contains("no dylib found"));
+    }
+
+    #[test]
+    fn scan_plugins_dir_ignores_folders_without_manifest() {
+        let plugins_dir = tempdir().unwrap();
+        let sub = plugins_dir.path().join("no-manifest");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("readme.txt"), "hi").unwrap();
+
+        let mut catalog = BuiltinModuleCatalog::new();
+        let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
+        assert!(reports.is_empty());
+    }
 }
