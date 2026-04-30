@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/agent-contracts", "crates/modular-agent"]
+members = [
+    "crates/agent-contracts",
+    "crates/modular-agent",
+    "plugins/hello-renderer",
+]

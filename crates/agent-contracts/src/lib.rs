@@ -6,6 +6,7 @@
 pub mod contracts;
 pub mod domain;
 pub mod model_standard;
+pub mod plugin;
 
 /// Re-export `abi_stable` для плагинов и ядра: все используют одну и ту же
 /// версию crate, что гарантирует ABI-совместимость.

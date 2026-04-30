@@ -57,7 +57,10 @@ impl From<CliPermissionMode> for PermissionMode {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     if is_modules_list_command(&cli.task) {
-        let catalog = BuiltinModuleCatalog::new();
+        let mut catalog = BuiltinModuleCatalog::new();
+        if let Some(plugins_dir) = modular_agent::core::default_plugins_dir() {
+            let _ = modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
+        }
         println!("{}", render_module_list(&catalog.manifests()));
         return Ok(());
     }

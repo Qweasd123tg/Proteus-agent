@@ -30,7 +30,23 @@ pub struct BuiltinRegistry {
 
 impl BuiltinRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
-        let catalog = BuiltinModuleCatalog::new();
+        let mut catalog = BuiltinModuleCatalog::new();
+
+        // Загружаем внешние плагины перед чтением модулей из config, чтобы
+        // config мог ссылаться на плагин по module_id как на обычный builtin.
+        if let Some(plugins_dir) = crate::core::default_plugins_dir() {
+            let reports = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
+            for report in &reports {
+                if let Ok(info) = &report.result {
+                    eprintln!(
+                        "loaded plugin: {} ({})",
+                        info.name,
+                        report.path.display()
+                    );
+                }
+            }
+        }
+
         let build_ctx = ModuleBuildContext { config, cwd: &cwd };
         let model_config = config.active_model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;

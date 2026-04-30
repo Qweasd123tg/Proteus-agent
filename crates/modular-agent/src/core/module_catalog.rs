@@ -296,6 +296,56 @@ impl BuiltinModuleCatalog {
         catalog
     }
 
+    /// Регистрирует Renderer от плагина под указанным module_id.
+    ///
+    /// Плагин создаёт sabi_trait объект `RendererObject` (clonable через
+    /// `Arc`) и передаёт его в catalog. Фабрика для этого module просто
+    /// клонирует сохранённый объект при каждом build — sabi_trait объект
+    /// можно переиспользовать между session'ами.
+    pub fn register_plugin_renderer(
+        &mut self,
+        module_id: &str,
+        renderer: agent_contracts::contracts::RendererObject,
+    ) -> Result<()> {
+        let slot_id = slot::RENDERER;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "renderer module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        // Sabi_trait объект (RBox<()>) не Clone. Чтобы caught всеми
+        // build_renderer-запросами возвращать один и тот же Arc<dyn Renderer>,
+        // оборачиваем его в Arc один раз — и клонируем Arc (cheap ref count).
+        //
+        // RendererObject implements Renderer (sabi_trait автогенерирует impl),
+        // поэтому Arc<RendererObject> coerces to Arc<dyn Renderer>.
+        let shared_renderer: Arc<dyn agent_contracts::contracts::Renderer> = Arc::new(renderer);
+        let factory_shared = shared_renderer.clone();
+
+        let erased: ErasedFactory = Box::new(move |_input| {
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest = ModuleManifest::builtin(
+            module_id,
+            ModuleKind::Renderer,
+            &["plugin", "dylib"],
+        );
+        manifest.description = Some(format!("Renderer from plugin (module id: {module_id})"));
+
+        self.entries
+            .insert(key, ModuleEntry { manifest, factory: erased });
+
+        // shared_renderer (Arc<dyn Renderer>) живёт в factory через clone —
+        // отдельно хранить не нужно, Arc сам считает ссылки.
+        drop(shared_renderer);
+        Ok(())
+    }
+
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
     /// Typed wrapper: factory возвращает `Arc<dyn T>`, который стирается
     /// в `Arc<dyn Any + Send + Sync>` для хранения.
