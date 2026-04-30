@@ -150,6 +150,11 @@ Scope:
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
   реально наполняется и recall попадает в context через
   `SimpleContextBuilder`.
+- ✅ Волна 3 (частично) — `read_file` / `write_file` / `list_dir` / `shell`
+  вынесены из ядра в плагины `file-tools` и `shell-tool`. В ядре остались
+  только slot-dependent tools: `apply_patch`, `search`, `remember_fact`.
+  `install.sh` собирает и копирует все плагины в `~/.agent/plugins/`
+  автоматически.
 
 Следующий scope:
 

@@ -46,14 +46,12 @@ CLI может переопределить config через `--plan`, `--auto`
 | Tool | Safety | Поведение |
 |---|---|---|
 | `apply_patch` | `WritesFiles` | применяет workspace-scoped patch через `PatchApplier` |
-| `list_dir` | `ReadOnly` | показывает файлы и директории внутри workspace |
-| `read_file` | `ReadOnly` | читает UTF-8 файл внутри workspace целиком или по line range |
 | `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
-| `write_file` | `WritesFiles` | пишет UTF-8 файл внутри workspace |
-| `shell` | `RunsCommands` | запускает команду в `cwd` |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
 
-Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "shell"` останется `RunsCommands`, даже если config укажет `ReadOnly`.
+File I/O (`read_file`, `write_file`, `list_dir`, `grep`) и `shell` вынесены из ядра в плагины `file-tools` и `shell-tool` соответственно. Подключите их через `~/.agent/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же механизмом, что и ядерные.
+
+Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
 
 Config-defined `process` и stdio `mcp` tools также считаются command execution boundary. Даже если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в `plan` и запрещены в `auto`.
 
@@ -66,11 +64,9 @@ truncation перед событием `ToolFinished` и передачей ре
 
 ## Workspace Boundary
 
-`list_dir` и `read_file` canonicalize-ят `cwd` и target path, затем проверяют, что путь находится внутри workspace.
+`apply_patch` канонизирует `cwd` и target path перед записью и отклоняет absolute paths, parent traversal и symlink-escape. Это boundary работает внутри самого tool'а: `ToolOrchestrator` не делает workspace-санитизации за него.
 
-`apply_patch` и `write_file` запрещают absolute path и parent traversal. Перед записью они проверяют canonical workspace boundary для существующего target или parent directory, поэтому symlink не должен позволять запись за пределы workspace.
-
-`shell` запускает команду с текущим `cwd`. В v0 дополнительной sandbox-изоляции внутри самого инструмента нет.
+Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` / `grep`) и `shell-tool` применяют свои собственные проверки workspace-boundary. Core не гарантирует эту проверку за плагины — это обязанность автора плагина.
 
 ## ask_write
 
@@ -89,8 +85,8 @@ truncation перед событием `ToolFinished` и передачей ре
 {
   "policy": {
     "ask_write": {
-      "ask_before": ["apply_patch", "write_file", "shell"],
-      "allow": ["read_file", "list_dir", "search"]
+      "ask_before": ["apply_patch", "remember_fact"],
+      "allow": ["search"]
     }
   }
 }
@@ -104,11 +100,9 @@ Runtime оборачивает выбранный transport в session-level app
 reason. Cache хранится только в памяти текущего runtime/session и не переживает
 restart или `resume_from_session_dir`.
 
-Ближайшая UX-цель для write approval - diff-first flow. Для
-`apply_patch`/`write_file` approval должен показывать affected files и diff
-preview, а для `shell` - command, cwd и причину запуска. `apply_patch` остаётся
-основным edit path; `write_file` нужен как более широкий fallback и должен быть
-видим пользователю как более рискованное действие.
+Ближайшая UX-цель для write approval - diff-first flow. Для `apply_patch`
+approval должен показывать affected files и diff preview; для `file-tools`
+плагина (когда он active) — аналогично для `write_file`, а для `shell-tool` — command, cwd и причину запуска.
 
 Headless runtime без approval transport отказывает `Ask`. App-server transport
 публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если

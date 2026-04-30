@@ -135,15 +135,17 @@ UI/debug view “что занимает контекст”, но visual layer 
 
 ```toml
 [tools]
-enabled = ["apply_patch", "list_dir", "read_file", "search", "shell", "write_file"]
+# Core-resident tools.
+enabled = ["apply_patch", "remember_fact", "search"]
 # path omitted: no external tool manifests in quickstart profile
 ```
 
-Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Quickstart/coding profile `agent.coding.example.toml` включает built-in tools через `tools.enabled`, а advanced profile может поставить полный набор через `tools.path` или `tools.configured` при `tools.enabled = []`.
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Три tool'а остаются в ядре: `apply_patch`, `search`, `remember_fact`. Остальные базовые tools вынесены в плагины:
 
-`read_file` принимает обязательный `path` и optional `start_line`, `limit`,
-`line_numbers`. Без optional args он сохраняет старое поведение и возвращает
-файл целиком; с `line_numbers = true` строки возвращаются как `N<TAB>text`.
+- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/file-tools/`);
+- `shell-tool` — `shell` (из `plugins/shell-tool/`).
+
+Чтобы их активировать, поставьте плагин через `install.sh` (он копирует `.so` в `~/.agent/plugins/<name>/`) и добавьте имена в `tools.enabled`.
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это

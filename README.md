@@ -43,8 +43,11 @@ docs/               — architecture, plugin-architecture, configuration, etc.
   models, `null`/`rg` search, `none`/`jsonl` memory, `simple`/`repo_aware`
   context, `allow_all`/`ask_write` policies, `direct` patch, `single_loop`
   workflow, `plain`/`statusline` renderers.
-- Builtin tools: `read_file`, `write_file`, `list_dir`, `apply_patch`,
-  `shell`, `search`; плюс configured native/process/MCP wrappers через main config.
+- Builtin tools: `apply_patch`, `search`, `remember_fact`. File I/O
+  (`read_file`/`write_file`/`list_dir`/`grep`) и `shell` поставляются
+  плагинами `file-tools` и `shell-tool` — устанавливаются через
+  `./install.sh`. Плюс configured native/process/MCP wrappers через
+  main config.
 - Permission modes: `plan` / `normal` / `auto`.
 - Session approval cache (ExactCall scope).
 - Event log и session resume.
@@ -78,7 +81,7 @@ cargo build --workspace
 ```bash
 cargo run
 # или single turn
-cargo run -- read_file Cargo.toml
+cargo run -- "describe the project layout"
 ```
 
 ### TUI клиент
@@ -103,21 +106,24 @@ target/debug/agent-tui-codex \
 
 ### Плагины
 
-```bash
-# собрать демо-плагины
-cargo build --release -p hello-renderer -p hello-tool -p file-tools
+Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
+плагины в `~/.agent/plugins/<plugin>/`. После этого `file-tools`, `shell-tool`
+и демо-плагины подхватываются автоматически.
 
-# установить глобально
-mkdir -p ~/.agent/plugins/hello-tool ~/.agent/plugins/file-tools
-cp target/release/libhello_renderer.so ~/.agent/plugins/
-cp target/release/libhello_tool.so ~/.agent/plugins/hello-tool/
-cp plugins/hello-tool/plugin.toml ~/.agent/plugins/hello-tool/
-cp target/release/libfile_tools.so ~/.agent/plugins/file-tools/
-cp plugins/file-tools/plugin.toml ~/.agent/plugins/file-tools/
+Ручной способ:
+
+```bash
+cargo build --release --workspace
+
+for p in file-tools shell-tool hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+  mkdir -p ~/.agent/plugins/$p
+  cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
+  cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
+done
 
 # проверить что подхватились
-cargo run -- modules list      # renderer "hello" в списке
-cargo run -- tools list        # current_time, grep и пр. из плагинов
+cargo run -- modules list      # renderer "hello" и таблица Plugins
+cargo run -- tools list        # list_dir/grep/current_time/shell из плагинов
 ```
 
 ### Установка wrapper'а
