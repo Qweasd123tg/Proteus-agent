@@ -5,4 +5,5 @@ members = [
     "crates/modular-agent",
     "plugins/hello-renderer",
     "plugins/hello-tool",
+    "plugins/file-tools",
 ]

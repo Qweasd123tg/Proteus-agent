@@ -613,6 +613,16 @@ mod tests {
     use super::*;
     use modular_agent::domain::ModuleManifest;
 
+    /// Disables plugin loading so tests don't pick up the developer's
+    /// `~/.agent/plugins/` contents. See also the same helper in the
+    /// `module_swap` integration test.
+    fn disable_plugins() {
+        static DISABLE: std::sync::Once = std::sync::Once::new();
+        DISABLE.call_once(|| unsafe {
+            std::env::set_var("AGENT_PLUGINS_DISABLE", "1");
+        });
+    }
+
     #[test]
     fn modules_list_command_is_exact() {
         assert!(is_modules_list_command(&[
@@ -672,6 +682,7 @@ mod tests {
 
     #[test]
     fn tool_list_output_contains_registered_tools() {
+        disable_plugins();
         let mut config = AppConfig::default();
         config.tools.path = None;
         config.tools.enabled = vec!["read_file".to_owned(), "shell".to_owned()];

@@ -1,0 +1,14 @@
+[package]
+name = "file-tools"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+agent-contracts = { path = "../../crates/agent-contracts" }
+abi_stable = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

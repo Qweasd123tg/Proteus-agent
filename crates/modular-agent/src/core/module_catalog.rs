@@ -655,7 +655,24 @@ impl BuiltinModuleCatalog {
 
         // Plugin tools — зарегистрированы заранее через register_plugin_tool,
         // добавляются поверх builtin и configured tools.
+        //
+        // Политика конфликтов: если tool с таким именем уже зарегистрирован
+        // (builtin или configured), плагин **пропускается** с warning в
+        // stderr. Builtin побеждает. Причины:
+        // - Предсказуемость: пользователь видит config и понимает что будет.
+        // - Безопасность: builtin — проверенный код в ядре, плагин может
+        //   быть backdoor'ом с тем же именем.
+        // Чтобы использовать плагин вместо builtin, пользователь убирает
+        // имя из `tools.enabled` в config'е.
         for plugin_tool in &self.plugin_tools {
+            let spec = plugin_tool.spec();
+            if tools.get(&spec.name).is_some() {
+                eprintln!(
+                    "warning: plugin tool '{}' skipped — name already registered as builtin/configured",
+                    spec.name
+                );
+                continue;
+            }
             tools.register_arc(
                 crate::contracts::ToolSource::Dynamic {
                     origin: "plugin:dylib".to_owned(),
