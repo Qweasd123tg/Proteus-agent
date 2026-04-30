@@ -901,8 +901,17 @@ fn manifest(
     manifest
 }
 
-fn build_fake_model_adapter(_config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
-    Ok(Arc::new(FakeModelClient))
+fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
+    let client = if config.stream {
+        let delay = config
+            .provider_config
+            .get("stream_delay_ms")
+            .and_then(serde_json::Value::as_u64);
+        FakeModelClient::with_streaming(delay)
+    } else {
+        FakeModelClient::default()
+    };
+    Ok(Arc::new(client))
 }
 
 fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {

@@ -1991,7 +1991,7 @@ async fn write_file_rejects_symlink_escape() {
 
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {
-    let model = ModelService::new(Arc::new(FakeModelClient));
+    let model = ModelService::new(Arc::new(FakeModelClient::default()));
     let request = CanonicalModelRequest::new(
         ModelRef::new("fake", "fake-tool-model"),
         vec![CanonicalMessage::text(
