@@ -205,9 +205,11 @@ impl AppState {
                 self.status = format!("tool: {}", call.name);
             }
             Event::ToolFinished { result } => self.update_tool_card(result),
-            Event::TurnFinished { output } => {
-                self.messages.push(VisualMessage::assistant(output.text));
-                self.pending_model = false;
+            Event::TurnFinished { output: _ } => {
+                // Финальный assistant-message добавляется в ingest() через
+                // AppServerEvent::TurnOutput, чтобы не дублировать (TurnFinished
+                // в runtime слое и TurnOutput в app-server слое несут один и
+                // тот же текст).
                 self.status = "ready".to_owned();
             }
             Event::MemoryWritten { kind } => {

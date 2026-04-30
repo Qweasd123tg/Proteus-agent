@@ -14,10 +14,7 @@ use std::{io, path::PathBuf, time::Duration};
 use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 use anyhow::{Context, Result};
 use crossterm::{
-    event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event as CTerm, KeyCode, KeyEventKind,
-        KeyModifiers,
-    },
+    event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -140,18 +137,18 @@ fn print_help() {
 fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut out = io::stdout();
-    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+    // Не включаем EnableMouseCapture: с capture выделение текста мышью
+    // перехватывается приложением и стандартное копирование в терминале
+    // отключается. Скролл колёсиком тогда тоже не работает через events,
+    // но это приемлемая цена: скролл есть через PageUp/PageDown/End.
+    execute!(out, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
 
 fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -354,20 +351,6 @@ async fn handle_term_event(
                     if state.pending_model {
                         // TODO: cancel. Нужен target_id последнего Send.
                     }
-                }
-                _ => {}
-            }
-        }
-        CTerm::Mouse(me) => {
-            use crossterm::event::MouseEventKind as K;
-            match me.kind {
-                K::ScrollUp => {
-                    state.scroll_up(3);
-                    return Ok(true);
-                }
-                K::ScrollDown => {
-                    state.scroll_down(3);
-                    return Ok(true);
                 }
                 _ => {}
             }
