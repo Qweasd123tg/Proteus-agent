@@ -1,0 +1,7 @@
+name = "hello-renderer"
+version = "0.1.0"
+description = "Sample plugin: decorates agent output with a box frame"
+author = "modular-agent examples"
+tags = ["demo", "renderer"]
+library = "libhello_renderer.so"
+requires_agent_contracts = "0.1"

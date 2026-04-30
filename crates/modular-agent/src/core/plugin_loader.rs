@@ -73,6 +73,46 @@ pub struct PluginInfo {
     pub name: String,
     pub description: String,
     pub path: PathBuf,
+    /// Если рядом с .so был найден `plugin.toml`, его содержимое попадает сюда.
+    /// Позволяет получить metadata плагина (version, author, tags) без
+    /// зависимости от значений, которые плагин самообъявляет внутри PluginRoot.
+    pub manifest: Option<PluginManifest>,
+}
+
+/// Метаданные плагина из `plugin.toml` рядом с .so.
+///
+/// Manifest необязателен. Если есть — читается до загрузки .so (т.е. даже
+/// несовместимый по ABI плагин виден в `modules list` с пометкой, что он
+/// не загрузился).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PluginManifest {
+    /// Человекочитаемое имя плагина.
+    pub name: String,
+
+    /// Версия плагина (semver-like строка).
+    pub version: String,
+
+    /// Короткое описание.
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// Автор/поддержка.
+    #[serde(default)]
+    pub author: Option<String>,
+
+    /// Список тегов/категорий.
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Имя .so/.dylib/.dll файла рядом с manifest'ом. Если не указано —
+    /// loader ищет любой .so в той же папке.
+    #[serde(default)]
+    pub library: Option<String>,
+
+    /// Требуемая версия agent-contracts для информационных целей. Реальная
+    /// проверка совместимости — через abi_stable layout check при load.
+    #[serde(default)]
+    pub requires_agent_contracts: Option<String>,
 }
 
 pub fn load_plugins_from_dir(
@@ -102,10 +142,31 @@ pub fn load_plugins_from_dir(
 
     for entry in entries.flatten() {
         let path = entry.path();
+
+        // Вариант 1: папка `plugin-name/` с plugin.toml внутри.
+        if path.is_dir() {
+            let manifest_path = path.join("plugin.toml");
+            if manifest_path.exists() {
+                let report = load_from_manifest_dir(&path, &manifest_path, catalog);
+                if let Err(ref error) = report.result {
+                    eprintln!(
+                        "warning: failed to load plugin {}: {}",
+                        path.display(),
+                        error
+                    );
+                }
+                reports.push(report);
+            }
+            // Папки без plugin.toml игнорируем — они могут быть чем-то
+            // другим (например, не-плагины). Не скандалим.
+            continue;
+        }
+
+        // Вариант 2: просто .so/.dylib/.dll в корне папки плагинов.
         if !is_dylib_file(&path) {
             continue;
         }
-        let report = load_one_plugin(&path, catalog);
+        let report = load_one_plugin(&path, None, catalog);
         if let Err(ref error) = report.result {
             eprintln!(
                 "warning: failed to load plugin {}: {}",
@@ -119,6 +180,66 @@ pub fn load_plugins_from_dir(
     reports
 }
 
+fn load_from_manifest_dir(
+    plugin_dir: &Path,
+    manifest_path: &Path,
+    catalog: &mut BuiltinModuleCatalog,
+) -> PluginLoadReport {
+    let manifest = match read_manifest(manifest_path) {
+        Ok(m) => m,
+        Err(error) => {
+            return PluginLoadReport {
+                path: manifest_path.to_path_buf(),
+                result: Err(error),
+            };
+        }
+    };
+
+    // Путь к .so: либо явно указан в manifest.library, либо ищем единственный
+    // dylib в папке.
+    let lib_path = match manifest.library.as_deref() {
+        Some(name) => plugin_dir.join(name),
+        None => match find_single_dylib(plugin_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                return PluginLoadReport {
+                    path: plugin_dir.to_path_buf(),
+                    result: Err(error),
+                };
+            }
+        },
+    };
+
+    load_one_plugin(&lib_path, Some(manifest), catalog)
+}
+
+fn read_manifest(path: &Path) -> Result<PluginManifest> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+    toml::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("failed to parse {}: {e}", path.display()))
+}
+
+fn find_single_dylib(dir: &Path) -> Result<PathBuf> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", dir.display()))?;
+    let mut candidates = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if is_dylib_file(&path) {
+            candidates.push(path);
+        }
+    }
+    match candidates.len() {
+        0 => anyhow::bail!("no dylib found in {}", dir.display()),
+        1 => Ok(candidates.into_iter().next().unwrap()),
+        _ => anyhow::bail!(
+            "multiple dylibs in {}; specify `library` in plugin.toml",
+            dir.display()
+        ),
+    }
+}
+
 fn is_dylib_file(path: &Path) -> bool {
     let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
         return false;
@@ -126,8 +247,12 @@ fn is_dylib_file(path: &Path) -> bool {
     matches!(ext, "so" | "dylib" | "dll")
 }
 
-fn load_one_plugin(path: &Path, catalog: &mut BuiltinModuleCatalog) -> PluginLoadReport {
-    let result = load_one_plugin_inner(path, catalog);
+fn load_one_plugin(
+    path: &Path,
+    manifest: Option<PluginManifest>,
+    catalog: &mut BuiltinModuleCatalog,
+) -> PluginLoadReport {
+    let result = load_one_plugin_inner(path, manifest, catalog);
     PluginLoadReport {
         path: path.to_path_buf(),
         result,
@@ -136,6 +261,7 @@ fn load_one_plugin(path: &Path, catalog: &mut BuiltinModuleCatalog) -> PluginLoa
 
 fn load_one_plugin_inner(
     path: &Path,
+    manifest: Option<PluginManifest>,
     catalog: &mut BuiltinModuleCatalog,
 ) -> Result<PluginInfo> {
     // Загружаем raw library через abi_stable (он сам leak'нёт чтобы символы
@@ -180,6 +306,7 @@ fn load_one_plugin_inner(
             name,
             description,
             path: path.to_path_buf(),
+            manifest,
         }),
         RResult::RErr(err) => Err(anyhow::anyhow!(
             "plugin '{}' register_modules failed: {}",
