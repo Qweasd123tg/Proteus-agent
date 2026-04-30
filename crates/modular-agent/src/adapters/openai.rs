@@ -111,6 +111,7 @@ fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
             ToolChoice::Auto => Value::String("auto".to_owned()),
             ToolChoice::Required => Value::String("required".to_owned()),
             ToolChoice::Tool(name) => json!({ "type": "function", "name": name }),
+            _ => Value::String("auto".to_owned()),
         };
     }
 
@@ -209,6 +210,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                     "role": "assistant",
                     "content": [{ "type": "output_text", "text": patch.content }]
                 })),
+                _ => {}
             }
         }
     }
@@ -222,6 +224,7 @@ fn role_to_openai(role: &MessageRole) -> &'static str {
         MessageRole::User => "user",
         MessageRole::Assistant => "assistant",
         MessageRole::Tool => "tool",
+        _ => "user",
     }
 }
 

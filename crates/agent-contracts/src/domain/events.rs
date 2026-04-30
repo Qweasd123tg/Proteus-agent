@@ -16,6 +16,7 @@ pub struct EventContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct EventEnvelope {
     pub schema_version: u32,
     pub event_id: EventId,
@@ -43,6 +44,7 @@ impl EventEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum Event {
     SessionStarted {
         session_id: SessionId,

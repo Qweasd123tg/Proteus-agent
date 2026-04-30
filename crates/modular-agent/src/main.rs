@@ -206,6 +206,7 @@ fn tool_safety_label(safety: &ToolSafety) -> &'static str {
         ToolSafety::RunsCommands => "RunsCommands",
         ToolSafety::Network => "Network",
         ToolSafety::Dangerous => "Dangerous",
+        _ => "Unknown",
     }
 }
 
@@ -221,6 +222,7 @@ fn module_kind_label(kind: &ModuleKind) -> &'static str {
         ModuleKind::Patch => "patch",
         ModuleKind::Workflow => "workflow",
         ModuleKind::Renderer => "renderer",
+        _ => "unknown",
     }
 }
 

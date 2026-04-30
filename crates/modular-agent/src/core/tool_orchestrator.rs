@@ -49,6 +49,7 @@ impl ToolOrchestrator {
                     PolicyDecision::Allow => true,
                     PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
                     PolicyDecision::Deny { .. } => false,
+                    _ => false,
                 }
             })
             .collect()
@@ -130,6 +131,17 @@ impl ToolOrchestrator {
                     output: String::new(),
                     content: Vec::new(),
                     error: Some(reason),
+                    metadata: serde_json::Value::Null,
+                };
+                self.finish(ctx, result).await
+            }
+            other => {
+                let result = ToolResult {
+                    call_id: call.id.clone(),
+                    ok: false,
+                    output: String::new(),
+                    content: Vec::new(),
+                    error: Some(format!("unsupported policy decision: {other:?}")),
                     metadata: serde_json::Value::Null,
                 };
                 self.finish(ctx, result).await

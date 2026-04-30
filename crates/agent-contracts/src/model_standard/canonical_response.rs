@@ -12,6 +12,7 @@ pub struct CanonicalModelResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FinishReason {
     Stop,
     ToolCalls,

@@ -53,6 +53,7 @@ pub trait Tool: Send + Sync {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ToolSource {
     Builtin { provider: String },
     Config { origin: String },

@@ -44,8 +44,15 @@ impl ApprovalPolicy for ModeAwarePolicy {
                         ),
                     }
                 }
+                _ => PolicyDecision::Deny {
+                    reason: format!(
+                        "permission mode auto denies unknown tool safety for {}",
+                        call.name
+                    ),
+                },
             },
             PermissionMode::Normal => self.inner.evaluate(call, ctx),
+            _ => self.inner.evaluate(call, ctx),
         }
     }
 
@@ -70,8 +77,15 @@ impl ApprovalPolicy for ModeAwarePolicy {
                         ),
                     }
                 }
+                _ => PolicyDecision::Deny {
+                    reason: format!(
+                        "permission mode auto denies unknown tool safety for {}",
+                        ctx.tool_spec.name
+                    ),
+                },
             },
             PermissionMode::Normal => self.inner.evaluate_visibility(ctx),
+            _ => self.inner.evaluate_visibility(ctx),
         }
     }
 }

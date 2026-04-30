@@ -41,6 +41,9 @@ impl ApprovalPolicy for AskWritePolicy {
                     reason: format!("tool '{}' is not read-only", call.name),
                 }
             }
+            Some(_) => PolicyDecision::Deny {
+                reason: format!("unsupported tool safety level for '{}'", call.name),
+            },
             None => PolicyDecision::Deny {
                 reason: format!("unknown tool '{}'", call.name),
             },
@@ -67,6 +70,9 @@ impl ApprovalPolicy for AskWritePolicy {
                     reason: format!("tool '{}' is not read-only", ctx.tool_spec.name),
                 }
             }
+            _ => PolicyDecision::Deny {
+                reason: format!("unsupported tool safety level for '{}'", ctx.tool_spec.name),
+            },
         }
     }
 }

@@ -305,6 +305,7 @@ fn part_text_len(part: &ContentPart) -> usize {
         }
         ContentPart::Patch { patch } => patch.content.len(),
         ContentPart::ReasoningSummary { text } => text.len(),
+        _ => 0,
     }
 }
 

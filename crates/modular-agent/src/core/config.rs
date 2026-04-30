@@ -198,6 +198,7 @@ fn module_kind_config_key(kind: ModuleKind) -> &'static str {
         ModuleKind::Patch => "patch",
         ModuleKind::Workflow => "workflow",
         ModuleKind::Renderer => "renderer",
+        _ => "unknown",
     }
 }
 

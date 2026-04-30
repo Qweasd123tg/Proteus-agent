@@ -151,6 +151,7 @@ fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
             ToolChoice::Auto => json!({ "type": "auto" }),
             ToolChoice::Required => json!({ "type": "any" }),
             ToolChoice::Tool(name) => json!({ "type": "tool", "name": name }),
+            _ => json!({ "type": "auto" }),
         };
     }
 
@@ -267,6 +268,7 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
                 "type": "text",
                 "text": patch.content
             })),
+            _ => {}
         }
     }
     Ok(blocks)

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::{CallId, ContextChunk, MessageId, Patch, ToolCall, ToolResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MessageRole {
     System,
     Developer,
@@ -24,6 +25,7 @@ pub struct CanonicalMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum ContentPart {
     Text {
         text: String,

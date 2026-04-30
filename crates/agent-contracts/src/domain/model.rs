@@ -49,6 +49,7 @@ pub struct CacheHints {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ResponseFormat {
     #[default]
     Text,
@@ -56,6 +57,7 @@ pub enum ResponseFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ToolChoice {
     None,
     #[default]

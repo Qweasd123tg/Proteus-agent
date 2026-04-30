@@ -23,6 +23,7 @@ pub struct ApprovalResponse {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ApprovalCacheScope {
     #[default]
     None,

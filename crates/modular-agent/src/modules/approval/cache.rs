@@ -71,6 +71,7 @@ impl ApprovalCacheKey {
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
             }),
+            _ => None,
         }
     }
 }

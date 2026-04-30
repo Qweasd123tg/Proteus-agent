@@ -613,6 +613,7 @@ fn effective_configured_tool_safety(
             crate::domain::ToolSafety::ReadOnly
             | crate::domain::ToolSafety::WritesFiles
             | crate::domain::ToolSafety::RunsCommands => crate::domain::ToolSafety::RunsCommands,
+            _ => crate::domain::ToolSafety::Dangerous,
         },
         crate::core::ConfiguredToolExecutorConfig::Process { .. } => match configured.safety {
             crate::domain::ToolSafety::Dangerous => crate::domain::ToolSafety::Dangerous,
@@ -620,6 +621,7 @@ fn effective_configured_tool_safety(
             crate::domain::ToolSafety::ReadOnly
             | crate::domain::ToolSafety::WritesFiles
             | crate::domain::ToolSafety::RunsCommands => crate::domain::ToolSafety::RunsCommands,
+            _ => crate::domain::ToolSafety::Dangerous,
         },
     }
 }
@@ -667,6 +669,7 @@ fn tool_safety_rank(safety: &crate::domain::ToolSafety) -> u8 {
         crate::domain::ToolSafety::RunsCommands => 2,
         crate::domain::ToolSafety::Network => 3,
         crate::domain::ToolSafety::Dangerous => 4,
+        _ => 5,
     }
 }
 

@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub struct ModuleManifest {
     pub id: String,
     pub kind: ModuleKind,
@@ -13,6 +14,7 @@ pub struct ModuleManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum ModuleKind {
     Model,
     Search,

@@ -22,6 +22,7 @@ pub struct ToolResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ToolContent {
     Text { text: String },
     Json { value: serde_json::Value },
@@ -40,6 +41,7 @@ pub struct ToolSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ToolSafety {
     ReadOnly,
     WritesFiles,
@@ -50,6 +52,7 @@ pub enum ToolSafety {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum PermissionMode {
     Plan,
     #[default]
@@ -58,6 +61,7 @@ pub enum PermissionMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PolicyDecision {
     Allow,
     Ask { reason: String },
