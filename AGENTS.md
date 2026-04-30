@@ -23,7 +23,10 @@ clients/
 plugins/
     hello-renderer/      - референсный renderer-плагин (sabi_trait)
     hello-tool/          - минимальный tool-плагин
-    file-tools/          - полноразмерный пример tool-плагина
+    hello-policy-patch/  - демо ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
+    file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
+    shell-tool/          - tool shell (sh -lc)
+    sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
@@ -65,7 +68,8 @@ plugins/
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
 - vision/spec: `docs/MODULAR_AGENT_SPEC_RU.md`;
-- roadmap: `docs/roadmap.md`.
+- roadmap: `docs/roadmap.md`;
+- memory plugin blueprint (research): `docs/memory-research.md`.
 
 ## Проверка Перед Завершением
 

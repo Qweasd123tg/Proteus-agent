@@ -27,10 +27,13 @@ crates/
 clients/
   tui/              — два TUI клиента (fullscreen + codex-style inline)
 plugins/
-  hello-renderer/   — демо: декоративная рамка вокруг ответа
-  hello-tool/       — демо: tool current_time
-  file-tools/       — реальный набор: read_file / write_file / list_dir / grep
-docs/               — architecture, plugin-architecture, configuration, etc.
+  hello-renderer/      — демо: декоративная рамка вокруг ответа
+  hello-tool/          — демо: tool current_time
+  hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
+  file-tools/          — реальный набор: read_file / write_file / list_dir / grep
+  shell-tool/          — tool shell (sh -lc)
+  sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
+docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
 ## Что умеет сейчас
@@ -54,7 +57,9 @@ docs/               — architecture, plugin-architecture, configuration, etc.
 
 **Плагины (Wave 2):**
 - Dylib plugin loader через abi_stable.
-- Два slot'а поддерживают плагины: `renderer` и `tool`.
+- Шесть slot'ов поддерживают плагины: `tool`, `renderer`, `policy`, `patch`,
+  `search`, `memory`. Остались `memory_policy` и `context` — требуют FFI
+  callback bridge (blueprint в `docs/memory-research.md`).
 - Multi-plugin loading через lower-level libloading API (обход type-cache
   в `RootModule::load_from_file`).
 - Опциональный `plugin.toml` manifest рядом с `.so`.
@@ -171,6 +176,7 @@ cargo run -- tools list        # list_dir/grep/current_time/shell из плаг�
 - [docs/security-and-policy.md](docs/security-and-policy.md) — tool safety, approval policy, workspace boundary.
 - [docs/testing.md](docs/testing.md) — тестирование модульности.
 - [docs/roadmap.md](docs/roadmap.md) — направление проекта и следующие волны.
+- [docs/memory-research.md](docs/memory-research.md) — research и blueprint для memory плагинов (FFI callbacks).
 - [AGENTS.md](AGENTS.md) — правила работы для агентов/контрибьюторов.
 
 ## Проверка

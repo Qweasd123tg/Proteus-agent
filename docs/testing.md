@@ -6,7 +6,7 @@
 cargo test --workspace
 ```
 
-Текущий workspace гоняет 108 тестов: unit-тесты `agent-contracts`, unit-тесты адаптеров в `modular-agent`, интеграционные тесты `module_swap.rs` и тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для любого PR.
+Текущий workspace гоняет ~162 тестов: unit-тесты `agent-contracts`, unit-тесты адаптеров и plugin-адаптеров в `modular-agent`, интеграционные тесты `module_swap.rs` и тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для любого PR.
 
 ## Что Фиксируют Текущие Тесты
 
@@ -15,9 +15,10 @@ cargo test --workspace
 - `search = null` и `search = rg` не требуют изменений runtime;
 - `BuiltinModuleCatalog` перечисляет built-in manifests для model/search/memory_policy/workflow slots;
 - `modules list` рендерит catalog без запуска runtime;
-- `memory = none` и `memory = jsonl` не требуют изменений runtime;
-- `memory_policy = none` подключается как отдельный lifecycle slot и не пишет память автоматически;
+- `memory = none` / `jsonl` / `sqlite` — swap через config не меняет runtime;
+- `memory_policy = none` / `carry_forward` — первый no-op, второй пишет один handoff-snippet после turn'а;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
+- `remember_fact` tool принимает `{kind, content}` и отвергает невалидный kind с `WritesFiles` safety;
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` применяет `ApprovalPolicy::evaluate_visibility` без fake `ToolCall` и исполняет `ToolSpec.timeout_ms`;
 - session-level approval cache переиспользует только exact calls с canonical JSON args;
@@ -28,12 +29,16 @@ cargo test --workspace
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `apply_patch` применяет internal patch format только внутри workspace;
-- `write_file` не может выйти за workspace через parent traversal или symlink;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;
+- `ModelService` drain-ит stream и эмитит `AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta` events;
 - `ModelService` применяет `RequestShaper` перед вызовом provider adapter-а;
 - JSON config может выбрать Anthropic provider;
 - JSON config может переключиться на custom local provider URL;
 - workspace path encoding стабилен.
+
+Unit-тесты адаптеров в `modules/{search,memory,policy,patch}/plugin_adapter.rs` покрывают success, RErr propagation и invalid JSON return для каждого из 6 plugin-ready slot'ов. SSE-парсеры в `adapters/{openai,anthropic}.rs` тестируются на зафиксированных event-trace фикстурах.
+
+Коверидж builtin-tools из плагинов (read_file/write_file/list_dir/grep/shell) живёт **в самих плагинах** (`plugins/file-tools/src/*.rs`, `plugins/shell-tool/src/lib.rs`), не в core-тестах.
 
 ## DTO И Builder-Паттерн
 

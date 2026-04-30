@@ -2,7 +2,7 @@
 
 Модульность v0 означает выбор встроенной реализации через config. Все текущие реализации живут в подпапках `crates/modular-agent/src/modules`, сгруппированных по slot/type. Строки выбора и metadata встроенных модулей описаны в `crates/modular-agent/src/core/module_catalog.rs`, а `crates/modular-agent/src/core/registry.rs` использует catalog для сборки runtime trait-объектов.
 
-`crates/modular-agent/src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `crates/agent-contracts/src/domain` или `crates/agent-contracts/src/contracts`, это другой слой: например `crates/agent-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `crates/agent-contracts/src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `crates/modular-agent/src/modules/memory` содержит `NoMemory` и `JsonlMemory`.
+`crates/modular-agent/src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `crates/agent-contracts/src/domain` или `crates/agent-contracts/src/contracts`, это другой слой: например `crates/agent-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `crates/agent-contracts/src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `crates/modular-agent/src/modules/memory` содержит `NoMemory`, `JsonlMemory` и `SqliteMemory` backends плюс `NoMemoryPolicy` и `CarryForwardPolicy` policies.
 
 Список встроенных manifests можно посмотреть без запуска runtime:
 

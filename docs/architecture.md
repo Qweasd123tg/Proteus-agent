@@ -29,7 +29,7 @@ prototype-2: stable core invariants + dylib plugin boundary
 ```
 
 Проект уже не demo loop и не чисто монолит: есть plugin loader и рабочие
-плагины для `tool` и `renderer` slots. Но это ещё не marketplace, не package
+плагины для 6 из 8 slot'ов (tool, renderer, policy, patch, search, memory). Но это ещё не marketplace, не package
 manager, не persistent MCP host и не multi-agent runtime.
 
 Стабильные инварианты:
@@ -242,12 +242,12 @@ Adapters преобразуют `CanonicalModelRequest` в provider wire format 
   `libloading` + `lib_header_from_raw_library` + `init_root_module`
   (`RootModule::load_from_file` не используется — его type-keyed cache ломает
   multi-plugin сценарий; `mem::forget(raw_lib)` обязателен).
-- Dubicate policy: при конфликте `(slot, id)` builtin выигрывает, плагин
+- Duplicate policy: при конфликте `(slot, id)` builtin выигрывает, плагин
   логируется в stderr и скипается.
 - Escape hatch: `AGENT_PLUGINS_DISABLE=1` отключает загрузку плагинов,
   используется в тестах.
 
-В текущей Волне PluginRegistry покрывает `tool` и `renderer`. Остальные slots (policy/patch/memory/search/context) получают sabi_trait-варианты по мере freeze их trait'ов. Детали и волны: `plugin-architecture.md`.
+В текущей Волне PluginRegistry покрывает 6 slot'ов: `tool`, `renderer`, `approval_policy`, `patch_applier`, `search_backend`, `memory_store`. Остаются `memory_policy` и `context_builder` — они требуют FFI callback bridge (плагин зовёт ядро через `&dyn`), blueprint в `docs/memory-research.md`. Детали и волны: `plugin-architecture.md`.
 
 ## Runtime Flow
 

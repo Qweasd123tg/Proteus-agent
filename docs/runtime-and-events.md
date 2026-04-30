@@ -43,11 +43,12 @@ cargo run -- server stdio
 /history
 /clear
 /reset
+/remember [preference|fact] <content>
 /exit
 /quit
 ```
 
-`/history` показывает длину in-memory history. `/clear` и `/reset` очищают in-memory history и файл текущей session history, если он подключён.
+`/history` показывает длину in-memory history. `/clear` и `/reset` очищают in-memory history и файл текущей session history, если он подключён. `/remember` пишет item в `MemoryStore` напрямую, минуя Workflow — это side-channel для ручных preferences/facts; первое слово интерпретируется как kind (`preference` или `fact`), остаток идёт как content. Если первое слово не распознано — всё считается `fact`.
 
 ## Event Log
 
@@ -161,7 +162,7 @@ optional session store.
 Session state держит history сообщений в памяти. После каждого turn новые
 сообщения дописываются в `messages.jsonl`, если session store подключён.
 
-Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` и preflight context вроде `tool:list_dir` добавляются только в model request текущего turn и не дописываются в runtime history/session store.
+Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` добавляется только в model request текущего turn и не дописывается в runtime history/session store.
 
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
@@ -195,8 +196,6 @@ session directory.
 13. повторяет model call до финального ответа или лимита rounds;
 14. если лимит rounds исчерпан, делает финальный model call без tools;
 15. пишет `TurnFinished`.
-
-Для явных запросов вида “что в папке” текущий workflow заранее вызывает read-only `list_dir` через тот же `ToolOrchestrator`, затем добавляет результат как context chunk. Это не создаёт provider-specific tool result без соответствующего model tool call.
 
 Лимит tool rounds: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
