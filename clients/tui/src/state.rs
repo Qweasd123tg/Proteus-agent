@@ -194,6 +194,20 @@ impl AppState {
             Event::ModelResponseReceived { finish_reason } => {
                 self.status = format!("model: {finish_reason:?}");
             }
+            Event::AssistantTextDelta { text } => {
+                self.append_streaming_text(&text);
+            }
+            Event::AssistantToolArgsDelta { .. } => {
+                // Tool args стримим в фоне — визуально это проявится когда
+                // придёт Event::ToolCallRequested с полностью собранными
+                // аргументами. Специально хранить partial args не нужно
+                // пока UI не поддерживает "строящийся tool card".
+            }
+            Event::AssistantReasoningDelta { .. } => {
+                // Reasoning пока не рендерим отдельным slot'ом — будет
+                // отдельной фичей. Дельты пока игнорируем, но сам статус
+                // показывает "calling model..." что информативно.
+            }
             Event::ToolCallRequested { call } => {
                 self.messages.push(VisualMessage::tool(ToolCard {
                     call_id: call.id.clone(),
@@ -227,6 +241,23 @@ impl AppState {
             }
             _ => {}
         }
+    }
+
+    fn append_streaming_text(&mut self, chunk: &str) {
+        match self.streaming_assistant_idx {
+            Some(idx) if idx < self.messages.len() => {
+                // Рост уже активного streaming-сообщения in place.
+                self.messages[idx].text.push_str(chunk);
+            }
+            _ => {
+                // Первый delta turn'а: создаём новое assistant-сообщение.
+                // TurnOutput очистит индекс в финале и НЕ продублирует
+                // текст (см. ветку ingest -> TurnOutput).
+                self.messages.push(VisualMessage::assistant(chunk));
+                self.streaming_assistant_idx = Some(self.messages.len() - 1);
+            }
+        }
+        self.scroll_offset = 0;
     }
 
     fn update_tool_card(&mut self, result: ToolResult) {
