@@ -469,10 +469,20 @@ async fn swapping_policy_does_not_change_read_tool_execution() {
     for policy in ["allow_all", "ask_write"] {
         let mut config = test_config();
         config.modules.policy = policy.to_owned();
+        // allow remember_fact under ask_write so both policies actually
+        // execute the tool (ask_write would block it in the default fixture).
+        if !config.policy.ask_write.allow.contains(&"remember_fact".to_owned()) {
+            config.policy.ask_write.allow.push("remember_fact".to_owned());
+        }
+        config
+            .policy
+            .ask_write
+            .ask_before
+            .retain(|name| name != "remember_fact");
 
-        let (output, events) = run_with(config, "read_file sample.txt").await;
+        let (output, events) = run_with(config, "remember_fact user prefers tabs").await;
 
-        assert!(output.contains("hello modular agent"));
+        assert!(output.contains("Remembered"), "got: {output}");
         assert!(events.events().await.len() >= 8);
     }
 }
@@ -597,14 +607,18 @@ async fn tool_visibility_and_execution_policy_are_separate() {
     let config = test_config();
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
 
-    assert!(registry.tools.spec("write_file").is_ok());
+    assert!(registry.tools.spec("apply_patch").is_ok());
 
-    let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "x.txt", "content": "x" }));
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch".to_owned(),
+        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+    );
     let decision = registry.policy.evaluate(
         &call,
         &PolicyContext::new(
             dir.path().to_path_buf(),
-            registry.tools.spec("write_file").ok(),
+            registry.tools.spec("apply_patch").ok(),
         ),
     );
 
@@ -636,7 +650,7 @@ async fn tool_visibility_uses_visibility_policy_not_execution_evaluate() {
         visibility_calls.load(Ordering::SeqCst),
         registry.tools.specs().len()
     );
-    assert!(specs.iter().any(|spec| spec.name == "read_file"));
+    assert!(specs.iter().any(|spec| spec.name == "search"));
 }
 
 #[tokio::test]
@@ -661,21 +675,21 @@ async fn execution_policy_receives_real_tool_call_args() {
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "policy-args.txt", "content": "seen" })),
+            &AgentTask::new("remember".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact".to_owned(),
+                json!({
+                    "kind": "fact",
+                    "content": "policy-args-seen"
+                }),
+            ),
         )
         .await
         .unwrap();
 
     assert!(result.ok);
-    assert_eq!(
-        seen_path.lock().unwrap().as_deref(),
-        Some("policy-args.txt")
-    );
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("policy-args.txt")).unwrap(),
-        "seen"
-    );
+    assert_eq!(seen_path.lock().unwrap().as_deref(), Some("policy-args-seen"));
 }
 
 #[test]
@@ -726,17 +740,7 @@ fn tool_specs_are_returned_in_stable_name_order() {
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        names,
-        [
-            "apply_patch",
-            "list_dir",
-            "read_file",
-            "search",
-            "shell",
-            "write_file"
-        ]
-    );
+    assert_eq!(names, ["apply_patch", "remember_fact", "search"]);
 }
 
 #[tokio::test]
@@ -747,28 +751,28 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
     config.policy.ask_write.allow = Vec::new();
     config.policy.ask_write.ask_before = Vec::new();
     config.tools.configured.push(ConfiguredToolConfig {
-        name: "read_file".to_owned(),
-        description: "Configured read tool".to_owned(),
+        name: "project_search".to_owned(),
+        description: "Configured search tool".to_owned(),
         input_schema: json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string" }
+                "query": { "type": "string" }
             },
-            "required": ["path"]
+            "required": ["query"]
         }),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: json!({ "from": "config" }),
         executor: ConfiguredToolExecutorConfig::Native {
-            handler: "read_file".to_owned(),
+            handler: "search".to_owned(),
         },
     });
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
-    let spec = registry.tools.spec("read_file").unwrap();
-    assert_eq!(spec.description, "Configured read tool");
+    let spec = registry.tools.spec("project_search").unwrap();
+    assert_eq!(spec.description, "Configured search tool");
     assert_eq!(spec.metadata["from"], "config");
     assert_eq!(
-        registry.tools.entry("read_file").unwrap().source,
+        registry.tools.entry("project_search").unwrap().source,
         ToolSource::Config {
             origin: "config:native".to_owned()
         }
@@ -783,17 +787,22 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
         PermissionMode::Plan,
     );
 
+    // ReadOnly tool under Plan mode — execution is allowed; search returns
+    // an empty result (NullSearch) but that is fine for the wiring check.
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
-            &AgentTask::new("read".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "read_file".to_owned(), json!({ "path": "sample.txt" })),
+            &AgentTask::new("probe".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "project_search".to_owned(),
+                json!({ "query": "anything" }),
+            ),
         )
         .await
         .unwrap();
 
     assert!(result.ok);
-    assert!(result.output.contains("hello modular agent"));
 }
 
 #[test]
@@ -803,28 +812,30 @@ fn configured_native_tool_cannot_lower_handler_safety() {
     config.tools.enabled = Vec::new();
     config.policy.ask_write.allow = Vec::new();
     config.policy.ask_write.ask_before = Vec::new();
+    // Handler apply_patch is WritesFiles by definition; a config that tries
+    // to relabel it as ReadOnly must not be honoured.
     config.tools.configured.push(ConfiguredToolConfig {
-        name: "shell".to_owned(),
-        description: "Configured shell".to_owned(),
+        name: "safe_patch".to_owned(),
+        description: "Mislabelled patch tool".to_owned(),
         input_schema: json!({
             "type": "object",
             "properties": {
-                "command": { "type": "string" }
+                "patch": { "type": "string" }
             },
-            "required": ["command"]
+            "required": ["patch"]
         }),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
         executor: ConfiguredToolExecutorConfig::Native {
-            handler: "shell".to_owned(),
+            handler: "apply_patch".to_owned(),
         },
     });
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
 
     assert_eq!(
-        registry.tools.spec("shell").unwrap().safety,
-        ToolSafety::RunsCommands
+        registry.tools.spec("safe_patch").unwrap().safety,
+        ToolSafety::WritesFiles
     );
 }
 
@@ -1098,9 +1109,12 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
 
 #[tokio::test]
 async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
+    // ask_write asks before apply_patch and remember_fact; without an
+    // interactive transport those disappear from the tool list. Only
+    // `search` (in the allow list) remains visible.
     let (output, _events) = run_with(test_config(), "summarize hello").await;
 
-    assert!(output.contains("tools=3"));
+    assert!(output.contains("tools=1"), "got: {output}");
 }
 
 #[tokio::test]
@@ -1119,7 +1133,8 @@ async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
-    assert!(output.text.contains("tools=3"));
+    // Plan mode hides anything that is not ReadOnly — only `search` survives.
+    assert!(output.text.contains("tools=1"), "got: {}", output.text);
 }
 
 #[tokio::test]
@@ -1129,7 +1144,9 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
 
     let (output, _events) = run_with(config, "summarize hello").await;
 
-    assert!(output.contains("tools=5"));
+    // Auto allows ReadOnly and WritesFiles without approval.
+    // Core-resident tools are apply_patch + search + remember_fact.
+    assert!(output.contains("tools=3"), "got: {output}");
 }
 
 #[tokio::test]
@@ -1156,16 +1173,16 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
 
-    assert!(names.contains(&"read_file".to_owned()));
-    assert!(names.contains(&"write_file".to_owned()));
-    assert!(!names.contains(&"shell".to_owned()));
+    assert!(names.contains(&"apply_patch".to_owned()));
+    assert!(names.contains(&"remember_fact".to_owned()));
+    assert!(names.contains(&"search".to_owned()));
     assert!(!names.contains(&"network_probe".to_owned()));
 
     let denied = orchestrator
         .execute(
             &ctx,
-            &AgentTask::new("try shell".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "shell".to_owned(), json!({ "command": "echo should-not-run" })),
+            &AgentTask::new("try network".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(new_call_id(), "network_probe".to_owned(), json!({})),
         )
         .await
         .unwrap();
@@ -1247,7 +1264,9 @@ async fn interactive_approval_transport_exposes_ask_tools_to_model() {
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
-    assert!(output.text.contains("tools=6"));
+    // Interactive transport exposes ask_before tools too — all 3 core
+    // tools are visible.
+    assert!(output.text.contains("tools=3"), "got: {}", output.text);
 }
 
 #[tokio::test]
@@ -1269,7 +1288,7 @@ async fn malformed_tool_call_is_rejected_before_approval() {
         .execute(
             &ctx,
             &AgentTask::new("write malformed".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "write_file".to_owned(), json!({})),
+            ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({})),
         )
         .await
         .unwrap();
@@ -1284,7 +1303,7 @@ async fn malformed_tool_call_is_rejected_before_approval() {
         result
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("tool 'write_file' requires string arg 'path'"))
+            .is_some_and(|error| error.contains("tool 'apply_patch' requires string arg 'patch'"))
     );
     let records = events.events().await;
     assert!(records.iter().any(|event| {
@@ -1377,10 +1396,9 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
         output.output.metadata["tool_round_limit_reached"],
         serde_json::Value::Bool(true)
     );
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("limit-final.txt")).unwrap(),
-        "done"
-    );
+    // The exact tool call side-effect doesn't matter for this test — we only
+    // need to see that exactly one tool round was issued and the workflow
+    // produced its final-without-tools answer.
     let records = events.events().await;
     assert_eq!(
         records
@@ -1431,7 +1449,8 @@ async fn allow_all_keeps_all_registered_tools_visible_to_model() {
 
     let (output, _events) = run_with(config, "summarize hello").await;
 
-    assert!(output.contains("tools=6"));
+    // allow_all exposes every registered tool — 3 core-resident.
+    assert!(output.contains("tools=3"), "got: {output}");
 }
 
 #[derive(Debug)]
@@ -1480,7 +1499,7 @@ impl ApprovalPolicy for ArgsCapturingPolicy {
     fn evaluate(&self, call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
         *self.seen_path.lock().unwrap() = call
             .args
-            .get("path")
+            .get("content")
             .and_then(|value| value.as_str())
             .map(str::to_owned);
         PolicyDecision::Allow
@@ -1547,7 +1566,11 @@ impl ModelClient for FinalAfterToolLimitModel {
     ) -> anyhow::Result<CanonicalModelResponse> {
         let call_number = self.calls.fetch_add(1, Ordering::SeqCst);
         if call_number == 0 {
-            let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "limit-final.txt", "content": "done" }));
+            let call = ToolCall::new(
+                new_call_id(),
+                "apply_patch".to_owned(),
+                json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+            );
             let message = CanonicalMessage::new(
                 MessageRole::Assistant,
                 vec![ContentPart::ToolCall { call: call.clone() }],
@@ -1593,7 +1616,11 @@ impl ModelClient for LengthToolCallModel {
         &self,
         _request: CanonicalModelRequest,
     ) -> anyhow::Result<CanonicalModelResponse> {
-        let call = ToolCall::new(new_call_id(), "write_file".to_owned(), json!({ "path": "partial.txt", "content": "should not write" }));
+        let call = ToolCall::new(
+            new_call_id(),
+            "apply_patch".to_owned(),
+            json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+        );
         let message = CanonicalMessage::new(
             MessageRole::Assistant,
             vec![
@@ -1666,18 +1693,9 @@ impl ApprovalTransport for TestApprovalTransport {
     }
 }
 
-#[tokio::test]
-async fn folder_listing_question_uses_list_dir_context() {
-    let (output, events) = run_with(test_config(), "привет что в папке ?").await;
-
-    assert!(output.contains("file\tsample.txt"));
-    assert!(events.events().await.iter().any(|event| {
-        matches!(
-            event,
-            Event::ToolCallRequested { call } if call.name == "list_dir"
-        )
-    }));
-}
+// folder_listing_question_uses_list_dir_context removed together with the
+// `maybe_add_directory_listing_context` heuristic in single_loop.rs — the
+// feature assumed list_dir was a builtin, which it no longer is.
 
 #[tokio::test]
 async fn context_chunks_are_not_persisted_to_runtime_history() {
@@ -1686,18 +1704,19 @@ async fn context_chunks_are_not_persisted_to_runtime_history() {
     let runtime =
         AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events).unwrap();
 
-    let listing = runtime
-        .run("привет что в папке ?".to_owned())
+    let first = runtime
+        .run("hello".to_owned())
         .await
         .unwrap();
     let follow_up = runtime
-        .run("summarize after listing".to_owned())
+        .run("summarize".to_owned())
         .await
         .unwrap();
 
-    assert!(listing.text.contains("file\tsample.txt"));
-    assert!(follow_up.text.contains("context_chunks=1"));
-    assert!(!follow_up.text.contains("after directory listing"));
+    assert!(first.text.contains("Fake final answer"));
+    assert!(follow_up.text.contains("Fake final answer"));
+    // History contains only conversational messages (user+assistant per turn),
+    // not the ephemeral context chunks.
     assert_eq!(runtime.history_len().await, 4);
 }
 
@@ -1715,7 +1734,7 @@ async fn context_chunks_are_not_written_to_session_store() {
     .unwrap();
 
     let output = runtime
-        .run("привет что в папке ?".to_owned())
+        .run("hello".to_owned())
         .await
         .unwrap();
     let messages_path = runtime.session_dir().unwrap().join("messages.jsonl");
@@ -1725,8 +1744,10 @@ async fn context_chunks_are_not_written_to_session_store() {
         .map(|line| serde_json::from_str::<CanonicalMessage>(line).expect("message"))
         .collect::<Vec<_>>();
 
-    assert!(output.text.contains("file\tsample.txt"));
+    assert!(output.text.contains("Fake final answer"));
     assert_eq!(messages.len(), 2);
+    // Ephemeral context chunks (from the simple context builder) must not
+    // leak into the persistent session transcript.
     assert!(!messages.iter().any(|message| {
         message
             .parts
@@ -1861,7 +1882,7 @@ fn ask_write_rejects_unknown_policy_tool_at_startup() {
     let error = error.to_string();
     assert!(error.contains("policy.ask_write.allow references unknown tool \"missing_tool\""));
     assert!(error.contains("registered tools:"));
-    assert!(error.contains("read_file"));
+    assert!(error.contains("apply_patch"));
     assert!(error.contains("hint: enable the builtin tool"));
 }
 
@@ -1885,28 +1906,53 @@ fn ask_write_rejects_unknown_ask_before_tool_at_startup() {
 
 #[tokio::test]
 async fn tool_invocation_error_is_returned_as_failed_tool_result() {
+    // remember_fact with an invalid "kind" should fail at the tool layer and
+    // surface as a failed ToolFinished event (not a workflow panic). The
+    // FakeModelClient emits `kind: "fact"` by default, so we construct the
+    // tool call directly against the orchestrator to force the bad kind.
     let dir = temp_workspace();
-    let events = Arc::new(InMemoryEventStore::new());
-    let runtime =
-        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events.clone())
-            .unwrap();
+    let mut config = test_config();
+    // Allow remember_fact without interactive transport so the orchestrator
+    // actually reaches the tool implementation.
+    config.policy.ask_write.ask_before.retain(|name| name != "remember_fact");
+    config.policy.ask_write.allow.push("remember_fact".to_owned());
 
-    let output = runtime
-        .run("read_file missing.txt".to_owned())
+    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask::new("bad remember".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact".to_owned(),
+                json!({ "kind": "garbage", "content": "whatever" }),
+            ),
+        )
         .await
         .unwrap();
-    let records = events.events().await;
 
-    assert!(output.text.contains("failed to canonicalize"));
+    assert!(!result.ok);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("must be 'preference' or 'fact'"))
+    );
+    let records = events.events().await;
     assert!(records.iter().any(|event| {
         matches!(
             event,
-            Event::ToolFinished { result }
-                if !result.ok
-                    && result
-                        .error
-                        .as_deref()
-                        .is_some_and(|error| error.contains("failed to canonicalize"))
+            Event::ToolFinished { result } if !result.ok
         )
     }));
 }
@@ -1916,18 +1962,21 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
 #[tokio::test]
 async fn fake_model_uses_canonical_contract() {
     let model = ModelService::new(Arc::new(FakeModelClient::default()));
+    // FakeModel recognises a `remember_fact <content>` trigger and emits
+    // a tool call against the remember_fact builtin — the round trip
+    // checks that canonical request/response DTO flows through.
     let request = CanonicalModelRequest::new(
         ModelRef::new("fake", "fake-tool-model"),
         vec![CanonicalMessage::text(
             MessageRole::User,
-            "read_file sample.txt",
+            "remember_fact user prefers tabs",
         )],
     );
 
     let response = model.complete(request).await.unwrap();
 
     assert_eq!(response.finish_reason, FinishReason::ToolCalls);
-    assert_eq!(response.tool_calls[0].name, "read_file");
+    assert_eq!(response.tool_calls[0].name, "remember_fact");
 }
 
 #[tokio::test]
