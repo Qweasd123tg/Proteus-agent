@@ -201,6 +201,47 @@ impl std::error::Error for PluginPatchError {}
 /// Ffi-safe trait object для PluginPatchApplier.
 pub type PatchApplierObject = PluginPatchApplier_TO<abi_stable::std_types::RBox<()>>;
 
+/// Sync sabi_trait для search-backend плагинов.
+///
+/// Ядро-trait `SearchBackend` async, поэтому адаптер в ядре оборачивает
+/// sync-вызов плагина в `spawn_blocking`. DTO через JSON.
+///
+/// ## JSON-форма
+///
+/// - `query_json` — сериализованный `SearchQuery { text, cwd, max_results }`.
+/// - Возврат — JSON массив `ContextChunk`.
+#[sabi_trait]
+pub trait PluginSearchBackend: Send + Sync + 'static {
+    fn search_json(&self, query_json: RString) -> RResult<RString, PluginSearchError>;
+}
+
+/// Ошибка выполнения search-backend плагина.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginSearchError {
+    pub message: RString,
+}
+
+impl PluginSearchError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginSearchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginSearchError {}
+
+/// Ffi-safe trait object для PluginSearchBackend.
+pub type SearchBackendObject = PluginSearchBackend_TO<abi_stable::std_types::RBox<()>>;
+
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
@@ -263,8 +304,17 @@ pub trait PluginRegistry: Send + Sync {
         applier: PatchApplierObject,
     ) -> RResult<(), PluginRegisterError>;
 
-    // Будущие: register_search_backend, register_context_builder,
-    // register_memory_store, register_memory_policy.
+    /// Регистрирует SearchBackend под module_id в slot `search`.
+    /// Ядро-trait `SearchBackend` async — адаптер в ядре мостит через
+    /// spawn_blocking.
+    fn register_search_backend(
+        &mut self,
+        module_id: RString,
+        backend: SearchBackendObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    // Будущие: register_context_builder, register_memory_store,
+    // register_memory_policy.
 }
 
 /// Тип trait-объекта PluginRegistry, передаваемого в плагин.

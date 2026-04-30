@@ -2,10 +2,11 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::ContextChunk;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SearchQuery {
     pub text: String,
