@@ -82,11 +82,7 @@ impl Tool for RememberFactTool {
         if content.trim().is_empty() {
             bail!("remember_fact: 'content' must be non-empty");
         }
-        let metadata = call
-            .args
-            .get("metadata")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let metadata = call.args.get("metadata").cloned().unwrap_or(Value::Null);
         self.memory
             .remember(MemoryItem::new(kind, content, metadata))
             .await?;

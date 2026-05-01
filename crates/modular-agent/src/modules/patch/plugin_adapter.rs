@@ -66,11 +66,7 @@ mod tests {
 
     struct NoopPatch;
     impl PluginPatchApplier for NoopPatch {
-        fn apply_json(
-            &self,
-            _patch: RString,
-            _cwd: RString,
-        ) -> RResult<RString, PluginPatchError> {
+        fn apply_json(&self, _patch: RString, _cwd: RString) -> RResult<RString, PluginPatchError> {
             let result = PatchResult::new(true, "noop");
             ROk(serde_json::to_string(&result).unwrap().into())
         }
@@ -78,22 +74,14 @@ mod tests {
 
     struct FailPatch;
     impl PluginPatchApplier for FailPatch {
-        fn apply_json(
-            &self,
-            _patch: RString,
-            _cwd: RString,
-        ) -> RResult<RString, PluginPatchError> {
+        fn apply_json(&self, _patch: RString, _cwd: RString) -> RResult<RString, PluginPatchError> {
             RResult::RErr(PluginPatchError::new("plugin exploded"))
         }
     }
 
     struct BrokenJsonPatch;
     impl PluginPatchApplier for BrokenJsonPatch {
-        fn apply_json(
-            &self,
-            _patch: RString,
-            _cwd: RString,
-        ) -> RResult<RString, PluginPatchError> {
+        fn apply_json(&self, _patch: RString, _cwd: RString) -> RResult<RString, PluginPatchError> {
             ROk(RString::from("not json"))
         }
     }
@@ -106,10 +94,7 @@ mod tests {
     #[tokio::test]
     async fn plugin_success_round_trip() {
         let adapter = wrap(NoopPatch);
-        let result = adapter
-            .apply(Patch::new("dummy"))
-            .await
-            .unwrap();
+        let result = adapter.apply(Patch::new("dummy")).await.unwrap();
         assert!(result.ok);
         assert_eq!(result.summary, "noop");
     }
@@ -117,20 +102,14 @@ mod tests {
     #[tokio::test]
     async fn plugin_rerror_propagates_as_anyhow() {
         let adapter = wrap(FailPatch);
-        let err = adapter
-            .apply(Patch::new("x"))
-            .await
-            .unwrap_err();
+        let err = adapter.apply(Patch::new("x")).await.unwrap_err();
         assert!(err.to_string().contains("plugin exploded"), "{err}");
     }
 
     #[tokio::test]
     async fn invalid_json_propagates_as_anyhow() {
         let adapter = wrap(BrokenJsonPatch);
-        let err = adapter
-            .apply(Patch::new("x"))
-            .await
-            .unwrap_err();
+        let err = adapter.apply(Patch::new("x")).await.unwrap_err();
         assert!(err.to_string().contains("invalid result JSON"), "{err}");
     }
 }

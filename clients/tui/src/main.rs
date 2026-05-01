@@ -96,9 +96,7 @@ fn install_panic_hook() {
         );
 
         let backtrace = std::backtrace::Backtrace::force_capture();
-        let msg = format!(
-            "=== TUI panic ===\n{info}\n\nbacktrace:\n{backtrace}\n",
-        );
+        let msg = format!("=== TUI panic ===\n{info}\n\nbacktrace:\n{backtrace}\n",);
 
         eprintln!("{msg}");
 
@@ -202,10 +200,7 @@ fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resu
     Ok(())
 }
 
-async fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    cli: Cli,
-) -> Result<()> {
+async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli) -> Result<()> {
     let cwd = cli
         .cwd
         .clone()
@@ -341,9 +336,7 @@ async fn handle_term_event(
                             return Ok(true);
                         }
                     }
-                    KeyCode::Char('n')
-                    | KeyCode::Char('N')
-                    | KeyCode::Esc => {
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                         if let Some(id) = state.take_pending_approval_id() {
                             driver
                                 .send(&StdioRequest::Approval {

@@ -99,8 +99,8 @@ impl SqlitePluginStore {
 }
 
 fn plugin_db_path() -> Result<PathBuf> {
-    let home =
-        std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME env not set, cannot resolve db path"))?;
+    let home = std::env::var_os("HOME")
+        .ok_or_else(|| anyhow!("HOME env not set, cannot resolve db path"))?;
     Ok(PathBuf::from(home)
         .join(".agent")
         .join("memory-plugin.sqlite"))
@@ -125,12 +125,10 @@ impl PluginMemoryStore for SqlitePluginStore {
 }
 
 fn remember_impl(conn: &Mutex<Connection>, payload: &str) -> Result<()> {
-    let item: ItemWire = serde_json::from_str(payload)
-        .with_context(|| "failed to deserialize MemoryItem JSON")?;
+    let item: ItemWire =
+        serde_json::from_str(payload).with_context(|| "failed to deserialize MemoryItem JSON")?;
     let created_at = chrono::Utc::now().timestamp_millis();
-    let c = conn
-        .lock()
-        .map_err(|_| anyhow!("sqlite mutex poisoned"))?;
+    let c = conn.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
     c.execute(
         "INSERT INTO memory_items (kind, content, metadata, created_at) VALUES (?1, ?2, ?3, ?4)",
         params![
@@ -145,12 +143,10 @@ fn remember_impl(conn: &Mutex<Connection>, payload: &str) -> Result<()> {
 }
 
 fn recall_impl(conn: &Mutex<Connection>, payload: &str) -> Result<String> {
-    let query: QueryWire = serde_json::from_str(payload)
-        .with_context(|| "failed to deserialize MemoryQuery JSON")?;
+    let query: QueryWire =
+        serde_json::from_str(payload).with_context(|| "failed to deserialize MemoryQuery JSON")?;
     let limit = query.limit.max(1) as i64;
-    let c = conn
-        .lock()
-        .map_err(|_| anyhow!("sqlite mutex poisoned"))?;
+    let c = conn.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
 
     let match_expr = fts_match_expression(&query.text);
     let items: Vec<ItemWire> = if match_expr.is_empty() {

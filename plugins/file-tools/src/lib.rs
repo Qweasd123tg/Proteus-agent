@@ -39,14 +39,12 @@ use agent_contracts::{
         std_types::{RResult, RStr},
     },
     plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginToolObject,
-        PluginTool_TO,
+        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool_TO,
+        PluginToolObject,
     },
 };
 
-use crate::{
-    list::ListDirTool, read::ReadFileTool, search::GrepTool, write::WriteFileTool,
-};
+use crate::{list::ListDirTool, read::ReadFileTool, search::GrepTool, write::WriteFileTool};
 
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
@@ -78,9 +76,7 @@ extern "C" fn register_modules(
 pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("file-tools"),
-        description: RStr::from_str(
-            "Basic file tools: read_file, write_file, list_dir, grep",
-        ),
+        description: RStr::from_str("Basic file tools: read_file, write_file, list_dir, grep"),
         register_modules,
     }
     .leak_into_prefix()

@@ -45,7 +45,11 @@ impl BuiltinRegistry {
             let _ = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
         }
 
-        let build_ctx = ModuleBuildContext { config, cwd: &cwd };
+        let build_ctx = ModuleBuildContext {
+            config,
+            cwd: &cwd,
+            context_providers: catalog.context_providers(),
+        };
         let model_config = config.active_model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
@@ -57,7 +61,8 @@ impl BuiltinRegistry {
             catalog.build_memory_policy(&config.modules.memory_policy, &build_ctx)?;
         let context = catalog.build_context(&config.modules.context, &build_ctx)?;
         let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-        let tools = catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
+        let tools =
+            catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
         let policy_ctx = PolicyBuildContext {
             config,
             cwd: &cwd,

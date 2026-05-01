@@ -7,12 +7,8 @@ use serde_json::json;
 use crate::{
     contracts::{ContextBuildInput, SearchQuery},
     domain::{ContextChunk, MemoryQuery},
+    modules::RepoAwareContextProvider,
 };
-
-#[async_trait]
-pub(super) trait RepoContextProvider: Send + Sync {
-    async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>>;
-}
 
 #[derive(Debug, Clone)]
 pub(super) struct ProjectInstructionsProvider {
@@ -47,7 +43,7 @@ pub(super) struct SearchProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for ProjectInstructionsProvider {
+impl RepoAwareContextProvider for ProjectInstructionsProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let mut chunks = Vec::new();
         for file in &self.files {
@@ -73,7 +69,7 @@ impl RepoContextProvider for ProjectInstructionsProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for ManifestProvider {
+impl RepoAwareContextProvider for ManifestProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let mut chunks = Vec::new();
         for file in &self.files {
@@ -99,7 +95,7 @@ impl RepoContextProvider for ManifestProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for GitStatusProvider {
+impl RepoAwareContextProvider for GitStatusProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let output = match tokio::process::Command::new("git")
             .args(["status", "--short", "--branch"])
@@ -133,7 +129,7 @@ impl RepoContextProvider for GitStatusProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for RepoTreeProvider {
+impl RepoAwareContextProvider for RepoTreeProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let mut entries = Vec::new();
         collect_tree_entries(
@@ -161,7 +157,7 @@ impl RepoContextProvider for RepoTreeProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for MemoryProvider {
+impl RepoAwareContextProvider for MemoryProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let items = input
             .memory
@@ -179,7 +175,7 @@ impl RepoContextProvider for MemoryProvider {
 }
 
 #[async_trait]
-impl RepoContextProvider for SearchProvider {
+impl RepoAwareContextProvider for SearchProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
         let queries = extract_search_queries(&input.task.text);
         if queries.is_empty() {

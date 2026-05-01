@@ -37,3 +37,33 @@ impl MemoryQuery {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "op", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum MemoryOp {
+    Remember { item: MemoryItem },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[non_exhaustive]
+pub struct MemoryPolicyPlan {
+    #[serde(default)]
+    pub ops: Vec<MemoryOp>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl MemoryPolicyPlan {
+    pub fn new(ops: Vec<MemoryOp>) -> Self {
+        Self {
+            ops,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}

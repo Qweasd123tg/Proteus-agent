@@ -13,10 +13,15 @@ use crate::{
 
 use providers::{
     GitStatusProvider, ManifestProvider, MemoryProvider, ProjectInstructionsProvider,
-    RepoContextProvider, RepoTreeProvider, SearchProvider,
+    RepoTreeProvider, SearchProvider,
 };
 
-#[derive(Debug, Clone)]
+#[async_trait]
+pub trait RepoAwareContextProvider: Send + Sync {
+    async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>>;
+}
+
+#[derive(Clone)]
 pub struct RepoAwareContextConfig {
     pub providers: Vec<String>,
     pub max_context_bytes: usize,
@@ -28,11 +33,12 @@ pub struct RepoAwareContextConfig {
     pub repo_tree_skip_entries: Vec<String>,
     pub project_instruction_files: Vec<String>,
     pub manifest_files: Vec<String>,
+    pub external_providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
 }
 
 #[derive(Clone)]
 pub struct RepoAwareContextBuilder {
-    providers: Vec<(String, Arc<dyn RepoContextProvider>)>,
+    providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
     max_context_bytes: usize,
 }
 
@@ -40,7 +46,7 @@ impl RepoAwareContextBuilder {
     pub fn new(config: RepoAwareContextConfig) -> Result<Self> {
         let mut providers = Vec::new();
         for id in &config.providers {
-            let provider: Arc<dyn RepoContextProvider> = match id.as_str() {
+            let provider: Arc<dyn RepoAwareContextProvider> = match id.as_str() {
                 "project_instructions" => Arc::new(ProjectInstructionsProvider {
                     files: config.project_instruction_files.clone(),
                     max_bytes_per_file: config.max_bytes_per_file,
@@ -61,7 +67,14 @@ impl RepoAwareContextBuilder {
                 "search" => Arc::new(SearchProvider {
                     max_results: config.max_search_results,
                 }),
-                _ => anyhow::bail!("unsupported repo_aware context provider: {id}"),
+                _ => config
+                    .external_providers
+                    .iter()
+                    .find(|(provider_id, _)| provider_id == id)
+                    .map(|(_, provider)| provider.clone())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("unsupported repo_aware context provider: {id}")
+                    })?,
             };
             providers.push((id.clone(), provider));
         }

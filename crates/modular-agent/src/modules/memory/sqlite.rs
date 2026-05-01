@@ -193,18 +193,11 @@ mod tests {
             .await
             .unwrap();
         store
-            .remember(MemoryItem::new(
-                "fact",
-                "repo uses pnpm",
-                Value::Null,
-            ))
+            .remember(MemoryItem::new("fact", "repo uses pnpm", Value::Null))
             .await
             .unwrap();
 
-        let hits = store
-            .recall(MemoryQuery::new("tabs", 10))
-            .await
-            .unwrap();
+        let hits = store.recall(MemoryQuery::new("tabs", 10)).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].kind, "preference");
         assert!(hits[0].content.contains("tabs"));
@@ -224,10 +217,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let hits = store
-            .recall(MemoryQuery::new("sample", 3))
-            .await
-            .unwrap();
+        let hits = store.recall(MemoryQuery::new("sample", 3)).await.unwrap();
         assert_eq!(hits.len(), 3);
     }
 
@@ -254,10 +244,7 @@ mod tests {
             .remember(MemoryItem::new("fact", "unrelated", Value::Null))
             .await
             .unwrap();
-        let hits = store
-            .recall(MemoryQuery::new("tabs", 10))
-            .await
-            .unwrap();
+        let hits = store.recall(MemoryQuery::new("tabs", 10)).await.unwrap();
         assert!(hits.is_empty());
     }
 
@@ -265,9 +252,15 @@ mod tests {
     fn fts_match_expression_sanitizes_tokens() {
         assert_eq!(fts_match_expression(""), "");
         assert_eq!(fts_match_expression("!!!"), "");
-        assert_eq!(fts_match_expression("react router"), "\"react\"* AND \"router\"*");
+        assert_eq!(
+            fts_match_expression("react router"),
+            "\"react\"* AND \"router\"*"
+        );
         assert_eq!(fts_match_expression("snake_case"), "\"snake_case\"*");
-        assert_eq!(fts_match_expression("tabs  spaces"), "\"tabs\"* AND \"spaces\"*");
+        assert_eq!(
+            fts_match_expression("tabs  spaces"),
+            "\"tabs\"* AND \"spaces\"*"
+        );
     }
 }
 
@@ -276,7 +269,6 @@ mod tests {
 /// директории если их нет.
 pub fn default_sqlite_memory_path(cwd: &Path) -> Result<PathBuf> {
     let dir = cwd.join(".agent");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
     Ok(dir.join("memory.sqlite"))
 }

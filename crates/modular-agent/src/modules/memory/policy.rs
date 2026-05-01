@@ -212,6 +212,9 @@ mod tests {
             .await
             .unwrap();
         let items = memory.items.lock().await;
-        assert_eq!(items[0].content.chars().count(), CARRY_FORWARD_CONTENT_LIMIT);
+        assert_eq!(
+            items[0].content.chars().count(),
+            CARRY_FORWARD_CONTENT_LIMIT
+        );
     }
 }

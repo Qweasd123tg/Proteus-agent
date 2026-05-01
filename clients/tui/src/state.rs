@@ -184,7 +184,9 @@ impl AppState {
                 chunks,
                 token_estimate,
             } => {
-                let tokens = token_estimate.map(|t| format!(" ({t}t)")).unwrap_or_default();
+                let tokens = token_estimate
+                    .map(|t| format!(" ({t}t)"))
+                    .unwrap_or_default();
                 self.status = format!("context ready: {chunks} chunks{tokens}");
             }
             Event::ModelRequestPrepared { model } => {

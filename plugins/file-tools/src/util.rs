@@ -110,6 +110,19 @@ pub(crate) fn workspace_path_for_write(cwd: &Path, path: &Path) -> Result<PathBu
     if !canonical_parent.starts_with(&base) {
         return Err(format!("path escapes workspace: {}", path.display()));
     }
+    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "refusing to write through symlink: {}",
+                path.display()
+            ));
+        }
+        let canonical_target = std::fs::canonicalize(&target)
+            .map_err(|e| format!("failed to canonicalize target {}: {e}", target.display()))?;
+        if !canonical_target.starts_with(&base) {
+            return Err(format!("path escapes workspace: {}", path.display()));
+        }
+    }
     let file_name = target
         .file_name()
         .ok_or_else(|| format!("no file name in {}", target.display()))?;
@@ -143,4 +156,34 @@ pub(crate) fn optional_positive_usize(
         ));
     }
     Ok(Some(number as usize))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_path_rejects_parent_escape() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let error = workspace_path_for_write(dir.path(), Path::new("../outside.txt"))
+            .expect_err("parent traversal must be rejected");
+        assert!(error.contains("escapes workspace"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_path_rejects_existing_symlink() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::tempdir().expect("outside");
+        let outside_file = outside.path().join("secret.txt");
+        std::fs::write(&outside_file, "secret").expect("outside file");
+        std::os::unix::fs::symlink(&outside_file, dir.path().join("link.txt")).expect("symlink");
+
+        let error = workspace_path_for_write(dir.path(), Path::new("link.txt"))
+            .expect_err("symlink target must be rejected");
+        assert!(
+            error.contains("refusing to write through symlink"),
+            "{error}"
+        );
+    }
 }

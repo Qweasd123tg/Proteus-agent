@@ -100,10 +100,7 @@ impl OpenAiResponsesClient {
         from_openai_response(response)
     }
 
-    async fn stream_response(
-        &self,
-        request: CanonicalModelRequest,
-    ) -> Result<ModelEventStream> {
+    async fn stream_response(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let mut body = to_openai_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/responses", self.base_url);
@@ -613,11 +610,13 @@ mod tests {
             &json!({ "item_id": "call_1", "delta": "{\"a\"" }).to_string(),
         );
         match events.as_slice() {
-            [ModelStreamEvent::ToolCallDelta {
-                call_id,
-                name,
-                args_delta,
-            }] => {
+            [
+                ModelStreamEvent::ToolCallDelta {
+                    call_id,
+                    name,
+                    args_delta,
+                },
+            ] => {
                 assert_eq!(call_id, "call_1");
                 assert_eq!(name, &None);
                 assert_eq!(args_delta, "{\"a\"");

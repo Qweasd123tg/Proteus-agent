@@ -30,8 +30,7 @@ impl ApprovalTransport for CachedApprovalTransport {
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
         if self.is_cached(&request).await {
-            return Ok(ApprovalResponse::approve()
-                .with_note("approval reused from session cache"));
+            return Ok(ApprovalResponse::approve().with_note("approval reused from session cache"));
         }
 
         let response = self.inner.request_approval(request.clone()).await?;

@@ -115,12 +115,10 @@ impl FakeModelClient {
                 MessageRole::Assistant,
                 format!("Fake final answer after tool result:\n{result_text}"),
             );
-            return Ok(CanonicalModelResponse::new(
-                message,
-                Vec::new(),
-                FinishReason::Stop,
-            )
-            .with_provider_metadata(json!({"provider": "fake"})));
+            return Ok(
+                CanonicalModelResponse::new(message, Vec::new(), FinishReason::Stop)
+                    .with_provider_metadata(json!({"provider": "fake"})),
+            );
         }
 
         let user_text = latest_user_text(&request).unwrap_or_default();
@@ -139,12 +137,10 @@ impl FakeModelClient {
                 MessageRole::Assistant,
                 vec![ContentPart::ToolCall { call: call.clone() }],
             );
-            return Ok(CanonicalModelResponse::new(
-                message,
-                vec![call],
-                FinishReason::ToolCalls,
-            )
-            .with_provider_metadata(json!({"provider": "fake"})));
+            return Ok(
+                CanonicalModelResponse::new(message, vec![call], FinishReason::ToolCalls)
+                    .with_provider_metadata(json!({"provider": "fake"})),
+            );
         }
 
         let context_chunks = request

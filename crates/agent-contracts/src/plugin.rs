@@ -29,16 +29,20 @@
 //! не загружается, ядро продолжает работать без него.
 
 use abi_stable::{
-    StableAbi,
-    declare_root_module_statics,
+    StableAbi, declare_root_module_statics,
     library::RootModule,
-    package_version_strings,
-    sabi_trait,
+    package_version_strings, sabi_trait,
     sabi_types::VersionStrings,
     std_types::{RResult, RStr, RString},
 };
 
-use crate::contracts::RendererObject;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    contracts::RendererObject,
+    domain::{AgentOutput, AgentTask},
+    model_standard::CanonicalMessage,
+};
 
 /// Sync sabi_trait для tool-плагинов.
 ///
@@ -69,11 +73,7 @@ pub trait PluginTool: Send + Sync + 'static {
     /// Вызывает tool. `call_json` — сериализованный `ToolCall`.
     /// `cwd` — рабочая директория для tool'а.
     /// Возврат — сериализованный `ToolResult` или ошибка.
-    fn invoke_json(
-        &self,
-        call_json: RString,
-        cwd: RString,
-    ) -> RResult<RString, PluginToolError>;
+    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError>;
 }
 
 /// Ошибка выполнения tool-плагина.
@@ -122,10 +122,7 @@ pub trait PluginApprovalPolicy: Send + Sync + 'static {
         ctx_json: RString,
     ) -> RResult<RString, PluginPolicyError>;
 
-    fn evaluate_visibility_json(
-        &self,
-        ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError>;
+    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError>;
 }
 
 /// Ошибка выполнения approval-policy плагина.
@@ -167,11 +164,7 @@ pub type PolicyObject = PluginApprovalPolicy_TO<abi_stable::std_types::RBox<()>>
 /// - Возврат — сериализованный `PatchResult`.
 #[sabi_trait]
 pub trait PluginPatchApplier: Send + Sync + 'static {
-    fn apply_json(
-        &self,
-        patch_json: RString,
-        cwd: RString,
-    ) -> RResult<RString, PluginPatchError>;
+    fn apply_json(&self, patch_json: RString, cwd: RString) -> RResult<RString, PluginPatchError>;
 }
 
 /// Ошибка выполнения patch-applier плагина.
@@ -286,6 +279,91 @@ impl std::error::Error for PluginMemoryError {}
 /// Ffi-safe trait object для PluginMemoryStore.
 pub type MemoryStoreObject = PluginMemoryStore_TO<abi_stable::std_types::RBox<()>>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginContextProviderInput {
+    pub provider_id: String,
+    pub task: AgentTask,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// Sync sabi_trait для context-provider плагинов.
+///
+/// Это не полный `ContextBuilder`: ядро оставляет за собой orchestration,
+/// budget и порядок chunks, а плагин возвращает вклад одного provider-а.
+#[sabi_trait]
+pub trait PluginContextProvider: Send + Sync + 'static {
+    fn provide_json(&self, input_json: RString) -> RResult<RString, PluginContextError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginContextError {
+    pub message: RString,
+}
+
+impl PluginContextError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginContextError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginContextError {}
+
+pub type ContextProviderObject = PluginContextProvider_TO<abi_stable::std_types::RBox<()>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginMemoryPolicyInput {
+    pub task: AgentTask,
+    pub output: AgentOutput,
+    #[serde(default)]
+    pub new_messages: Vec<CanonicalMessage>,
+}
+
+/// Sync sabi_trait для memory-policy плагинов.
+///
+/// Плагин возвращает декларативный `MemoryPolicyPlan`. Ядро валидирует и
+/// применяет операции к активному `MemoryStore`, поэтому plugin не получает
+/// mutable handle к памяти.
+#[sabi_trait]
+pub trait PluginMemoryPolicy: Send + Sync + 'static {
+    fn after_turn_json(&self, input_json: RString) -> RResult<RString, PluginMemoryPolicyError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginMemoryPolicyError {
+    pub message: RString,
+}
+
+impl PluginMemoryPolicyError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginMemoryPolicyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginMemoryPolicyError {}
+
+pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<()>>;
+
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
@@ -326,10 +404,7 @@ pub trait PluginRegistry: Send + Sync {
     /// Регистрирует Tool от плагина. Внутри плагина tool реализует
     /// sync-версию `PluginTool` (поскольку sabi_trait не поддерживает async).
     /// Ядро оборачивает его в обычный async `Tool` через spawn_blocking.
-    fn register_tool(
-        &mut self,
-        tool: PluginToolObject,
-    ) -> RResult<(), PluginRegisterError>;
+    fn register_tool(&mut self, tool: PluginToolObject) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует ApprovalPolicy под module_id в slot `policy`.
     /// Ядро-trait `ApprovalPolicy` sync, маппинг прямой.
@@ -365,21 +440,50 @@ pub trait PluginRegistry: Send + Sync {
         module_id: RString,
         store: MemoryStoreObject,
     ) -> RResult<(), PluginRegisterError>;
+}
 
-    // Будущие: register_context_builder, register_memory_policy.
+/// V2-регистрация новых plugin capabilities.
+///
+/// Важно: этот trait не расширяет `PluginRegistry`, потому что изменение
+/// vtable `PluginRegistry` ломает загрузку старых dylib. Новые entrypoint'ы
+/// добавляются отдельным optional exported symbol, а не полем `PluginRoot`,
+/// чтобы layout root module оставался совместимым со старыми плагинами.
+#[sabi_trait]
+pub trait PluginRegistryV2: Send + Sync {
+    /// Регистрирует provider для `repo_aware` context pipeline.
+    fn register_context_provider(
+        &mut self,
+        provider_id: RString,
+        provider: ContextProviderObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует declarative MemoryPolicy под module_id в slot `memory_policy`.
+    fn register_memory_policy(
+        &mut self,
+        module_id: RString,
+        policy: MemoryPolicyObject,
+    ) -> RResult<(), PluginRegisterError>;
 }
 
 /// Тип trait-объекта PluginRegistry, передаваемого в плагин.
-pub type PluginRegistryMut<'a> =
-    PluginRegistry_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
+pub type PluginRegistryMut<'a> = PluginRegistry_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
+
+pub type PluginRegistryV2Mut<'a> = PluginRegistryV2_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
+
+/// Имя optional symbol'а, который новый плагин может экспортировать для
+/// регистрации capabilities поверх стабильного `PluginRegistry`.
+pub const PLUGIN_REGISTER_MODULES_V2_SYMBOL: &[u8] = b"agent_plugin_register_modules_v2\0";
+
+/// Тип optional V2 entrypoint'а.
+pub type PluginRegisterModulesV2Fn =
+    extern "C" fn(&mut PluginRegistryV2Mut<'_>) -> RResult<(), PluginRegisterError>;
 
 /// Root module плагина — то, что плагин экспортирует через
 /// `#[export_root_module]`, и что ядро загружает через `PluginRoot_Ref::load_from_file`.
 ///
-/// Структура префиксная (prefix type) — это позволяет добавлять новые поля
-/// в конце без breaking change. Старые плагины, собранные против более ранней
-/// версии, продолжают загружаться; новые поля для них будут недоступны,
-/// но это не крашит load.
+/// Структура намеренно держится стабильной для v1 ABI. Новые registry
+/// capabilities добавляются не сюда, а через optional exported symbol
+/// `PLUGIN_REGISTER_MODULES_V2_SYMBOL`.
 #[repr(C)]
 #[derive(StableAbi)]
 #[sabi(kind(Prefix(prefix_ref = PluginRoot_Ref, prefix_fields = PluginRoot_Prefix)))]
@@ -396,7 +500,8 @@ pub struct PluginRoot {
     /// Вызывается ядром один раз сразу после успешной загрузки плагина.
     /// Плагин внутри этой функции должен вызвать register_renderer / etc.
     #[sabi(last_prefix_field)]
-    pub register_modules: extern "C" fn(&mut PluginRegistryMut<'_>) -> RResult<(), PluginRegisterError>,
+    pub register_modules:
+        extern "C" fn(&mut PluginRegistryMut<'_>) -> RResult<(), PluginRegisterError>,
 }
 
 impl RootModule for PluginRoot_Ref {

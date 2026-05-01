@@ -3,7 +3,9 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 
 use crate::{
-    contracts::{MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource},
+    contracts::{
+        MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource,
+    },
     modules::{ApplyPatchTool, RememberFactTool, SearchTool},
 };
 
@@ -46,6 +48,10 @@ impl BuiltinToolProvider {
             ),
         }
     }
+}
+
+pub fn is_builtin_tool_name(name: &str) -> bool {
+    matches!(name, "apply_patch" | "search" | "remember_fact")
 }
 
 impl ToolProvider for BuiltinToolProvider {

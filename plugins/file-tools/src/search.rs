@@ -50,11 +50,7 @@ impl PluginTool for GrepTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(
-        &self,
-        call_json: RString,
-        cwd: RString,
-    ) -> RResult<RString, PluginToolError> {
+    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
             Err(e) => return plugin_error(e),

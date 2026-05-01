@@ -167,7 +167,10 @@ async fn run_app(cli: Cli) -> Result<()> {
 
     let mut state = AppState::new(cwd.clone());
 
-    push_history(&mut terminal, session_header_lines(&state.model_label, &cwd))?;
+    push_history(
+        &mut terminal,
+        session_header_lines(&state.model_label, &cwd),
+    )?;
     push_history(
         &mut terminal,
         vec![
@@ -279,7 +282,9 @@ async fn handle_term_event(
                         return Ok(true);
                     }
                     KeyCode::Char('l') => {
-                        driver.send(&StdioRequest::ClearHistory { id: None }).await?;
+                        driver
+                            .send(&StdioRequest::ClearHistory { id: None })
+                            .await?;
                         push_history(
                             terminal,
                             vec![Line::from(Span::styled(
@@ -379,7 +384,10 @@ fn handle_app_event(
 
     match event {
         E::Runtime { event } => match event {
-            Event::ContextBuilt { chunks, token_estimate } => {
+            Event::ContextBuilt {
+                chunks,
+                token_estimate,
+            } => {
                 state.status = match token_estimate {
                     Some(t) => format!("context: {chunks} chunks, ~{t}t"),
                     None => format!("context: {chunks} chunks"),
@@ -400,7 +408,9 @@ fn handle_app_event(
                         Span::styled("⠋ ", Style::default().fg(Color::Yellow)),
                         Span::styled(
                             call.name.clone(),
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(format!(" · {args}"), Style::default().fg(Color::DarkGray)),
                     ])],
@@ -428,10 +438,7 @@ fn handle_app_event(
                     for line in preview.lines().take(6) {
                         lines.push(Line::from(vec![
                             Span::raw("    "),
-                            Span::styled(
-                                line.to_owned(),
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled(line.to_owned(), Style::default().fg(Color::DarkGray)),
                         ]));
                     }
                 }
@@ -497,7 +504,9 @@ fn session_header_lines(model: &str, cwd: &std::path::Path) -> Vec<Line<'static>
             Span::styled("╭─ ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "modular-agent",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" ─", Style::default().fg(Color::DarkGray)),
         ]),
@@ -566,7 +575,9 @@ fn draw_bottom_pane(
             Line::from(vec![
                 Span::styled(
                     "? approve ",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(pending.tool_name.clone()),
                 Span::styled(

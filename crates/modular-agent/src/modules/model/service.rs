@@ -217,12 +217,8 @@ mod tests {
     #[tokio::test]
     async fn complete_returns_response_drained_from_stream() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta {
-                text: "he".into(),
-            },
-            ModelStreamEvent::TextDelta {
-                text: "llo".into(),
-            },
+            ModelStreamEvent::TextDelta { text: "he".into() },
+            ModelStreamEvent::TextDelta { text: "llo".into() },
             ModelStreamEvent::Response {
                 response: final_response(),
             },
@@ -235,9 +231,7 @@ mod tests {
     #[tokio::test]
     async fn deltas_flow_to_emitter_when_context_set() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta {
-                text: "foo".into(),
-            },
+            ModelStreamEvent::TextDelta { text: "foo".into() },
             ModelStreamEvent::ToolCallDelta {
                 call_id: "call-1".into(),
                 name: None,
@@ -277,9 +271,7 @@ mod tests {
     #[tokio::test]
     async fn deltas_dropped_silently_without_emitter() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta {
-                text: "hi".into(),
-            },
+            ModelStreamEvent::TextDelta { text: "hi".into() },
             ModelStreamEvent::Response {
                 response: final_response(),
             },

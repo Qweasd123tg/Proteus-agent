@@ -4,6 +4,7 @@
 //! - ApprovalPolicy — всегда `Ask`, описание `"hello-policy says ask"`.
 //! - PatchApplier — noop, возвращает `PatchResult { ok: true, summary: "hello-patch noop" }`.
 //! - SearchBackend — всегда один chunk с пометкой "hello-search noop".
+//! - Optional V2: context_provider и declarative memory_policy под id `"hello"`.
 //!
 //! Польза ноль, цель — показать что policy/patch/search slot'ы доступны плагинам.
 
@@ -19,10 +20,13 @@ use agent_contracts::{
         std_types::{RResult, RStr, RString},
     },
     plugin::{
-        PatchApplierObject, PluginApprovalPolicy, PluginApprovalPolicy_TO, PluginPatchApplier,
-        PluginPatchApplier_TO, PluginPatchError, PluginPolicyError, PluginRegisterError,
-        PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginSearchBackend, PluginSearchBackend_TO,
-        PluginSearchError, PolicyObject, SearchBackendObject,
+        ContextProviderObject, MemoryPolicyObject, PatchApplierObject, PluginApprovalPolicy,
+        PluginApprovalPolicy_TO, PluginContextError, PluginContextProvider,
+        PluginContextProvider_TO, PluginMemoryPolicy, PluginMemoryPolicy_TO,
+        PluginMemoryPolicyError, PluginPatchApplier, PluginPatchApplier_TO, PluginPatchError,
+        PluginPolicyError, PluginRegisterError, PluginRegistryMut, PluginRegistryV2Mut, PluginRoot,
+        PluginRoot_Ref, PluginSearchBackend, PluginSearchBackend_TO, PluginSearchError,
+        PolicyObject, SearchBackendObject,
     },
 };
 use serde_json::json;
@@ -41,10 +45,7 @@ impl PluginApprovalPolicy for HelloPolicy {
         RResult::ROk(RString::from(decision.to_string()))
     }
 
-    fn evaluate_visibility_json(
-        &self,
-        _ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError> {
+    fn evaluate_visibility_json(&self, _ctx_json: RString) -> RResult<RString, PluginPolicyError> {
         let decision = serde_json::Value::String("Allow".to_string());
         RResult::ROk(RString::from(decision.to_string()))
     }
@@ -83,6 +84,37 @@ impl PluginSearchBackend for HelloSearch {
     }
 }
 
+struct HelloContextProvider;
+
+impl PluginContextProvider for HelloContextProvider {
+    fn provide_json(&self, _input_json: RString) -> RResult<RString, PluginContextError> {
+        let chunks = json!([{
+            "source": "plugin:hello-context",
+            "content": "hello-context noop",
+            "score": 1.0,
+            "path": null,
+            "metadata": {
+                "provider": "hello"
+            }
+        }]);
+        RResult::ROk(RString::from(chunks.to_string()))
+    }
+}
+
+struct HelloMemoryPolicy;
+
+impl PluginMemoryPolicy for HelloMemoryPolicy {
+    fn after_turn_json(&self, _input_json: RString) -> RResult<RString, PluginMemoryPolicyError> {
+        let plan = json!({
+            "ops": [],
+            "metadata": {
+                "source": "hello-policy-patch"
+            }
+        });
+        RResult::ROk(RString::from(plan.to_string()))
+    }
+}
+
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
@@ -96,10 +128,29 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
-    let search: SearchBackendObject =
-        PluginSearchBackend_TO::from_value(HelloSearch, TD_Opaque);
+    let search: SearchBackendObject = PluginSearchBackend_TO::from_value(HelloSearch, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_search_backend(RString::from("hello"), search) {
+        return RResult::RErr(err);
+    }
+
+    RResult::ROk(())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn agent_plugin_register_modules_v2(
+    registry: &mut PluginRegistryV2Mut<'_>,
+) -> RResult<(), PluginRegisterError> {
+    let context: ContextProviderObject =
+        PluginContextProvider_TO::from_value(HelloContextProvider, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_context_provider(RString::from("hello"), context)
+    {
+        return RResult::RErr(err);
+    }
+
+    let memory_policy: MemoryPolicyObject =
+        PluginMemoryPolicy_TO::from_value(HelloMemoryPolicy, TD_Opaque);
     if let RResult::RErr(err) =
-        registry.register_search_backend(RString::from("hello"), search)
+        registry.register_memory_policy(RString::from("hello"), memory_policy)
     {
         return RResult::RErr(err);
     }

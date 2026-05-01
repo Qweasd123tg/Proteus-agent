@@ -141,10 +141,7 @@ impl AnthropicMessagesClient {
         from_anthropic_response(response)
     }
 
-    async fn stream_response(
-        &self,
-        request: CanonicalModelRequest,
-    ) -> Result<ModelEventStream> {
+    async fn stream_response(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let mut body = to_anthropic_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/v1/messages", self.base_url);
@@ -248,9 +245,12 @@ impl AnthropicStreamState {
                 };
                 if let Some(block) = new_block {
                     if self.blocks.len() <= index {
-                        self.blocks.resize(index + 1, AnthropicBlock::Text {
-                            text: String::new(),
-                        });
+                        self.blocks.resize(
+                            index + 1,
+                            AnthropicBlock::Text {
+                                text: String::new(),
+                            },
+                        );
                     }
                     self.blocks[index] = block;
                 }
@@ -269,8 +269,7 @@ impl AnthropicStreamState {
                             .and_then(|d| d.get("text"))
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        if let Some(AnthropicBlock::Text { text: buf }) =
-                            self.blocks.get_mut(index)
+                        if let Some(AnthropicBlock::Text { text: buf }) = self.blocks.get_mut(index)
                         {
                             buf.push_str(text);
                         }
@@ -287,15 +286,15 @@ impl AnthropicStreamState {
                             .and_then(|d| d.get("partial_json"))
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        let call_id = if let Some(AnthropicBlock::ToolUse {
-                            id, input_json, ..
-                        }) = self.blocks.get_mut(index)
-                        {
-                            input_json.push_str(partial);
-                            id.clone()
-                        } else {
-                            return Vec::new();
-                        };
+                        let call_id =
+                            if let Some(AnthropicBlock::ToolUse { id, input_json, .. }) =
+                                self.blocks.get_mut(index)
+                            {
+                                input_json.push_str(partial);
+                                id.clone()
+                            } else {
+                                return Vec::new();
+                            };
                         if partial.is_empty() {
                             Vec::new()
                         } else {
@@ -319,7 +318,10 @@ impl AnthropicStreamState {
                     self.stop_reason = Some(stop.to_owned());
                 }
                 if let Some(usage) = parsed.get("usage") {
-                    let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                    let input = usage
+                        .get("input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
                     let output = usage
                         .get("output_tokens")
                         .and_then(Value::as_u64)
@@ -824,7 +826,10 @@ mod tests {
         assert_eq!(tool_deltas.len(), 2);
         assert_eq!(tool_deltas[0].0, "toolu_abc");
         assert_eq!(
-            tool_deltas.iter().map(|(_, d)| d.as_str()).collect::<Vec<_>>(),
+            tool_deltas
+                .iter()
+                .map(|(_, d)| d.as_str())
+                .collect::<Vec<_>>(),
             vec!["{\"path\":", "\"x.txt\"}"]
         );
 

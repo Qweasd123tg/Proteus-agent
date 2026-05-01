@@ -26,8 +26,10 @@ use agent_contracts::{
     },
     contracts::RendererObject,
     plugin::{
-        PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref,
-        MemoryStoreObject, PluginToolObject, PolicyObject, SearchBackendObject,
+        ContextProviderObject, MemoryPolicyObject, MemoryStoreObject,
+        PLUGIN_REGISTER_MODULES_V2_SYMBOL, PatchApplierObject, PluginRegisterError,
+        PluginRegisterModulesV2Fn, PluginRegistry, PluginRegistry_TO, PluginRegistryV2,
+        PluginRegistryV2_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
     },
 };
 use anyhow::Result;
@@ -52,10 +54,7 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
         }
     }
 
-    fn register_tool(
-        &mut self,
-        tool: PluginToolObject,
-    ) -> RResult<(), PluginRegisterError> {
+    fn register_tool(&mut self, tool: PluginToolObject) -> RResult<(), PluginRegisterError> {
         match self.catalog.register_plugin_tool(tool) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
@@ -105,6 +104,36 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_memory_store(&id, store) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+}
+
+struct PluginRegistryV2Adapter<'a> {
+    catalog: &'a mut BuiltinModuleCatalog,
+}
+
+impl<'a> PluginRegistryV2 for PluginRegistryV2Adapter<'a> {
+    fn register_context_provider(
+        &mut self,
+        provider_id: RString,
+        provider: ContextProviderObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = provider_id.into_string();
+        match self.catalog.register_plugin_context_provider(&id, provider) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_memory_policy(
+        &mut self,
+        module_id: RString,
+        policy: MemoryPolicyObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_memory_policy(&id, policy) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }
@@ -280,8 +309,7 @@ fn load_from_manifest_dir(
 fn read_manifest(path: &Path) -> Result<PluginManifest> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
-    toml::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("failed to parse {}: {e}", path.display()))
+    toml::from_str(&content).map_err(|e| anyhow::anyhow!("failed to parse {}: {e}", path.display()))
 }
 
 fn find_single_dylib(dir: &Path) -> Result<PathBuf> {
@@ -334,8 +362,8 @@ fn load_one_plugin_inner(
     // Загружаем raw library через abi_stable (он сам leak'нёт чтобы символы
     // оставались валидными — это требуется потому что мы потом держим trait
     // объекты из этого dylib на всё время жизни процесса).
-    let raw_lib = RawLibrary::load_at(path)
-        .map_err(|err| anyhow::anyhow!("failed to load dylib: {err}"))?;
+    let raw_lib =
+        RawLibrary::load_at(path).map_err(|err| anyhow::anyhow!("failed to load dylib: {err}"))?;
 
     // Получаем LibHeader — abi_stable проверяет что версия abi_stable в
     // плагине совместима с нашей.
@@ -356,6 +384,13 @@ fn load_one_plugin_inner(
     let root: PluginRoot_Ref = lib_header
         .init_root_module::<PluginRoot_Ref>()
         .map_err(|err| anyhow::anyhow!("failed to init root module: {err}"))?;
+
+    let register_v2_fn = unsafe {
+        raw_lib
+            .get::<PluginRegisterModulesV2Fn>(PLUGIN_REGISTER_MODULES_V2_SYMBOL)
+            .ok()
+            .map(|symbol| *symbol)
+    };
 
     // Приоритет: manifest переопределяет значения из PluginRoot. Manifest
     // читается до загрузки .so, поэтому его имя и описание — authoritative
@@ -381,12 +416,28 @@ fn load_one_plugin_inner(
     let mut registry_to: PluginRegistry_TO<_> =
         PluginRegistry_TO::from_ptr(&mut adapter, TD_Opaque);
     match register_fn(&mut registry_to) {
-        RResult::ROk(()) => Ok(PluginInfo {
-            name,
-            description,
-            path: path.to_path_buf(),
-            manifest,
-        }),
+        RResult::ROk(()) => {
+            drop(registry_to);
+            drop(adapter);
+            if let Some(register_v2_fn) = register_v2_fn {
+                let mut adapter_v2 = PluginRegistryV2Adapter { catalog };
+                let mut registry_v2_to: PluginRegistryV2_TO<_> =
+                    PluginRegistryV2_TO::from_ptr(&mut adapter_v2, TD_Opaque);
+                if let RResult::RErr(err) = register_v2_fn(&mut registry_v2_to) {
+                    return Err(anyhow::anyhow!(
+                        "plugin '{}' register_modules_v2 failed: {}",
+                        root_name,
+                        err.message
+                    ));
+                }
+            }
+            Ok(PluginInfo {
+                name,
+                description,
+                path: path.to_path_buf(),
+                manifest,
+            })
+        }
         RResult::RErr(err) => Err(anyhow::anyhow!(
             "plugin '{}' register_modules failed: {}",
             root_name,
@@ -498,7 +549,10 @@ requires_agent_contracts = "^0.1"
 
         assert_eq!(reports.len(), 1);
         let report = &reports[0];
-        assert!(report.manifest.is_none(), "broken manifest should not be kept");
+        assert!(
+            report.manifest.is_none(),
+            "broken manifest should not be kept"
+        );
         let error = report.result.as_ref().unwrap_err();
         assert!(error.to_string().contains("failed to parse"));
     }

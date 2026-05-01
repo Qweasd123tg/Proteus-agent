@@ -19,7 +19,7 @@ use agent_contracts::{
     },
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginToolError, PluginToolObject, PluginTool_TO,
+        PluginTool_TO, PluginToolError, PluginToolObject,
     },
 };
 use serde_json::json;
@@ -44,11 +44,7 @@ impl PluginTool for CurrentTimeTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(
-        &self,
-        call_json: RString,
-        _cwd: RString,
-    ) -> RResult<RString, PluginToolError> {
+    fn invoke_json(&self, call_json: RString, _cwd: RString) -> RResult<RString, PluginToolError> {
         // Парсим call чтобы вытащить id.
         let call_value: serde_json::Value = match serde_json::from_str(call_json.as_str()) {
             Ok(value) => value,

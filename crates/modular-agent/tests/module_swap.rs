@@ -11,10 +11,9 @@ use async_trait::async_trait;
 use futures_util::stream;
 use modular_agent::{
     contracts::{
-        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
-        ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PolicyContext,
-        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry,
-        ToolSource, Workflow,
+        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
+        EventEmitter, ModelAdapter, ModelClient, PolicyContext, PolicyVisibilityContext,
+        SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
@@ -31,7 +30,7 @@ use modular_agent::{
     },
     modules::{
         ApplyPatchTool, DirectPatchApplier, FakeModelClient, ModelService, NoMemory, NullSearch,
-        RememberFactTool, SearchTool, SingleLoopWorkflow,
+        SearchTool, SingleLoopWorkflow,
     },
 };
 use serde_json::json;
@@ -87,10 +86,7 @@ fn test_config() -> AppConfig {
         .into_iter()
         .map(str::to_owned)
         .collect();
-    config.policy.ask_write.allow = ["search"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
+    config.policy.ask_write.allow = ["search"].into_iter().map(str::to_owned).collect();
     config
 }
 
@@ -378,8 +374,11 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
     let bundle = registry
         .context
         .build(ContextBuildInput {
-            task: AgentTask::new("почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
-                        .to_owned(), dir.path().to_path_buf()),
+            task: AgentTask::new(
+                "почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
+                    .to_owned(),
+                dir.path().to_path_buf(),
+            ),
             search: Arc::new(RecordingSearch {
                 queries: queries.clone(),
             }),
@@ -471,8 +470,17 @@ async fn swapping_policy_does_not_change_read_tool_execution() {
         config.modules.policy = policy.to_owned();
         // allow remember_fact under ask_write so both policies actually
         // execute the tool (ask_write would block it in the default fixture).
-        if !config.policy.ask_write.allow.contains(&"remember_fact".to_owned()) {
-            config.policy.ask_write.allow.push("remember_fact".to_owned());
+        if !config
+            .policy
+            .ask_write
+            .allow
+            .contains(&"remember_fact".to_owned())
+        {
+            config
+                .policy
+                .ask_write
+                .allow
+                .push("remember_fact".to_owned());
         }
         config
             .policy
@@ -689,7 +697,10 @@ async fn execution_policy_receives_real_tool_call_args() {
         .unwrap();
 
     assert!(result.ok);
-    assert_eq!(seen_path.lock().unwrap().as_deref(), Some("policy-args-seen"));
+    assert_eq!(
+        seen_path.lock().unwrap().as_deref(),
+        Some("policy-args-seen")
+    );
 }
 
 #[test]
@@ -884,7 +895,11 @@ async fn configured_process_tool_executes_through_orchestrator() {
         .execute(
             &ctx,
             &AgentTask::new("echo".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "echo_args".to_owned(), json!({ "message": "hello" })),
+            ToolCall::new(
+                new_call_id(),
+                "echo_args".to_owned(),
+                json!({ "message": "hello" }),
+            ),
         )
         .await
         .unwrap();
@@ -1034,7 +1049,11 @@ done
         .execute(
             &ctx,
             &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "mcp_echo".to_owned(), json!({ "name": "attempted_override" })),
+            ToolCall::new(
+                new_call_id(),
+                "mcp_echo".to_owned(),
+                json!({ "name": "attempted_override" }),
+            ),
         )
         .await
         .unwrap();
@@ -1704,14 +1723,8 @@ async fn context_chunks_are_not_persisted_to_runtime_history() {
     let runtime =
         AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events).unwrap();
 
-    let first = runtime
-        .run("hello".to_owned())
-        .await
-        .unwrap();
-    let follow_up = runtime
-        .run("summarize".to_owned())
-        .await
-        .unwrap();
+    let first = runtime.run("hello".to_owned()).await.unwrap();
+    let follow_up = runtime.run("summarize".to_owned()).await.unwrap();
 
     assert!(first.text.contains("Fake final answer"));
     assert!(follow_up.text.contains("Fake final answer"));
@@ -1733,10 +1746,7 @@ async fn context_chunks_are_not_written_to_session_store() {
     )
     .unwrap();
 
-    let output = runtime
-        .run("hello".to_owned())
-        .await
-        .unwrap();
+    let output = runtime.run("hello".to_owned()).await.unwrap();
     let messages_path = runtime.session_dir().unwrap().join("messages.jsonl");
     let contents = std::fs::read_to_string(messages_path).expect("messages jsonl");
     let messages = contents
@@ -1814,9 +1824,13 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 async fn apply_patch_replaces_exact_text_once() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch".to_owned(),
+        json!({
             "patch": "*** Begin Patch\n*** Update File: sample.txt\n@@\n-hello modular agent\n+patched modular agent\n*** End Patch",
-        }));
+        }),
+    );
 
     let result = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1835,9 +1849,13 @@ async fn apply_patch_replaces_exact_text_once() {
 async fn apply_patch_adds_new_file_from_internal_format() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch".to_owned(),
+        json!({
             "patch": "*** Begin Patch\n*** Add File: nested/new.txt\n+hello\n+patch\n*** End Patch",
-        }));
+        }),
+    );
 
     let result = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1856,9 +1874,13 @@ async fn apply_patch_adds_new_file_from_internal_format() {
 async fn apply_patch_rejects_parent_traversal() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch".to_owned(),
+        json!({
             "patch": "*** Begin Patch\n*** Add File: ../outside.txt\n+outside\n*** End Patch",
-        }));
+        }),
+    );
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
@@ -1914,8 +1936,16 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     let mut config = test_config();
     // Allow remember_fact without interactive transport so the orchestrator
     // actually reaches the tool implementation.
-    config.policy.ask_write.ask_before.retain(|name| name != "remember_fact");
-    config.policy.ask_write.allow.push("remember_fact".to_owned());
+    config
+        .policy
+        .ask_write
+        .ask_before
+        .retain(|name| name != "remember_fact");
+    config
+        .policy
+        .ask_write
+        .allow
+        .push("remember_fact".to_owned());
 
     let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
     let events = Arc::new(InMemoryEventStore::new());
@@ -2104,10 +2134,11 @@ async fn toml_config_file_can_select_statusline_renderer() {
 
 #[tokio::test]
 async fn coding_toml_config_enables_repo_aware_rg_profile() {
-    let config =
-        modular_agent::core::AppConfig::load(Some(&workspace_root_file("agent.coding.example.toml")))
-            .await
-            .unwrap();
+    let config = modular_agent::core::AppConfig::load(Some(&workspace_root_file(
+        "agent.coding.example.toml",
+    )))
+    .await
+    .unwrap();
     let model_config = config.active_model_config().unwrap();
 
     assert_eq!(config.profile.name, "coding-local");
@@ -2340,17 +2371,11 @@ async fn sqlite_memory_roundtrip_through_builtin() {
         .await
         .unwrap();
 
-    let hits = store
-        .recall(MemoryQuery::new("dark", 5))
-        .await
-        .unwrap();
+    let hits = store.recall(MemoryQuery::new("dark", 5)).await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].kind, "preference");
 
-    let hits = store
-        .recall(MemoryQuery::new("React", 5))
-        .await
-        .unwrap();
+    let hits = store.recall(MemoryQuery::new("React", 5)).await.unwrap();
     assert_eq!(hits.len(), 1);
     assert!(hits[0].content.contains("React Router"));
 }
@@ -2370,6 +2395,7 @@ async fn sqlite_memory_selectable_through_catalog() {
     let build_ctx = ModuleBuildContext {
         config: &config,
         cwd: dir.path(),
+        context_providers: catalog.context_providers(),
     };
     let store: Arc<dyn MemoryStore> = catalog.build_memory("sqlite", &build_ctx).unwrap();
     store
@@ -2380,10 +2406,7 @@ async fn sqlite_memory_selectable_through_catalog() {
         ))
         .await
         .unwrap();
-    let hits = store
-        .recall(MemoryQuery::new("sample", 10))
-        .await
-        .unwrap();
+    let hits = store.recall(MemoryQuery::new("sample", 10)).await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].content, "sample content");
 }

@@ -12,7 +12,7 @@ use async_trait::async_trait;
 
 use agent_contracts::{
     abi_stable::std_types::{RResult, RString},
-    plugin::{PluginToolObject, PluginTool_TO},
+    plugin::{PluginTool_TO, PluginToolObject},
 };
 
 use crate::{

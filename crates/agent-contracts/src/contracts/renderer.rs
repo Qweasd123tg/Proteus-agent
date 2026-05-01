@@ -20,8 +20,7 @@
 //! тонких wrapper'ах (`Renderer::render_native`).
 
 use abi_stable::{
-    StableAbi,
-    sabi_trait,
+    StableAbi, sabi_trait,
     std_types::{RResult, RString},
 };
 use anyhow::Result;

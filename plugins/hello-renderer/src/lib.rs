@@ -41,9 +41,8 @@ impl Renderer for HelloRenderer {
         };
 
         let text = output.text;
-        let decorated = format!(
-            "╔════ hello from plugin ════╗\n{text}\n╚═══════════════════════════╝"
-        );
+        let decorated =
+            format!("╔════ hello from plugin ════╗\n{text}\n╚═══════════════════════════╝");
         RResult::ROk(decorated.into())
     }
 }

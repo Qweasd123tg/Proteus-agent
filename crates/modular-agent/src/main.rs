@@ -200,7 +200,11 @@ fn build_tool_registry_for_listing(
     if let Some(plugins_dir) = modular_agent::core::default_plugins_dir() {
         let _ = modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
     }
-    let build_ctx = ModuleBuildContext { config, cwd };
+    let build_ctx = ModuleBuildContext {
+        config,
+        cwd,
+        context_providers: catalog.context_providers(),
+    };
     let search = catalog.build_search(&config.modules.search, &build_ctx)?;
     let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
     let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;

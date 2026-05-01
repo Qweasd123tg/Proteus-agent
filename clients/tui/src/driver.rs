@@ -91,7 +91,9 @@ impl AgentDriver {
                                 }
                             }
                             Err(err) => {
-                                eprintln!("[tui] failed to parse stdio output: {err} — line: {line}");
+                                eprintln!(
+                                    "[tui] failed to parse stdio output: {err} — line: {line}"
+                                );
                             }
                         }
                     }

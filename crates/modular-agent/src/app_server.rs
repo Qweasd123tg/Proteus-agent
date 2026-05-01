@@ -10,7 +10,9 @@ use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
-    contracts::{ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta},
+    contracts::{
+        ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta,
+    },
     core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
     domain::AgentOutput,
     modules::{ChannelApprovalTransport, PendingApproval},
@@ -125,10 +127,8 @@ impl AgentAppServer {
                 !is_streaming_delta(event)
             }))
         };
-        let event_sink: Arc<dyn EventSink> = Arc::new(FanoutEventSink::new(vec![
-            jsonl,
-            core_broadcast.clone(),
-        ]));
+        let event_sink: Arc<dyn EventSink> =
+            Arc::new(FanoutEventSink::new(vec![jsonl, core_broadcast.clone()]));
 
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);

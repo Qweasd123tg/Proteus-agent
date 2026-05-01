@@ -18,7 +18,10 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
-use std::process::{Command, Stdio};
+use std::{
+    process::{Command, Output, Stdio},
+    time::{Duration, Instant},
+};
 
 use agent_contracts::{
     abi_stable::{
@@ -29,7 +32,7 @@ use agent_contracts::{
     },
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginToolError, PluginToolObject, PluginTool_TO,
+        PluginTool_TO, PluginToolError, PluginToolObject,
     },
 };
 use anyhow::{Context, Result, anyhow};
@@ -65,11 +68,7 @@ impl PluginTool for ShellTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(
-        &self,
-        call_json: RString,
-        cwd: RString,
-    ) -> RResult<RString, PluginToolError> {
+    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
         match invoke_impl(call_json.as_str(), cwd.as_str()) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
@@ -91,14 +90,16 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("shell requires string arg 'command'"))?;
 
-    let output = Command::new("sh")
+    let child = Command::new("sh")
         .arg("-lc")
         .arg(command)
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
+        .spawn()
         .with_context(|| "failed to spawn shell")?;
+    let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(TIMEOUT_MS))
+        .with_context(|| "failed to wait for shell")?;
 
     let (stdout, stdout_truncated) = truncate(&output.stdout);
     let (stderr, stderr_truncated) = truncate(&output.stderr);
@@ -113,7 +114,9 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         rendered.push_str(&stderr);
     }
 
-    let error_msg = if !success {
+    let error_msg = if timed_out {
+        Some(format!("process timed out after {TIMEOUT_MS}ms"))
+    } else if !success {
         Some(match status {
             Some(code) => format!("process exited with code {code}"),
             None => "process terminated by signal".to_owned(),
@@ -128,6 +131,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "stderr_bytes": output.stderr.len(),
         "stdout_truncated": stdout_truncated,
         "stderr_truncated": stderr_truncated,
+        "timed_out": timed_out,
+        "timeout_ms": TIMEOUT_MS,
     });
 
     let result = json!({
@@ -139,6 +144,25 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "metadata": metadata
     });
     Ok(result.to_string())
+}
+
+fn wait_with_timeout(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<(Output, bool)> {
+    let started = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            let output = child.wait_with_output()?;
+            return Ok((output, false));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let output = child.wait_with_output()?;
+            return Ok((output, true));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn truncate(buf: &[u8]) -> (String, bool) {

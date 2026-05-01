@@ -19,14 +19,16 @@ use crate::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, CarryForwardPolicy,
         ConfiguredMcpTool, ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier,
         FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy, NullSearch, PlainRenderer,
-        RepoAwareContextBuilder, RepoAwareContextConfig, RgSearch, SearchTool,
-        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer,
+        PluginContextProviderAdapter, PluginMemoryPolicyAdapter, RepoAwareContextBuilder,
+        RepoAwareContextConfig, RepoAwareContextProvider, RgSearch, SearchTool,
+        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, is_builtin_tool_name,
     },
 };
 
 pub struct ModuleBuildContext<'a> {
     pub config: &'a AppConfig,
     pub cwd: &'a Path,
+    pub context_providers: &'a [(String, Arc<dyn RepoAwareContextProvider>)],
 }
 
 pub struct PolicyBuildContext<'a> {
@@ -73,8 +75,11 @@ impl<'a, 'b: 'a> ModuleBuildInput<'a, 'b> {
 /// Безопасность downcast обеспечивается тем, что фабрика строится внутри
 /// typed регистрационного хелпера (register_module и подобные),
 /// который контролирует соответствие SlotId и возвращаемого типа.
-type ErasedFactory =
-    Box<dyn for<'a, 'b> Fn(&ModuleBuildInput<'a, 'b>) -> Result<Arc<dyn Any + Send + Sync>> + Send + Sync>;
+type ErasedFactory = Box<
+    dyn for<'a, 'b> Fn(&ModuleBuildInput<'a, 'b>) -> Result<Arc<dyn Any + Send + Sync>>
+        + Send
+        + Sync,
+>;
 
 struct ModuleEntry {
     manifest: ModuleManifest,
@@ -90,6 +95,7 @@ pub struct BuiltinModuleCatalog {
     /// Их специ получены и провалидированы при регистрации.
     /// Во время `build_tools` они добавляются в `ToolRegistry` поверх builtin.
     plugin_tools: Vec<Arc<dyn crate::contracts::Tool>>,
+    plugin_context_providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
 }
 
 impl BuiltinModuleCatalog {
@@ -97,6 +103,7 @@ impl BuiltinModuleCatalog {
         let mut catalog = Self {
             entries: HashMap::new(),
             plugin_tools: Vec::new(),
+            plugin_context_providers: Vec::new(),
         };
 
         // Model adapters
@@ -371,19 +378,19 @@ impl BuiltinModuleCatalog {
         let shared_renderer: Arc<dyn agent_contracts::contracts::Renderer> = Arc::new(renderer);
         let factory_shared = shared_renderer.clone();
 
-        let erased: ErasedFactory = Box::new(move |_input| {
-            Ok(arc_to_any(factory_shared.clone()))
-        });
+        let erased: ErasedFactory = Box::new(move |_input| Ok(arc_to_any(factory_shared.clone())));
 
-        let mut manifest = ModuleManifest::builtin(
-            module_id,
-            ModuleKind::Renderer,
-            &["plugin", "dylib"],
-        );
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Renderer, &["plugin", "dylib"]);
         manifest.description = Some(format!("Renderer from plugin (module id: {module_id})"));
 
-        self.entries
-            .insert(key, ModuleEntry { manifest, factory: erased });
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
 
         // shared_renderer (Arc<dyn Renderer>) живёт в factory через clone —
         // отдельно хранить не нужно, Arc сам считает ссылки.
@@ -420,15 +427,19 @@ impl BuiltinModuleCatalog {
             Ok(arc_to_any(factory_shared.clone()))
         });
 
-        let mut manifest = ModuleManifest::builtin(
-            module_id,
-            ModuleKind::Policy,
-            &["plugin", "dylib"],
-        );
-        manifest.description = Some(format!("Approval policy from plugin (module id: {module_id})"));
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Policy, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "Approval policy from plugin (module id: {module_id})"
+        ));
 
-        self.entries
-            .insert(key, ModuleEntry { manifest, factory: erased });
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
         drop(shared);
         Ok(())
     }
@@ -463,11 +474,75 @@ impl BuiltinModuleCatalog {
 
         let mut manifest =
             ModuleManifest::builtin(module_id, ModuleKind::Memory, &["plugin", "dylib"]);
-        manifest.description =
-            Some(format!("Memory store from plugin (module id: {module_id})"));
+        manifest.description = Some(format!("Memory store from plugin (module id: {module_id})"));
 
-        self.entries
-            .insert(key, ModuleEntry { manifest, factory: erased });
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(shared);
+        Ok(())
+    }
+
+    pub fn register_plugin_context_provider(
+        &mut self,
+        provider_id: &str,
+        provider: agent_contracts::plugin::ContextProviderObject,
+    ) -> Result<()> {
+        if self
+            .plugin_context_providers
+            .iter()
+            .any(|(id, _)| id == provider_id)
+        {
+            bail!("context provider '{}' is already registered", provider_id);
+        }
+        let adapter = PluginContextProviderAdapter::new(provider_id, provider);
+        self.plugin_context_providers
+            .push((provider_id.to_owned(), Arc::new(adapter)));
+        Ok(())
+    }
+
+    pub fn register_plugin_memory_policy(
+        &mut self,
+        module_id: &str,
+        policy: agent_contracts::plugin::MemoryPolicyObject,
+    ) -> Result<()> {
+        let slot_id = slot::MEMORY_POLICY;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "memory policy module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn MemoryPolicy> = Arc::new(PluginMemoryPolicyAdapter::new(policy));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest = ModuleManifest::builtin(
+            module_id,
+            ModuleKind::MemoryPolicy,
+            &["plugin", "dylib", "declarative_ops"],
+        );
+        manifest.description = Some(format!(
+            "Memory policy from plugin (module id: {module_id})"
+        ));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
         drop(shared);
         Ok(())
     }
@@ -500,15 +575,19 @@ impl BuiltinModuleCatalog {
             Ok(arc_to_any(factory_shared.clone()))
         });
 
-        let mut manifest = ModuleManifest::builtin(
-            module_id,
-            ModuleKind::Search,
-            &["plugin", "dylib"],
-        );
-        manifest.description = Some(format!("Search backend from plugin (module id: {module_id})"));
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Search, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "Search backend from plugin (module id: {module_id})"
+        ));
 
-        self.entries
-            .insert(key, ModuleEntry { manifest, factory: erased });
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
         drop(shared);
         Ok(())
     }
@@ -543,15 +622,19 @@ impl BuiltinModuleCatalog {
             Ok(arc_to_any(arc))
         });
 
-        let mut manifest = ModuleManifest::builtin(
-            module_id,
-            ModuleKind::Patch,
-            &["plugin", "dylib"],
-        );
-        manifest.description = Some(format!("Patch applier from plugin (module id: {module_id})"));
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Patch, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "Patch applier from plugin (module id: {module_id})"
+        ));
 
-        self.entries
-            .insert(key, ModuleEntry { manifest, factory: erased });
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
         Ok(())
     }
 
@@ -637,6 +720,10 @@ impl BuiltinModuleCatalog {
             .collect()
     }
 
+    pub fn context_providers(&self) -> &[(String, Arc<dyn RepoAwareContextProvider>)] {
+        &self.plugin_context_providers
+    }
+
     pub fn manifest(&self, kind: ModuleKind, id: &str) -> Option<&ModuleManifest> {
         // Tool kind не хранится в catalog'е как отдельный slot: builtin tools
         // приходят через BuiltinToolProvider при сборке ToolRegistry.
@@ -716,11 +803,7 @@ impl BuiltinModuleCatalog {
         module: &str,
         ctx: &PolicyBuildContext<'_>,
     ) -> Result<Arc<dyn ApprovalPolicy>> {
-        self.build_typed::<dyn ApprovalPolicy>(
-            slot::POLICY,
-            module,
-            &ModuleBuildInput::Policy(ctx),
-        )
+        self.build_typed::<dyn ApprovalPolicy>(slot::POLICY, module, &ModuleBuildInput::Policy(ctx))
     }
 
     pub fn build_patch(
@@ -756,55 +839,36 @@ impl BuiltinModuleCatalog {
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
 
-        // Register plugin-provided tools FIRST so that names like read_file /
-        // write_file / list_dir / shell — which are no longer builtin but do
-        // live in plugins — can satisfy tools.enabled entries. Builtins and
-        // configured tools still win on name collision (see below) because
-        // duplicate registration is rejected by ToolRegistry, but at least
-        // a plugin-only tool doesn't trip the "unsupported tool" error from
-        // BuiltinToolProvider when it appears in tools.enabled.
-        let enabled: std::collections::HashSet<&str> = ctx
+        let plugin_tools_by_name = self
+            .plugin_tools
+            .iter()
+            .map(|tool| (tool.spec().name, Arc::clone(tool)))
+            .collect::<HashMap<_, _>>();
+        let builtin_names = ctx
             .config
             .tools
             .enabled
             .iter()
-            .map(String::as_str)
-            .collect();
-        for plugin_tool in &self.plugin_tools {
-            let spec = plugin_tool.spec();
-            if enabled.contains(spec.name.as_str()) {
-                tools.register_arc(
-                    crate::contracts::ToolSource::builtin("plugin"),
-                    Arc::clone(plugin_tool),
-                )?;
-            }
+            .filter(|name| is_builtin_tool_name(name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let unknown_enabled = ctx
+            .config
+            .tools
+            .enabled
+            .iter()
+            .filter(|name| !is_builtin_tool_name(name) && !plugin_tools_by_name.contains_key(*name))
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(name) = unknown_enabled.first() {
+            bail!(
+                "unsupported tool: '{name}'. Install a plugin that provides it or remove it from tools.enabled."
+            );
         }
 
-        let builtin_tools = BuiltinToolProvider::new(
-            ctx.config.tools.enabled.clone(),
-            search.clone(),
-            patch.clone(),
-            memory.clone(),
-        );
-        // Only try to build builtins for names the plugin set didn't already
-        // claim. This stops `tools.enabled = ["read_file"]` from failing when
-        // read_file comes from the file-tools plugin.
-        let plugin_names: std::collections::HashSet<String> = tools
-            .specs()
-            .into_iter()
-            .map(|spec| spec.name)
-            .collect();
-        let remaining: Vec<String> = ctx
-            .config
-            .tools
-            .enabled
-            .iter()
-            .filter(|name| !plugin_names.contains(name.as_str()))
-            .cloned()
-            .collect();
-        let _ = builtin_tools;
-        let scoped = BuiltinToolProvider::new(remaining, search.clone(), patch.clone(), memory.clone());
-        register_provider_tools(&mut tools, &scoped)?;
+        let builtin_tools =
+            BuiltinToolProvider::new(builtin_names, search.clone(), patch.clone(), memory.clone());
+        register_provider_tools(&mut tools, &builtin_tools)?;
         for configured in &ctx.config.tools.configured {
             let source = match &configured.executor {
                 crate::core::ConfiguredToolExecutorConfig::Native { .. } => {
@@ -838,10 +902,7 @@ impl BuiltinModuleCatalog {
             match &configured.executor {
                 crate::core::ConfiguredToolExecutorConfig::Native { handler } => {
                     let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
-                    tools.register_with_source(
-                        source,
-                        ConfiguredNativeTool::new(spec, inner),
-                    )?;
+                    tools.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
                 }
                 crate::core::ConfiguredToolExecutorConfig::Process { command, args } => {
                     tools.register_with_source(
@@ -868,8 +929,9 @@ impl BuiltinModuleCatalog {
             }
         }
 
-        // Plugin tools — зарегистрированы заранее через register_plugin_tool,
-        // добавляются поверх builtin и configured tools.
+        // Plugin tools are opt-in through `tools.enabled`. Installed plugins
+        // extend the available tool namespace, but do not become visible to
+        // the model until config names them explicitly.
         //
         // Политика конфликтов: если tool с таким именем уже зарегистрирован
         // (builtin или configured), плагин **пропускается** с warning в
@@ -877,9 +939,10 @@ impl BuiltinModuleCatalog {
         // - Предсказуемость: пользователь видит config и понимает что будет.
         // - Безопасность: builtin — проверенный код в ядре, плагин может
         //   быть backdoor'ом с тем же именем.
-        // Чтобы использовать плагин вместо builtin, пользователь убирает
-        // имя из `tools.enabled` в config'е.
-        for plugin_tool in &self.plugin_tools {
+        for name in &ctx.config.tools.enabled {
+            let Some(plugin_tool) = plugin_tools_by_name.get(name) else {
+                continue;
+            };
             let spec = plugin_tool.spec();
             if tools.get(&spec.name).is_some() {
                 eprintln!(
@@ -914,7 +977,10 @@ fn any_to_arc<T>(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<T>>
 where
     T: ?Sized + Send + Sync + 'static,
 {
-    erased.downcast::<Arc<T>>().ok().map(|boxed| (*boxed).clone())
+    erased
+        .downcast::<Arc<T>>()
+        .ok()
+        .map(|boxed| (*boxed).clone())
 }
 
 fn effective_configured_tool_safety(
@@ -1095,6 +1161,7 @@ fn build_repo_aware_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Cont
             repo_tree_skip_entries: config.repo_tree_skip_entries,
             project_instruction_files: config.project_instruction_files,
             manifest_files: config.manifest_files,
+            external_providers: ctx.context_providers.to_vec(),
         },
     )?))
 }

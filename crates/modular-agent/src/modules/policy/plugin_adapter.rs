@@ -62,7 +62,11 @@ impl ApprovalPolicy for PluginPolicyAdapter {
         };
         let ctx_json = match serde_json::to_string(&ctx_dto) {
             Ok(s) => s,
-            Err(e) => return deny_for(format!("plugin policy: serialize PolicyContext failed: {e}")),
+            Err(e) => {
+                return deny_for(format!(
+                    "plugin policy: serialize PolicyContext failed: {e}"
+                ));
+            }
         };
 
         match PluginApprovalPolicy_TO::evaluate_json(
@@ -136,10 +140,7 @@ mod tests {
             };
             ROk(serde_json::to_string(&d).unwrap().into())
         }
-        fn evaluate_visibility_json(
-            &self,
-            _ctx: RString,
-        ) -> RResult<RString, PluginPolicyError> {
+        fn evaluate_visibility_json(&self, _ctx: RString) -> RResult<RString, PluginPolicyError> {
             let d = PolicyDecision::Allow;
             ROk(serde_json::to_string(&d).unwrap().into())
         }
@@ -154,10 +155,7 @@ mod tests {
         ) -> RResult<RString, PluginPolicyError> {
             ROk(RString::from("not json"))
         }
-        fn evaluate_visibility_json(
-            &self,
-            _ctx: RString,
-        ) -> RResult<RString, PluginPolicyError> {
+        fn evaluate_visibility_json(&self, _ctx: RString) -> RResult<RString, PluginPolicyError> {
             ROk(RString::from("not json"))
         }
     }
@@ -171,10 +169,7 @@ mod tests {
         ) -> RResult<RString, PluginPolicyError> {
             RResult::RErr(PluginPolicyError::new("plugin exploded"))
         }
-        fn evaluate_visibility_json(
-            &self,
-            _ctx: RString,
-        ) -> RResult<RString, PluginPolicyError> {
+        fn evaluate_visibility_json(&self, _ctx: RString) -> RResult<RString, PluginPolicyError> {
             RResult::RErr(PluginPolicyError::new("plugin exploded"))
         }
     }
@@ -196,9 +191,8 @@ mod tests {
 
     #[test]
     fn plugin_ask_decision_passes_through() {
-        let adapter = PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(
-            AskPolicy, TD_Opaque,
-        ));
+        let adapter =
+            PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque));
         let decision = adapter.evaluate(&make_call(), &make_ctx());
         match decision {
             PolicyDecision::Ask { reason } => assert_eq!(reason, "ask from plugin"),
@@ -208,9 +202,8 @@ mod tests {
 
     #[test]
     fn plugin_allow_visibility_passes_through() {
-        let adapter = PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(
-            AskPolicy, TD_Opaque,
-        ));
+        let adapter =
+            PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque));
         let decision = adapter.evaluate_visibility(&make_vis_ctx());
         assert!(matches!(decision, PolicyDecision::Allow));
     }
@@ -232,9 +225,8 @@ mod tests {
 
     #[test]
     fn plugin_rerror_is_denied() {
-        let adapter = PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(
-            ErrPolicy, TD_Opaque,
-        ));
+        let adapter =
+            PluginPolicyAdapter::new(PluginApprovalPolicy_TO::from_value(ErrPolicy, TD_Opaque));
         let decision = adapter.evaluate(&make_call(), &make_ctx());
         match decision {
             PolicyDecision::Deny { reason } => {
