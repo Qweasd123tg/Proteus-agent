@@ -450,7 +450,9 @@ mod tests {
     #[tokio::test]
     async fn run_errors_when_workflow_drops_existing_history() {
         let cwd = tempfile::tempdir().expect("temp dir");
-        let mut runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
             .build()
             .expect("runtime");
 

@@ -11,4 +11,5 @@ members = [
     "plugins/sqlite-memory",
     "plugins/shell-tool",
     "plugins/rg-search",
+    "plugins/direct-patch",
 ]

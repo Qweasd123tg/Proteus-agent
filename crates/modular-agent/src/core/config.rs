@@ -583,7 +583,7 @@ fn default_policy() -> String {
 }
 
 fn default_patch() -> String {
-    "direct".to_owned()
+    "null".to_owned()
 }
 
 fn default_renderer() -> String {

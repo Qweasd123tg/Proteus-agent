@@ -28,7 +28,7 @@ cargo test --workspace
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
-- `apply_patch` применяет internal patch format только внутри workspace;
+- `apply_patch` делегирует выполнение выбранному `PatchApplier`;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;
 - `ModelService` drain-ит stream и эмитит `AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta` events;
 - `ModelService` применяет `RequestShaper` перед вызовом provider adapter-а;
@@ -38,7 +38,12 @@ cargo test --workspace
 
 Unit-тесты адаптеров в `modules/{search,memory,policy,patch}/plugin_adapter.rs` покрывают success, RErr propagation и invalid JSON return для каждого из 6 plugin-ready slot'ов. SSE-парсеры в `adapters/{openai,anthropic}.rs` тестируются на зафиксированных event-trace фикстурах.
 
-Коверидж builtin-tools из плагинов (read_file/write_file/list_dir/grep/shell) живёт **в самих плагинах** (`plugins/file-tools/src/*.rs`, `plugins/shell-tool/src/lib.rs`), не в core-тестах.
+Коверидж builtin-tools из плагинов (read_file/write_file/list_dir/grep/shell)
+живёт **в самих плагинах** (`plugins/file-tools/src/*.rs`,
+`plugins/shell-tool/src/lib.rs`), не в core-тестах. Алгоритм internal patch
+format и workspace-boundary для `modules.patch = "direct"` покрыт тестами
+`plugins/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
+`apply_patch` в активный `PatchApplier`.
 
 ## DTO И Builder-Паттерн
 

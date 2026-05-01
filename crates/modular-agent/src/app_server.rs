@@ -423,8 +423,10 @@ mod tests {
     #[tokio::test]
     async fn cancel_pending_approvals_denies_pending_requests() {
         let cwd = tempfile::tempdir().expect("cwd");
-        let handle = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-            .expect("app server");
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let handle =
+            AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
         let mut event_rx = handle.subscribe();
         let (responder, response_rx) = oneshot::channel();
         let approval_id = "approval-cancel".to_owned();

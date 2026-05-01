@@ -13,7 +13,7 @@ memory = "none"
 memory_policy = "none"
 context = "simple"
 policy = "ask_write"
-patch = "direct"
+patch = "null"
 renderer = "statusline"
 
 [renderer.statusline]

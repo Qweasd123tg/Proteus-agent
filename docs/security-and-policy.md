@@ -68,7 +68,11 @@ truncation перед событием `ToolFinished` и передачей ре
 
 ## Workspace Boundary
 
-`apply_patch` канонизирует `cwd` и target path перед записью и отклоняет absolute paths, parent traversal и symlink-escape. Это boundary работает внутри самого tool'а: `ToolOrchestrator` не делает workspace-санитизации за него.
+`apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
+выбранном `PatchApplier`. Плагин `direct-patch` канонизирует `cwd` и target
+path перед записью и отклоняет absolute paths, parent traversal и
+symlink-escape. `ToolOrchestrator` не делает workspace-санитизации за
+`PatchApplier` — это обязанность выбранной реализации.
 
 Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` / `grep`) и `shell-tool` применяют свои собственные проверки workspace-boundary. Core не гарантирует эту проверку за плагины — это обязанность автора плагина.
 

@@ -30,6 +30,7 @@ plugins/
   hello-renderer/      — демо: декоративная рамка вокруг ответа
   hello-tool/          — демо: tool current_time
   hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + V2 provider/policy
+  direct-patch/        — PatchApplier internal patch format под id "direct"
   file-tools/          — реальный набор: read_file / write_file / list_dir / grep
   rg-search/           — SearchBackend на ripgrep под id "rg"
   shell-tool/          — tool shell (sh -lc)
@@ -44,12 +45,13 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Unified registry с открытым `SlotId`, 10 slot'ов (model, search, memory,
   memory_policy, context, tool, policy, patch, workflow, renderer).
 - Builtin модули во всех slot'ах: fake / openai / openai_compatible / anthropic
-  models, `null`/`rg` search, `none`/`jsonl`/`sqlite` memory,
+  models, `null` search fallback, `none`/`jsonl`/`sqlite` memory,
   `none`/`carry_forward` memory policies, `simple`/`repo_aware` context,
-  `allow_all`/`ask_write` policies, `direct` patch, `single_loop` workflow,
-  `plain`/`statusline` renderers.
+  `allow_all`/`ask_write` policies, `null` patch fallback,
+  `single_loop` workflow, `plain`/`statusline` renderers.
 - Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
-  поставляется плагином `rg-search`. File I/O
+  поставляется плагином `rg-search`, patch backend `direct` — плагином
+  `direct-patch`. File I/O
   (`read_file`/`write_file`/`list_dir`/`grep`) и `shell` поставляются
   плагинами `file-tools` и `shell-tool` — устанавливаются через
   `./install.sh`. Плюс configured native/process/MCP wrappers через
@@ -120,15 +122,16 @@ target/debug/agent-tui-codex \
 ### Плагины
 
 Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
-плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`, `file-tools`,
-`shell-tool` и демо-плагины подхватываются автоматически.
+плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
+`direct-patch`, `file-tools`, `shell-tool` и демо-плагины подхватываются
+автоматически.
 
 Ручной способ:
 
 ```bash
 cargo build --release --workspace
 
-for p in file-tools shell-tool rg-search hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools shell-tool rg-search direct-patch hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true

@@ -25,7 +25,7 @@ impl Tool for ApplyPatchTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec::new(
             "apply_patch",
-            "Apply a workspace-scoped patch using the internal patch format",
+            "Apply a patch through the configured PatchApplier",
             json!({
                 "type": "object",
                 "properties": {

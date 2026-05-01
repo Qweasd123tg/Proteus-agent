@@ -264,8 +264,10 @@ mod tests {
     #[tokio::test]
     async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
         let cwd = tempfile::tempdir().expect("cwd");
-        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-            .expect("app server");
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let server =
+            AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
         turn_handles.insert(

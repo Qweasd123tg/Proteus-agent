@@ -20,6 +20,7 @@ memory = "none"
 memory_policy = "none"
 context = "repo_aware"
 policy = "ask_write"
+# Provided by the direct-patch plugin installed by ./install.sh.
 patch = "direct"
 renderer = "statusline"
 

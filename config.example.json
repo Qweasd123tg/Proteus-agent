@@ -32,7 +32,7 @@
     "memory_policy": "none",
     "context": "simple",
     "policy": "ask_write",
-    "patch": "direct",
+    "patch": "null",
     "renderer": "statusline"
   },
   "module_config": {
@@ -115,11 +115,7 @@
     }
   },
   "tools": {
-    "enabled": [
-      "apply_patch",
-      "remember_fact",
-      "search"
-    ],
+    "enabled": ["apply_patch", "remember_fact", "search"],
     "path": null
   },
   "permissions": {

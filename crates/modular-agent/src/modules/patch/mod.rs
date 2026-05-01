@@ -1,5 +1,5 @@
-mod direct;
+mod null;
 mod plugin_adapter;
 
-pub use direct::*;
+pub use null::*;
 pub use plugin_adapter::*;

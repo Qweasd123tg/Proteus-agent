@@ -1,6 +1,12 @@
 # Модули
 
-Модульность v0 означает выбор встроенной реализации через config. Все текущие реализации живут в подпапках `crates/modular-agent/src/modules`, сгруппированных по slot/type. Строки выбора и metadata встроенных модулей описаны в `crates/modular-agent/src/core/module_catalog.rs`, а `crates/modular-agent/src/core/registry.rs` использует catalog для сборки runtime trait-объектов.
+Модульность v0 означает выбор реализации через config: встроенный fallback из
+ядра или dylib-плагин из `~/.agent/plugins`. Встроенные реализации живут в
+подпапках `crates/modular-agent/src/modules`, сгруппированных по slot/type.
+Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
+`crates/modular-agent/src/core/module_catalog.rs`, а
+`crates/modular-agent/src/core/registry.rs` использует catalog для сборки
+runtime trait-объектов.
 
 `crates/modular-agent/src/modules/<slot>` содержит реализации, а не DTO. Если рядом существует файл с таким же смысловым именем в `crates/agent-contracts/src/domain` или `crates/agent-contracts/src/contracts`, это другой слой: например `crates/agent-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`, `crates/agent-contracts/src/contracts/memory_store.rs` описывает trait `MemoryStore`, а `crates/modular-agent/src/modules/memory` содержит `NoMemory`, `JsonlMemory` и `SqliteMemory` backends плюс `NoMemoryPolicy` и `CarryForwardPolicy` policies.
 
@@ -25,7 +31,7 @@ executors, но external process modules и package manager ещё не реал
 | Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, `carry_forward` |
 | Context | `ContextBuilder` | `modules.context` | `simple`, `repo_aware` |
 | Policy | `ApprovalPolicy` | `modules.policy` | `ask_write`, `allow_all` |
-| Patch | `PatchApplier` | `modules.patch` | `direct` |
+| Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Workflow | `Workflow` | `modules.workflow` | `single_loop` |
 | Renderer | `Renderer` | `modules.renderer` | `plain`, `statusline` |
 
@@ -142,13 +148,6 @@ policy не требуют rebuild.
 чтобы не было silent shadowing. Полный `ContextBuilder` как dylib пока не
 является plugin boundary: orchestration, byte budget и порядок chunks остаются
 в `repo_aware` ядра.
-`module_config.context.repo_aware.providers`. Plugin provider id не может совпадать
-с builtin provider id (`project_instructions`, `manifest`, `git_status`,
-`repo_tree`, `memory`, `search`) — catalog отклоняет такой плагин при загрузке,
-чтобы не было silent shadowing. Полный `ContextBuilder` как dylib пока не
-является plugin boundary: orchestration, byte budget и порядок chunks остаются
-в `repo_aware` ядра.
-
 Каждый chunk получает metadata `provider` и `reason`. Это будущая основа для
 UI/debug view “что занимает контекст”, но visual layer не входит в этот module.
 
@@ -214,7 +213,13 @@ mode = "normal"
 
 ## Patch
 
-`direct` является встроенной workspace-scoped реализацией `PatchApplier`, которую использует tool `apply_patch`. Формат patch text в v0 - простой internal patch format с маркерами `*** Begin Patch` / `*** End Patch`, операциями `Add File`, `Update File`, `Delete File` и line-based hunks через `@@`.
+`modules.patch = "null"` отключает применение patch и нужен как core fallback.
+
+`modules.patch = "direct"` поставляется плагином `direct-patch`. Это
+workspace-scoped реализация `PatchApplier`, которую использует tool
+`apply_patch`. Формат patch text в v0 - простой internal patch format с
+маркерами `*** Begin Patch` / `*** End Patch`, операциями `Add File`,
+`Update File`, `Delete File` и line-based hunks через `@@`.
 
 Текущий `SingleLoopWorkflow` не испускает отдельный `PatchApplied` event и не генерирует patch action сам по себе. Patch slot сейчас доступен модели только через зарегистрированный tool `apply_patch`.
 

@@ -18,8 +18,8 @@ use crate::{
     modules::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BUILTIN_REPO_AWARE_PROVIDER_IDS,
         BuiltinToolProvider, CarryForwardPolicy, ConfiguredMcpTool, ConfiguredNativeTool,
-        ConfiguredProcessTool, DirectPatchApplier, FakeModelClient, JsonlMemory, NoMemory,
-        NoMemoryPolicy, NullSearch, PlainRenderer, PluginContextProviderAdapter,
+        ConfiguredProcessTool, FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy,
+        NullPatchApplier, NullSearch, PlainRenderer, PluginContextProviderAdapter,
         PluginMemoryPolicyAdapter, RepoAwareContextBuilder, RepoAwareContextConfig,
         RepoAwareContextProvider, SearchTool, SimpleContextBuilder, SingleLoopWorkflow,
         StatuslineRenderer, is_builtin_tool_name,
@@ -275,14 +275,14 @@ impl BuiltinModuleCatalog {
         // Patch appliers
         catalog.register_module::<dyn PatchApplier>(
             slot::PATCH,
-            "direct",
+            "null",
             manifest(
-                "direct",
+                "null",
                 ModuleKind::Patch,
-                &["workspace"],
-                "Workspace-scoped patch applier.",
+                &["disabled"],
+                "No-op patch applier.",
             ),
-            build_direct_patch,
+            build_null_patch,
         );
 
         // Workflows
@@ -1216,8 +1216,8 @@ fn build_ask_write_policy(ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn Approv
     )))
 }
 
-fn build_direct_patch(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
-    Ok(Arc::new(DirectPatchApplier::new(ctx.cwd.to_path_buf())))
+fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
+    Ok(Arc::new(NullPatchApplier))
 }
 
 fn build_single_loop_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

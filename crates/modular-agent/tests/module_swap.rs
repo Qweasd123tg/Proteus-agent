@@ -21,8 +21,9 @@ use futures_util::stream;
 use modular_agent::{
     contracts::{
         ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
-        EventEmitter, ModelAdapter, ModelClient, PolicyContext, PolicyVisibilityContext,
-        SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
+        EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
+        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry,
+        ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
@@ -30,16 +31,17 @@ use modular_agent::{
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
-        ModuleKind, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall, ToolChoice,
-        ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id, new_turn_id,
+        ModuleKind, Patch, PatchResult, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
+        ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id,
+        new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent,
     },
     modules::{
-        ApplyPatchTool, DirectPatchApplier, FakeModelClient, ModelService, NoMemory, NullSearch,
-        SearchTool, SingleLoopWorkflow,
+        ApplyPatchTool, FakeModelClient, ModelService, NoMemory, NullSearch, SearchTool,
+        SingleLoopWorkflow,
     },
 };
 use serde_json::json;
@@ -86,6 +88,19 @@ fn noop_plugin_context_provider() -> ContextProviderObject {
     PluginContextProvider_TO::from_value(NoopPluginContextProvider, TD_Opaque)
 }
 
+#[derive(Default)]
+struct RecordingPatchApplier {
+    patches: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl PatchApplier for RecordingPatchApplier {
+    async fn apply(&self, patch: Patch) -> anyhow::Result<PatchResult> {
+        self.patches.lock().unwrap().push(patch.content);
+        Ok(PatchResult::new(true, "recorded patch"))
+    }
+}
+
 async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventStore>) {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
@@ -98,6 +113,7 @@ async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventSt
 fn test_config() -> AppConfig {
     disable_plugin_loader();
     let mut config = AppConfig::default();
+    config.modules.patch = "null".to_owned();
     config.tools.enabled = standard_tool_names()
         .into_iter()
         .map(str::to_owned)
@@ -1874,12 +1890,15 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 }
 
 // list_dir/read_file workspace-escape and error-message tests moved to
-// the file-tools plugin alongside the implementations themselves.
+// the file-tools plugin alongside the implementations themselves. Direct patch
+// algorithm tests live in plugins/direct-patch; core tests keep only the tool
+// delegation boundary.
 
 #[tokio::test]
-async fn apply_patch_replaces_exact_text_once() {
+async fn apply_patch_delegates_to_patch_applier() {
     let dir = temp_workspace();
-    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
+    let patcher = Arc::new(RecordingPatchApplier::default());
+    let tool = ApplyPatchTool::new(patcher.clone());
     let call = ToolCall::new(
         new_call_id(),
         "apply_patch".to_owned(),
@@ -1894,56 +1913,27 @@ async fn apply_patch_replaces_exact_text_once() {
         .unwrap();
 
     assert!(result.ok);
-    assert!(result.output.contains("updated sample.txt"));
+    assert!(result.output.contains("recorded patch"));
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("sample.txt")).unwrap(),
-        "patched modular agent\n"
+        patcher.patches.lock().unwrap().as_slice(),
+        [
+            "*** Begin Patch\n*** Update File: sample.txt\n@@\n-hello modular agent\n+patched modular agent\n*** End Patch"
+        ]
     );
 }
 
 #[tokio::test]
-async fn apply_patch_adds_new_file_from_internal_format() {
+async fn apply_patch_rejects_missing_patch_arg() {
     let dir = temp_workspace();
-    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall::new(
-        new_call_id(),
-        "apply_patch".to_owned(),
-        json!({
-            "patch": "*** Begin Patch\n*** Add File: nested/new.txt\n+hello\n+patch\n*** End Patch",
-        }),
-    );
-
-    let result = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
-        .await
-        .unwrap();
-
-    assert!(result.ok);
-    assert!(result.output.contains("added nested/new.txt"));
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("nested").join("new.txt")).unwrap(),
-        "hello\npatch\n"
-    );
-}
-
-#[tokio::test]
-async fn apply_patch_rejects_parent_traversal() {
-    let dir = temp_workspace();
-    let tool = ApplyPatchTool::new(Arc::new(DirectPatchApplier::new(dir.path().to_path_buf())));
-    let call = ToolCall::new(
-        new_call_id(),
-        "apply_patch".to_owned(),
-        json!({
-            "patch": "*** Begin Patch\n*** Add File: ../outside.txt\n+outside\n*** End Patch",
-        }),
-    );
+    let tool = ApplyPatchTool::new(Arc::new(RecordingPatchApplier::default()));
+    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({}));
 
     let error = tool
         .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
         .await
         .unwrap_err();
 
-    assert!(error.to_string().contains("escapes workspace"));
+    assert!(error.to_string().contains("requires string arg 'patch'"));
 }
 
 #[test]

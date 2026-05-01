@@ -788,6 +788,7 @@ mod tests {
     fn tool_list_output_contains_registered_tools() {
         disable_plugins();
         let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
         config.tools.path = None;
         // File I/O and shell are plugin-provided; use the remaining builtin
         // tools to exercise render_tool_list without depending on plugins.
