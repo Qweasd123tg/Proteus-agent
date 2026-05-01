@@ -1,6 +1,6 @@
 use std::{
     any::Any,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -11,17 +11,18 @@ use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
         ApprovalPolicy, ContextBuilder, MemoryPolicy, MemoryStore, ModelAdapter, PatchApplier,
-        Renderer, SearchBackend, ToolRegistry, Workflow, register_provider_tools,
+        Renderer, SearchBackend, Tool, ToolRegistry, Workflow, register_provider_tools,
     },
     core::{AppConfig, ModelConfig},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     modules::{
-        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BuiltinToolProvider, CarryForwardPolicy,
-        ConfiguredMcpTool, ConfiguredNativeTool, ConfiguredProcessTool, DirectPatchApplier,
-        FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy, NullSearch, PlainRenderer,
-        PluginContextProviderAdapter, PluginMemoryPolicyAdapter, RepoAwareContextBuilder,
-        RepoAwareContextConfig, RepoAwareContextProvider, RgSearch, SearchTool,
-        SimpleContextBuilder, SingleLoopWorkflow, StatuslineRenderer, is_builtin_tool_name,
+        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BUILTIN_REPO_AWARE_PROVIDER_IDS,
+        BuiltinToolProvider, CarryForwardPolicy, ConfiguredMcpTool, ConfiguredNativeTool,
+        ConfiguredProcessTool, DirectPatchApplier, FakeModelClient, JsonlMemory, NoMemory,
+        NoMemoryPolicy, NullSearch, PlainRenderer, PluginContextProviderAdapter,
+        PluginMemoryPolicyAdapter, RepoAwareContextBuilder, RepoAwareContextConfig,
+        RepoAwareContextProvider, SearchTool, SimpleContextBuilder, SingleLoopWorkflow,
+        StatuslineRenderer, is_builtin_tool_name,
     },
 };
 
@@ -80,6 +81,12 @@ type ErasedFactory = Box<
         + Send
         + Sync,
 >;
+
+pub(crate) struct ModuleCatalogCheckpoint {
+    entry_keys: HashSet<(SlotId, String)>,
+    plugin_tools_len: usize,
+    plugin_context_providers_len: usize,
+}
 
 struct ModuleEntry {
     manifest: ModuleManifest,
@@ -160,18 +167,6 @@ impl BuiltinModuleCatalog {
             ),
             build_null_search,
         );
-        catalog.register_module::<dyn SearchBackend>(
-            slot::SEARCH,
-            "rg",
-            manifest(
-                "rg",
-                ModuleKind::Search,
-                &["workspace", "ripgrep"],
-                "Workspace search backed by ripgrep.",
-            ),
-            build_rg_search,
-        );
-
         // Memory stores
         catalog.register_module::<dyn MemoryStore>(
             slot::MEMORY,
@@ -330,6 +325,22 @@ impl BuiltinModuleCatalog {
         catalog
     }
 
+    pub(crate) fn checkpoint(&self) -> ModuleCatalogCheckpoint {
+        ModuleCatalogCheckpoint {
+            entry_keys: self.entries.keys().cloned().collect(),
+            plugin_tools_len: self.plugin_tools.len(),
+            plugin_context_providers_len: self.plugin_context_providers.len(),
+        }
+    }
+
+    pub(crate) fn rollback_to(&mut self, checkpoint: ModuleCatalogCheckpoint) {
+        self.entries
+            .retain(|key, _| checkpoint.entry_keys.contains(key));
+        self.plugin_tools.truncate(checkpoint.plugin_tools_len);
+        self.plugin_context_providers
+            .truncate(checkpoint.plugin_context_providers_len);
+    }
+
     /// Регистрирует Tool от плагина.
     ///
     /// Плагин передаёт `PluginToolObject` (sabi_trait объект), мы заворачиваем
@@ -343,6 +354,15 @@ impl BuiltinModuleCatalog {
     ) -> Result<()> {
         use crate::modules::PluginToolAdapter;
         let adapter = PluginToolAdapter::new(tool)?;
+        let spec = adapter.spec();
+        validate_plugin_id("plugin tool", &spec.name)?;
+        if self
+            .plugin_tools
+            .iter()
+            .any(|tool| tool.spec().name == spec.name)
+        {
+            bail!("plugin tool '{}' is already registered", spec.name);
+        }
         let tool_arc: Arc<dyn crate::contracts::Tool> = Arc::new(adapter);
         self.plugin_tools.push(tool_arc);
         Ok(())
@@ -359,6 +379,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         renderer: agent_contracts::contracts::RendererObject,
     ) -> Result<()> {
+        validate_plugin_id("renderer module", module_id)?;
         let slot_id = slot::RENDERER;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -409,6 +430,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         policy: agent_contracts::plugin::PolicyObject,
     ) -> Result<()> {
+        validate_plugin_id("approval policy module", module_id)?;
         use crate::modules::PluginPolicyAdapter;
         let slot_id = slot::POLICY;
         let key = (slot_id.clone(), module_id.to_owned());
@@ -454,6 +476,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         store: agent_contracts::plugin::MemoryStoreObject,
     ) -> Result<()> {
+        validate_plugin_id("memory store module", module_id)?;
         use crate::modules::PluginMemoryAdapter;
         let slot_id = slot::MEMORY;
         let key = (slot_id.clone(), module_id.to_owned());
@@ -492,6 +515,13 @@ impl BuiltinModuleCatalog {
         provider_id: &str,
         provider: agent_contracts::plugin::ContextProviderObject,
     ) -> Result<()> {
+        validate_plugin_id("context provider", provider_id)?;
+        if BUILTIN_REPO_AWARE_PROVIDER_IDS.contains(&provider_id) {
+            bail!(
+                "context provider '{}' conflicts with builtin repo_aware provider id",
+                provider_id
+            );
+        }
         if self
             .plugin_context_providers
             .iter()
@@ -510,6 +540,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         policy: agent_contracts::plugin::MemoryPolicyObject,
     ) -> Result<()> {
+        validate_plugin_id("memory policy module", module_id)?;
         let slot_id = slot::MEMORY_POLICY;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -557,6 +588,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         backend: agent_contracts::plugin::SearchBackendObject,
     ) -> Result<()> {
+        validate_plugin_id("search backend module", module_id)?;
         use crate::modules::PluginSearchAdapter;
         let slot_id = slot::SEARCH;
         let key = (slot_id.clone(), module_id.to_owned());
@@ -603,6 +635,7 @@ impl BuiltinModuleCatalog {
         module_id: &str,
         applier: agent_contracts::plugin::PatchApplierObject,
     ) -> Result<()> {
+        validate_plugin_id("patch applier module", module_id)?;
         use crate::modules::PluginPatchAdapter;
         let slot_id = slot::PATCH;
         let key = (slot_id.clone(), module_id.to_owned());
@@ -1102,15 +1135,6 @@ fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBack
     Ok(Arc::new(NullSearch))
 }
 
-fn build_rg_search(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
-    let config =
-        ctx.config
-            .module_config_or(ModuleKind::Search, "rg", ctx.config.search.rg.clone())?;
-    Ok(Arc::new(RgSearch {
-        max_results: config.max_results,
-    }))
-}
-
 fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
     Ok(Arc::new(NoMemory))
 }
@@ -1245,4 +1269,133 @@ fn validate_policy_tool_names(
         }
     }
     Ok(())
+}
+
+fn validate_plugin_id(kind: &str, id: &str) -> Result<()> {
+    if id.trim().is_empty() {
+        bail!("{kind} id must not be empty");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_contracts::{
+        abi_stable::{
+            sabi_trait::TD_Opaque,
+            std_types::{RResult, RString},
+        },
+        plugin::{
+            ContextProviderObject, MemoryPolicyObject, PluginContextError, PluginContextProvider,
+            PluginContextProvider_TO, PluginMemoryPolicy, PluginMemoryPolicy_TO,
+            PluginMemoryPolicyError, PluginTool, PluginTool_TO, PluginToolError, PluginToolObject,
+        },
+    };
+
+    use super::*;
+    use crate::domain::{ToolResult, ToolSafety, ToolSpec};
+
+    struct NoopContextProvider;
+
+    impl PluginContextProvider for NoopContextProvider {
+        fn provide_json(&self, _input_json: RString) -> RResult<RString, PluginContextError> {
+            RResult::ROk("[]".into())
+        }
+    }
+
+    struct NoopMemoryPolicy;
+
+    impl PluginMemoryPolicy for NoopMemoryPolicy {
+        fn after_turn_json(
+            &self,
+            _input_json: RString,
+        ) -> RResult<RString, PluginMemoryPolicyError> {
+            RResult::ROk(r#"{"ops":[]}"#.into())
+        }
+    }
+
+    struct NoopPluginTool {
+        name: &'static str,
+    }
+
+    impl PluginTool for NoopPluginTool {
+        fn spec_json(&self) -> RString {
+            serde_json::to_string(&ToolSpec::new(
+                self.name,
+                "noop",
+                serde_json::json!({"type": "object"}),
+                ToolSafety::ReadOnly,
+            ))
+            .unwrap()
+            .into()
+        }
+
+        fn invoke_json(
+            &self,
+            _call_json: RString,
+            _cwd: RString,
+        ) -> RResult<RString, PluginToolError> {
+            let result = ToolResult::ok("call".into(), "noop");
+            RResult::ROk(serde_json::to_string(&result).unwrap().into())
+        }
+    }
+
+    fn context_provider() -> ContextProviderObject {
+        PluginContextProvider_TO::from_value(NoopContextProvider, TD_Opaque)
+    }
+
+    fn memory_policy() -> MemoryPolicyObject {
+        PluginMemoryPolicy_TO::from_value(NoopMemoryPolicy, TD_Opaque)
+    }
+
+    fn plugin_tool(name: &'static str) -> PluginToolObject {
+        PluginTool_TO::from_value(NoopPluginTool { name }, TD_Opaque)
+    }
+
+    #[test]
+    fn checkpoint_rolls_back_plugin_registrations() {
+        let mut catalog = BuiltinModuleCatalog::new();
+        let checkpoint = catalog.checkpoint();
+
+        catalog
+            .register_plugin_context_provider("hello", context_provider())
+            .unwrap();
+        catalog
+            .register_plugin_memory_policy("hello", memory_policy())
+            .unwrap();
+
+        assert_eq!(catalog.context_providers().len(), 1);
+        assert!(
+            catalog
+                .manifest(ModuleKind::MemoryPolicy, "hello")
+                .is_some()
+        );
+
+        catalog.rollback_to(checkpoint);
+
+        assert!(catalog.context_providers().is_empty());
+        assert!(
+            catalog
+                .manifest(ModuleKind::MemoryPolicy, "hello")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn register_plugin_tool_rejects_empty_and_duplicate_names() {
+        let mut catalog = BuiltinModuleCatalog::new();
+
+        let empty_error = catalog.register_plugin_tool(plugin_tool(" ")).unwrap_err();
+        assert!(empty_error.to_string().contains("id must not be empty"));
+
+        catalog.register_plugin_tool(plugin_tool("hello")).unwrap();
+        let duplicate_error = catalog
+            .register_plugin_tool(plugin_tool("hello"))
+            .unwrap_err();
+        assert!(
+            duplicate_error
+                .to_string()
+                .contains("plugin tool 'hello' is already registered")
+        );
+    }
 }

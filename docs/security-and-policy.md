@@ -51,6 +51,10 @@ CLI может переопределить config через `--plan`, `--auto`
 
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`) и `shell` вынесены из ядра в плагины `file-tools` и `shell-tool` соответственно. Подключите их через `~/.agent/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же механизмом, что и ядерные.
 
+Plugin tool names валидируются при регистрации: пустое имя и duplicate между
+плагинами отклоняются. Если имя совпало с builtin/configured tool, приоритет
+остаётся у builtin/configured реализации.
+
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
 
 Config-defined `process` и stdio `mcp` tools также считаются command execution boundary. Даже если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в `plan` и запрещены в `auto`.

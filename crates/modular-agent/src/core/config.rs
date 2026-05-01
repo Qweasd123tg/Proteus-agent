@@ -32,8 +32,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub policy: PolicyConfig,
     #[serde(default)]
-    pub search: SearchConfig,
-    #[serde(default)]
     pub context: ContextConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
@@ -402,26 +400,6 @@ impl Default for AskWritePolicyConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SearchConfig {
-    #[serde(default)]
-    pub rg: RgSearchConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RgSearchConfig {
-    #[serde(default = "default_max_results")]
-    pub max_results: usize,
-}
-
-impl Default for RgSearchConfig {
-    fn default() -> Self {
-        Self {
-            max_results: default_max_results(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryConfig {
     #[serde(default)]
     pub jsonl: JsonlMemoryConfig,
@@ -680,10 +658,6 @@ fn default_ask_before() -> Vec<String> {
 
 fn default_allow_tools() -> Vec<String> {
     Vec::new()
-}
-
-fn default_max_results() -> usize {
-    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

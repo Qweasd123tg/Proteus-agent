@@ -14,6 +14,7 @@ api_version = "2023-06-01"
 
 [modules]
 workflow = "single_loop"
+# Provided by the rg-search plugin installed by ./install.sh.
 search = "rg"
 memory = "none"
 memory_policy = "none"
@@ -50,9 +51,6 @@ mode = "normal"
 [module_config.policy.ask_write]
 ask_before = ["apply_patch", "remember_fact"]
 allow = ["search"]
-
-[module_config.search.rg]
-max_results = 50
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]

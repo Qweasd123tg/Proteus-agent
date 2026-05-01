@@ -1463,6 +1463,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg-search"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "agent-contracts",
+ "serde_json",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

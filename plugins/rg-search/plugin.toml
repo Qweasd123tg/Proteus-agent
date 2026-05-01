@@ -1,0 +1,4 @@
+name = "rg-search"
+version = "0.1.0"
+description = "Workspace SearchBackend backed by ripgrep (module id: rg)"
+capabilities = ["search"]

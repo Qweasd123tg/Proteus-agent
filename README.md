@@ -31,6 +31,7 @@ plugins/
   hello-tool/          — демо: tool current_time
   hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + V2 provider/policy
   file-tools/          — реальный набор: read_file / write_file / list_dir / grep
+  rg-search/           — SearchBackend на ripgrep под id "rg"
   shell-tool/          — tool shell (sh -lc)
   sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
@@ -47,7 +48,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `none`/`carry_forward` memory policies, `simple`/`repo_aware` context,
   `allow_all`/`ask_write` policies, `direct` patch, `single_loop` workflow,
   `plain`/`statusline` renderers.
-- Builtin tools: `apply_patch`, `search`, `remember_fact`. File I/O
+- Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
+  поставляется плагином `rg-search`. File I/O
   (`read_file`/`write_file`/`list_dir`/`grep`) и `shell` поставляются
   плагинами `file-tools` и `shell-tool` — устанавливаются через
   `./install.sh`. Плюс configured native/process/MCP wrappers через
@@ -68,8 +70,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Multi-plugin loading через lower-level libloading API (обход type-cache
   в `RootModule::load_from_file`).
 - Опциональный `plugin.toml` manifest рядом с `.so`.
-- Политика конфликтов: builtin всегда выигрывает по имени; плагин
-  пропускается с warning.
+- Политика конфликтов: builtin/configured tool выигрывает у plugin tool при
+  одинаковом имени; duplicate tool names между плагинами отклоняются при
+  загрузке, чтобы `tools.enabled` не зависел от порядка сканирования.
 - `AGENT_PLUGINS_DISABLE=1` для тестов.
 
 **Клиенты:**
@@ -117,15 +120,15 @@ target/debug/agent-tui-codex \
 ### Плагины
 
 Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
-плагины в `~/.agent/plugins/<plugin>/`. После этого `file-tools`, `shell-tool`
-и демо-плагины подхватываются автоматически.
+плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`, `file-tools`,
+`shell-tool` и демо-плагины подхватываются автоматически.
 
 Ручной способ:
 
 ```bash
 cargo build --release --workspace
 
-for p in file-tools shell-tool hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools shell-tool rg-search hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true

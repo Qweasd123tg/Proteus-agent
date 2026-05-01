@@ -7,6 +7,15 @@ use std::{
     time::Duration,
 };
 
+use agent_contracts::{
+    abi_stable::{
+        sabi_trait::TD_Opaque,
+        std_types::{RResult, RString},
+    },
+    plugin::{
+        ContextProviderObject, PluginContextError, PluginContextProvider, PluginContextProvider_TO,
+    },
+};
 use async_trait::async_trait;
 use futures_util::stream;
 use modular_agent::{
@@ -63,6 +72,18 @@ fn workspace_root_file(name: &str) -> std::path::PathBuf {
         .join("..")
         .join("..")
         .join(name)
+}
+
+struct NoopPluginContextProvider;
+
+impl PluginContextProvider for NoopPluginContextProvider {
+    fn provide_json(&self, _input_json: RString) -> RResult<RString, PluginContextError> {
+        RResult::ROk("[]".into())
+    }
+}
+
+fn noop_plugin_context_provider() -> ContextProviderObject {
+    PluginContextProvider_TO::from_value(NoopPluginContextProvider, TD_Opaque)
 }
 
 async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventStore>) {
@@ -139,7 +160,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
         model_ids,
         ["anthropic", "fake", "openai", "openai_compatible"]
     );
-    assert_eq!(search_ids, ["null", "rg"]);
+    assert_eq!(search_ids, ["null"]);
     assert_eq!(memory_policy_ids, ["carry_forward", "none"]);
     assert_eq!(context_ids, ["repo_aware", "simple"]);
     assert_eq!(
@@ -150,6 +171,41 @@ fn builtin_module_catalog_lists_builtin_slots() {
         ["model", "tools", "context"]
     );
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
+}
+
+#[test]
+fn plugin_context_provider_rejects_builtin_provider_id() {
+    let mut catalog = BuiltinModuleCatalog::new();
+    let error = catalog
+        .register_plugin_context_provider("search", noop_plugin_context_provider())
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("conflicts with builtin repo_aware provider id")
+    );
+}
+
+#[test]
+fn plugin_context_provider_rejects_empty_and_duplicate_ids() {
+    let mut catalog = BuiltinModuleCatalog::new();
+    let empty_error = catalog
+        .register_plugin_context_provider(" ", noop_plugin_context_provider())
+        .unwrap_err();
+    assert!(empty_error.to_string().contains("id must not be empty"));
+
+    catalog
+        .register_plugin_context_provider("hello", noop_plugin_context_provider())
+        .unwrap();
+    let duplicate_error = catalog
+        .register_plugin_context_provider("hello", noop_plugin_context_provider())
+        .unwrap_err();
+    assert!(
+        duplicate_error
+            .to_string()
+            .contains("context provider 'hello' is already registered")
+    );
 }
 
 #[tokio::test]
@@ -404,7 +460,7 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
 
 #[tokio::test]
 async fn swapping_search_backend_does_not_change_runtime() {
-    for search in ["null", "rg"] {
+    for search in ["null"] {
         let mut config = test_config();
         config.modules.search = search.to_owned();
 
@@ -2205,9 +2261,6 @@ search = "rg"
 [tools]
 enabled = ["read_file", "search"]
 
-[search.rg]
-max_results = 7
-
 [renderer.statusline]
 components = ["model", "context"]
 ansi = false
@@ -2228,7 +2281,6 @@ ansi = false
     );
     assert_eq!(config.modules.renderer, "statusline");
     assert_eq!(config.modules.search, "rg");
-    assert_eq!(config.search.rg.max_results, 7);
     assert_eq!(config.tools.enabled, ["read_file", "search"]);
     assert_eq!(config.renderer.statusline.components, ["model", "context"]);
     assert!(!config.renderer.statusline.ansi);

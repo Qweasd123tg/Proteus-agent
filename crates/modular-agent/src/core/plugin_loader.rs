@@ -407,11 +407,8 @@ fn load_one_plugin_inner(
         .and_then(|m| m.description.clone())
         .unwrap_or(root_description);
 
-    // Важно: leak'аем RawLibrary — иначе при drop символы плагина станут
-    // dangling, trait objects которые регистрируются плагином крашнутся.
-    std::mem::forget(raw_lib);
-
     let register_fn = root.register_modules();
+    let checkpoint = catalog.checkpoint();
     let mut adapter = PluginRegistryAdapter { catalog };
     let mut registry_to: PluginRegistry_TO<_> =
         PluginRegistry_TO::from_ptr(&mut adapter, TD_Opaque);
@@ -424,6 +421,9 @@ fn load_one_plugin_inner(
                 let mut registry_v2_to: PluginRegistryV2_TO<_> =
                     PluginRegistryV2_TO::from_ptr(&mut adapter_v2, TD_Opaque);
                 if let RResult::RErr(err) = register_v2_fn(&mut registry_v2_to) {
+                    drop(registry_v2_to);
+                    drop(adapter_v2);
+                    catalog.rollback_to(checkpoint);
                     return Err(anyhow::anyhow!(
                         "plugin '{}' register_modules_v2 failed: {}",
                         root_name,
@@ -431,6 +431,10 @@ fn load_one_plugin_inner(
                     ));
                 }
             }
+            // Важно: leak'аем RawLibrary только после успешной регистрации —
+            // иначе при drop символы плагина станут dangling, а trait objects
+            // из этого dylib живут в catalog всё время процесса.
+            std::mem::forget(raw_lib);
             Ok(PluginInfo {
                 name,
                 description,
@@ -438,11 +442,16 @@ fn load_one_plugin_inner(
                 manifest,
             })
         }
-        RResult::RErr(err) => Err(anyhow::anyhow!(
-            "plugin '{}' register_modules failed: {}",
-            root_name,
-            err.message
-        )),
+        RResult::RErr(err) => {
+            drop(registry_to);
+            drop(adapter);
+            catalog.rollback_to(checkpoint);
+            Err(anyhow::anyhow!(
+                "plugin '{}' register_modules failed: {}",
+                root_name,
+                err.message
+            ))
+        }
     }
 }
 

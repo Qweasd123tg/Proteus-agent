@@ -29,8 +29,10 @@ prototype-2: stable core invariants + dylib plugin boundary
 ```
 
 Проект уже не demo loop и не чисто монолит: есть plugin loader и рабочие
-плагины для 6 из 8 slot'ов (tool, renderer, policy, patch, search, memory). Но это ещё не marketplace, не package
-manager, не persistent MCP host и не multi-agent runtime.
+плагины для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, а также
+добавочные V2 capabilities для declarative `memory_policy` и `repo_aware`
+`context_provider`. Но это ещё не marketplace, не package manager, не
+persistent MCP host и не multi-agent runtime.
 
 Стабильные инварианты:
 
@@ -236,8 +238,8 @@ Adapters преобразуют `CanonicalModelRequest` в provider wire format 
 Ключевые точки:
 
 - `crates/agent-contracts/src/plugin.rs` — sabi_trait-ы (`PluginRoot`,
-  `PluginRegistry`, `PluginTool`, `PluginRenderer`), prefix type и
-  `export_root_module!` helper.
+  `PluginRegistry`, `PluginRegistryV2`, `PluginTool`, renderer/policy/patch/
+  search/memory adapters), prefix type и `export_root_module!` helper.
 - `crates/modular-agent/src/core/plugin_loader.rs` — загрузчик через
   `libloading` + `lib_header_from_raw_library` + `init_root_module`
   (`RootModule::load_from_file` не используется — его type-keyed cache ломает
@@ -247,7 +249,7 @@ Adapters преобразуют `CanonicalModelRequest` в provider wire format 
 - Escape hatch: `AGENT_PLUGINS_DISABLE=1` отключает загрузку плагинов,
   используется в тестах.
 
-В текущей Волне PluginRegistry покрывает 6 slot'ов: `tool`, `renderer`, `approval_policy`, `patch_applier`, `search_backend`, `memory_store`. Остаются `memory_policy` и `context_builder` — они требуют FFI callback bridge (плагин зовёт ядро через `&dyn`), blueprint в `docs/memory-research.md`. Детали и волны: `plugin-architecture.md`.
+В текущей Волне `PluginRegistry` v1 покрывает 6 slot'ов: `tool`, `renderer`, `policy`, `patch`, `search`, `memory`. Добавочные capabilities идут через optional symbol `agent_plugin_register_modules_v2`: `PluginRegistryV2` регистрирует declarative `memory_policy` и `context_provider` для `repo_aware`. Полный `context_builder`, `model` и `workflow` остаются builtin-only. Детали и волны: `plugin-architecture.md`.
 
 ## Runtime Flow
 
@@ -280,7 +282,7 @@ task
 
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search` и `memory` slots; остальные slots (`memory_policy`, `context`, `model`, `workflow`) пока регистрируются только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy` и `repo_aware` `context_provider`; полный `context`, `model` и `workflow` пока регистрируются только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors и dylib-плагины; полноценный MCP provider/registry (persistent host) ещё не реализован, но `ToolRegistry` уже хранит source.
