@@ -23,10 +23,7 @@ use crate::{
         DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoMemory, NoMemoryPolicy,
         NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
     },
-    tools::{
-        ApplyPatchTool, BuiltinToolProvider, ConfiguredMcpTool, ConfiguredNativeTool,
-        ConfiguredProcessTool, SearchTool, is_builtin_tool_name,
-    },
+    tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
 pub struct ModuleBuildContext<'a> {
@@ -920,65 +917,12 @@ impl BuiltinModuleCatalog {
         let builtin_tools =
             BuiltinToolProvider::new(builtin_names, search.clone(), patch.clone(), memory.clone());
         register_provider_tools(&mut tools, &builtin_tools)?;
-        for configured in &ctx.config.tools.configured {
-            let source = match &configured.executor {
-                crate::core::ConfiguredToolExecutorConfig::Native { .. } => {
-                    crate::contracts::ToolSource::Config {
-                        origin: "config:native".to_owned(),
-                    }
-                }
-                crate::core::ConfiguredToolExecutorConfig::Mcp {
-                    server, command, ..
-                } => crate::contracts::ToolSource::Mcp {
-                    server: server.clone().unwrap_or_else(|| command.clone()),
-                },
-                crate::core::ConfiguredToolExecutorConfig::Process { .. } => {
-                    crate::contracts::ToolSource::Config {
-                        origin: "config".to_owned(),
-                    }
-                }
-            };
-            let spec = crate::domain::ToolSpec::new(
-                configured.name.clone(),
-                configured.description.clone(),
-                configured.input_schema.clone(),
-                effective_configured_tool_safety(configured),
-            )
-            .with_metadata(configured.metadata.clone());
-            let spec = if let Some(timeout_ms) = configured.timeout_ms {
-                spec.with_timeout(timeout_ms)
-            } else {
-                spec
-            };
-            match &configured.executor {
-                crate::core::ConfiguredToolExecutorConfig::Native { handler } => {
-                    let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
-                    tools.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
-                }
-                crate::core::ConfiguredToolExecutorConfig::Process { command, args } => {
-                    tools.register_with_source(
-                        source,
-                        ConfiguredProcessTool::new(spec, command.clone(), args.clone()),
-                    )?;
-                }
-                crate::core::ConfiguredToolExecutorConfig::Mcp {
-                    server: _,
-                    command,
-                    args,
-                    tool,
-                    protocol_version,
-                } => tools.register_with_source(
-                    source,
-                    ConfiguredMcpTool::new(
-                        spec,
-                        command.clone(),
-                        args.clone(),
-                        tool.clone(),
-                        protocol_version.clone(),
-                    ),
-                )?,
-            }
-        }
+        register_configured_tools(
+            &mut tools,
+            &ctx.config.tools.configured,
+            search.clone(),
+            patch.clone(),
+        )?;
 
         // Plugin tools are opt-in through `tools.enabled`. Installed plugins
         // extend the available tool namespace, but do not become visible to
@@ -1032,79 +976,6 @@ where
         .downcast::<Arc<T>>()
         .ok()
         .map(|boxed| (*boxed).clone())
-}
-
-fn effective_configured_tool_safety(
-    configured: &crate::core::ConfiguredToolConfig,
-) -> crate::domain::ToolSafety {
-    match &configured.executor {
-        crate::core::ConfiguredToolExecutorConfig::Native { handler } => {
-            max_tool_safety(configured.safety.clone(), native_handler_safety(handler))
-        }
-        crate::core::ConfiguredToolExecutorConfig::Mcp { .. } => match configured.safety {
-            crate::domain::ToolSafety::Dangerous => crate::domain::ToolSafety::Dangerous,
-            crate::domain::ToolSafety::Network => crate::domain::ToolSafety::Network,
-            crate::domain::ToolSafety::ReadOnly
-            | crate::domain::ToolSafety::WritesFiles
-            | crate::domain::ToolSafety::RunsCommands => crate::domain::ToolSafety::RunsCommands,
-            _ => crate::domain::ToolSafety::Dangerous,
-        },
-        crate::core::ConfiguredToolExecutorConfig::Process { .. } => match configured.safety {
-            crate::domain::ToolSafety::Dangerous => crate::domain::ToolSafety::Dangerous,
-            crate::domain::ToolSafety::Network => crate::domain::ToolSafety::Network,
-            crate::domain::ToolSafety::ReadOnly
-            | crate::domain::ToolSafety::WritesFiles
-            | crate::domain::ToolSafety::RunsCommands => crate::domain::ToolSafety::RunsCommands,
-            _ => crate::domain::ToolSafety::Dangerous,
-        },
-    }
-}
-
-fn configured_native_handler(
-    handler: &str,
-    search: Arc<dyn SearchBackend>,
-    patch: Arc<dyn PatchApplier>,
-) -> Result<Arc<dyn crate::contracts::Tool>> {
-    match handler {
-        "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(patch))),
-        "search" => Ok(Arc::new(SearchTool::new(search))),
-        other => bail!(
-            "unsupported native tool handler: '{other}'. File I/O (read_file, \
-             write_file, list_dir) and shell are now provided by the `file-tools` \
-             and `shell-tool` plugins — use tools.enabled with the plugin names, \
-             not configured.native.handler."
-        ),
-    }
-}
-
-fn native_handler_safety(handler: &str) -> crate::domain::ToolSafety {
-    match handler {
-        "search" => crate::domain::ToolSafety::ReadOnly,
-        "apply_patch" => crate::domain::ToolSafety::WritesFiles,
-        _ => crate::domain::ToolSafety::Dangerous,
-    }
-}
-
-fn max_tool_safety(
-    left: crate::domain::ToolSafety,
-    right: crate::domain::ToolSafety,
-) -> crate::domain::ToolSafety {
-    if tool_safety_rank(&left) >= tool_safety_rank(&right) {
-        left
-    } else {
-        right
-    }
-}
-
-fn tool_safety_rank(safety: &crate::domain::ToolSafety) -> u8 {
-    match safety {
-        crate::domain::ToolSafety::ReadOnly => 0,
-        crate::domain::ToolSafety::WritesFiles => 1,
-        crate::domain::ToolSafety::RunsCommands => 2,
-        crate::domain::ToolSafety::Network => 3,
-        crate::domain::ToolSafety::Dangerous => 4,
-        _ => 5,
-    }
 }
 
 impl Default for BuiltinModuleCatalog {

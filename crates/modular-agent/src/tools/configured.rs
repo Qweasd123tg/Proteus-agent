@@ -13,12 +13,15 @@ use std::sync::Arc;
 const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES;
 
 use crate::{
-    contracts::{Tool, ToolContext},
+    contracts::{PatchApplier, SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
+    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig},
     core::process_output::{
         DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
     },
-    domain::{ToolCall, ToolResult, ToolSpec},
+    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
+
+use super::{ApplyPatchTool, SearchTool};
 
 #[derive(Clone)]
 pub struct ConfiguredNativeTool {
@@ -253,6 +256,146 @@ impl ConfiguredMcpTool {
             error,
             metadata,
         ))
+    }
+}
+
+pub fn register_configured_tools(
+    registry: &mut ToolRegistry,
+    configured_tools: &[ConfiguredToolConfig],
+    search: Arc<dyn SearchBackend>,
+    patch: Arc<dyn PatchApplier>,
+) -> Result<()> {
+    for configured in configured_tools {
+        let source = configured_tool_source(configured);
+        let spec = configured_tool_spec(configured);
+        match &configured.executor {
+            ConfiguredToolExecutorConfig::Native { handler } => {
+                let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
+                registry.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
+            }
+            ConfiguredToolExecutorConfig::Process { command, args } => {
+                registry.register_with_source(
+                    source,
+                    ConfiguredProcessTool::new(spec, command.clone(), args.clone()),
+                )?;
+            }
+            ConfiguredToolExecutorConfig::Mcp {
+                server: _,
+                command,
+                args,
+                tool,
+                protocol_version,
+            } => registry.register_with_source(
+                source,
+                ConfiguredMcpTool::new(
+                    spec,
+                    command.clone(),
+                    args.clone(),
+                    tool.clone(),
+                    protocol_version.clone(),
+                ),
+            )?,
+        }
+    }
+    Ok(())
+}
+
+fn configured_tool_source(configured: &ConfiguredToolConfig) -> ToolSource {
+    match &configured.executor {
+        ConfiguredToolExecutorConfig::Native { .. } => ToolSource::Config {
+            origin: "config:native".to_owned(),
+        },
+        ConfiguredToolExecutorConfig::Mcp {
+            server, command, ..
+        } => ToolSource::Mcp {
+            server: server.clone().unwrap_or_else(|| command.clone()),
+        },
+        ConfiguredToolExecutorConfig::Process { .. } => ToolSource::Config {
+            origin: "config".to_owned(),
+        },
+    }
+}
+
+fn configured_tool_spec(configured: &ConfiguredToolConfig) -> ToolSpec {
+    let spec = ToolSpec::new(
+        configured.name.clone(),
+        configured.description.clone(),
+        configured.input_schema.clone(),
+        effective_configured_tool_safety(configured),
+    )
+    .with_metadata(configured.metadata.clone());
+    if let Some(timeout_ms) = configured.timeout_ms {
+        spec.with_timeout(timeout_ms)
+    } else {
+        spec
+    }
+}
+
+fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSafety {
+    match &configured.executor {
+        ConfiguredToolExecutorConfig::Native { handler } => {
+            max_tool_safety(configured.safety.clone(), native_handler_safety(handler))
+        }
+        ConfiguredToolExecutorConfig::Mcp { .. } => match configured.safety {
+            ToolSafety::Dangerous => ToolSafety::Dangerous,
+            ToolSafety::Network => ToolSafety::Network,
+            ToolSafety::ReadOnly | ToolSafety::WritesFiles | ToolSafety::RunsCommands => {
+                ToolSafety::RunsCommands
+            }
+            _ => ToolSafety::Dangerous,
+        },
+        ConfiguredToolExecutorConfig::Process { .. } => match configured.safety {
+            ToolSafety::Dangerous => ToolSafety::Dangerous,
+            ToolSafety::Network => ToolSafety::Network,
+            ToolSafety::ReadOnly | ToolSafety::WritesFiles | ToolSafety::RunsCommands => {
+                ToolSafety::RunsCommands
+            }
+            _ => ToolSafety::Dangerous,
+        },
+    }
+}
+
+fn configured_native_handler(
+    handler: &str,
+    search: Arc<dyn SearchBackend>,
+    patch: Arc<dyn PatchApplier>,
+) -> Result<Arc<dyn Tool>> {
+    match handler {
+        "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(patch))),
+        "search" => Ok(Arc::new(SearchTool::new(search))),
+        other => bail!(
+            "unsupported native tool handler: '{other}'. File I/O (read_file, \
+             write_file, list_dir) and shell are now provided by the `file-tools` \
+             and `shell-tool` plugins — use tools.enabled with the plugin names, \
+             not configured.native.handler."
+        ),
+    }
+}
+
+fn native_handler_safety(handler: &str) -> ToolSafety {
+    match handler {
+        "search" => ToolSafety::ReadOnly,
+        "apply_patch" => ToolSafety::WritesFiles,
+        _ => ToolSafety::Dangerous,
+    }
+}
+
+fn max_tool_safety(left: ToolSafety, right: ToolSafety) -> ToolSafety {
+    if tool_safety_rank(&left) >= tool_safety_rank(&right) {
+        left
+    } else {
+        right
+    }
+}
+
+fn tool_safety_rank(safety: &ToolSafety) -> u8 {
+    match safety {
+        ToolSafety::ReadOnly => 0,
+        ToolSafety::WritesFiles => 1,
+        ToolSafety::RunsCommands => 2,
+        ToolSafety::Network => 3,
+        ToolSafety::Dangerous => 4,
+        _ => 5,
     }
 }
 
