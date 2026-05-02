@@ -16,7 +16,7 @@
 //! register_modules) плагин пропускается с warning в stderr. Ядро продолжает
 //! работать с оставшимися плагинами и builtin-модулями.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use agent_contracts::{
     abi_stable::{
@@ -332,7 +332,16 @@ fn load_from_manifest_dir(
     // Путь к .so: либо явно указан в manifest.library, либо ищем единственный
     // dylib в папке.
     let lib_path = match manifest.library.as_deref() {
-        Some(name) => plugin_dir.join(name),
+        Some(name) => match resolve_manifest_library(plugin_dir, name) {
+            Ok(path) => path,
+            Err(error) => {
+                return PluginLoadReport {
+                    path: plugin_dir.to_path_buf(),
+                    manifest: Some(manifest),
+                    result: Err(error),
+                };
+            }
+        },
         None => match find_single_dylib(plugin_dir) {
             Ok(path) => path,
             Err(error) => {
@@ -346,6 +355,41 @@ fn load_from_manifest_dir(
     };
 
     load_one_plugin(&lib_path, Some(manifest), catalog)
+}
+
+fn resolve_manifest_library(plugin_dir: &Path, library: &str) -> Result<PathBuf> {
+    let library_path = Path::new(library);
+    let mut has_normal_component = false;
+
+    for component in library_path.components() {
+        match component {
+            Component::Normal(_) => has_normal_component = true,
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                anyhow::bail!("manifest library must stay inside plugin directory: {library}");
+            }
+        }
+    }
+
+    if library_path.is_absolute() || !has_normal_component {
+        anyhow::bail!("manifest library must be a relative file path: {library}");
+    }
+
+    let plugin_root = plugin_dir
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("failed to canonicalize plugin directory: {e}"))?;
+    let candidate = plugin_dir.join(library_path);
+    let resolved = candidate.canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "failed to canonicalize manifest library {}: {e}",
+            candidate.display()
+        )
+    })?;
+    if !resolved.starts_with(&plugin_root) {
+        anyhow::bail!("manifest library must stay inside plugin directory: {library}");
+    }
+
+    Ok(resolved)
 }
 
 fn read_manifest(path: &Path) -> Result<PluginManifest> {
@@ -564,6 +608,59 @@ requires_agent_contracts = "^0.1"
         std::fs::write(dir.path().join("ignore.txt"), b"").unwrap();
         let path = find_single_dylib(dir.path()).unwrap();
         assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn manifest_library_rejects_parent_directory_escape() {
+        let dir = tempdir().unwrap();
+        let error = resolve_manifest_library(dir.path(), "../evil.so").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must stay inside plugin directory")
+        );
+    }
+
+    #[test]
+    fn manifest_library_rejects_absolute_path() {
+        let dir = tempdir().unwrap();
+        let absolute = std::env::temp_dir().join("evil.so");
+        let error =
+            resolve_manifest_library(dir.path(), &absolute.display().to_string()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must stay inside plugin directory")
+                || error.to_string().contains("must be a relative file path")
+        );
+    }
+
+    #[test]
+    fn manifest_library_resolves_relative_subpath() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("lib")).unwrap();
+        std::fs::write(dir.path().join("lib").join("libsample.so"), b"").unwrap();
+        let path = resolve_manifest_library(dir.path(), "./lib/libsample.so").unwrap();
+        assert_eq!(
+            path,
+            dir.path().join("lib").join("libsample.so").canonicalize().unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_library_rejects_symlink_escape() {
+        let plugin_dir = tempdir().unwrap();
+        let outside_dir = tempdir().unwrap();
+        std::fs::write(outside_dir.path().join("evil.so"), b"").unwrap();
+        std::os::unix::fs::symlink(outside_dir.path(), plugin_dir.path().join("lib")).unwrap();
+
+        let error = resolve_manifest_library(plugin_dir.path(), "lib/evil.so").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must stay inside plugin directory")
+        );
     }
 
     #[test]
