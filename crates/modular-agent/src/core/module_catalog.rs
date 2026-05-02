@@ -1052,6 +1052,8 @@ impl BuiltinModuleCatalog {
         register_configured_tools(
             &mut tools,
             &ctx.config.tools.configured,
+            &ctx.config.tools.mcp_servers,
+            ctx.cwd,
             search.clone(),
             patch.clone(),
         )?;

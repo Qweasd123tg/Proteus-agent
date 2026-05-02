@@ -259,8 +259,9 @@ args = ["tools/echo_args.py"]
 ```
 
 Для `native` executor указывается `handler`, например
-`handler = "apply_patch"`. Для `mcp` executor указываются `command`, optional
-`args`, optional `server`, remote `tool` и optional `protocol_version`.
+`handler = "apply_patch"`. Для inline `mcp` executor указываются `command`,
+optional `args`, optional `server`, remote `tool` и optional
+`protocol_version`.
 
 Сейчас поддержаны executors `native`, `process` и `mcp`.
 
@@ -268,11 +269,35 @@ args = ["tools/echo_args.py"]
 
 `process` запускает фиксированные `command` + `args` в рабочей директории задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как `ToolResult`.
 
-`mcp` запускает stdio MCP server per call, выполняет `initialize`, отправляет `notifications/initialized`, затем вызывает фиксированный remote `tools/call` из поля `tool`. Model args становятся только MCP `arguments`; имя remote tool не берётся из model args.
+Inline `mcp` запускает stdio MCP server per call, выполняет `initialize`,
+отправляет `notifications/initialized`, затем вызывает фиксированный remote
+`tools/call` из поля `tool`. Model args становятся только MCP `arguments`; имя
+remote tool не берётся из model args.
+
+Для стандартного MCP discovery используйте `tools.mcp_servers`. Сервер
+описывается один раз, runtime при сборке `ToolRegistry` выполняет
+`initialize` + `tools/list`, регистрирует каждый remote tool как обычный tool
+с локальным именем `<server>__<remote_tool>`, а вызов по-прежнему мапится на
+фиксированный remote `tools/call`.
+
+```toml
+[[tools.mcp_servers]]
+name = "docs"
+command = "node"
+args = ["./mcp-docs-server.js"]
+safety = "RunsCommands"
+timeout_ms = 30000
+metadata = { scope = "documentation" }
+```
+
+`tools.mcp_servers` пока не является persistent MCP host: discovery делается
+при сборке registry, а execution использует тот же spawn-per-call stdio путь,
+что и inline `mcp`. Это совместимо со стандартным `tools/list` и уже убирает
+ручное описание сотен remote tools в config.
 
 `ToolResult.call_id`, `ok`, `error` и metadata формируются host runtime-ом, а не внешним процессом/MCP server.
 
-Имена всех tools должны быть уникальными; duplicate tool registration считается ошибкой конфигурации. Для `native` config не может понизить safety ниже safety самого handler-а. Для `process` и `mcp` executors действует safety floor: даже если config укажет `ReadOnly` или `WritesFiles`, effective `ToolSafety` будет не ниже `RunsCommands`.
+Имена всех tools должны быть уникальными; duplicate tool registration считается ошибкой конфигурации. Для `native` config не может понизить safety ниже safety самого handler-а. Для `process`, inline `mcp` и `tools.mcp_servers` действует safety floor: даже если config укажет `ReadOnly` или `WritesFiles`, effective `ToolSafety` будет не ниже `RunsCommands`.
 
 ## Permissions
 

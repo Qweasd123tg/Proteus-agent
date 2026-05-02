@@ -30,9 +30,9 @@ use modular_agent::{
         ToolSource, Workflow,
     },
     core::{
-        AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
-        ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ModelService,
-        ToolOrchestrator,
+        AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
+        ConfiguredToolConfig, ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore,
+        ModelService, ToolOrchestrator,
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
@@ -1113,6 +1113,92 @@ async fn configured_process_tool_still_obeys_permission_mode() {
             .join("should_not_exist_from_config_tool")
             .exists()
     );
+}
+
+#[tokio::test]
+async fn configured_mcp_server_discovers_tools_into_registry() {
+    let dir = temp_workspace();
+    let server = dir.path().join("mcp_discovery_server.sh");
+    std::fs::write(
+        &server,
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}'
+      ;;
+    *'"method":"notifications/initialized"'*)
+      ;;
+    *'"method":"tools/list"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"remote_echo","description":"Remote echo","inputSchema":{"type":"object","properties":{"message":{"type":"string"}}}}]}}'
+      ;;
+    *'"method":"tools/call"'*)
+      case "$line" in
+        *'"name":"remote_echo"'*)
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"discovered ok"}],"isError":false}}'
+          ;;
+        *)
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"wrong tool"}}'
+          ;;
+      esac
+      ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    clear_ask_write_config(&mut config);
+    config.modules.policy = "allow_all".to_owned();
+    config.tools.mcp_servers.push(ConfiguredMcpServerConfig {
+        name: "demo-mcp".to_owned(),
+        command: "sh".to_owned(),
+        args: vec![server.to_string_lossy().to_string()],
+        protocol_version: "2025-06-18".to_owned(),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: json!({ "scope": "test" }),
+    });
+
+    let registry = registry_from_test_config(&config, dir.path());
+    let spec = registry.tools.spec("demo-mcp__remote_echo").unwrap();
+    assert_eq!(spec.description, "Remote echo");
+    assert_eq!(spec.safety, ToolSafety::RunsCommands);
+    assert_eq!(spec.metadata["mcp_server"], "demo-mcp");
+    assert_eq!(spec.metadata["remote_tool"], "remote_echo");
+    assert_eq!(
+        registry.tools.entry("demo-mcp__remote_echo").unwrap().source,
+        ToolSource::Mcp {
+            server: "demo-mcp".to_owned()
+        }
+    );
+
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "demo-mcp__remote_echo".to_owned(),
+                json!({ "message": "hello" }),
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(result.output, "discovered ok");
+    assert_eq!(result.metadata["remote_tool"], "remote_echo");
 }
 
 #[tokio::test]

@@ -179,7 +179,8 @@ Scope:
 - расширение `memory_policy` за пределы декларативного `MemoryPolicyPlan`, если
   понадобится callback/retrieval во время `after_turn`; blueprint остаётся в
   `docs/memory-research.md` (per-call capability + mailbox);
-- persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
+- persistent MCP host (сейчас есть `tools/list` discovery, но execution ещё
+  spawn-per-call через `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async model slot (`ModelAdapter`) через `FfiFuture` / `FfiStream`.
 

@@ -92,7 +92,13 @@ args = ["status", "--short"]
 
 ### MCP (отложено)
 
-Текущий `ConfiguredMcpTool` в ядре работает через spawn-per-call. Полноценный persistent MCP host с handshake, tools discovery, resources — отдельная большая задача, не в этой волне. Когда придёт — скорее всего будет реализован как отдельный плагин (или модуль в ядре), интегрирующий внешние MCP-сервера в ToolRegistry.
+Текущий `ConfiguredMcpTool` в ядре работает через spawn-per-call. `tools.mcp_servers`
+уже использует стандартный `initialize` + `tools/list` discovery и наполняет
+`ToolRegistry` remote tools автоматически, но execution всё ещё spawn-per-call.
+Полноценный persistent MCP host с долгоживущим процессом, resources, prompts и
+subscriptions — отдельная большая задача. Когда придёт — скорее всего будет
+реализован как отдельный плагин (или модуль в ядре), интегрирующий внешние
+MCP-сервера в ToolRegistry.
 
 ---
 

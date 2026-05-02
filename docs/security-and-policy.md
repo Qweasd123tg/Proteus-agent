@@ -57,14 +57,21 @@ Plugin tool names валидируются при регистрации: пус
 
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
 
-Config-defined `process` и stdio `mcp` tools также считаются command execution boundary. Даже если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в `plan` и запрещены в `auto`.
+Config-defined `process`, inline stdio `mcp` и discovered
+`tools.mcp_servers` tools также считаются command execution boundary. Даже
+если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective
+safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в
+`plan` и запрещены в `auto`.
 
 Process-based built-in tools читают stdout/stderr через bounded reader: модуль
 сохраняет только первые bytes лимита и дочитывает остаток без накопления в
 памяти. После этого `ToolOrchestrator` всё равно применяет общий output
 truncation перед событием `ToolFinished` и передачей результата модели.
 
-Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool из config. Model args не могут переопределить remote tool name; это сохраняет связь между `ToolSpec`, policy decision и фактическим downstream вызовом.
+Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool
+из config или результата `tools/list`. Model args не могут переопределить
+remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
+фактическим downstream вызовом.
 
 ## Workspace Boundary
 

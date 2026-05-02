@@ -221,7 +221,14 @@ plugin tool совпадает с builtin/configured tool, builtin/configured р
 agent tools list
 ```
 
-Config-defined tools добавляются через manifests в `tools.path` или inline через `tools.configured`. В v0 поддержаны `native`, `process` и stdio `mcp` executors: config задаёт `ToolSpec`-поля и фиксированный executor target, а runtime регистрирует executor как обычный `Tool`. Вызов всё равно проходит через `ToolOrchestrator` и mode-aware `ApprovalPolicy`.
+Config-defined tools добавляются через manifests в `tools.path`, inline через
+`tools.configured` или MCP discovery через `tools.mcp_servers`. В v0
+поддержаны `native`, `process` и stdio `mcp` executors: config задаёт
+`ToolSpec`-поля и фиксированный executor target, а runtime регистрирует
+executor как обычный `Tool`. Для `tools.mcp_servers` runtime делает
+стандартный `tools/list` и создаёт host tools с именами
+`<server>__<remote_tool>`. Вызов всё равно проходит через `ToolOrchestrator`
+и mode-aware `ApprovalPolicy`.
 
 Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool и показывает labels вида `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
 

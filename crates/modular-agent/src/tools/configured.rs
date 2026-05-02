@@ -1,4 +1,8 @@
-use std::process::Stdio;
+use std::{
+    io::{BufRead, BufReader as StdBufReader, Write},
+    path::Path,
+    process::{Command as StdCommand, Stdio},
+};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
@@ -14,7 +18,7 @@ const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES
 
 use crate::{
     contracts::{PatchApplier, SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
-    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig},
+    core::{ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
     core::process_output::{
         DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
     },
@@ -262,9 +266,13 @@ impl ConfiguredMcpTool {
 pub fn register_configured_tools(
     registry: &mut ToolRegistry,
     configured_tools: &[ConfiguredToolConfig],
+    mcp_servers: &[ConfiguredMcpServerConfig],
+    cwd: &Path,
     search: Arc<dyn SearchBackend>,
     patch: Arc<dyn PatchApplier>,
 ) -> Result<()> {
+    register_discovered_mcp_tools(registry, mcp_servers, cwd)?;
+
     for configured in configured_tools {
         let source = configured_tool_source(configured);
         let spec = configured_tool_spec(configured);
@@ -298,6 +306,214 @@ pub fn register_configured_tools(
         }
     }
     Ok(())
+}
+
+fn register_discovered_mcp_tools(
+    registry: &mut ToolRegistry,
+    mcp_servers: &[ConfiguredMcpServerConfig],
+    cwd: &Path,
+) -> Result<()> {
+    for server in mcp_servers {
+        let discovered = discover_mcp_tools(server, cwd)?;
+        for discovered_tool in discovered {
+            registry.register_with_source(
+                ToolSource::Mcp {
+                    server: server.name.clone(),
+                },
+                ConfiguredMcpTool::new(
+                    discovered_tool.spec,
+                    server.command.clone(),
+                    server.args.clone(),
+                    discovered_tool.remote_tool,
+                    server.protocol_version.clone(),
+                ),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+struct DiscoveredMcpTool {
+    remote_tool: String,
+    spec: ToolSpec,
+}
+
+fn discover_mcp_tools(
+    server: &ConfiguredMcpServerConfig,
+    cwd: &Path,
+) -> Result<Vec<DiscoveredMcpTool>> {
+    let mut child = StdCommand::new(&server.command)
+        .args(&server.args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let result = (|| {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("failed to open MCP server stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
+        let mut stdout = StdBufReader::new(stdout);
+
+        sync_write_json_line(
+            &mut stdin,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": server.protocol_version,
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "modular-agent",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }
+            }),
+        )?;
+        let initialize = sync_read_json_line(&mut stdout)?;
+        ensure_jsonrpc_success(&initialize, 1)?;
+
+        sync_write_json_line(
+            &mut stdin,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+            }),
+        )?;
+
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut request_id = 2;
+        loop {
+            let params = cursor
+                .as_ref()
+                .map(|cursor| json!({ "cursor": cursor }))
+                .unwrap_or_else(|| json!({}));
+            sync_write_json_line(
+                &mut stdin,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "tools/list",
+                    "params": params
+                }),
+            )?;
+            let response = sync_read_json_line(&mut stdout)?;
+            let result = ensure_jsonrpc_success(&response, request_id)?;
+            tools.extend(mcp_tools_from_list_result(server, result)?);
+            cursor = next_mcp_cursor(result);
+            if cursor.is_none() {
+                break;
+            }
+            request_id += 1;
+        }
+        Ok(tools)
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+fn mcp_tools_from_list_result(
+    server: &ConfiguredMcpServerConfig,
+    result: &Value,
+) -> Result<Vec<DiscoveredMcpTool>> {
+    let Some(Value::Array(items)) = result.get("tools") else {
+        return Ok(Vec::new());
+    };
+    items
+        .iter()
+        .map(|item| {
+            let remote_tool = item
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .ok_or_else(|| anyhow!("MCP tools/list item missing non-empty name"))?
+                .to_owned();
+            let local_name = discovered_mcp_tool_name(&server.name, &remote_tool);
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or(remote_tool.as_str());
+            let input_schema = item
+                .get("inputSchema")
+                .or_else(|| item.get("input_schema"))
+                .cloned()
+                .unwrap_or_else(default_tool_input_schema_value);
+            let metadata = json!({
+                "mcp_server": server.name,
+                "remote_tool": remote_tool,
+                "discovered": true,
+                "server_metadata": server.metadata,
+            });
+            let spec = ToolSpec::new(
+                local_name,
+                description,
+                input_schema,
+                effective_mcp_safety(server.safety.clone()),
+            )
+            .with_metadata(metadata);
+            let spec = if let Some(timeout_ms) = server.timeout_ms {
+                spec.with_timeout(timeout_ms)
+            } else {
+                spec
+            };
+            Ok(DiscoveredMcpTool { remote_tool, spec })
+        })
+        .collect()
+}
+
+fn next_mcp_cursor(result: &Value) -> Option<String> {
+    result
+        .get("nextCursor")
+        .or_else(|| result.get("next_cursor"))
+        .and_then(Value::as_str)
+        .filter(|cursor| !cursor.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn discovered_mcp_tool_name(server: &str, remote_tool: &str) -> String {
+    format!(
+        "{}__{}",
+        sanitize_tool_name_part(server),
+        sanitize_tool_name_part(remote_tool)
+    )
+}
+
+fn sanitize_tool_name_part(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "mcp".to_owned()
+    } else {
+        sanitized
+    }
+}
+
+fn effective_mcp_safety(safety: ToolSafety) -> ToolSafety {
+    max_tool_safety(safety, ToolSafety::RunsCommands)
+}
+
+fn default_tool_input_schema_value() -> Value {
+    json!({
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true
+    })
 }
 
 fn configured_tool_source(configured: &ConfiguredToolConfig) -> ToolSource {
@@ -336,14 +552,7 @@ fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSa
         ConfiguredToolExecutorConfig::Native { handler } => {
             max_tool_safety(configured.safety.clone(), native_handler_safety(handler))
         }
-        ConfiguredToolExecutorConfig::Mcp { .. } => match configured.safety {
-            ToolSafety::Dangerous => ToolSafety::Dangerous,
-            ToolSafety::Network => ToolSafety::Network,
-            ToolSafety::ReadOnly | ToolSafety::WritesFiles | ToolSafety::RunsCommands => {
-                ToolSafety::RunsCommands
-            }
-            _ => ToolSafety::Dangerous,
-        },
+        ConfiguredToolExecutorConfig::Mcp { .. } => effective_mcp_safety(configured.safety.clone()),
         ConfiguredToolExecutorConfig::Process { .. } => match configured.safety {
             ToolSafety::Dangerous => ToolSafety::Dangerous,
             ToolSafety::Network => ToolSafety::Network,
@@ -397,6 +606,38 @@ fn tool_safety_rank(safety: &ToolSafety) -> u8 {
         ToolSafety::Dangerous => 4,
         _ => 5,
     }
+}
+
+fn sync_write_json_line<W>(writer: &mut W, message: Value) -> Result<()>
+where
+    W: Write,
+{
+    writer.write_all(message.to_string().as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
+}
+
+fn sync_read_json_line<R>(reader: &mut R) -> Result<Value>
+where
+    R: BufRead,
+{
+    let mut line = Vec::with_capacity(MCP_STDIO_RESPONSE_LIMIT_BYTES.min(8192));
+    let read = reader.read_until(b'\n', &mut line)?;
+    if read == 0 {
+        bail!("MCP server closed stdout before sending a response");
+    }
+    if line.len() > MCP_STDIO_RESPONSE_LIMIT_BYTES {
+        bail!("MCP response exceeded {MCP_STDIO_RESPONSE_LIMIT_BYTES} bytes before newline");
+    }
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    let line = std::str::from_utf8(&line)?;
+    serde_json::from_str(line).map_err(Into::into)
 }
 
 async fn write_json_line(stdin: &mut ChildStdin, message: Value) -> Result<()> {

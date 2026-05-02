@@ -330,6 +330,8 @@ pub struct ToolsConfig {
     pub path: Option<PathBuf>,
     #[serde(default)]
     pub configured: Vec<ConfiguredToolConfig>,
+    #[serde(default)]
+    pub mcp_servers: Vec<ConfiguredMcpServerConfig>,
 }
 
 impl Default for ToolsConfig {
@@ -338,6 +340,7 @@ impl Default for ToolsConfig {
             enabled: default_tools(),
             path: default_tools_path(),
             configured: Vec::new(),
+            mcp_servers: Vec::new(),
         }
     }
 }
@@ -377,6 +380,22 @@ pub enum ConfiguredToolExecutorConfig {
         #[serde(default = "default_mcp_protocol_version")]
         protocol_version: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfiguredMcpServerConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default = "default_mcp_protocol_version")]
+    pub protocol_version: String,
+    #[serde(default = "default_mcp_discovered_tool_safety")]
+    pub safety: crate::domain::ToolSafety,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -507,6 +526,10 @@ fn default_tool_input_schema() -> serde_json::Value {
 
 fn default_mcp_protocol_version() -> String {
     "2025-06-18".to_owned()
+}
+
+fn default_mcp_discovered_tool_safety() -> crate::domain::ToolSafety {
+    crate::domain::ToolSafety::RunsCommands
 }
 
 fn default_event_log_path() -> PathBuf {
