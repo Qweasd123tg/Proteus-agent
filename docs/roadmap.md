@@ -168,7 +168,7 @@ Scope:
   В ядре остались только slot-dependent tools: `apply_patch`, `search`,
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
-  `renderer = "text"`.
+  `tool_exposure = "all_visible"`, `renderer = "text"`.
   `install.sh` собирает и копирует все плагины в `~/.agent/plugins/`
   автоматически.
 

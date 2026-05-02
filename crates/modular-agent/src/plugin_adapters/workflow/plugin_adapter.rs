@@ -21,7 +21,10 @@ use async_trait::async_trait;
 use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
-    contracts::{CompactionInput, ContextBuildInput, RuntimeContext, Workflow, WorkflowOutput},
+    contracts::{
+        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput,
+        ToolExposureRequest, Workflow, WorkflowOutput,
+    },
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
@@ -175,6 +178,25 @@ impl PluginWorkflowHost for WorkflowHost {
         }
     }
 
+    fn select_tools_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: ToolExposureRequest = match serde_json::from_str(request_json.as_str()) {
+            Ok(request) => request,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let candidates = self
+            .tool_orchestrator
+            .visible_tool_specs(&self.ctx, &request.cwd);
+        let ctx = self.ctx.clone();
+        self.block_on_json(async move {
+            ctx.tool_exposure
+                .select(ToolExposureInput::new(request, candidates))
+                .await
+        })
+    }
+
     fn execute_tool_json(
         &self,
         task_json: RString,
@@ -233,7 +255,10 @@ mod tests {
         },
         plugin_adapters::PluginContextBuilderAdapter,
         model_standard::{CanonicalMessage, ContentPart, MessageRole},
-        stubs::{FakeModelClient, NoCompactor, NoMemory, NullPatchApplier, NullSearch},
+        stubs::{
+            AllVisibleToolExposure, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier,
+            NullSearch,
+        },
     };
 
     struct ContextSmokeWorkflow;
@@ -340,6 +365,7 @@ mod tests {
             Arc::new(HeadlessApprovalTransport),
             Arc::new(NullPatchApplier),
             Arc::new(NoCompactor),
+            Arc::new(AllVisibleToolExposure),
         );
         let cwd = tempfile::tempdir().expect("workspace");
 

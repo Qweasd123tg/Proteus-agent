@@ -175,7 +175,8 @@ path CLI smoke test.
 2. ✅ dylib loader через `abi_stable` + `libloading`;
 3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
    `search`, `memory`, declarative `memory_policy`, request-time `compactor`,
-   full `context_builder`, `repo_aware` `context_provider` и `workflow`;
+   `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`
+   и `workflow`;
 4. 🔜 `ModelAdapter` как плагин — после freeze trait-а и async ABI;
 6. 🔜 Волна 3: перенос встроенных модулей в отдельные плагины по одному;
 7. ⏳ Волна 4: async-ABI для ModelAdapter через `FfiFuture` / `FfiStream`.

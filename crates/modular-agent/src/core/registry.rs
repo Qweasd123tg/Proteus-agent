@@ -5,8 +5,8 @@ use anyhow::Result;
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, EventEmitter, MemoryPolicy, MemoryStore, ModelClient,
-        HistoryCompactor, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolRegistry,
-        Workflow,
+        HistoryCompactor, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure,
+        ToolRegistry, Workflow,
     },
     core::{
         AppConfig, BuiltinModuleCatalog, ModeAwarePolicy, ModelService, ModuleBuildContext,
@@ -32,6 +32,7 @@ pub struct BuiltinRegistry {
     pub policy: Arc<dyn ApprovalPolicy>,
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
+    pub tool_exposure: Arc<dyn ToolExposure>,
     pub workflow: Arc<dyn Workflow>,
     pub renderer: Arc<dyn Renderer>,
 }
@@ -74,6 +75,8 @@ impl BuiltinRegistry {
         let context = catalog.build_context(&config.modules.context, &build_ctx)?;
         let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
         let compactor = catalog.build_compactor(&config.modules.compactor, &build_ctx)?;
+        let tool_exposure =
+            catalog.build_tool_exposure(&config.modules.tool_exposure, &build_ctx)?;
         let tools =
             catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
         let policy_ctx = PolicyBuildContext {
@@ -98,6 +101,7 @@ impl BuiltinRegistry {
             policy,
             patch,
             compactor,
+            tool_exposure,
             workflow,
             renderer,
         })
@@ -129,6 +133,7 @@ impl BuiltinRegistry {
             approval,
             self.patch.clone(),
             self.compactor.clone(),
+            self.tool_exposure.clone(),
         )
     }
 }

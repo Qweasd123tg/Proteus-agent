@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, ContextBuilder, EventEmitter, HistoryCompactor,
-        MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolRegistry,
+        MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure, ToolRegistry,
     },
     domain::{AgentOutput, AgentTask, Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
@@ -31,6 +31,7 @@ pub struct RuntimeContext {
     pub approval: Arc<dyn ApprovalTransport>,
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
+    pub tool_exposure: Arc<dyn ToolExposure>,
 }
 
 impl RuntimeContext {
@@ -52,6 +53,7 @@ impl RuntimeContext {
         approval: Arc<dyn ApprovalTransport>,
         patch: Arc<dyn PatchApplier>,
         compactor: Arc<dyn HistoryCompactor>,
+        tool_exposure: Arc<dyn ToolExposure>,
     ) -> Self {
         Self {
             session_id,
@@ -70,6 +72,7 @@ impl RuntimeContext {
             approval,
             patch,
             compactor,
+            tool_exposure,
         }
     }
 

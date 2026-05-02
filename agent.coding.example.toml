@@ -24,6 +24,7 @@ policy = "ask_write"
 # Provided by the direct-patch plugin installed by ./install.sh.
 patch = "direct"
 compactor = "none"
+tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]

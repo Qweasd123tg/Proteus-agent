@@ -29,7 +29,7 @@ use agent_contracts::{
         CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryPolicyObject,
         MemoryStoreObject, PatchApplierObject, PluginRegisterError, PluginRegistry,
         PluginRegistry_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
-        WorkflowObject,
+        ToolExposureObject, WorkflowObject,
     },
 };
 use anyhow::Result;
@@ -152,6 +152,18 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_compactor(&id, compactor) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_tool_exposure(
+        &mut self,
+        module_id: RString,
+        exposure: ToolExposureObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_tool_exposure(&id, exposure) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }

@@ -17,6 +17,7 @@ pub mod render_component;
 pub mod renderer;
 pub mod search_backend;
 pub mod tool;
+pub mod tool_exposure;
 pub mod tool_provider;
 pub mod workflow;
 
@@ -34,5 +35,6 @@ pub use render_component::*;
 pub use renderer::*;
 pub use search_backend::*;
 pub use tool::*;
+pub use tool_exposure::*;
 pub use tool_provider::*;
 pub use workflow::*;

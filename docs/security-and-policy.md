@@ -125,7 +125,9 @@ Headless runtime без approval transport отказывает `Ask`. App-serve
 approvals. `ToolOrchestrator` передаёт модели tools через
 `ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
 `Ask` видны только если transport умеет интерактивно запросить approval, а
-`Deny` tools не попадают в `CanonicalModelRequest.tools`. При фактическом
+`Deny` tools не попадают в candidates для `ToolExposure`. После этого
+`ToolExposure` может только сузить/ранжировать список перед
+`CanonicalModelRequest.tools`, но не может вернуть запрещённый policy tool. При фактическом
 вызове `ToolOrchestrator` использует `ApprovalPolicy::evaluate` с реальным
 `ToolCall`, поэтому execution policy видит аргументы модели и не зависит от
 fake visibility call.

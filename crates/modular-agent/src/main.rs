@@ -292,6 +292,7 @@ fn module_kind_label(kind: &ModuleKind) -> &'static str {
         ModuleKind::Policy => "policy",
         ModuleKind::Patch => "patch",
         ModuleKind::Compactor => "compactor",
+        ModuleKind::ToolExposure => "tool_exposure",
         ModuleKind::Workflow => "workflow",
         ModuleKind::Renderer => "renderer",
         _ => "unknown",

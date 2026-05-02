@@ -15,7 +15,7 @@ use agent_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RStr, RString},
     },
-    contracts::CompactionInput,
+    contracts::{CompactionInput, ToolExposureRequest},
     domain::{AgentOutput, ContextBundle, Event, ToolCall, ToolChoice, ToolResult, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
@@ -474,11 +474,15 @@ fn visible_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
 ) -> Result<Vec<ToolSpec>, PluginWorkflowError> {
-    let tools_json = match host.visible_tools_json(RString::from(input.task.cwd.to_string_lossy())) {
+    let request = ToolExposureRequest::new(input.task.clone()).with_reason("before_model_request");
+    let request_json = to_json_string(&request)?;
+    let tools_json = match host.select_tools_json(RString::from(request_json)) {
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
-    from_json_string(tools_json.as_str())
+    let output: agent_contracts::contracts::ToolExposureOutput =
+        from_json_string(tools_json.as_str())?;
+    Ok(output.tools)
 }
 
 fn execute_tool(
@@ -779,6 +783,16 @@ mod tests {
 
         fn visible_tools_json(&self, _cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
             RResult::ROk(RString::from("[]"))
+        }
+
+        fn select_tools_json(
+            &self,
+            _request_json: RString,
+        ) -> RResult<RString, PluginWorkflowHostError> {
+            let output = agent_contracts::contracts::ToolExposureOutput::new(Vec::new());
+            RResult::ROk(RString::from(
+                serde_json::to_string(&output).expect("tool exposure output json"),
+            ))
         }
 
         fn execute_tool_json(

@@ -324,6 +324,11 @@ fn builtin_module_catalog_lists_builtin_slots() {
         .into_iter()
         .map(|manifest| manifest.id)
         .collect::<Vec<_>>();
+    let tool_exposure_ids = catalog
+        .manifests_by_kind(ModuleKind::ToolExposure)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
     let renderer_ids = catalog
         .manifests_by_kind(ModuleKind::Renderer)
         .into_iter()
@@ -340,6 +345,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(policy_ids, ["deny_all"]);
     assert_eq!(workflow_ids, ["none"]);
     assert_eq!(compactor_ids, ["none"]);
+    assert_eq!(tool_exposure_ids, ["all_visible"]);
     assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
 }

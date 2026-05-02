@@ -10,6 +10,7 @@ pub mod patch;
 pub mod policy;
 pub mod search;
 pub mod tool;
+pub mod tool_exposure;
 pub mod workflow;
 
 pub use context::*;
@@ -19,4 +20,5 @@ pub use patch::*;
 pub use policy::*;
 pub use search::*;
 pub use tool::*;
+pub use tool_exposure::*;
 pub use workflow::*;

@@ -11,18 +11,18 @@ use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
         ApprovalPolicy, ContextBuilder, MemoryPolicy, MemoryStore, ModelAdapter, PatchApplier,
-        HistoryCompactor, Renderer, SearchBackend, Tool, ToolRegistry, Workflow,
+        HistoryCompactor, Renderer, SearchBackend, Tool, ToolExposure, ToolRegistry, Workflow,
         register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     plugin_adapters::{
         PluginContextBuilderAdapter, PluginContextProviderAdapter, PluginMemoryPolicyAdapter,
-        PluginWorkflowAdapter,
+        PluginToolExposureAdapter, PluginWorkflowAdapter,
     },
     stubs::{
-        DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy,
-        NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
+        AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
+        NoMemory, NoMemoryPolicy, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
     },
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
@@ -242,6 +242,19 @@ impl BuiltinModuleCatalog {
                 "No-op request-time history compactor.",
             ),
             build_no_compactor,
+        );
+
+        // Tool exposure/selectors
+        catalog.register_module::<dyn ToolExposure>(
+            slot::TOOL_EXPOSURE,
+            "all_visible",
+            manifest(
+                "all_visible",
+                ModuleKind::ToolExposure,
+                &["default"],
+                "Expose all policy-visible tools, optionally capped by request.",
+            ),
+            build_all_visible_tool_exposure,
         );
 
         // Workflows
@@ -741,6 +754,46 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    pub fn register_plugin_tool_exposure(
+        &mut self,
+        module_id: &str,
+        exposure: agent_contracts::plugin::ToolExposureObject,
+    ) -> Result<()> {
+        validate_plugin_id("tool exposure module", module_id)?;
+        let slot_id = slot::TOOL_EXPOSURE;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "tool exposure module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn ToolExposure> = Arc::new(PluginToolExposureAdapter::new(exposure));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::ToolExposure, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "Tool exposure selector from plugin (module id: {module_id})"
+        ));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(shared);
+        Ok(())
+    }
+
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
     /// Typed wrapper: factory возвращает `Arc<dyn T>`, который стирается
     /// в `Arc<dyn Any + Send + Sync>` для хранения.
@@ -924,6 +977,18 @@ impl BuiltinModuleCatalog {
     ) -> Result<Arc<dyn HistoryCompactor>> {
         self.build_typed::<dyn HistoryCompactor>(
             slot::COMPACTOR,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
+    }
+
+    pub fn build_tool_exposure(
+        &self,
+        module: &str,
+        ctx: &ModuleBuildContext<'_>,
+    ) -> Result<Arc<dyn ToolExposure>> {
+        self.build_typed::<dyn ToolExposure>(
+            slot::TOOL_EXPOSURE,
             module,
             &ModuleBuildInput::Module(ctx),
         )
@@ -1113,6 +1178,12 @@ fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplie
 
 fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
     Ok(Arc::new(NoCompactor))
+}
+
+fn build_all_visible_tool_exposure(
+    _ctx: &ModuleBuildContext<'_>,
+) -> Result<Arc<dyn ToolExposure>> {
+    Ok(Arc::new(AllVisibleToolExposure))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

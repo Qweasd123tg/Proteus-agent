@@ -466,6 +466,40 @@ impl std::error::Error for PluginCompactionError {}
 
 pub type CompactorObject = PluginHistoryCompactor_TO<abi_stable::std_types::RBox<()>>;
 
+/// Sync ABI for tool exposure/search plugins.
+///
+/// Core computes policy-visible candidate tools first. This plugin selects the
+/// subset that should be exposed to a model request.
+#[sabi_trait]
+pub trait PluginToolExposure: Send + Sync + 'static {
+    fn select_json(&self, input_json: RString) -> RResult<RString, PluginToolExposureError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginToolExposureError {
+    pub message: RString,
+}
+
+impl PluginToolExposureError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginToolExposureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginToolExposureError {}
+
+pub type ToolExposureObject = PluginToolExposure_TO<abi_stable::std_types::RBox<()>>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginWorkflowInput {
     pub task: AgentTask,
@@ -519,6 +553,12 @@ pub trait PluginWorkflowHost: Send + Sync {
 
     /// Input: cwd string. Output JSON: `Vec<ToolSpec>` after visibility policy.
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `ToolExposureRequest`. Output JSON: `ToolExposureOutput`.
+    fn select_tools_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input JSON: `AgentTask` and `ToolCall`. Output JSON: `ToolResult`.
     fn execute_tool_json(
@@ -701,6 +741,13 @@ pub trait PluginRegistry: Send + Sync {
         &mut self,
         module_id: RString,
         compactor: CompactorObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует ToolExposure под module_id в slot `tool_exposure`.
+    fn register_tool_exposure(
+        &mut self,
+        module_id: RString,
+        exposure: ToolExposureObject,
     ) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует Workflow под module_id в slot `workflow`.
