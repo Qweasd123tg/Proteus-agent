@@ -78,6 +78,9 @@ Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir
 
 ## ask_write
 
+`ask_write` поставляется плагином `policy-pack`; core применяет его через
+обычный `ApprovalPolicy` slot.
+
 `ask_write` принимает решение в таком порядке:
 
 1. если tool name в `allow`, разрешить;
@@ -91,10 +94,12 @@ Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir
 
 ```json
 {
-  "policy": {
-    "ask_write": {
-      "ask_before": ["apply_patch", "remember_fact"],
-      "allow": ["search"]
+  "module_config": {
+    "policy": {
+      "ask_write": {
+        "ask_before": ["apply_patch", "remember_fact"],
+        "allow": ["search"]
+      }
     }
   }
 }
@@ -136,7 +141,9 @@ host timeout/`kill_on_drop`, но contract уже не требует менят
 path добавлен `ToolResult.content: Vec<ToolContent>` с text/json/image/binary
 blocks; новые tools могут возвращать structured output без изменения DTO.
 
-`ask_write.allow` и `ask_write.ask_before` валидируются при старте против зарегистрированного `ToolRegistry`. Ссылка на неизвестный tool считается ошибкой конфигурации.
+Core не валидирует внутреннюю схему `ask_write`: значение
+`module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Имена в
+`allow`/`ask_before` влияют только на реально зарегистрированные tools.
 
 ## allow_all
 

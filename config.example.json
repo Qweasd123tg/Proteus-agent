@@ -36,24 +36,6 @@
     "renderer": "statusline"
   },
   "module_config": {
-    "renderer": {
-      "statusline": {
-        "components": ["model", "context", "session"],
-        "position": "bottom",
-        "frame": "block",
-        "separator": " | ",
-        "ansi": true,
-        "model": {
-          "label": "model",
-          "show_provider": true
-        },
-        "context": {
-          "label": "ctx",
-          "max_tokens": 200000,
-          "bar_width": 10
-        }
-      }
-    },
     "policy": {
       "ask_write": {
         "ask_before": ["apply_patch", "remember_fact"],
@@ -106,11 +88,6 @@
           "build.gradle",
           "composer.json"
         ]
-      }
-    },
-    "memory": {
-      "jsonl": {
-        "path": ".agent/memory.jsonl"
       }
     }
   },

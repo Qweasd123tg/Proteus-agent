@@ -14,4 +14,7 @@ members = [
     "plugins/direct-patch",
     "plugins/coding-workflow",
     "plugins/context-pack",
+    "plugins/memory-pack",
+    "plugins/policy-pack",
+    "plugins/renderer-pack",
 ]

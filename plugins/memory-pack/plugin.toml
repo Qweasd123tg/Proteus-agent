@@ -1,0 +1,2 @@
+name = "memory-pack"
+description = "JSONL memory store and carry-forward memory policy"

@@ -100,7 +100,8 @@
 Для **backend’ов** ваши первые два plugin backend’а должны быть:
 - **`sqlite_fts5`** — основной практический backend почти для всех локальных пользователей.
 - **`embedded_vector`** — вторым, но только если уже есть доказанный recall gap. Из доступных кандидатов я бы смотрел сначала на **LanceDB** для максимально простого embedded DX, а если вам важен путь к Mem0-подобной экосистеме и более “vector DB shaped” APIs — на **Qdrant Edge**.  
-Поскольку у вас уже есть `JsonlMemory`, это означает: **сначала SQLite, потом vector**, а не наоборот. citeturn39search1turn39search4turn39search9turn37view1
+Поскольку простой JSONL backend уже вынесен в `memory-pack`, это означает:
+**сначала SQLite, потом vector**, а не наоборот. citeturn39search1turn39search4turn39search9turn37view1
 
 ## Ограничения
 

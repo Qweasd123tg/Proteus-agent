@@ -6,7 +6,7 @@ bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/agent"
 plugins_dir="${HOME}/.agent/plugins"
 
-cargo build --release --manifest-path "${project_dir}/Cargo.toml" --features context-pack/plugin-entrypoint
+cargo build --release --manifest-path "${project_dir}/Cargo.toml" --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
 cat > "${bin_path}" <<EOF
@@ -18,7 +18,7 @@ chmod 755 "${bin_path}"
 # Install plugins. File I/O (file-tools) and shell (shell-tool) are required
 # for a typical coding workflow; other sample plugins are optional proofs.
 mkdir -p "${plugins_dir}"
-for plugin in file-tools shell-tool rg-search direct-patch coding-workflow context-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for plugin in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
   if [ ! -f "${src_so}" ]; then
     continue

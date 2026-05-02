@@ -633,7 +633,8 @@ pub trait PluginRegistry: Send + Sync {
         store: MemoryStoreObject,
     ) -> RResult<(), PluginRegisterError>;
 
-    /// Регистрирует provider для `repo_aware` context pipeline.
+    /// Регистрирует внешний provider для context builders, которые поддерживают
+    /// provider pipeline.
     fn register_context_provider(
         &mut self,
         provider_id: RString,

@@ -37,6 +37,9 @@ plugins/
   sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
   coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
   context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
+  memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
+  policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
+  renderer-pack/       — Renderer плагины "plain" и "statusline"
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -46,14 +49,16 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
 - Unified registry с открытым `SlotId`, 10 slot'ов (model, search, memory,
   memory_policy, context, tool, policy, patch, workflow, renderer).
-- Builtin модули в базовых slot'ах: fake / openai / openai_compatible / anthropic
-  models, `null` search fallback, `none`/`jsonl` memory,
-  `none`/`carry_forward` memory policies, `allow_all`/`ask_write` policies,
-  `null` patch fallback,
-  `plain`/`statusline` renderers. Production workflow в core больше не
+- Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
+  anthropic models, `null` search fallback, `none` memory, `none` memory
+  policy, `none` context, `deny_all` policy, `null` patch fallback,
+  `none` workflow и `text` renderer. Production workflow в core больше не
   встроен: `coding.single_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
-  `repo_aware` поставляет плагин `context-pack`.
+  `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и
+  `carry_forward` memory policy поставляет плагин `memory-pack`;
+  `allow_all`/`ask_write` поставляет `policy-pack`; `plain`/`statusline`
+  поставляет `renderer-pack`.
 - Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
   поставляется плагином `rg-search`, patch backend `direct` — плагином
   `direct-patch`. File I/O
@@ -128,15 +133,16 @@ target/debug/agent-tui-codex \
 
 Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
 плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
-`direct-patch`, `file-tools`, `shell-tool`, `coding-workflow`, `context-pack` и демо-плагины
+`direct-patch`, `file-tools`, `shell-tool`, `coding-workflow`, `context-pack`,
+`memory-pack`, `policy-pack`, `renderer-pack` и демо-плагины
 подхватываются автоматически.
 
 Ручной способ:
 
 ```bash
-cargo build --release --workspace --features context-pack/plugin-entrypoint
+cargo build --release --workspace --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
-for p in file-tools shell-tool rg-search direct-patch coding-workflow context-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
@@ -163,7 +169,8 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 3. `$HOME/.config/agent-qweasd123tg/configs/` (default)
 4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`
 
-Если не найдено — используются fake/null defaults из `AppConfig`.
+Если не найдено — используются безопасные stub defaults из `AppConfig`
+(`workflow = "none"`, `context = "none"`, `policy = "deny_all"`).
 
 Примеры:
 - `agent.example.toml` — safe dev-basic (fake model, null search, без tools).

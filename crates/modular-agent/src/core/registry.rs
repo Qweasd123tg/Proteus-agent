@@ -7,9 +7,11 @@ use crate::{
         ApprovalPolicy, ContextBuilder, EventEmitter, MemoryPolicy, MemoryStore, ModelClient,
         PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow,
     },
-    core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext},
+    core::{
+        AppConfig, BuiltinModuleCatalog, ModeAwarePolicy, ModelService, ModuleBuildContext,
+        PolicyBuildContext,
+    },
     domain::{SessionId, ThreadId, TurnId},
-    modules::{ModeAwarePolicy, ModelService},
 };
 
 #[derive(Clone)]

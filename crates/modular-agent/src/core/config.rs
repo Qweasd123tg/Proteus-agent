@@ -30,14 +30,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub permissions: PermissionsConfig,
     #[serde(default)]
-    pub policy: PolicyConfig,
-    #[serde(default)]
-    pub context: ContextConfig,
-    #[serde(default)]
-    pub memory: MemoryConfig,
-    #[serde(default)]
-    pub renderer: RendererConfig,
-    #[serde(default)]
     pub app_server: AppServerConfig,
     #[serde(default)]
     pub runtime: RuntimeConfig,
@@ -385,49 +377,6 @@ pub struct PermissionsConfig {
     pub mode: PermissionMode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PolicyConfig {
-    #[serde(default)]
-    pub ask_write: AskWritePolicyConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AskWritePolicyConfig {
-    #[serde(default = "default_ask_before")]
-    pub ask_before: Vec<String>,
-    #[serde(default = "default_allow_tools")]
-    pub allow: Vec<String>,
-}
-
-impl Default for AskWritePolicyConfig {
-    fn default() -> Self {
-        Self {
-            ask_before: default_ask_before(),
-            allow: default_allow_tools(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MemoryConfig {
-    #[serde(default)]
-    pub jsonl: JsonlMemoryConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JsonlMemoryConfig {
-    #[serde(default = "default_memory_path")]
-    pub path: PathBuf,
-}
-
-impl Default for JsonlMemoryConfig {
-    fn default() -> Self {
-        Self {
-            path: default_memory_path(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLogConfig {
     #[serde(default = "default_event_log_path")]
@@ -452,81 +401,6 @@ pub struct RuntimeConfig {
     pub model_timeout_ms: u64,
     #[serde(default = "default_context_timeout_ms")]
     pub context_timeout_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RendererConfig {
-    #[serde(default)]
-    pub statusline: StatuslineRendererConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatuslineRendererConfig {
-    #[serde(default = "default_statusline_components")]
-    pub components: Vec<String>,
-    #[serde(default = "default_statusline_position")]
-    pub position: String,
-    #[serde(default = "default_statusline_frame")]
-    pub frame: String,
-    #[serde(default = "default_statusline_separator")]
-    pub separator: String,
-    #[serde(default = "default_statusline_ansi")]
-    pub ansi: bool,
-    #[serde(default)]
-    pub model: ModelNameComponentConfig,
-    #[serde(default)]
-    pub context: ContextIndicatorComponentConfig,
-}
-
-impl Default for StatuslineRendererConfig {
-    fn default() -> Self {
-        Self {
-            components: default_statusline_components(),
-            position: default_statusline_position(),
-            frame: default_statusline_frame(),
-            separator: default_statusline_separator(),
-            ansi: default_statusline_ansi(),
-            model: ModelNameComponentConfig::default(),
-            context: ContextIndicatorComponentConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelNameComponentConfig {
-    #[serde(default = "default_model_component_label")]
-    pub label: String,
-    #[serde(default = "default_show_model_provider")]
-    pub show_provider: bool,
-}
-
-impl Default for ModelNameComponentConfig {
-    fn default() -> Self {
-        Self {
-            label: default_model_component_label(),
-            show_provider: default_show_model_provider(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextIndicatorComponentConfig {
-    #[serde(default = "default_context_component_label")]
-    pub label: String,
-    #[serde(default = "default_context_window_tokens")]
-    pub max_tokens: Option<u32>,
-    #[serde(default = "default_context_bar_width")]
-    pub bar_width: usize,
-}
-
-impl Default for ContextIndicatorComponentConfig {
-    fn default() -> Self {
-        Self {
-            label: default_context_component_label(),
-            max_tokens: default_context_window_tokens(),
-            bar_width: default_context_bar_width(),
-        }
-    }
 }
 
 impl Default for EventLogConfig {
@@ -568,7 +442,7 @@ fn default_model_name() -> String {
 }
 
 fn default_workflow() -> String {
-    "coding.plan_execute_review".to_owned()
+    "none".to_owned()
 }
 
 fn default_search() -> String {
@@ -584,11 +458,11 @@ fn default_memory_policy() -> String {
 }
 
 fn default_context() -> String {
-    "simple".to_owned()
+    "none".to_owned()
 }
 
 fn default_policy() -> String {
-    "ask_write".to_owned()
+    "deny_all".to_owned()
 }
 
 fn default_patch() -> String {
@@ -596,50 +470,7 @@ fn default_patch() -> String {
 }
 
 fn default_renderer() -> String {
-    "plain".to_owned()
-}
-
-fn default_statusline_components() -> Vec<String> {
-    ["model", "context", "session"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-fn default_statusline_position() -> String {
-    "bottom".to_owned()
-}
-
-fn default_statusline_frame() -> String {
-    "block".to_owned()
-}
-
-fn default_statusline_separator() -> String {
-    " | ".to_owned()
-}
-
-fn default_statusline_ansi() -> bool {
-    true
-}
-
-fn default_model_component_label() -> String {
-    "model".to_owned()
-}
-
-fn default_show_model_provider() -> bool {
-    true
-}
-
-fn default_context_component_label() -> String {
-    "ctx".to_owned()
-}
-
-fn default_context_window_tokens() -> Option<u32> {
-    Some(200_000)
-}
-
-fn default_context_bar_width() -> usize {
-    10
+    "text".to_owned()
 }
 
 fn default_tools() -> Vec<String> {
@@ -660,159 +491,6 @@ fn default_tool_input_schema() -> serde_json::Value {
 
 fn default_mcp_protocol_version() -> String {
     "2025-06-18".to_owned()
-}
-
-fn default_ask_before() -> Vec<String> {
-    Vec::new()
-}
-
-fn default_allow_tools() -> Vec<String> {
-    Vec::new()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ContextConfig {
-    #[serde(default)]
-    pub simple: SimpleContextConfig,
-    #[serde(default)]
-    pub repo_aware: RepoAwareContextConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SimpleContextConfig {
-    #[serde(default = "default_max_context_search_results")]
-    pub max_search_results: usize,
-}
-
-impl Default for SimpleContextConfig {
-    fn default() -> Self {
-        Self {
-            max_search_results: default_max_context_search_results(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RepoAwareContextConfig {
-    #[serde(default = "default_repo_aware_providers")]
-    pub providers: Vec<String>,
-    #[serde(default = "default_repo_aware_max_context_bytes")]
-    pub max_context_bytes: usize,
-    #[serde(default = "default_repo_aware_max_bytes_per_file")]
-    pub max_bytes_per_file: usize,
-    #[serde(default = "default_max_context_search_results")]
-    pub max_search_results: usize,
-    #[serde(default = "default_repo_aware_memory_limit")]
-    pub memory_limit: usize,
-    #[serde(default = "default_repo_tree_max_entries")]
-    pub repo_tree_max_entries: usize,
-    #[serde(default = "default_repo_tree_max_depth")]
-    pub repo_tree_max_depth: usize,
-    #[serde(default = "default_repo_tree_skip_entries")]
-    pub repo_tree_skip_entries: Vec<String>,
-    #[serde(default = "default_project_instruction_files")]
-    pub project_instruction_files: Vec<String>,
-    #[serde(default = "default_manifest_files")]
-    pub manifest_files: Vec<String>,
-}
-
-impl Default for RepoAwareContextConfig {
-    fn default() -> Self {
-        Self {
-            providers: default_repo_aware_providers(),
-            max_context_bytes: default_repo_aware_max_context_bytes(),
-            max_bytes_per_file: default_repo_aware_max_bytes_per_file(),
-            max_search_results: default_max_context_search_results(),
-            memory_limit: default_repo_aware_memory_limit(),
-            repo_tree_max_entries: default_repo_tree_max_entries(),
-            repo_tree_max_depth: default_repo_tree_max_depth(),
-            repo_tree_skip_entries: default_repo_tree_skip_entries(),
-            project_instruction_files: default_project_instruction_files(),
-            manifest_files: default_manifest_files(),
-        }
-    }
-}
-
-fn default_max_context_search_results() -> usize {
-    50
-}
-
-fn default_repo_aware_providers() -> Vec<String> {
-    [
-        "project_instructions",
-        "manifest",
-        "git_status",
-        "repo_tree",
-        "memory",
-        "search",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
-fn default_repo_aware_max_context_bytes() -> usize {
-    60_000
-}
-
-fn default_repo_aware_max_bytes_per_file() -> usize {
-    8_000
-}
-
-fn default_repo_aware_memory_limit() -> usize {
-    5
-}
-
-fn default_repo_tree_max_entries() -> usize {
-    300
-}
-
-fn default_repo_tree_max_depth() -> usize {
-    3
-}
-
-fn default_repo_tree_skip_entries() -> Vec<String> {
-    [
-        ".git",
-        "target",
-        "node_modules",
-        ".agent",
-        "sessions",
-        "dist",
-        "build",
-        ".env",
-        "secrets.json",
-        "config.local.json",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
-fn default_project_instruction_files() -> Vec<String> {
-    ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-fn default_manifest_files() -> Vec<String> {
-    [
-        "Cargo.toml",
-        "package.json",
-        "pyproject.toml",
-        "go.mod",
-        "pom.xml",
-        "build.gradle",
-        "composer.json",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
-fn default_memory_path() -> PathBuf {
-    PathBuf::from(".agent/memory.jsonl")
 }
 
 fn default_event_log_path() -> PathBuf {

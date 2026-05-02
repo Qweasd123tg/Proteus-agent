@@ -17,7 +17,7 @@ Core не должен знать детали конкретного поиск
 ```text
 crates/
     agent-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
-    modular-agent/       - ядро: runtime, core wiring, modules, adapters, app-server
+    modular-agent/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
 clients/
     tui/                 - внешний TUI-клиент (бинарники agent-tui, agent-tui-codex)
 plugins/
@@ -31,6 +31,9 @@ plugins/
     sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
     coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
     context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
+    memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
+    policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
+    renderer-pack/       - Renderer плагины "plain" и "statusline"
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
@@ -47,7 +50,7 @@ plugins/
 ## Как Добавлять Модуль
 
 1. Найти подходящий trait в `crates/agent-contracts/src/contracts`.
-2. Реализовать модуль в подходящей подпапке `crates/modular-agent/src/modules` или adapter в `crates/modular-agent/src/adapters`.
+2. Реализовать модуль как dylib-плагин в `plugins/<name>`; core-owned fallback размещать в `crates/modular-agent/src/stubs`, provider adapter — в `crates/modular-agent/src/adapters`, ABI glue нового plugin slot — в `crates/modular-agent/src/plugin_adapters`.
 3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить или обновить конфиг-пример.
 5. Добавить тест на заменяемость, если модуль относится к slot.

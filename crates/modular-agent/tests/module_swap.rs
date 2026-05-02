@@ -14,7 +14,8 @@ use agent_contracts::{
     },
     plugin::{
         ContextProviderObject, PluginContextError, PluginContextProvider, PluginContextProvider_TO,
-        PluginContextBuilder_TO, PluginWorkflow_TO, WorkflowObject,
+        PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginMemoryPolicy_TO,
+        PluginMemoryStore_TO, PluginWorkflow_TO, WorkflowObject,
     },
 };
 use async_trait::async_trait;
@@ -30,7 +31,8 @@ use modular_agent::{
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredToolConfig,
-        ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ToolOrchestrator,
+        ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ModelService,
+        ToolOrchestrator,
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
@@ -42,11 +44,13 @@ use modular_agent::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent,
     },
-    modules::{
-        ApplyPatchTool, FakeModelClient, ModelService, NoMemory, NullSearch, PluginWorkflowAdapter,
-        SearchTool,
-    },
+    plugin_adapters::PluginWorkflowAdapter,
+    stubs::{FakeModelClient, NoMemory, NullSearch},
+    tools::{ApplyPatchTool, SearchTool},
 };
+use memory_pack::{CarryForwardMemoryPolicyPlugin, JsonlMemoryStorePlugin};
+use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin};
+use renderer_pack::{PlainRendererPlugin, StatuslineRendererPlugin};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -120,18 +124,45 @@ fn test_config() -> AppConfig {
     disable_plugin_loader();
     let mut config = AppConfig::default();
     config.modules.workflow = "coding.single_loop".to_owned();
+    config.modules.context = "simple".to_owned();
+    config.modules.policy = "ask_write".to_owned();
     config.modules.patch = "null".to_owned();
+    config.modules.renderer = "plain".to_owned();
     config.tools.enabled = standard_tool_names()
         .into_iter()
         .map(str::to_owned)
         .collect();
     config.tools.path = None;
-    config.policy.ask_write.ask_before = ["apply_patch", "remember_fact"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    config.policy.ask_write.allow = ["search"].into_iter().map(str::to_owned).collect();
+    set_ask_write_config(&mut config, &["search"], &["apply_patch", "remember_fact"]);
     config
+}
+
+fn set_module_config(config: &mut AppConfig, slot: &str, id: &str, value: serde_json::Value) {
+    config
+        .module_config
+        .entry(slot.to_owned())
+        .or_default()
+        .insert(id.to_owned(), value);
+}
+
+fn set_ask_write_config(config: &mut AppConfig, allow: &[&str], ask_before: &[&str]) {
+    set_module_config(
+        config,
+        "policy",
+        "ask_write",
+        json!({
+            "allow": allow,
+            "ask_before": ask_before,
+        }),
+    );
+}
+
+fn clear_ask_write_config(config: &mut AppConfig) {
+    set_ask_write_config(config, &[], &[]);
+}
+
+fn set_repo_aware_config(config: &mut AppConfig, value: serde_json::Value) {
+    set_module_config(config, "context", "repo_aware", value);
 }
 
 fn test_catalog() -> BuiltinModuleCatalog {
@@ -150,6 +181,48 @@ fn test_catalog() -> BuiltinModuleCatalog {
         )
         .expect("register test repo_aware context builder");
     catalog
+        .register_plugin_memory_store(
+            "jsonl",
+            PluginMemoryStore_TO::from_value(
+                JsonlMemoryStorePlugin::new(test_memory_path()),
+                TD_Opaque,
+            ),
+        )
+        .expect("register test jsonl memory");
+    catalog
+        .register_plugin_memory_policy(
+            "carry_forward",
+            PluginMemoryPolicy_TO::from_value(CarryForwardMemoryPolicyPlugin, TD_Opaque),
+        )
+        .expect("register test carry_forward memory policy");
+    catalog
+        .register_plugin_policy(
+            "allow_all",
+            PluginApprovalPolicy_TO::from_value(AllowAllPolicyPlugin, TD_Opaque),
+        )
+        .expect("register test allow_all policy");
+    catalog
+        .register_plugin_policy(
+            "ask_write",
+            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
+        )
+        .expect("register test ask_write policy");
+    catalog
+        .register_plugin_renderer(
+            "plain",
+            agent_contracts::contracts::Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
+        )
+        .expect("register test plain renderer");
+    catalog
+        .register_plugin_renderer(
+            "statusline",
+            agent_contracts::contracts::Renderer_TO::from_value(
+                StatuslineRendererPlugin::default(),
+                TD_Opaque,
+            ),
+        )
+        .expect("register test statusline renderer");
+    catalog
         .register_plugin_workflow(
             "coding.single_loop",
             PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
@@ -162,6 +235,15 @@ fn test_catalog() -> BuiltinModuleCatalog {
         )
         .expect("register test plan workflow");
     catalog
+}
+
+fn test_memory_path() -> std::path::PathBuf {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+    std::env::temp_dir().join(format!(
+        "modular-agent-memory-test-{}-{}.jsonl",
+        std::process::id(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
 fn registry_from_test_config(config: &AppConfig, cwd: &std::path::Path) -> BuiltinRegistry {
@@ -196,7 +278,7 @@ fn configured_tool_names(config: &AppConfig) -> Vec<&str> {
 
 fn standard_tool_names() -> Vec<&'static str> {
     // File I/O and shell tools moved to plugins (file-tools, shell-tool).
-    // The fixture here covers only core-resident tools so tests don't
+    // The fixture here covers only core-resident slot facade tools so tests don't
     // depend on plugin state.
     let mut names = vec!["apply_patch", "search", "remember_fact"];
     names.sort();
@@ -227,36 +309,33 @@ fn builtin_module_catalog_lists_builtin_slots() {
         .into_iter()
         .map(|manifest| manifest.id)
         .collect::<Vec<_>>();
+    let policy_ids = catalog
+        .manifests_by_kind(ModuleKind::Policy)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+    let workflow_ids = catalog
+        .manifests_by_kind(ModuleKind::Workflow)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+    let renderer_ids = catalog
+        .manifests_by_kind(ModuleKind::Renderer)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
 
     assert_eq!(
         model_ids,
         ["anthropic", "fake", "openai", "openai_compatible"]
     );
     assert_eq!(search_ids, ["null"]);
-    assert_eq!(memory_policy_ids, ["carry_forward", "none"]);
-    assert!(context_ids.is_empty());
-    assert!(
-        catalog
-            .manifests_by_kind(ModuleKind::Workflow)
-            .into_iter()
-            .collect::<Vec<_>>()
-            .is_empty()
-    );
+    assert_eq!(memory_policy_ids, ["none"]);
+    assert_eq!(context_ids, ["none"]);
+    assert_eq!(policy_ids, ["deny_all"]);
+    assert_eq!(workflow_ids, ["none"]);
+    assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
-}
-
-#[test]
-fn plugin_context_provider_rejects_builtin_provider_id() {
-    let mut catalog = BuiltinModuleCatalog::new();
-    let error = catalog
-        .register_plugin_context_provider("search", noop_plugin_context_provider())
-        .unwrap_err();
-
-    assert!(
-        error
-            .to_string()
-            .contains("conflicts with builtin repo_aware provider id")
-    );
 }
 
 #[test]
@@ -281,91 +360,11 @@ fn plugin_context_provider_rejects_empty_and_duplicate_ids() {
 }
 
 #[tokio::test]
-async fn statusline_renderer_composes_configured_components() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.renderer = "statusline".to_owned();
-    config.renderer.statusline.components = vec!["model".to_owned(), "context".to_owned()];
-    config.renderer.statusline.ansi = false;
-    config.renderer.statusline.context.max_tokens = Some(100);
-
-    let events = Arc::new(InMemoryEventStore::new());
-    let runtime = AgentRuntime::builder(config, dir.path().to_path_buf())
-        .with_event_sink(events.clone())
-        .with_module_catalog(test_catalog())
-        .build()
-        .unwrap();
-    let output = runtime.run("summarize hello".to_owned()).await.unwrap();
-    let rendered = runtime.render(&output).await.unwrap();
-
-    assert!(rendered.contains("model fake/fake-tool-model"));
-    assert!(rendered.contains("ctx ["));
-    assert!(rendered.contains("Fake final answer"));
-}
-
-#[test]
-fn statusline_renderer_rejects_unknown_component() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.renderer = "statusline".to_owned();
-    config.renderer.statusline.components = vec!["unknown".to_owned()];
-
-    let error = match try_registry_from_test_config(&config, dir.path()) {
-        Ok(_) => panic!("unknown statusline component should be rejected"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("unsupported statusline component: unknown")
-    );
-}
-
-#[test]
-fn statusline_renderer_rejects_unknown_position_at_startup() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.renderer = "statusline".to_owned();
-    config.renderer.statusline.position = "middle".to_owned();
-
-    let error = match try_registry_from_test_config(&config, dir.path()) {
-        Ok(_) => panic!("unknown statusline position should be rejected"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("unsupported statusline position: middle")
-    );
-}
-
-#[test]
-fn statusline_renderer_rejects_unknown_frame_at_startup() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.renderer = "statusline".to_owned();
-    config.renderer.statusline.frame = "floating".to_owned();
-
-    let error = match try_registry_from_test_config(&config, dir.path()) {
-        Ok(_) => panic!("unknown statusline frame should be rejected"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("unsupported statusline frame: floating")
-    );
-}
-
-#[tokio::test]
 async fn swapping_context_builder_does_not_change_runtime() {
     for context in ["simple", "repo_aware"] {
         let mut config = test_config();
         config.modules.context = context.to_owned();
-        config.context.repo_aware.providers = vec!["repo_tree".to_owned()];
+        set_repo_aware_config(&mut config, json!({ "providers": ["repo_tree"] }));
 
         let (output, events) = run_with(config, "summarize context").await;
 
@@ -379,7 +378,7 @@ async fn unknown_repo_aware_provider_is_rejected_when_context_is_built() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
-    config.context.repo_aware.providers = vec!["mystery".to_owned()];
+    set_repo_aware_config(&mut config, json!({ "providers": ["mystery"] }));
 
     let registry = registry_from_test_config(&config, dir.path());
     let error = registry
@@ -423,11 +422,10 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
     std::fs::write(dir.path().join("target/debug/build.log"), "skip me\n").expect("target file");
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
-    config.context.repo_aware.providers = vec![
-        "project_instructions".to_owned(),
-        "manifest".to_owned(),
-        "repo_tree".to_owned(),
-    ];
+    set_repo_aware_config(
+        &mut config,
+        json!({ "providers": ["project_instructions", "manifest", "repo_tree"] }),
+    );
     let registry = registry_from_test_config(&config, dir.path());
     let bundle = registry
         .context
@@ -475,11 +473,16 @@ async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
     std::fs::write(outside.path().join("secret.md"), "do not read").expect("secret");
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
-    config.context.repo_aware.providers = vec!["project_instructions".to_owned()];
-    config.context.repo_aware.project_instruction_files = vec![format!(
-        "../{}/secret.md",
-        outside.path().file_name().unwrap().to_string_lossy()
-    )];
+    set_repo_aware_config(
+        &mut config,
+        json!({
+            "providers": ["project_instructions"],
+            "project_instruction_files": [format!(
+                "../{}/secret.md",
+                outside.path().file_name().unwrap().to_string_lossy()
+            )],
+        }),
+    );
     let registry = registry_from_test_config(&config, dir.path());
     let bundle = registry
         .context
@@ -504,8 +507,13 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
-    config.context.repo_aware.providers = vec!["search".to_owned()];
-    config.context.repo_aware.max_search_results = 4;
+    set_repo_aware_config(
+        &mut config,
+        json!({
+            "providers": ["search"],
+            "max_search_results": 4,
+        }),
+    );
     let registry = registry_from_test_config(&config, dir.path());
     let queries = Arc::new(Mutex::new(Vec::new()));
     let bundle = registry
@@ -607,23 +615,7 @@ async fn swapping_policy_does_not_change_read_tool_execution() {
         config.modules.policy = policy.to_owned();
         // allow remember_fact under ask_write so both policies actually
         // execute the tool (ask_write would block it in the default fixture).
-        if !config
-            .policy
-            .ask_write
-            .allow
-            .contains(&"remember_fact".to_owned())
-        {
-            config
-                .policy
-                .ask_write
-                .allow
-                .push("remember_fact".to_owned());
-        }
-        config
-            .policy
-            .ask_write
-            .ask_before
-            .retain(|name| name != "remember_fact");
+        set_ask_write_config(&mut config, &["search", "remember_fact"], &["apply_patch"]);
 
         let (output, events) = run_with(config, "remember_fact user prefers tabs").await;
 
@@ -899,8 +891,7 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "project_search".to_owned(),
         description: "Configured search tool".to_owned(),
@@ -961,8 +952,7 @@ fn configured_native_tool_cannot_lower_handler_safety() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     // Handler apply_patch is WritesFiles by definition; a config that tries
     // to relabel it as ReadOnly must not be honoured.
     config.tools.configured.push(ConfiguredToolConfig {
@@ -995,8 +985,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "echo_args".to_owned(),
         description: "Echo JSON tool args from stdin".to_owned(),
@@ -1056,8 +1045,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "touch_marker".to_owned(),
         description: "Create a marker file".to_owned(),
@@ -1146,8 +1134,7 @@ done
     .unwrap();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     config.modules.policy = "allow_all".to_owned();
     config.tools.configured.push(ConfiguredToolConfig {
         name: "mcp_echo".to_owned(),
@@ -1212,8 +1199,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    config.policy.ask_write.allow = Vec::new();
-    config.policy.ask_write.ask_before = Vec::new();
+    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "mcp_hidden".to_owned(),
         description: "Hidden MCP command tool".to_owned(),
@@ -1303,7 +1289,7 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
     let (output, _events) = run_with(config, "summarize hello").await;
 
     // Auto allows ReadOnly and WritesFiles without approval.
-    // Core-resident tools are apply_patch + search + remember_fact.
+    // Core-resident slot facade tools are apply_patch + search + remember_fact.
     assert!(output.contains("tools=3"), "got: {output}");
 }
 
@@ -1606,7 +1592,7 @@ async fn allow_all_keeps_all_registered_tools_visible_to_model() {
 
     let (output, _events) = run_with(config, "summarize hello").await;
 
-    // allow_all exposes every registered tool — 3 core-resident.
+    // allow_all exposes every registered tool — 3 core-resident slot facade tools.
     assert!(output.contains("tools=3"), "got: {output}");
 }
 
@@ -2004,42 +1990,6 @@ async fn apply_patch_rejects_missing_patch_arg() {
     assert!(error.to_string().contains("requires string arg 'patch'"));
 }
 
-#[test]
-fn ask_write_rejects_unknown_policy_tool_at_startup() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.policy.ask_write.allow = vec!["missing_tool".to_owned()];
-
-    let error = match try_registry_from_test_config(&config, dir.path()) {
-        Ok(_) => panic!("unknown policy tool should be rejected"),
-        Err(error) => error,
-    };
-
-    let error = error.to_string();
-    assert!(error.contains("policy.ask_write.allow references unknown tool \"missing_tool\""));
-    assert!(error.contains("registered tools:"));
-    assert!(error.contains("apply_patch"));
-    assert!(error.contains("hint: enable the builtin tool"));
-}
-
-#[test]
-fn ask_write_rejects_unknown_ask_before_tool_at_startup() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.policy.ask_write.ask_before = vec!["missing_tool".to_owned()];
-
-    let error = match try_registry_from_test_config(&config, dir.path()) {
-        Ok(_) => panic!("unknown ask_before policy tool should be rejected"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("policy.ask_write.ask_before references unknown tool \"missing_tool\"")
-    );
-}
-
 #[tokio::test]
 async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     // remember_fact with an invalid "kind" should fail at the tool layer and
@@ -2050,16 +2000,7 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     let mut config = test_config();
     // Allow remember_fact without interactive transport so the orchestrator
     // actually reaches the tool implementation.
-    config
-        .policy
-        .ask_write
-        .ask_before
-        .retain(|name| name != "remember_fact");
-    config
-        .policy
-        .ask_write
-        .allow
-        .push("remember_fact".to_owned());
+    set_ask_write_config(&mut config, &["search", "remember_fact"], &["apply_patch"]);
 
     let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
@@ -2216,10 +2157,8 @@ async fn json_config_file_can_select_anthropic_provider() {
         model_config.provider_config["base_url"],
         "https://api.anthropic.com"
     );
-    let simple_context: modular_agent::core::SimpleContextConfig = config
-        .module_config_or(ModuleKind::Context, "simple", config.context.simple.clone())
-        .unwrap();
-    assert_eq!(simple_context.max_search_results, 50);
+    let simple_context = config.module_config_value(ModuleKind::Context, "simple");
+    assert_eq!(simple_context["max_search_results"], 50);
     assert_eq!(config.tools.enabled, standard_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 }
@@ -2232,16 +2171,6 @@ async fn toml_config_file_can_select_statusline_renderer() {
             .unwrap();
 
     assert_eq!(config.modules.renderer, "statusline");
-    let statusline: modular_agent::core::StatuslineRendererConfig = config
-        .module_config_or(
-            ModuleKind::Renderer,
-            "statusline",
-            config.renderer.statusline.clone(),
-        )
-        .unwrap();
-    assert_eq!(statusline.components, ["model", "context", "session"]);
-    assert_eq!(statusline.position, "bottom");
-    assert_eq!(statusline.frame, "block");
     assert_eq!(config.tools.enabled, standard_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 }
@@ -2266,29 +2195,26 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
     assert_eq!(config.tools.enabled, standard_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 
-    let repo_aware: modular_agent::core::RepoAwareContextConfig = config
-        .module_config_or(
-            ModuleKind::Context,
-            "repo_aware",
-            config.context.repo_aware.clone(),
-        )
-        .unwrap();
+    let repo_aware = config.module_config_value(ModuleKind::Context, "repo_aware");
     assert!(
-        repo_aware
-            .providers
+        repo_aware["providers"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|provider| provider == "repo_tree")
     );
     assert!(
-        repo_aware
-            .providers
+        repo_aware["providers"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|provider| provider == "search")
     );
-    assert_eq!(repo_aware.repo_tree_max_depth, 3);
+    assert_eq!(repo_aware["repo_tree_max_depth"], 3);
     assert!(
-        repo_aware
-            .repo_tree_skip_entries
+        repo_aware["repo_tree_skip_entries"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|entry| entry == "target")
     );
@@ -2318,10 +2244,6 @@ search = "rg"
 
 [tools]
 enabled = ["read_file", "search"]
-
-[renderer.statusline]
-components = ["model", "context"]
-ansi = false
 "#,
     )
     .expect("runtime config");
@@ -2340,27 +2262,20 @@ ansi = false
     assert_eq!(config.modules.renderer, "statusline");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.tools.enabled, ["read_file", "search"]);
-    assert_eq!(config.renderer.statusline.components, ["model", "context"]);
-    assert!(!config.renderer.statusline.ansi);
 }
 
 #[tokio::test]
-async fn module_config_overrides_builtin_module_legacy_config() {
+async fn module_config_loads_plugin_specific_config() {
     let dir = tempfile::tempdir().expect("config dir");
     let config_path = dir.path().join("config.toml");
     std::fs::write(
         &config_path,
         r#"
 [modules]
-renderer = "statusline"
+context = "simple"
 
-[renderer.statusline]
-components = ["session"]
-ansi = true
-
-[module_config.renderer.statusline]
-components = ["model", "context"]
-ansi = false
+[module_config.context.simple]
+max_search_results = 11
 "#,
     )
     .expect("config file");
@@ -2368,18 +2283,9 @@ ansi = false
     let config = modular_agent::core::AppConfig::load(Some(&config_path))
         .await
         .unwrap();
-    let statusline: modular_agent::core::StatuslineRendererConfig = config
-        .module_config_or(
-            ModuleKind::Renderer,
-            "statusline",
-            config.renderer.statusline.clone(),
-        )
-        .unwrap();
+    let simple = config.module_config_value(ModuleKind::Context, "simple");
 
-    assert_eq!(config.renderer.statusline.components, ["session"]);
-    assert!(config.renderer.statusline.ansi);
-    assert_eq!(statusline.components, ["model", "context"]);
-    assert!(!statusline.ansi);
+    assert_eq!(simple["max_search_results"], 11);
 }
 
 #[tokio::test]

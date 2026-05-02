@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 
@@ -13,15 +13,19 @@ use crate::{
         ApprovalPolicy, ContextBuilder, MemoryPolicy, MemoryStore, ModelAdapter, PatchApplier,
         Renderer, SearchBackend, Tool, ToolRegistry, Workflow, register_provider_tools,
     },
-    core::{AppConfig, ModelConfig},
+    core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
-    modules::{
-        AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BUILTIN_REPO_AWARE_PROVIDER_IDS,
-        BuiltinToolProvider, CarryForwardPolicy, ConfiguredMcpTool, ConfiguredNativeTool,
-        ConfiguredProcessTool, FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy,
-        NullPatchApplier, NullSearch, PlainRenderer, PluginContextBuilderAdapter,
-        PluginContextProviderAdapter, PluginMemoryPolicyAdapter, RepoAwareContextProvider,
-        SearchTool, StatuslineRenderer, is_builtin_tool_name, PluginWorkflowAdapter,
+    plugin_adapters::{
+        PluginContextBuilderAdapter, PluginContextProviderAdapter, PluginMemoryPolicyAdapter,
+        PluginWorkflowAdapter,
+    },
+    stubs::{
+        DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoMemory, NoMemoryPolicy,
+        NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
+    },
+    tools::{
+        ApplyPatchTool, BuiltinToolProvider, ConfiguredMcpTool, ConfiguredNativeTool,
+        ConfiguredProcessTool, SearchTool, is_builtin_tool_name,
     },
 };
 
@@ -178,18 +182,6 @@ impl BuiltinModuleCatalog {
             ),
             build_no_memory,
         );
-        catalog.register_module::<dyn MemoryStore>(
-            slot::MEMORY,
-            "jsonl",
-            manifest(
-                "jsonl",
-                ModuleKind::Memory,
-                &["local_file", "jsonl"],
-                "JSONL-backed memory store.",
-            ),
-            build_jsonl_memory,
-        );
-
         // Memory policies
         catalog.register_module::<dyn MemoryPolicy>(
             slot::MEMORY_POLICY,
@@ -202,38 +194,30 @@ impl BuiltinModuleCatalog {
             ),
             build_no_memory_policy,
         );
-        catalog.register_module::<dyn MemoryPolicy>(
-            slot::MEMORY_POLICY,
-            "carry_forward",
+
+        // Context builders
+        catalog.register_module::<dyn ContextBuilder>(
+            slot::CONTEXT,
+            "none",
             manifest(
-                "carry_forward",
-                ModuleKind::MemoryPolicy,
-                &["handoff", "heuristic"],
-                "Stores one carry-forward snippet after each turn (last assistant line, 500 chars).",
+                "none",
+                ModuleKind::Context,
+                &["disabled"],
+                "Empty context builder.",
             ),
-            build_carry_forward_policy,
+            build_empty_context,
         );
 
         // Approval policies
         catalog.register_policy(
-            "allow_all",
+            "deny_all",
             manifest(
-                "allow_all",
+                "deny_all",
                 ModuleKind::Policy,
-                &["unsafe", "development"],
-                "Approval policy that allows every tool call.",
+                &["disabled", "safe_default"],
+                "Deny all tool calls.",
             ),
-            build_allow_all_policy,
-        );
-        catalog.register_policy(
-            "ask_write",
-            manifest(
-                "ask_write",
-                ModuleKind::Policy,
-                &["approval", "tool_safety"],
-                "Approval policy that asks before write/command/network tools.",
-            ),
-            build_ask_write_policy,
+            build_deny_all_policy,
         );
 
         // Patch appliers
@@ -249,28 +233,30 @@ impl BuiltinModuleCatalog {
             build_null_patch,
         );
 
+        // Workflows
+        catalog.register_module::<dyn Workflow>(
+            slot::WORKFLOW,
+            "none",
+            manifest(
+                "none",
+                ModuleKind::Workflow,
+                &["disabled"],
+                "No-op workflow placeholder.",
+            ),
+            build_no_workflow,
+        );
+
         // Renderers
         catalog.register_module::<dyn Renderer>(
             slot::RENDERER,
-            "plain",
+            "text",
             manifest(
-                "plain",
+                "text",
                 ModuleKind::Renderer,
-                &["text"],
-                "Plain text renderer.",
+                &["plain_text"],
+                "Render AgentOutput.text without decoration.",
             ),
-            build_plain_renderer,
-        );
-        catalog.register_module::<dyn Renderer>(
-            slot::RENDERER,
-            "statusline",
-            manifest(
-                "statusline",
-                ModuleKind::Renderer,
-                &["text", "statusline"],
-                "Renderer with configurable status line.",
-            ),
-            build_statusline_renderer,
+            build_text_renderer,
         );
 
         catalog
@@ -303,7 +289,7 @@ impl BuiltinModuleCatalog {
         &mut self,
         tool: agent_contracts::plugin::PluginToolObject,
     ) -> Result<()> {
-        use crate::modules::PluginToolAdapter;
+        use crate::plugin_adapters::PluginToolAdapter;
         let adapter = PluginToolAdapter::new(tool)?;
         let spec = adapter.spec();
         validate_plugin_id("plugin tool", &spec.name)?;
@@ -372,17 +358,15 @@ impl BuiltinModuleCatalog {
 
     /// Регистрирует ApprovalPolicy от плагина под указанным module_id.
     ///
-    /// Policy-адаптер (`PluginPolicyAdapter`) stateless относительно cwd —
-    /// создаётся один раз и возвращается через `Arc<dyn ApprovalPolicy>` при
-    /// каждом build. Политика дубликатов: bail при конфликте id (plugin loader
-    /// превратит в warning).
+    /// Policy-адаптер создаётся на build, чтобы передать module-specific
+    /// config из `module_config.policy.<id>` через plugin JSON payload.
     pub fn register_plugin_policy(
         &mut self,
         module_id: &str,
         policy: agent_contracts::plugin::PolicyObject,
     ) -> Result<()> {
         validate_plugin_id("approval policy module", module_id)?;
-        use crate::modules::PluginPolicyAdapter;
+        use crate::plugin_adapters::PluginPolicyAdapter;
         let slot_id = slot::POLICY;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -393,11 +377,15 @@ impl BuiltinModuleCatalog {
             );
         }
 
-        let shared: Arc<dyn ApprovalPolicy> = Arc::new(PluginPolicyAdapter::new(policy));
-        let factory_shared = shared.clone();
+        let module_id_for_factory = module_id.to_owned();
+        let shared_obj = Arc::new(policy);
         let erased: ErasedFactory = Box::new(move |input| {
-            let _ = input.policy()?;
-            Ok(arc_to_any(factory_shared.clone()))
+            let ctx = input.policy()?;
+            let config = ctx
+                .config
+                .module_config_value(ModuleKind::Policy, &module_id_for_factory);
+            let adapter = PluginPolicyAdapter::from_shared(shared_obj.clone(), config);
+            Ok(arc_to_any(Arc::new(adapter) as Arc<dyn ApprovalPolicy>))
         });
 
         let mut manifest =
@@ -413,7 +401,6 @@ impl BuiltinModuleCatalog {
                 factory: erased,
             },
         );
-        drop(shared);
         Ok(())
     }
 
@@ -428,7 +415,7 @@ impl BuiltinModuleCatalog {
         store: agent_contracts::plugin::MemoryStoreObject,
     ) -> Result<()> {
         validate_plugin_id("memory store module", module_id)?;
-        use crate::modules::PluginMemoryAdapter;
+        use crate::plugin_adapters::PluginMemoryAdapter;
         let slot_id = slot::MEMORY;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -467,12 +454,6 @@ impl BuiltinModuleCatalog {
         provider: agent_contracts::plugin::ContextProviderObject,
     ) -> Result<()> {
         validate_plugin_id("context provider", provider_id)?;
-        if BUILTIN_REPO_AWARE_PROVIDER_IDS.contains(&provider_id) {
-            bail!(
-                "context provider '{}' conflicts with builtin repo_aware provider id",
-                provider_id
-            );
-        }
         if self
             .plugin_context_providers
             .iter()
@@ -507,18 +488,9 @@ impl BuiltinModuleCatalog {
         let factory_builder = builder.clone();
         let erased: ErasedFactory = Box::new(move |input| {
             let ctx = input.module()?;
-            let config = match ctx.config.module_config_value(
-                ModuleKind::Context,
-                &module_id_for_factory,
-            ) {
-                serde_json::Value::Null if module_id_for_factory == "simple" => {
-                    serde_json::to_value(&ctx.config.context.simple)?
-                }
-                serde_json::Value::Null if module_id_for_factory == "repo_aware" => {
-                    serde_json::to_value(&ctx.config.context.repo_aware)?
-                }
-                value => value,
-            };
+            let config = ctx
+                .config
+                .module_config_value(ModuleKind::Context, &module_id_for_factory);
             let adapter = PluginContextBuilderAdapter::new(
                 module_id_for_factory.clone(),
                 factory_builder.clone(),
@@ -597,7 +569,7 @@ impl BuiltinModuleCatalog {
         backend: agent_contracts::plugin::SearchBackendObject,
     ) -> Result<()> {
         validate_plugin_id("search backend module", module_id)?;
-        use crate::modules::PluginSearchAdapter;
+        use crate::plugin_adapters::PluginSearchAdapter;
         let slot_id = slot::SEARCH;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -644,7 +616,7 @@ impl BuiltinModuleCatalog {
         applier: agent_contracts::plugin::PatchApplierObject,
     ) -> Result<()> {
         validate_plugin_id("patch applier module", module_id)?;
-        use crate::modules::PluginPatchAdapter;
+        use crate::plugin_adapters::PluginPatchAdapter;
         let slot_id = slot::PATCH;
         let key = (slot_id.clone(), module_id.to_owned());
         if self.entries.contains_key(&key) {
@@ -737,20 +709,6 @@ impl BuiltinModuleCatalog {
         self.insert_entry(slot_id, module_id, manifest, erased);
     }
 
-    fn register_policy(
-        &mut self,
-        module_id: &str,
-        manifest: ModuleManifest,
-        build: for<'a> fn(&PolicyBuildContext<'a>) -> Result<Arc<dyn ApprovalPolicy>>,
-    ) {
-        let erased: ErasedFactory = Box::new(move |input| {
-            let ctx = input.policy()?;
-            let instance = build(ctx)?;
-            Ok(arc_to_any(instance))
-        });
-        self.insert_entry(slot::POLICY, module_id, manifest, erased);
-    }
-
     fn register_model(
         &mut self,
         module_id: &str,
@@ -763,6 +721,20 @@ impl BuiltinModuleCatalog {
             Ok(arc_to_any(instance))
         });
         self.insert_entry(slot::MODEL, module_id, manifest, erased);
+    }
+
+    fn register_policy(
+        &mut self,
+        module_id: &str,
+        manifest: ModuleManifest,
+        build: fn(&PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>>,
+    ) {
+        let erased: ErasedFactory = Box::new(move |input| {
+            let ctx = input.policy()?;
+            let instance = build(ctx)?;
+            Ok(arc_to_any(instance))
+        });
+        self.insert_entry(slot::POLICY, module_id, manifest, erased);
     }
 
     fn insert_entry(
@@ -1185,93 +1157,28 @@ fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>
     Ok(Arc::new(NoMemory))
 }
 
-fn build_jsonl_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
-    Ok(Arc::new(JsonlMemory::new(memory_path(ctx)?)))
-}
-
 fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
     Ok(Arc::new(NoMemoryPolicy))
 }
 
-fn build_carry_forward_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
-    Ok(Arc::new(CarryForwardPolicy))
+fn build_empty_context(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
+    Ok(Arc::new(EmptyContextBuilder))
 }
 
-fn build_allow_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
-    Ok(Arc::new(AllowAllPolicy))
-}
-
-fn build_ask_write_policy(ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::Policy,
-        "ask_write",
-        ctx.config.policy.ask_write.clone(),
-    )?;
-    validate_policy_tool_names(
-        ctx.tools,
-        "module_config.policy.ask_write.allow",
-        &config.allow,
-    )?;
-    validate_policy_tool_names(
-        ctx.tools,
-        "module_config.policy.ask_write.ask_before",
-        &config.ask_before,
-    )?;
-    Ok(Arc::new(AskWritePolicy::new(
-        config.allow,
-        config.ask_before,
-    )))
+fn build_deny_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
+    Ok(Arc::new(DenyAllPolicy))
 }
 
 fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
     Ok(Arc::new(NullPatchApplier))
 }
 
-fn build_plain_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {
-    Ok(Arc::new(PlainRenderer))
+fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
+    Ok(Arc::new(NoWorkflow))
 }
 
-fn build_statusline_renderer(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::Renderer,
-        "statusline",
-        ctx.config.renderer.statusline.clone(),
-    )?;
-    Ok(Arc::new(StatuslineRenderer::from_config(&config)?))
-}
-
-fn memory_path(ctx: &ModuleBuildContext<'_>) -> Result<PathBuf> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::Memory,
-        "jsonl",
-        ctx.config.memory.jsonl.clone(),
-    )?;
-    Ok(ctx.cwd.join(&config.path))
-}
-
-fn validate_policy_tool_names(
-    tools: &ToolRegistry,
-    config_path: &str,
-    names: &[String],
-) -> Result<()> {
-    for name in names {
-        if tools.spec(name).is_err() {
-            let registered = tools
-                .specs()
-                .into_iter()
-                .map(|spec| spec.name)
-                .collect::<Vec<_>>();
-            let registered = if registered.is_empty() {
-                "[]".to_owned()
-            } else {
-                registered.join(", ")
-            };
-            bail!(
-                "{config_path} references unknown tool \"{name}\"\nregistered tools: {registered}\nhint: enable the builtin tool, add a configured tool, or remove this policy entry"
-            );
-        }
-    }
-    Ok(())
+fn build_text_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {
+    Ok(Arc::new(TextRenderer))
 }
 
 fn validate_plugin_id(kind: &str, id: &str) -> Result<()> {

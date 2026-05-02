@@ -17,24 +17,8 @@ policy = "ask_write"
 patch = "null"
 renderer = "statusline"
 
-[module_config.renderer.statusline]
-components = ["model", "context", "session"]
-position = "bottom"
-frame = "block"
-separator = " | "
-ansi = true
-
-[module_config.renderer.statusline.model]
-label = "model"
-show_provider = true
-
-[module_config.renderer.statusline.context]
-label = "ctx"
-max_tokens = 200000
-bar_width = 10
-
 [tools]
-# Core-resident tools. File I/O and shell come from plugins:
+# Core-resident slot facade tools. File I/O and shell come from plugins:
 # install file-tools and shell-tool into ~/.agent/plugins/ and extend this list.
 enabled = ["apply_patch", "remember_fact", "search"]
 
@@ -62,9 +46,6 @@ repo_tree_max_depth = 3
 repo_tree_skip_entries = [".git", "target", "node_modules", ".agent", "sessions", "dist", "build", ".env", "secrets.json", "config.local.json"]
 project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
-
-[module_config.memory.jsonl]
-path = ".agent/memory.jsonl"
 
 [app_server]
 approval_timeout_ms = 300000

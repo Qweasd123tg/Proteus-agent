@@ -15,10 +15,9 @@ use crate::{
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog, FanoutEventSink,
-        JsonlEventStore,
+        JsonlEventStore, ChannelApprovalTransport, PendingApproval,
     },
     domain::AgentOutput,
-    modules::{ChannelApprovalTransport, PendingApproval},
 };
 
 pub mod protocol;
@@ -293,17 +292,20 @@ mod tests {
 
     use agent_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
-        plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
+        contracts::Renderer_TO,
+        plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
     };
     use coding_workflow::CodingPlanExecuteReviewWorkflow;
     use context_pack::SimpleContextBuilderPlugin;
+    use policy_pack::AskWritePolicyPlugin;
+    use renderer_pack::PlainRendererPlugin;
     use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
     use super::*;
     use crate::{
         contracts::ApprovalRequest,
+        core::PendingApproval,
         domain::{ToolCall, new_call_id},
-        modules::PendingApproval,
     };
 
     fn test_catalog() -> BuiltinModuleCatalog {
@@ -320,6 +322,18 @@ mod tests {
                 PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
             )
             .expect("register test workflow");
+        catalog
+            .register_plugin_policy(
+                "ask_write",
+                PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
+            )
+            .expect("register test policy");
+        catalog
+            .register_plugin_renderer(
+                "plain",
+                Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
+            )
+            .expect("register test renderer");
         catalog
     }
 

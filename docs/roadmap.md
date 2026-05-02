@@ -38,7 +38,7 @@ UI/business logic в CLI.
 
 Готово или близко:
 
-- domain/contracts/modules/adapters разделены;
+- domain/contracts/plugin_adapters/stubs/adapters разделены;
 - model provider проходит через canonical model protocol;
 - tools исполняются через `ToolRegistry`, `ApprovalPolicy` и `ToolOrchestrator`;
 - session/events/history отделены от ephemeral context;
@@ -151,7 +151,7 @@ Scope:
   `sqlite-memory` (ids `sqlite`, `sqlite_plugin`) — proof что
   `PluginMemoryStore` ABI работает с реальной I/O-зависимой реализацией без
   `rusqlite` в core.
-- ✅ Memory end-to-end: builtin `CarryForwardPolicy` (пишет один
+- ✅ Memory end-to-end: `carry_forward` из `memory-pack` (пишет один
   handoff-snippet после каждого turn'а) + tool `remember_fact` (модель
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
   реально наполняется и recall попадает в context через plugin context builder
@@ -161,9 +161,13 @@ Scope:
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
   `direct-patch`, baseline/staged workflows вынесены как plugin ids
   `coding.single_loop` и `coding.plan_execute_review` в `coding-workflow`.
-  Context builders `simple` и `repo_aware` вынесены в `context-pack`.
+  Context builders `simple` и `repo_aware` вынесены в `context-pack`,
+  `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
+  `allow_all`/`ask_write` вынесены в `policy-pack`, `plain`/`statusline`
+  вынесены в `renderer-pack`.
   В ядре остались только slot-dependent tools: `apply_patch`, `search`,
-  `remember_fact`; builtin workflow/context fallback удалён.
+  `remember_fact`, плюс безопасные stubs `workflow = "none"`,
+  `context = "none"`, `policy = "deny_all"`, `renderer = "text"`.
   `install.sh` собирает и копирует все плагины в `~/.agent/plugins/`
   автоматически.
 

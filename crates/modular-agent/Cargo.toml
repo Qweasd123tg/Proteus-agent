@@ -24,4 +24,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 [dev-dependencies]
 coding-workflow = { path = "../../plugins/coding-workflow" }
 context-pack = { path = "../../plugins/context-pack", default-features = false }
+memory-pack = { path = "../../plugins/memory-pack", default-features = false }
+policy-pack = { path = "../../plugins/policy-pack", default-features = false }
+renderer-pack = { path = "../../plugins/renderer-pack", default-features = false }
 tempfile = "3"

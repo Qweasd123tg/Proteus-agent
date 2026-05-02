@@ -1,0 +1,2 @@
+name = "policy-pack"
+description = "ApprovalPolicy plugins: allow_all and ask_write"

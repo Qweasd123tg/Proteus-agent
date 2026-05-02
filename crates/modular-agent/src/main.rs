@@ -506,13 +506,6 @@ fn repl_header(
     if let Some(session_dir) = session_dir {
         lines.push(format!("session: {}", session_dir.display()));
     }
-    lines.push(format!(
-        "status: components={} position={} frame={}",
-        config.renderer.statusline.components.join(","),
-        config.renderer.statusline.position,
-        config.renderer.statusline.frame
-    ));
-
     Ok(small_block("Modular Agent", &lines))
 }
 
@@ -652,7 +645,7 @@ fn initial_footer(config: &AppConfig) -> Result<String> {
 
 fn footer_from_output(config: &AppConfig, output: &AgentOutput) -> Result<String> {
     let model = footer_model(config, output)?;
-    let context = footer_context(config, output);
+    let context = footer_context(output);
     let session = output
         .metadata
         .get("session_id")
@@ -683,7 +676,7 @@ fn footer_model(config: &AppConfig, output: &AgentOutput) -> Result<String> {
     Ok(format!("model {}/{}", model.provider, model.model))
 }
 
-fn footer_context(config: &AppConfig, output: &AgentOutput) -> String {
+fn footer_context(output: &AgentOutput) -> String {
     let context = output.metadata.get("context");
     let tokens = context
         .and_then(|context| context.get("token_estimate"))
@@ -693,13 +686,7 @@ fn footer_context(config: &AppConfig, output: &AgentOutput) -> String {
         .and_then(|context| context.get("chunks"))
         .and_then(Value::as_u64)
         .unwrap_or_default();
-    let max_tokens = config
-        .renderer
-        .statusline
-        .context
-        .max_tokens
-        .unwrap_or(200_000)
-        .max(1);
+    let max_tokens = 200_000_u64;
     let percent = ((tokens as f64 / max_tokens as f64) * 100.0).clamp(0.0, 100.0);
     let chunk_word = if chunks == 1 { "chunk" } else { "chunks" };
     format!(

@@ -57,8 +57,7 @@ impl std::error::Error for RenderError {}
 /// готовый текст. Это позволяет передавать любые DTO без переделки в
 /// `#[repr(C)]`.
 ///
-/// Реализации могут быть встроенными (`plain`, `statusline`) или плагинами
-/// через FFI.
+/// Реализации могут быть core stubs или плагинами через FFI.
 #[sabi_trait]
 pub trait Renderer: Send + Sync + 'static {
     /// Рендерит `AgentOutput` (сериализованный в JSON) в строку для показа.

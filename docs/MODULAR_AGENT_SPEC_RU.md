@@ -75,7 +75,8 @@ renderer -> workflow internals
 
 - `crates/agent-contracts/src/domain` - данные на границе;
 - `crates/agent-contracts/src/contracts` - заменяемые traits;
-- `crates/modular-agent/src/modules` - built-in реализации;
+- `crates/modular-agent/src/plugin_adapters` - ABI glue для dylib-плагинов;
+- `crates/modular-agent/src/stubs` - no-op/fake fallback-и ядра;
 - `crates/modular-agent/src/adapters` - внешние provider wire formats;
 - `crates/modular-agent/src/core` - config, wiring, runtime lifecycle.
 

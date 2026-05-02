@@ -264,11 +264,14 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 нужен.
 
 **Core stubs (не полный запуск без плагинов):**
-- NullSearch, NullPatchApplier, NoMemory, NoMemoryPolicy, AllowAllPolicy, PlainRenderer.
+- `crates/modular-agent/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
+  NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoWorkflow, TextRenderer,
+  FakeModelClient.
 - Core tools, тесно связанные со slot'ами ядра: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`). Остальные базовые tools (read_file, write_file, list_dir, grep, shell) живут в плагинах `file-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
-- Workflow fallback в core отсутствует: для полноценного runtime нужен workflow
-  plugin, например `coding-workflow`.
+- Production workflow в core отсутствует: `NoWorkflow` только позволяет core
+  стартовать без plugin pack; для полноценного runtime нужен workflow plugin,
+  например `coding-workflow`.
 
 ---
 
@@ -300,7 +303,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Hello-world плагины: `hello-renderer`, `hello-tool`, `hello-policy-patch`
   (`hello-policy-patch` также демонстрирует `context_provider`, declarative
   `memory_policy` и `workflow`).
-- ✅ Реальные плагины: `file-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
 - ✅ SQLite FTS5 memory store вынесен из ядра; `rusqlite` больше не является зависимостью `modular-agent`.
 - ✅ Политика дубликатов: для tool — duplicate plugin tool names отклоняются при регистрации, а builtin/configured побеждает плагин со skip+warning; для renderer / policy / patch / search / memory / memory_policy — bail при конфликте `(slot, id)`, loader переводит в stderr warning.
 - ✅ Escape hatch `AGENT_PLUGINS_DISABLE=1` для тестов.
@@ -308,9 +311,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ `memory_policy` добавлен декларативно: плагин возвращает `MemoryPolicyPlan`, ядро применяет `MemoryOp` к активному `MemoryStore`.
 - ✅ `context_builder` добавлен как full slot plugin ABI: `context-pack`
   возвращает `ContextBundle`, а host даёт доступ к `SearchBackend`,
-  `MemoryStore::recall` и external `context_provider`. Catalog отклоняет
-  provider id, совпадающий с builtin provider id, чтобы избежать silent
-  shadowing.
+  `MemoryStore::recall` и external `context_provider`. Core не знает список
+  builtin provider ids внутри конкретного context builder-а.
 - ✅ `workflow` добавлен как plugin ABI: плагин регистрирует workflow, а runtime
   предоставляет host capabilities (`build_context`, `complete_model`,
   `visible_tools`, `execute_tool`, `emit_event`). `coding-workflow` использует
@@ -321,7 +323,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 ### Волна 3: перенос builtin модулей в плагины
 
-- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier → `direct-patch`; ✅ baseline/staged workflows → `coding-workflow`; ✅ simple/repo-aware context builders → `context-pack`; дальше policy/etc.
+- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier → `direct-patch`; ✅ JsonlMemory/carry_forward → `memory-pack`; ✅ allow_all/ask_write → `policy-pack`; ✅ plain/statusline → `renderer-pack`; ✅ baseline/staged workflows → `coding-workflow`; ✅ simple/repo-aware context builders → `context-pack`.
 - `ConfiguredProcessTool` тоже можно вынести как default-плагин.
 - В ядре остаются только stubs.
 

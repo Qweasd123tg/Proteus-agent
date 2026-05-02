@@ -1152,6 +1152,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "memory-pack"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "agent-contracts",
+ "anyhow",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1185,6 +1196,9 @@ dependencies = [
  "futures-core",
  "futures-util",
  "libloading 0.8.9",
+ "memory-pack",
+ "policy-pack",
+ "renderer-pack",
  "reqwest",
  "serde",
  "serde_json",
@@ -1271,6 +1285,16 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
+
+[[package]]
+name = "policy-pack"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "agent-contracts",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "potential_utf"
@@ -1442,6 +1466,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "renderer-pack"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "agent-contracts",
+ "anyhow",
+ "serde_json",
 ]
 
 [[package]]

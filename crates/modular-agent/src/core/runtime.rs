@@ -5,13 +5,15 @@ use tokio::sync::Mutex;
 
 use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, MemoryPolicyInput},
-    core::{AppConfig, BuiltinRegistry, JsonlEventStore, SessionStore},
+    core::{
+        AppConfig, BuiltinRegistry, CachedApprovalTransport, HeadlessApprovalTransport,
+        JsonlEventStore, SessionStore,
+    },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, PermissionMode, SessionId, ThreadId,
         new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::CanonicalMessage,
-    modules::{CachedApprovalTransport, HeadlessApprovalTransport},
 };
 
 pub struct AgentRuntime {
@@ -140,7 +142,7 @@ impl AgentRuntime {
         // правильным envelope (session/thread/turn). Без этого дельты
         // тихо дропаются (штатное поведение без runtime).
         if let Some(service) = &self.services.registry.model_service {
-            service.set_event_context(crate::modules::DeltaEventContext {
+            service.set_event_context(crate::core::DeltaEventContext {
                 emitter: Some(self.services.events.clone()),
                 session_id: Some(self.session.session_id),
                 thread_id: Some(self.session.thread_id),
@@ -434,12 +436,15 @@ mod tests {
 
     use agent_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
-        plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
+        contracts::Renderer_TO,
+        plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
     };
     use anyhow::Result;
     use async_trait::async_trait;
     use coding_workflow::CodingPlanExecuteReviewWorkflow;
     use context_pack::SimpleContextBuilderPlugin;
+    use policy_pack::AskWritePolicyPlugin;
+    use renderer_pack::PlainRendererPlugin;
 
     use super::*;
     use crate::{
@@ -463,6 +468,18 @@ mod tests {
                 PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
             )
             .expect("register test workflow");
+        catalog
+            .register_plugin_policy(
+                "ask_write",
+                PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
+            )
+            .expect("register test policy");
+        catalog
+            .register_plugin_renderer(
+                "plain",
+                Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
+            )
+            .expect("register test renderer");
         catalog
     }
 
