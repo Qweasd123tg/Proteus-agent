@@ -1,8 +1,8 @@
 # Архитектура модульной системы
 
-Документ описывает, как в проекте устроены плагины: какие бывают форматы, какие контракты они реализуют, как ядро их загружает, как автор плагина его пишет и как ядро остаётся стабильным при их эволюции.
+Документ описывает, как в проекте устроены плагины: какой формат поддерживает loader, какие контракты они реализуют, как ядро их загружает, как автор плагина его пишет и как ядро остаётся стабильным при их эволюции.
 
-Это корневой документ плагинной архитектуры. Детали ABI, manifest-формата и MCP-интеграции пока описаны прямо здесь; выделение в отдельные файлы — когда соответствующий кусок стабилизируется.
+Это корневой документ плагинной архитектуры. Детали ABI и manifest-формата пока описаны прямо здесь; выделение в отдельные файлы — когда соответствующий кусок стабилизируется. MCP-интеграция документируется как tool/config/runtime integration, а не как упаковка плагинов.
 
 ---
 
@@ -10,7 +10,7 @@
 
 - **Slot** - тип расширения ядра. Например `tool`, `search`, `context`. Каждый slot описан одним trait из `agent-contracts`. Slot открытый: сторонние плагины могут объявлять модули для существующих slots, а в будущем - и для новых.
 - **Module** - конкретная реализация slot. Например `rg` это module в slot `search`. У module есть `(slot, id)` как уникальный ключ.
-- **Plugin** - физическая упаковка одного или нескольких modules: dylib-файл, YAML-файл или MCP server. Один плагин может предоставлять несколько modules, возможно в разные slots.
+- **Plugin** - физическая упаковка одного или нескольких modules: Rust dylib (`.so` / `.dylib` / `.dll`) с optional sidecar `plugin.toml`. Один плагин может предоставлять несколько modules, возможно в разные slots. YAML-файлы и MCP servers не являются plugin packaging для loader-а.
 - **Registry** - хранилище всех зарегистрированных modules в рантайме. Ядро и плагины регистрируют modules через один и тот же API.
 - **Builtin** - module, собранный вместе с ядром. Регистрируется в Registry при старте без загрузки файла. Часть этих builtins будут вынесены в плагины в поздних волнах.
 - **agent-contracts** - отдельный Rust crate с traits, DTO и canonical model types. Ядро и плагины depend на него.
@@ -34,8 +34,10 @@
 - Одна система = меньше кода ядра, меньше багов, одна документация.
 
 **Что это меняет:**
-- Всегда .so рядом с `plugin.toml` manifest-ом.
-- YAML остаётся только как **конфиг**: `plugin.toml` рядом с .so, и `module_config.*` в главном config'е.
+- Loader принимает только dylib: `.so`, `.dylib` или `.dll`.
+- `plugin.toml` является optional TOML sidecar manifest-ом рядом с dylib в папке плагина.
+- YAML остаётся только как **конфиг вне plugin loader-а**, если он нужен конкретному tool/process/MCP integration. Отдельной YAML plugin упаковки нет.
+- MCP остаётся tool/config/runtime integration, но не plugin packaging. MCP server не кладётся в `~/.agent/plugins/` как плагин.
 - Через `ConfiguredProcessTool`/`ConfiguredNativeTool` (в ядре) пользователь всё ещё может добавить простой shell-tool, не собирая плагин.
 
 **Почему dylib:**
@@ -65,6 +67,10 @@
         libhello_renderer.so
         plugin.toml           # manifest: name, version, description
 ```
+
+Папка по умолчанию — `~/.agent/plugins/`. Env var `AGENT_PLUGINS_DIR` полностью
+переопределяет этот путь. Если задан `AGENT_PLUGINS_DISABLE`, сканирование
+плагинов отключается.
 
 **Два варианта на выбор автора плагина:**
 - **Плоский:** `libfoo.so` прямо в корне. Описание берётся из `PluginRoot::name`/`description` внутри .so (читается после загрузки).
@@ -187,7 +193,7 @@ mismatch.
 
 ## Registry
 
-Registry - единое хранилище зарегистрированных modules. Один API для builtin, dylib и MCP.
+Registry - единое хранилище зарегистрированных modules. Один API для builtin и dylib-плагинов. MCP tools попадают в `ToolRegistry` через config/runtime discovery, но не являются plugin modules.
 
 Текущее состояние: `BuiltinModuleCatalog` в `crates/modular-agent/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy`, request-time `compactor`, `tool_exposure` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
 
@@ -195,7 +201,8 @@ Registry - единое хранилище зарегистрированных 
 
 ## Папки плагинов
 
-В первой версии - одна глобальная папка:
+В первой версии - одна глобальная папка по умолчанию, с override через
+`AGENT_PLUGINS_DIR`:
 
 ```
 ~/.agent/plugins/
@@ -203,16 +210,18 @@ Registry - единое хранилище зарегистрированных 
     repo-tools/             # dylib с sidecar manifest
         plugin.so
         plugin.toml
-    git-yaml/
-        plugin.toml         # YAML declarative: ссылается на tools
-        git_status.yaml
-        git_diff.yaml
-    github-mcp/
-        plugin.toml         # MCP wrapper
-        server.json         # MCP-specific: как запускать
 ```
 
-Каждый плагин - отдельная подпапка. В корне подпапки лежит `plugin.toml` (unified manifest), описывающий тип плагина и его содержимое.
+Loader сканирует только первый уровень этой директории. Он загружает dylib-файлы
+в корне напрямую и подпапки, в которых есть `plugin.toml`. Подпапки без
+`plugin.toml` игнорируются. `plugin.toml` не описывает тип плагина: plugin
+packaging всегда dylib. Manifest задаёт metadata (`name`, `version`,
+`description`, `author`, `tags`, `requires_agent_contracts`) и optional
+`library` для выбора конкретной dylib внутри папки.
+
+YAML declarative tools и MCP wrappers не являются содержимым этой директории.
+Для них используются `tools.configured`, `tools.path` и `tools.mcp_servers` в
+основном config'е.
 
 Локальные per-project плагины (`./plugins/` в cwd) добавятся позже. Сейчас только глобальная папка.
 

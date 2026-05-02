@@ -1,4 +1,4 @@
-//! File tools plugin: read_file, write_file, list_dir.
+//! File tools plugin: read_file, write_file, list_dir, grep.
 //!
 //! Плагин-версия базовых файловых tools. Логика та же что у builtin-версий
 //! в ядре, но через sync `PluginTool` + `std::fs` (не `tokio::fs`).

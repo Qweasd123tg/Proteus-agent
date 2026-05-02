@@ -239,6 +239,14 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 | `metadata` | arbitrary JSON metadata в `ToolSpec` |
 | `executor` | target executor; `kind` равен `native`, `process` или `mcp` |
 
+`input_schema` передаётся модели как JSON Schema, но runtime сейчас валидирует
+только минимальный subset при исполнении tool call: object args, `required`,
+`properties` и базовый `type` у required-полей. Constraints вроде `enum`,
+`additionalProperties`, `minLength`, `pattern`, nested schemas и combinators
+не проверяются runtime-ом, пока не будет добавлен полноценный JSON Schema
+validator. Поэтому executor или сам plugin/tool должен считать вход недоверенным
+и делать свою предметную проверку.
+
 Inline пример:
 
 ```toml
