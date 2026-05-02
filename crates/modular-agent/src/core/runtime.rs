@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use tokio::sync::Mutex;
+use tokio::time::{Duration, timeout};
 
 use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, MemoryPolicyInput},
@@ -159,12 +160,16 @@ impl AgentRuntime {
         );
         let history = self.session.history.lock().await.clone();
         let previous_history_len = history.len();
-        let workflow_output = self
-            .services
-            .registry
-            .workflow
-            .run(task.clone(), history, runtime_context)
-            .await?;
+        let workflow_timeout_ms = self.services.registry.runtime_config.workflow_timeout_ms;
+        let workflow_output = timeout(
+            Duration::from_millis(workflow_timeout_ms),
+            self.services
+                .registry
+                .workflow
+                .run(task.clone(), history, runtime_context),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("workflow timed out after {workflow_timeout_ms}ms"))??;
         anyhow::ensure!(
             workflow_output.messages.len() >= previous_history_len,
             "workflow returned fewer messages than it received: output {}, input {}",
@@ -448,8 +453,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        core::BuiltinModuleCatalog,
         contracts::{RuntimeContext, Workflow, WorkflowOutput},
+        core::BuiltinModuleCatalog,
         domain::{AgentOutput, AgentTask},
         model_standard::{CanonicalMessage, MessageRole},
     };
@@ -484,6 +489,7 @@ mod tests {
     }
 
     struct ShortHistoryWorkflow;
+    struct HangingWorkflow;
 
     #[async_trait]
     impl Workflow for ShortHistoryWorkflow {
@@ -495,6 +501,22 @@ mod tests {
         ) -> Result<WorkflowOutput> {
             Ok(WorkflowOutput::new(
                 AgentOutput::text("bad workflow"),
+                Vec::new(),
+            ))
+        }
+    }
+
+    #[async_trait]
+    impl Workflow for HangingWorkflow {
+        async fn run(
+            &self,
+            _task: AgentTask,
+            _history: Vec<CanonicalMessage>,
+            _ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(WorkflowOutput::new(
+                AgentOutput::text("too late"),
                 Vec::new(),
             ))
         }
@@ -528,5 +550,24 @@ mod tests {
                 .to_string()
                 .contains("workflow returned fewer messages than it received")
         );
+    }
+
+    #[tokio::test]
+    async fn run_errors_when_workflow_timeout_is_reached() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let mut config = AppConfig::default();
+        config.runtime.workflow_timeout_ms = 50;
+        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+        runtime.services.registry.workflow = Arc::new(HangingWorkflow);
+
+        let error = runtime
+            .run("current".to_owned())
+            .await
+            .expect_err("hung workflow must time out");
+
+        assert!(error.to_string().contains("workflow timed out after 50ms"));
     }
 }

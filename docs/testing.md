@@ -72,7 +72,8 @@ Plugin invariants покрыты отдельно:
 
 - unit-тесты `agent-contracts::plugin` проверяют `export_root_module!` helper;
 - интеграционные тесты в `modular-agent` сканируют тестовую папку, загружают dylib и проверяют, что зарегистрированные tools/renderers попадают в `BuiltinModuleCatalog`;
-- тест дубликатов проверяет политику "builtin побеждает плагин" (плагин логируется и скипается);
+- тест дубликатов проверяет, что явный plugin tool с именем builtin/configured
+  tool считается ошибкой конфигурации;
 - `AGENT_PLUGINS_DISABLE=1` — escape hatch для тестов, которым плагины мешают (выставляется через `std::sync::Once`).
 
 При написании нового плагина минимум: добавить компилируемый Cargo project в `plugins/<name>/`, implement `PluginTool`/`PluginRenderer`, вызвать `export_root_module!`, и smoke-тест в `modular-agent` на загрузку.

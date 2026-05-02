@@ -5,29 +5,31 @@
 #![allow(improper_ctypes_definitions)]
 
 use std::{
+    cmp::Ordering,
+    io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
 };
 
 #[cfg(feature = "plugin-entrypoint")]
-use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
+use abi_stable::std_types::RStr;
 use abi_stable::std_types::{RResult, RString};
 #[cfg(feature = "plugin-entrypoint")]
-use abi_stable::std_types::RStr;
-use agent_contracts::{
-    contracts::SearchQuery,
-    domain::{ContextBundle, ContextChunk, MemoryItem, MemoryQuery},
-    plugin::{
-        PluginContextBuilder, PluginContextBuilderHostMut, PluginContextBuilderInput,
-        PluginContextError, PluginContextProviderInput,
-    },
-};
+use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 #[cfg(feature = "plugin-entrypoint")]
 use agent_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
     plugin::{
         ContextBuilderObject, PluginContextBuilder_TO, PluginRegisterError, PluginRegistryMut,
         PluginRoot, PluginRoot_Ref,
+    },
+};
+use agent_contracts::{
+    contracts::SearchQuery,
+    domain::{ContextBundle, ContextChunk, MemoryItem, MemoryQuery},
+    plugin::{
+        PluginContextBuilder, PluginContextBuilderHostMut, PluginContextBuilderInput,
+        PluginContextError, PluginContextProviderInput,
     },
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -219,7 +221,9 @@ fn project_instruction_chunks(
             continue;
         };
         let path = input.task.cwd.join(&relative_path);
-        let Some(content) = read_bounded_utf8_file(&path, config.max_bytes_per_file)? else {
+        let Some(content) =
+            read_bounded_workspace_utf8_file(&input.task.cwd, &path, config.max_bytes_per_file)?
+        else {
             continue;
         };
         chunks.push(chunk(
@@ -244,7 +248,9 @@ fn manifest_chunks(
             continue;
         };
         let path = input.task.cwd.join(&relative_path);
-        let Some(content) = read_bounded_utf8_file(&path, config.max_bytes_per_file)? else {
+        let Some(content) =
+            read_bounded_workspace_utf8_file(&input.task.cwd, &path, config.max_bytes_per_file)?
+        else {
             continue;
         };
         chunks.push(chunk(
@@ -463,30 +469,53 @@ fn apply_byte_budget(chunks: Vec<ContextChunk>, max_context_bytes: usize) -> Vec
     }
 
     let mut used = 0usize;
+    let mut ranked = chunks.into_iter().enumerate().collect::<Vec<_>>();
+    ranked.sort_by(|(left_index, left), (right_index, right)| {
+        right
+            .score
+            .unwrap_or(0.0)
+            .partial_cmp(&left.score.unwrap_or(0.0))
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left_index.cmp(right_index))
+    });
+
     let mut selected = Vec::new();
-    for chunk in chunks {
+    for (index, chunk) in ranked {
         let len = chunk.content.len();
         if used + len > max_context_bytes {
             continue;
         }
         used += len;
-        selected.push(chunk);
+        selected.push((index, chunk));
     }
-    selected
+    selected.sort_by_key(|(index, _)| *index);
+    selected.into_iter().map(|(_, chunk)| chunk).collect()
 }
 
-fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> anyhow::Result<Option<String>> {
-    let metadata = match std::fs::metadata(path) {
-        Ok(metadata) => metadata,
+fn read_bounded_workspace_utf8_file(
+    root: &Path,
+    path: &Path,
+    max_bytes: usize,
+) -> anyhow::Result<Option<String>> {
+    let root = root.canonicalize()?;
+    let resolved = match path.canonicalize() {
+        Ok(path) => path,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
+    if !resolved.starts_with(&root) {
+        return Ok(None);
+    }
+    let metadata = std::fs::metadata(&resolved)?;
     if !metadata.is_file() {
         return Ok(None);
     }
-    let bytes = std::fs::read(path)?;
-    let end = bytes.len().min(max_bytes);
-    Ok(Some(String::from_utf8_lossy(&bytes[..end]).to_string()))
+    let mut bytes = Vec::with_capacity(max_bytes.min(8192));
+    let mut file = std::fs::File::open(resolved)?;
+    file.by_ref()
+        .take(max_bytes as u64)
+        .read_to_end(&mut bytes)?;
+    Ok(Some(String::from_utf8_lossy(&bytes).to_string()))
 }
 
 fn safe_relative_path(value: &str) -> Option<PathBuf> {
@@ -721,4 +750,76 @@ fn default_manifest_files() -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn byte_budget_prefers_higher_score_and_restores_original_order() {
+        let chunks = vec![
+            ContextChunk::new("low", "11111").with_score(0.1),
+            ContextChunk::new("high_a", "22222").with_score(0.9),
+            ContextChunk::new("high_b", "33333").with_score(0.8),
+        ];
+
+        let selected = apply_byte_budget(chunks, 10);
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|chunk| chunk.source.as_str())
+                .collect::<Vec<_>>(),
+            vec!["high_a", "high_b"]
+        );
+    }
+
+    #[test]
+    fn byte_budget_keeps_tie_score_order() {
+        let chunks = vec![
+            ContextChunk::new("first", "11111").with_score(0.5),
+            ContextChunk::new("second", "22222").with_score(0.5),
+            ContextChunk::new("third", "33333").with_score(0.5),
+        ];
+
+        let selected = apply_byte_budget(chunks, 10);
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|chunk| chunk.source.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+    }
+
+    #[test]
+    fn bounded_workspace_read_reads_only_limit() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let path = dir.path().join("large.txt");
+        std::fs::write(&path, "abcdef").expect("large file");
+
+        let content = read_bounded_workspace_utf8_file(dir.path(), &path, 3)
+            .expect("bounded read")
+            .expect("content");
+
+        assert_eq!(content, "abc");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_workspace_read_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::tempdir().expect("outside");
+        let outside_file = outside.path().join("secret.txt");
+        std::fs::write(&outside_file, "secret").expect("outside file");
+        let link = dir.path().join("AGENTS.md");
+        std::os::unix::fs::symlink(&outside_file, &link).expect("symlink");
+
+        let content =
+            read_bounded_workspace_utf8_file(dir.path(), &link, 100).expect("bounded read");
+
+        assert!(content.is_none());
+    }
 }

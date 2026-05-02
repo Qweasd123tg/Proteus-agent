@@ -488,13 +488,14 @@ fn load_one_plugin_inner(
 
     let register_fn = root.register_modules();
     let checkpoint = catalog.checkpoint();
-    let mut adapter = PluginRegistryAdapter { catalog };
-    let mut registry_to: PluginRegistry_TO<_> =
-        PluginRegistry_TO::from_ptr(&mut adapter, TD_Opaque);
-    match register_fn(&mut registry_to) {
+    let register_result = {
+        let mut adapter = PluginRegistryAdapter { catalog };
+        let mut registry_to: PluginRegistry_TO<_> =
+            PluginRegistry_TO::from_ptr(&mut adapter, TD_Opaque);
+        register_fn(&mut registry_to)
+    };
+    match register_result {
         RResult::ROk(()) => {
-            drop(registry_to);
-            drop(adapter);
             // Важно: leak'аем RawLibrary только после успешной регистрации —
             // иначе при drop символы плагина станут dangling, а trait objects
             // из этого dylib живут в catalog всё время процесса.
@@ -507,8 +508,6 @@ fn load_one_plugin_inner(
             })
         }
         RResult::RErr(err) => {
-            drop(registry_to);
-            drop(adapter);
             catalog.rollback_to(checkpoint);
             Err(anyhow::anyhow!(
                 "plugin '{}' register_modules failed: {}",
@@ -643,7 +642,11 @@ requires_agent_contracts = "^0.1"
         let path = resolve_manifest_library(dir.path(), "./lib/libsample.so").unwrap();
         assert_eq!(
             path,
-            dir.path().join("lib").join("libsample.so").canonicalize().unwrap()
+            dir.path()
+                .join("lib")
+                .join("libsample.so")
+                .canonicalize()
+                .unwrap()
         );
     }
 

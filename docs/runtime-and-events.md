@@ -217,3 +217,9 @@ name и canonical JSON args будет approved без нового pending app-
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 
 `ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors обрезаются до общего лимита orchestrator-а.
+
+`runtime.workflow_timeout_ms` ограничивает весь workflow turn и освобождает
+runtime lock при зависшем workflow. Для sync dylib-плагинов timeout означает,
+что runtime перестал ждать результат; уже запущенный native код может
+продолжить работу в blocking thread до возврата. Недоверенные или потенциально
+вечные плагины требуют отдельной process isolation.

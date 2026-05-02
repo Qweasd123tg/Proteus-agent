@@ -366,6 +366,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1736,6 +1737,7 @@ dependencies = [
  "abi_stable",
  "agent-contracts",
  "anyhow",
+ "libc",
  "serde_json",
  "tempfile",
 ]

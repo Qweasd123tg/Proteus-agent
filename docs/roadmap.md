@@ -65,10 +65,11 @@ UI/business logic в CLI.
 - query extraction из user task вместо raw prompt search;
 - несколько targeted searches через `SearchBackend`;
 - возвращать scored context chunks и metadata для renderer/app-server.
+- context budget выбирает chunks по score с deterministic tie-breaker и
+  возвращает выбранные chunks в исходном порядке.
 
 Следующий scope:
 
-- context budget по provider score;
 - git diff summary через отдельный provider/tool boundary.
 
 Первый вариант реализует internal providers для project instructions,

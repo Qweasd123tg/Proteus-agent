@@ -58,6 +58,7 @@ approval_timeout_ms = 300000
 [runtime]
 model_timeout_ms = 120000
 context_timeout_ms = 30000
+workflow_timeout_ms = 600000
 
 [event_log]
 path = ".agent/events.jsonl"

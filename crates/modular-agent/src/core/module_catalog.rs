@@ -10,8 +10,8 @@ use anyhow::{Result, bail};
 use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
-        ApprovalPolicy, ContextBuilder, MemoryPolicy, MemoryStore, ModelAdapter, PatchApplier,
-        HistoryCompactor, Renderer, SearchBackend, Tool, ToolExposure, ToolRegistry, Workflow,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
+        PatchApplier, Renderer, SearchBackend, Tool, ToolExposure, ToolRegistry, Workflow,
         register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
@@ -526,7 +526,9 @@ impl BuiltinModuleCatalog {
 
         let mut manifest =
             ModuleManifest::builtin(module_id, ModuleKind::Context, &["plugin", "dylib"]);
-        manifest.description = Some(format!("ContextBuilder from plugin (module id: {module_id})"));
+        manifest.description = Some(format!(
+            "ContextBuilder from plugin (module id: {module_id})"
+        ));
 
         self.entries.insert(
             key,
@@ -1062,23 +1064,19 @@ impl BuiltinModuleCatalog {
         // extend the available tool namespace, but do not become visible to
         // the model until config names them explicitly.
         //
-        // Политика конфликтов: если tool с таким именем уже зарегистрирован
-        // (builtin или configured), плагин **пропускается** с warning в
-        // stderr. Builtin побеждает. Причины:
-        // - Предсказуемость: пользователь видит config и понимает что будет.
-        // - Безопасность: builtin — проверенный код в ядре, плагин может
-        //   быть backdoor'ом с тем же именем.
+        // Политика конфликтов: если пользователь явно включил plugin tool, но
+        // имя уже занято builtin/configured tool, это ошибка конфигурации.
+        // Иначе плагин может успешно загрузиться, но оказаться неиспользуемым.
         for name in &ctx.config.tools.enabled {
             let Some(plugin_tool) = plugin_tools_by_name.get(name) else {
                 continue;
             };
             let spec = plugin_tool.spec();
             if tools.get(&spec.name).is_some() {
-                eprintln!(
-                    "warning: plugin tool '{}' skipped — name already registered as builtin/configured",
+                bail!(
+                    "plugin tool '{}' conflicts with an already registered builtin/configured tool",
                     spec.name
                 );
-                continue;
             }
             tools.register_arc(
                 crate::contracts::ToolSource::Dynamic {
@@ -1182,9 +1180,7 @@ fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCo
     Ok(Arc::new(NoCompactor))
 }
 
-fn build_all_visible_tool_exposure(
-    _ctx: &ModuleBuildContext<'_>,
-) -> Result<Arc<dyn ToolExposure>> {
+fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
     Ok(Arc::new(AllVisibleToolExposure))
 }
 

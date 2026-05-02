@@ -184,14 +184,9 @@ async fn run_app(cli: Cli) -> Result<()> {
 
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<CTerm>(64);
     std::thread::spawn(move || {
-        loop {
-            match event::read() {
-                Ok(ev) => {
-                    if input_tx.blocking_send(ev).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(ev) = event::read() {
+            if input_tx.blocking_send(ev).is_err() {
+                break;
             }
         }
     });

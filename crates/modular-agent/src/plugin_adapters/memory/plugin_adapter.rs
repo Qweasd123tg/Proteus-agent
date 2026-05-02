@@ -123,13 +123,10 @@ async fn apply_memory_plan(
 ) -> Result<MemoryPolicyOutput> {
     let mut written_kinds = Vec::new();
     for op in plan.ops {
-        match op {
-            MemoryOp::Remember { item } => {
-                let kind = item.kind.clone();
-                memory.remember(item).await?;
-                written_kinds.push(kind);
-            }
-            _ => {}
+        if let MemoryOp::Remember { item } = op {
+            let kind = item.kind.clone();
+            memory.remember(item).await?;
+            written_kinds.push(kind);
         }
     }
     Ok(MemoryPolicyOutput { written_kinds })

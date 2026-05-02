@@ -1,6 +1,6 @@
 //! `read_file` tool: чтение файла целиком или по диапазону строк.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::{PluginTool, PluginToolError};
@@ -129,7 +129,7 @@ impl ReadOptions {
 
 fn render_read_output(
     content: &str,
-    path: &PathBuf,
+    path: &Path,
     options: ReadOptions,
 ) -> (String, serde_json::Value) {
     let total_lines = content.lines().count();

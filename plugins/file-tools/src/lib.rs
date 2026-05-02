@@ -147,7 +147,12 @@ mod tests {
         );
 
         assert_eq!(result["ok"], false);
-        assert!(result["error"].as_str().unwrap().contains("failed to canonicalize parent"));
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap()
+                .contains("failed to canonicalize parent")
+        );
 
         std::fs::create_dir(dir.path().join("notes")).expect("notes dir");
         let result = invoke(
@@ -184,7 +189,11 @@ mod tests {
     fn read_file_rejects_parent_escape() {
         let dir = tempfile::tempdir().expect("workspace");
 
-        let result = invoke(&ReadFileTool, dir.path(), json!({ "path": "../secret.txt" }));
+        let result = invoke(
+            &ReadFileTool,
+            dir.path(),
+            json!({ "path": "../secret.txt" }),
+        );
 
         assert_eq!(result["ok"], false);
         assert!(result["error"].as_str().unwrap().contains("canonicalize"));

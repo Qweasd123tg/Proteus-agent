@@ -6,7 +6,12 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
-use std::process::Command;
+use std::{
+    io::{BufRead, BufReader},
+    process::{Command, Stdio},
+    sync::mpsc::{self, TryRecvError},
+    time::{Duration, Instant},
+};
 
 use agent_contracts::{
     abi_stable::{
@@ -25,6 +30,7 @@ use agent_contracts::{
 use serde_json::json;
 
 struct RgSearchPlugin;
+const RG_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl PluginSearchBackend for RgSearchPlugin {
     fn search_json(&self, query_json: RString) -> RResult<RString, PluginSearchError> {
@@ -54,29 +60,27 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         return Ok(Vec::new());
     }
 
-    let output = match Command::new("rg")
+    let mut command = Command::new("rg");
+    command
         .arg("--line-number")
         .arg("--no-heading")
         .arg("--color=never")
-        .arg("--max-count")
-        .arg(query.max_results.to_string())
+        .arg("--max-columns")
+        .arg("2000")
+        .arg("--max-filesize")
+        .arg("1M")
         .arg("--")
         .arg(&query.text)
-        .current_dir(&query.cwd)
-        .output()
-    {
-        Ok(output) => output,
+        .current_dir(&query.cwd);
+    let lines = match run_rg_limited(command, query.max_results, RG_TIMEOUT) {
+        Ok(lines) => lines,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(format!("failed to run ripgrep: {error}")),
     };
 
-    match output.status.code() {
-        Some(0) | Some(1) => {}
-        _ => return Ok(Vec::new()),
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
+    Ok(lines
+        .iter()
+        .map(String::as_str)
         .filter_map(parse_rg_line)
         .filter(|chunk| {
             chunk
@@ -87,6 +91,67 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         })
         .take(query.max_results)
         .collect())
+}
+
+fn run_rg_limited(
+    mut command: Command,
+    max_results: usize,
+    timeout: Duration,
+) -> std::io::Result<Vec<String>> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("failed to open rg stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut lines = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            lines.push(line);
+            if lines.len() >= max_results {
+                break;
+            }
+        }
+        let _ = tx.send(std::io::Result::Ok(lines));
+        std::io::Result::Ok(())
+    });
+
+    let started = Instant::now();
+    loop {
+        match rx.try_recv() {
+            Ok(lines) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return lines;
+            }
+            Err(TryRecvError::Disconnected) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other("rg stdout reader stopped"));
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+
+        if let Some(_status) = child.try_wait()? {
+            return rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or_else(|_| Ok(Vec::new()));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "rg timed out",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn parse_rg_line(line: &str) -> Option<ContextChunk> {

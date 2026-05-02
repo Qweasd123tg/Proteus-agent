@@ -220,14 +220,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     // crossterm::event::read напрямую нельзя — это блокирует tokio worker.
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<CTerm>(64);
     std::thread::spawn(move || {
-        loop {
-            match event::read() {
-                Ok(ev) => {
-                    if input_tx.blocking_send(ev).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(ev) = event::read() {
+            if input_tx.blocking_send(ev).is_err() {
+                break;
             }
         }
     });

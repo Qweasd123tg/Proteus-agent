@@ -2,6 +2,8 @@ use std::{
     io::{BufRead, BufReader as StdBufReader, Write},
     path::Path,
     process::{Command as StdCommand, Stdio},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow, bail};
@@ -18,10 +20,10 @@ const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES
 
 use crate::{
     contracts::{PatchApplier, SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
-    core::{ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
     core::process_output::{
         DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, annotate_bounded_output, wait_with_bounded_output,
     },
+    core::{ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
@@ -333,6 +335,7 @@ fn register_discovered_mcp_tools(
     Ok(())
 }
 
+#[derive(Debug)]
 struct DiscoveredMcpTool {
     remote_tool: String,
     spec: ToolSpec,
@@ -342,6 +345,7 @@ fn discover_mcp_tools(
     server: &ConfiguredMcpServerConfig,
     cwd: &Path,
 ) -> Result<Vec<DiscoveredMcpTool>> {
+    let timeout = Duration::from_millis(server.timeout_ms.unwrap_or(30_000));
     let mut child = StdCommand::new(&server.command)
         .args(&server.args)
         .current_dir(cwd)
@@ -358,7 +362,7 @@ fn discover_mcp_tools(
             .stdout
             .take()
             .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
-        let mut stdout = StdBufReader::new(stdout);
+        let stdout_rx = spawn_sync_json_line_reader(stdout);
 
         sync_write_json_line(
             &mut stdin,
@@ -376,7 +380,7 @@ fn discover_mcp_tools(
                 }
             }),
         )?;
-        let initialize = sync_read_json_line(&mut stdout)?;
+        let initialize = recv_sync_json_line(&stdout_rx, timeout, &mut child)?;
         ensure_jsonrpc_success(&initialize, 1)?;
 
         sync_write_json_line(
@@ -404,7 +408,7 @@ fn discover_mcp_tools(
                     "params": params
                 }),
             )?;
-            let response = sync_read_json_line(&mut stdout)?;
+            let response = recv_sync_json_line(&stdout_rx, timeout, &mut child)?;
             let result = ensure_jsonrpc_success(&response, request_id)?;
             tools.extend(mcp_tools_from_list_result(server, result)?);
             cursor = next_mcp_cursor(result);
@@ -418,6 +422,43 @@ fn discover_mcp_tools(
     let _ = child.kill();
     let _ = child.wait();
     result
+}
+
+fn spawn_sync_json_line_reader<R>(reader: R) -> Receiver<Result<Value>>
+where
+    R: std::io::Read + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = StdBufReader::new(reader);
+        loop {
+            let value = sync_read_json_line(&mut reader);
+            let done = value.is_err();
+            if tx.send(value).is_err() || done {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+fn recv_sync_json_line(
+    rx: &Receiver<Result<Value>>,
+    timeout: Duration,
+    child: &mut std::process::Child,
+) -> Result<Value> {
+    match rx.recv_timeout(timeout) {
+        Ok(value) => value,
+        Err(RecvTimeoutError::Timeout) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "MCP server did not send a response within {}ms",
+                timeout.as_millis()
+            )
+        }
+        Err(RecvTimeoutError::Disconnected) => bail!("MCP server stdout reader stopped"),
+    }
 }
 
 fn mcp_tools_from_list_result(
@@ -623,12 +664,29 @@ where
     R: BufRead,
 {
     let mut line = Vec::with_capacity(MCP_STDIO_RESPONSE_LIMIT_BYTES.min(8192));
-    let read = reader.read_until(b'\n', &mut line)?;
-    if read == 0 {
-        bail!("MCP server closed stdout before sending a response");
-    }
-    if line.len() > MCP_STDIO_RESPONSE_LIMIT_BYTES {
-        bail!("MCP response exceeded {MCP_STDIO_RESPONSE_LIMIT_BYTES} bytes before newline");
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            if line.is_empty() {
+                bail!("MCP server closed stdout before sending a response");
+            }
+            break;
+        }
+
+        let bytes_to_take = buffer
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(buffer.len(), |position| position + 1);
+        if line.len().saturating_add(bytes_to_take) > MCP_STDIO_RESPONSE_LIMIT_BYTES {
+            bail!("MCP response exceeded {MCP_STDIO_RESPONSE_LIMIT_BYTES} bytes before newline");
+        }
+
+        line.extend_from_slice(&buffer[..bytes_to_take]);
+        reader.consume(bytes_to_take);
+
+        if line.last() == Some(&b'\n') {
+            break;
+        }
     }
     if line.last() == Some(&b'\n') {
         line.pop();
@@ -776,5 +834,41 @@ mod tests {
                 .to_string()
                 .contains("MCP response exceeded 20000 bytes before newline")
         );
+    }
+
+    #[test]
+    fn sync_mcp_json_line_rejects_oversized_response_without_newline() {
+        let response = vec![b' '; MCP_STDIO_RESPONSE_LIMIT_BYTES + 1];
+        let mut stdout = StdBufReader::new(&response[..]);
+
+        let error =
+            sync_read_json_line(&mut stdout).expect_err("oversized MCP response should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("MCP response exceeded 20000 bytes before newline")
+        );
+    }
+
+    #[test]
+    fn mcp_discovery_times_out_when_server_is_silent() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let server = ConfiguredMcpServerConfig {
+            name: "silent".to_owned(),
+            command: "sh".to_owned(),
+            args: vec!["-c".to_owned(), "sleep 5".to_owned()],
+            protocol_version: "2024-11-05".to_owned(),
+            safety: ToolSafety::ReadOnly,
+            timeout_ms: Some(100),
+            metadata: Value::Null,
+        };
+        let started = std::time::Instant::now();
+
+        let error =
+            discover_mcp_tools(&server, cwd.path()).expect_err("silent MCP server must time out");
+
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(error.to_string().contains("within 100ms"), "{error}");
     }
 }

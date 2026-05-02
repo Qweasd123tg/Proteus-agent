@@ -5,8 +5,13 @@
 //! видит осмысленное сообщение "rg is not installed" вместо того чтобы
 //! плагин молчал.
 
-use std::path::Path;
-use std::process::Command;
+use std::{
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{Command, Stdio},
+    sync::mpsc::{self, TryRecvError},
+    time::{Duration, Instant},
+};
 
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::{PluginTool, PluginToolError};
@@ -18,6 +23,7 @@ use crate::util::{
 };
 
 pub struct GrepTool;
+const RG_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl PluginTool for GrepTool {
     fn spec_json(&self) -> RString {
@@ -71,20 +77,21 @@ impl PluginTool for GrepTool {
             Err(e) => return err_result(&call.id, &call.name, e),
         };
 
-        // rg с флагами: --no-heading --line-number, без цвета, один matcher.
-        let rg_output = Command::new("rg")
+        let mut command = Command::new("rg");
+        command
             .arg("--no-heading")
             .arg("--line-number")
             .arg("--color=never")
-            .arg("--max-count")
-            .arg(max_results.to_string())
+            .arg("--max-columns")
+            .arg("2000")
+            .arg("--max-filesize")
+            .arg("1M")
             .arg("--")
             .arg(&pattern)
-            .arg(&search_path)
-            .output();
+            .arg(&search_path);
 
-        let output = match rg_output {
-            Ok(o) => o,
+        let lines = match run_rg_limited(command, max_results, RG_TIMEOUT) {
+            Ok(lines) => lines,
             Err(e) => {
                 return err_result(
                     &call.id,
@@ -94,17 +101,8 @@ impl PluginTool for GrepTool {
             }
         };
 
-        // rg exit codes: 0 = matches found, 1 = no matches, 2 = error.
-        let status = output.status.code().unwrap_or(-1);
-        if status == 2 {
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-            return err_result(&call.id, &call.name, format!("ripgrep error: {stderr}"));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let lines: Vec<&str> = stdout.lines().take(max_results).collect();
         let match_count = lines.len();
-        let truncated = stdout.lines().count() > match_count;
+        let truncated = match_count >= max_results;
 
         let output_text = if lines.is_empty() {
             "(no matches)".to_owned()
@@ -119,5 +117,66 @@ impl PluginTool for GrepTool {
             "truncated": truncated,
         });
         ok_result(&call.id, &call.name, output_text, metadata)
+    }
+}
+
+fn run_rg_limited(
+    mut command: Command,
+    max_results: usize,
+    timeout: Duration,
+) -> std::io::Result<Vec<String>> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("failed to open rg stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut lines = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            lines.push(line);
+            if lines.len() >= max_results {
+                break;
+            }
+        }
+        let _ = tx.send(std::io::Result::Ok(lines));
+        std::io::Result::Ok(())
+    });
+
+    let started = Instant::now();
+    loop {
+        match rx.try_recv() {
+            Ok(lines) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return lines;
+            }
+            Err(TryRecvError::Disconnected) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other("rg stdout reader stopped"));
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+
+        if let Some(_status) = child.try_wait()? {
+            return rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or_else(|_| Ok(Vec::new()));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "rg timed out",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
 }

@@ -428,6 +428,8 @@ pub struct RuntimeConfig {
     pub model_timeout_ms: u64,
     #[serde(default = "default_context_timeout_ms")]
     pub context_timeout_ms: u64,
+    #[serde(default = "default_workflow_timeout_ms")]
+    pub workflow_timeout_ms: u64,
 }
 
 impl Default for EventLogConfig {
@@ -452,6 +454,7 @@ impl Default for RuntimeConfig {
         Self {
             model_timeout_ms: default_model_timeout_ms(),
             context_timeout_ms: default_context_timeout_ms(),
+            workflow_timeout_ms: default_workflow_timeout_ms(),
         }
     }
 }
@@ -546,6 +549,10 @@ fn default_model_timeout_ms() -> u64 {
 
 fn default_context_timeout_ms() -> u64 {
     30_000
+}
+
+fn default_workflow_timeout_ms() -> u64 {
+    600_000
 }
 
 fn default_config_path() -> Option<PathBuf> {

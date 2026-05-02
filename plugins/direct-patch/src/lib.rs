@@ -456,10 +456,8 @@ fn writable_workspace_path(workspace: &Path, path: &Path) -> Result<PathBuf, Str
         .parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| format!("write path has no parent: {}", path.display()))?;
-    fs::create_dir_all(&parent)
-        .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-    let canonical_parent = fs::canonicalize(&parent)
-        .map_err(|error| format!("failed to canonicalize {}: {error}", parent.display()))?;
+    let canonical_parent = create_workspace_parent(workspace, &parent)
+        .map_err(|error| format!("{error}: {}", path.display()))?;
     if !canonical_parent.starts_with(workspace) {
         return Err(format!("path escapes workspace: {}", path.display()));
     }
@@ -468,6 +466,48 @@ fn writable_workspace_path(workspace: &Path, path: &Path) -> Result<PathBuf, Str
         .file_name()
         .ok_or_else(|| format!("write path must name a file: {}", path.display()))?;
     Ok(canonical_parent.join(file_name))
+}
+
+fn create_workspace_parent(workspace: &Path, parent: &Path) -> Result<PathBuf, String> {
+    let relative = parent
+        .strip_prefix(workspace)
+        .map_err(|_| "path escapes workspace".to_owned())?;
+    let mut current = workspace.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => {
+                current.push(part);
+                if current.exists() {
+                    let metadata = fs::symlink_metadata(&current).map_err(|error| {
+                        format!("failed to inspect {}: {error}", current.display())
+                    })?;
+                    if metadata.file_type().is_symlink() {
+                        return Err("path contains symlink ancestor".to_owned());
+                    }
+                    if !metadata.is_dir() {
+                        return Err("path ancestor is not a directory".to_owned());
+                    }
+                    let canonical = fs::canonicalize(&current).map_err(|error| {
+                        format!("failed to canonicalize {}: {error}", current.display())
+                    })?;
+                    if !canonical.starts_with(workspace) {
+                        return Err("path escapes workspace".to_owned());
+                    }
+                } else {
+                    fs::create_dir(&current).map_err(|error| {
+                        format!("failed to create {}: {error}", current.display())
+                    })?;
+                }
+            }
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err("path escapes workspace".to_owned());
+            }
+        }
+    }
+
+    fs::canonicalize(&current)
+        .map_err(|error| format!("failed to canonicalize {}: {error}", current.display()))
 }
 
 fn clean_relative_path(path: &Path) -> Result<PathBuf, String> {
@@ -574,5 +614,22 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("escapes workspace"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn add_file_rejects_symlink_parent_without_creating_outside_dirs() {
+        let dir = workspace();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+
+        let error = apply_patch(
+            "*** Begin Patch\n*** Add File: link/new/file.txt\n+outside\n*** End Patch",
+            dir.path(),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("symlink ancestor"), "{error}");
+        assert!(!outside.path().join("new").exists());
     }
 }
