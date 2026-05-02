@@ -124,10 +124,14 @@ args = ["status", "--short"]
   ContextBundle`. Это capability-based ABI: builder-плагин может вызывать host
   API (`search`, `recall_memory`, `context_provider`) и сам решает budget,
   порядок chunks и orchestration.
+- **compactor** - `PluginHistoryCompactor::compact_json(input_json) ->
+  CompactionOutput`. Это request-time history compaction: плагин возвращает
+  сообщения для model call, но не переписывает durable session history.
 - **workflow** - `PluginWorkflow::run_json(input_json, host) ->
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
-  `complete_model`, `visible_tools`, `execute_tool`, `emit_event`).
+  `complete_model`, `compact_history`, `visible_tools`, `execute_tool`,
+  `emit_event`).
 
 Все эти plugin-facing trait'ы sync. Async внутри плагина разрешён через
 локальный tokio runtime или `reqwest::blocking` / `ureq`. Ядро оборачивает
@@ -173,7 +177,7 @@ mismatch.
 
 Registry - единое хранилище зарегистрированных modules. Один API для builtin, dylib и MCP.
 
-Текущее состояние: `BuiltinModuleCatalog` в `crates/modular-agent/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
+Текущее состояние: `BuiltinModuleCatalog` в `crates/modular-agent/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy`, request-time `compactor` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
 
 ---
 
@@ -265,8 +269,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 **Core stubs (не полный запуск без плагинов):**
 - `crates/modular-agent/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
-  NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoWorkflow, TextRenderer,
-  FakeModelClient.
+  NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoCompactor, NoWorkflow,
+  TextRenderer, FakeModelClient.
 - Core tools, тесно связанные со slot'ами ядра: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`). Остальные базовые tools (read_file, write_file, list_dir, grep, shell) живут в плагинах `file-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
@@ -280,11 +284,11 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 ### Волна 1: подготовка ядра
 
 - ✅ Выделение `agent-contracts` в отдельный crate.
-- ✅ Registry unification: один `HashMap<(SlotId, ModuleId), Factory>` вместо 9 отдельных BTreeMap. Открытый `SlotId`.
+- ✅ Registry unification: один `HashMap<(SlotId, ModuleId), Factory>` вместо отдельных per-slot BTreeMap. Открытый `SlotId`.
 - ✅ `#[non_exhaustive]` sweep на enums и thin DTO.
 - ✅ Renderer через sabi_trait (первый ABI-стабильный trait).
 - ✅ Plugin-facing sync ABI для tool, approval policy, patch, search, memory,
-  declarative memory policy и repo-aware context provider.
+  declarative memory policy, request-time compactor и repo-aware context provider.
 - ✅ Capability-based `PluginWorkflow` ABI + host callbacks добавлены.
   Плагин `coding-workflow` регистрирует baseline `coding.single_loop` и
   staged workflow `coding.plan_execute_review`.
@@ -299,7 +303,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Dylib plugin loader: `libloading` + `lib_header_from_raw_library` + `init_root_module`.
 - ✅ Единый `PluginRegistry` sabi_trait с registrations для `renderer`, `tool`,
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
-  `context_provider`, declarative `memory_policy` и `workflow`.
+  `context_provider`, declarative `memory_policy`, `compactor` и `workflow`.
 - ✅ Hello-world плагины: `hello-renderer`, `hello-tool`, `hello-policy-patch`
   (`hello-policy-patch` также демонстрирует `context_provider`, declarative
   `memory_policy` и `workflow`).
@@ -313,11 +317,17 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   возвращает `ContextBundle`, а host даёт доступ к `SearchBackend`,
   `MemoryStore::recall` и external `context_provider`. Core не знает список
   builtin provider ids внутри конкретного context builder-а.
+- ✅ `SearchQuery` расширен под path-aware/semantic search use cases:
+  `use_case`, `starts_with`, `ends_with` передаются через JSON ABI с default-ами
+  для старых payloads.
 - ✅ `workflow` добавлен как plugin ABI: плагин регистрирует workflow, а runtime
   предоставляет host capabilities (`build_context`, `complete_model`,
-  `visible_tools`, `execute_tool`, `emit_event`). `coding-workflow` использует
+  `compact_history`, `visible_tools`, `execute_tool`, `emit_event`). `coding-workflow` использует
   эту границу как рабочий single-loop plugin и как staged plan/execute/review
   workflow.
+- ✅ `compactor` добавлен как plugin ABI и host capability для workflow.
+  Core fallback `none` ничего не меняет; плагинная реализация может делать
+  summary/sliding-window/token-budget compaction без изменения session log.
 - ❌ YAML declarative loader — **отменён.** `ConfiguredProcessTool` в ядре покрывает use case.
 - ⏳ Persistent MCP client — отложено.
 

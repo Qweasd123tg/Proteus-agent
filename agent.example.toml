@@ -15,6 +15,7 @@ memory_policy = "none"
 context = "simple"
 policy = "ask_write"
 patch = "null"
+compactor = "none"
 renderer = "statusline"
 
 [tools]

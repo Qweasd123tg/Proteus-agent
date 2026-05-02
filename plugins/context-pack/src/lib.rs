@@ -165,7 +165,8 @@ fn build_simple_context(
             input.task.text.clone(),
             input.task.cwd.clone(),
             config.max_search_results,
-        ),
+        )
+        .with_use_case("simple_context"),
     )?);
 
     let token_estimate = token_estimate(&chunks);
@@ -347,7 +348,8 @@ fn search_chunks(
     for query in queries {
         let results = search(
             host,
-            SearchQuery::new(query.clone(), input.task.cwd.clone(), per_query_limit),
+            SearchQuery::new(query.clone(), input.task.cwd.clone(), per_query_limit)
+                .with_use_case("repo_aware_context"),
         )?;
         for mut chunk in results {
             let dedupe_key = format!(

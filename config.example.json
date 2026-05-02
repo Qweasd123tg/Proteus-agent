@@ -33,6 +33,7 @@
     "context": "simple",
     "policy": "ask_write",
     "patch": "null",
+    "compactor": "none",
     "renderer": "statusline"
   },
   "module_config": {

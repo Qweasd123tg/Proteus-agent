@@ -47,12 +47,12 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 
 **Ядро:**
 - Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
-- Unified registry с открытым `SlotId`, 10 slot'ов (model, search, memory,
-  memory_policy, context, tool, policy, patch, workflow, renderer).
+- Unified registry с открытым `SlotId`, 11 slot'ов (model, search, memory,
+  memory_policy, context, tool, policy, patch, compactor, workflow, renderer).
 - Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
   anthropic models, `null` search fallback, `none` memory, `none` memory
   policy, `none` context, `deny_all` policy, `null` patch fallback,
-  `none` workflow и `text` renderer. Production workflow в core больше не
+  `none` compactor, `none` workflow и `text` renderer. Production workflow в core больше не
   встроен: `coding.single_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
   `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и
@@ -73,8 +73,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 **Плагины (Wave 2):**
 - Dylib plugin loader через abi_stable.
 - Plugin ABI поддерживает `tool`, `renderer`, `policy`, `patch`, `search`,
-  `memory`, declarative `memory_policy`, полный `context_builder`,
-  `context_provider` для `repo_aware` pipeline и `workflow` через host
+  `memory`, declarative `memory_policy`, request-time `compactor`, полный
+  `context_builder`, `context_provider` для `repo_aware` pipeline и `workflow` через host
   capabilities. `model` остаётся builtin-only.
 - ABI intentionally source-level для локальных workspace-плагинов: при
   изменении `agent-contracts` плагины пересобираются вместе с ядром, а
@@ -170,7 +170,8 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`
 
 Если не найдено — используются безопасные stub defaults из `AppConfig`
-(`workflow = "none"`, `context = "none"`, `policy = "deny_all"`).
+(`workflow = "none"`, `context = "none"`, `policy = "deny_all"`,
+`compactor = "none"`).
 
 Примеры:
 - `agent.example.toml` — safe dev-basic (fake model, null search, без tools).

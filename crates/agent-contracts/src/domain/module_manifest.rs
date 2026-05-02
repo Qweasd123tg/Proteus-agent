@@ -24,6 +24,7 @@ pub enum ModuleKind {
     Tool,
     Policy,
     Patch,
+    Compactor,
     Workflow,
     Renderer,
 }
@@ -67,6 +68,7 @@ pub mod slot {
     pub const TOOL: SlotId = Cow::Borrowed("tool");
     pub const POLICY: SlotId = Cow::Borrowed("policy");
     pub const PATCH: SlotId = Cow::Borrowed("patch");
+    pub const COMPACTOR: SlotId = Cow::Borrowed("compactor");
     pub const WORKFLOW: SlotId = Cow::Borrowed("workflow");
     pub const RENDERER: SlotId = Cow::Borrowed("renderer");
 }
@@ -86,6 +88,7 @@ impl ModuleKind {
             ModuleKind::Tool => slot::TOOL,
             ModuleKind::Policy => slot::POLICY,
             ModuleKind::Patch => slot::PATCH,
+            ModuleKind::Compactor => slot::COMPACTOR,
             ModuleKind::Workflow => slot::WORKFLOW,
             ModuleKind::Renderer => slot::RENDERER,
         }

@@ -30,8 +30,8 @@ prototype-2: stable core invariants + dylib plugin boundary
 
 Проект уже не demo loop и не чисто монолит: есть plugin loader и рабочие
 плагины для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, а также
-добавочные capabilities для declarative `memory_policy`, `repo_aware`
-`context_provider` и plugin `workflow` (`coding.single_loop`,
+добавочные capabilities для declarative `memory_policy`, request-time
+`compactor`, `repo_aware` `context_provider` и plugin `workflow` (`coding.single_loop`,
 `coding.plan_execute_review`). Но это ещё не marketplace, не package manager, не
 persistent MCP host и не multi-agent runtime.
 
@@ -240,7 +240,7 @@ Adapters преобразуют `CanonicalModelRequest` в provider wire format 
 Ключевые точки:
 
 - `crates/agent-contracts/src/plugin.rs` — sabi_trait-ы (`PluginRoot`,
-  `PluginRegistry`, `PluginTool`, renderer/policy/patch/search/memory/workflow
+  `PluginRegistry`, `PluginTool`, renderer/policy/patch/search/memory/compactor/workflow
   adapters), prefix type и `export_root_module!` helper.
 - `crates/modular-agent/src/core/plugin_loader.rs` — загрузчик через
   `libloading` + `lib_header_from_raw_library` + `init_root_module`
@@ -289,7 +289,7 @@ task
 
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`. `model` пока регистрируется только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`. `model` пока регистрируется только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors и dylib-плагины; полноценный MCP provider/registry (persistent host) ещё не реализован, но `ToolRegistry` уже хранит source.

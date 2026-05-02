@@ -15,6 +15,7 @@ use agent_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RStr, RString},
     },
+    contracts::CompactionInput,
     domain::{AgentOutput, ContextBundle, Event, ToolCall, ToolChoice, ToolResult, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
@@ -411,9 +412,38 @@ fn request_from_state(
             90,
         ));
     }
-    Ok(CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages.to_vec())
+    let messages = compact_messages(input, host, messages, "before_model_request")?;
+    Ok(CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
         .with_instructions(instructions)
         .with_tools(tools))
+}
+
+fn compact_messages(
+    input: &PluginWorkflowInput,
+    host: &mut PluginWorkflowHostMut<'_>,
+    messages: &[CanonicalMessage],
+    reason: &str,
+) -> Result<Vec<CanonicalMessage>, PluginWorkflowError> {
+    let compaction_input = CompactionInput::new(
+        input.task.clone(),
+        input.runtime.model_ref.clone(),
+        messages.to_vec(),
+    )
+    .with_reason(reason)
+    .with_token_estimate(estimate_message_tokens(messages));
+    let input_json = to_json_string(&compaction_input)?;
+    let output_json = match host.compact_history_json(RString::from(input_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    let output: agent_contracts::contracts::CompactionOutput =
+        from_json_string(output_json.as_str())?;
+    if output.messages.is_empty() && !messages.is_empty() {
+        return Err(PluginWorkflowError::new(
+            "compactor returned empty messages for non-empty history",
+        ));
+    }
+    Ok(output.messages)
 }
 
 fn build_context(
@@ -732,6 +762,18 @@ mod tests {
                 });
             RResult::ROk(RString::from(
                 serde_json::to_string(&response).expect("response json"),
+            ))
+        }
+
+        fn compact_history_json(
+            &self,
+            input_json: RString,
+        ) -> RResult<RString, PluginWorkflowHostError> {
+            let input: CompactionInput =
+                serde_json::from_str(input_json.as_str()).expect("compaction input json");
+            let output = agent_contracts::contracts::CompactionOutput::unchanged(input.messages);
+            RResult::ROk(RString::from(
+                serde_json::to_string(&output).expect("compaction output json"),
             ))
         }
 

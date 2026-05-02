@@ -11,7 +11,8 @@ use crate::{
     adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
     contracts::{
         ApprovalPolicy, ContextBuilder, MemoryPolicy, MemoryStore, ModelAdapter, PatchApplier,
-        Renderer, SearchBackend, Tool, ToolRegistry, Workflow, register_provider_tools,
+        HistoryCompactor, Renderer, SearchBackend, Tool, ToolRegistry, Workflow,
+        register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -20,7 +21,7 @@ use crate::{
         PluginWorkflowAdapter,
     },
     stubs::{
-        DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoMemory, NoMemoryPolicy,
+        DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy,
         NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
     },
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
@@ -228,6 +229,19 @@ impl BuiltinModuleCatalog {
                 "No-op patch applier.",
             ),
             build_null_patch,
+        );
+
+        // History compactors
+        catalog.register_module::<dyn HistoryCompactor>(
+            slot::COMPACTOR,
+            "none",
+            manifest(
+                "none",
+                ModuleKind::Compactor,
+                &["disabled"],
+                "No-op request-time history compactor.",
+            ),
+            build_no_compactor,
         );
 
         // Workflows
@@ -686,6 +700,47 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    pub fn register_plugin_compactor(
+        &mut self,
+        module_id: &str,
+        compactor: agent_contracts::plugin::CompactorObject,
+    ) -> Result<()> {
+        validate_plugin_id("compactor module", module_id)?;
+        use crate::plugin_adapters::PluginCompactorAdapter;
+        let slot_id = slot::COMPACTOR;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "compactor module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn HistoryCompactor> = Arc::new(PluginCompactorAdapter::new(compactor));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Compactor, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "History compactor from plugin (module id: {module_id})"
+        ));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(shared);
+        Ok(())
+    }
+
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
     /// Typed wrapper: factory возвращает `Arc<dyn T>`, который стирается
     /// в `Arc<dyn Any + Send + Sync>` для хранения.
@@ -860,6 +915,18 @@ impl BuiltinModuleCatalog {
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn PatchApplier>> {
         self.build_typed::<dyn PatchApplier>(slot::PATCH, module, &ModuleBuildInput::Module(ctx))
+    }
+
+    pub fn build_compactor(
+        &self,
+        module: &str,
+        ctx: &ModuleBuildContext<'_>,
+    ) -> Result<Arc<dyn HistoryCompactor>> {
+        self.build_typed::<dyn HistoryCompactor>(
+            slot::COMPACTOR,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
     }
 
     pub fn build_workflow(
@@ -1042,6 +1109,10 @@ fn build_deny_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn Approv
 
 fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
     Ok(Arc::new(NullPatchApplier))
+}
+
+fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
+    Ok(Arc::new(NoCompactor))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

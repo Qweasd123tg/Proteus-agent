@@ -195,6 +195,7 @@ fn module_kind_config_key(kind: ModuleKind) -> &'static str {
         ModuleKind::Tool => "tool",
         ModuleKind::Policy => "policy",
         ModuleKind::Patch => "patch",
+        ModuleKind::Compactor => "compactor",
         ModuleKind::Workflow => "workflow",
         ModuleKind::Renderer => "renderer",
         _ => "unknown",
@@ -295,6 +296,8 @@ pub struct ModulesConfig {
     pub policy: String,
     #[serde(default = "default_patch")]
     pub patch: String,
+    #[serde(default = "default_compactor")]
+    pub compactor: String,
     #[serde(default = "default_renderer")]
     pub renderer: String,
 }
@@ -309,6 +312,7 @@ impl Default for ModulesConfig {
             context: default_context(),
             policy: default_policy(),
             patch: default_patch(),
+            compactor: default_compactor(),
             renderer: default_renderer(),
         }
     }
@@ -467,6 +471,10 @@ fn default_policy() -> String {
 
 fn default_patch() -> String {
     "null".to_owned()
+}
+
+fn default_compactor() -> String {
+    "none".to_owned()
 }
 
 fn default_renderer() -> String {

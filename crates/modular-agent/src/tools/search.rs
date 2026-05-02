@@ -29,7 +29,16 @@ impl Tool for SearchTool {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string" },
-                    "max_results": { "type": "integer" }
+                    "max_results": { "type": "integer" },
+                    "use_case": { "type": "string" },
+                    "starts_with": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "ends_with": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
                 },
                 "required": ["query"]
             }),
@@ -49,9 +58,17 @@ impl Tool for SearchTool {
             .get("max_results")
             .and_then(|value| value.as_u64())
             .unwrap_or(20) as usize;
+        let use_case = call.args.get("use_case").and_then(|value| value.as_str());
+        let starts_with = string_array_arg(&call.args, "starts_with")?;
+        let ends_with = string_array_arg(&call.args, "ends_with")?;
+        let mut search_query =
+            SearchQuery::new(query, ctx.cwd, max_results).with_path_filters(starts_with, ends_with);
+        if let Some(use_case) = use_case {
+            search_query = search_query.with_use_case(use_case);
+        }
         let chunks = self
             .search
-            .search(SearchQuery::new(query, ctx.cwd, max_results))
+            .search(search_query)
             .await?;
         Ok(ToolResult::new(
             call.id.clone(),
@@ -62,4 +79,21 @@ impl Tool for SearchTool {
             json!({ "results": chunks.len() }),
         ))
     }
+}
+
+fn string_array_arg(args: &serde_json::Value, name: &str) -> Result<Vec<String>> {
+    let Some(value) = args.get(name) else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err(anyhow!("search arg '{name}' must be an array of strings"));
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow!("search arg '{name}' must be an array of strings"))
+        })
+        .collect()
 }

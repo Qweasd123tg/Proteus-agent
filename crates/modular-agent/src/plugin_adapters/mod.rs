@@ -4,6 +4,7 @@
 //! in `plugins/`; no-op/fake fallback implementations live in `stubs/`.
 
 pub mod context;
+pub mod compactor;
 pub mod memory;
 pub mod patch;
 pub mod policy;
@@ -12,6 +13,7 @@ pub mod tool;
 pub mod workflow;
 
 pub use context::*;
+pub use compactor::*;
 pub use memory::*;
 pub use patch::*;
 pub use policy::*;

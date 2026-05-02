@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
-    contracts::{ContextBuildInput, RuntimeContext, Workflow, WorkflowOutput},
+    contracts::{CompactionInput, ContextBuildInput, RuntimeContext, Workflow, WorkflowOutput},
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
@@ -155,6 +155,18 @@ impl PluginWorkflowHost for WorkflowHost {
         })
     }
 
+    fn compact_history_json(
+        &self,
+        input_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let input: CompactionInput = match serde_json::from_str(input_json.as_str()) {
+            Ok(input) => input,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        self.block_on_json(async move { ctx.compactor.compact(input).await })
+    }
+
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
         let cwd = PathBuf::from(cwd.as_str());
         match serde_json::to_string(&self.tool_orchestrator.visible_tool_specs(&self.ctx, &cwd)) {
@@ -221,7 +233,7 @@ mod tests {
         },
         plugin_adapters::PluginContextBuilderAdapter,
         model_standard::{CanonicalMessage, ContentPart, MessageRole},
-        stubs::{FakeModelClient, NoMemory, NullPatchApplier, NullSearch},
+        stubs::{FakeModelClient, NoCompactor, NoMemory, NullPatchApplier, NullSearch},
     };
 
     struct ContextSmokeWorkflow;
@@ -327,6 +339,7 @@ mod tests {
             Arc::new(TestAllowAllPolicy),
             Arc::new(HeadlessApprovalTransport),
             Arc::new(NullPatchApplier),
+            Arc::new(NoCompactor),
         );
         let cwd = tempfile::tempdir().expect("workspace");
 

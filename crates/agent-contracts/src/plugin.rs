@@ -201,7 +201,8 @@ pub type PatchApplierObject = PluginPatchApplier_TO<abi_stable::std_types::RBox<
 ///
 /// ## JSON-форма
 ///
-/// - `query_json` — сериализованный `SearchQuery { text, cwd, max_results }`.
+/// - `query_json` — serialized `SearchQuery`; unknown/defaulted fields must be
+///   ignored by plugin implementations.
 /// - Возврат — JSON массив `ContextChunk`.
 #[sabi_trait]
 pub trait PluginSearchBackend: Send + Sync + 'static {
@@ -431,6 +432,40 @@ impl std::error::Error for PluginMemoryPolicyError {}
 
 pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<()>>;
 
+/// Sync ABI for request-time history compaction plugins.
+///
+/// This slot returns model-facing messages only. Core does not rewrite the
+/// durable session log through this contract.
+#[sabi_trait]
+pub trait PluginHistoryCompactor: Send + Sync + 'static {
+    fn compact_json(&self, input_json: RString) -> RResult<RString, PluginCompactionError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginCompactionError {
+    pub message: RString,
+}
+
+impl PluginCompactionError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginCompactionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginCompactionError {}
+
+pub type CompactorObject = PluginHistoryCompactor_TO<abi_stable::std_types::RBox<()>>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginWorkflowInput {
     pub task: AgentTask,
@@ -474,6 +509,12 @@ pub trait PluginWorkflowHost: Send + Sync {
     fn complete_model_json(
         &self,
         request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `CompactionInput`. Output JSON: `CompactionOutput`.
+    fn compact_history_json(
+        &self,
+        input_json: RString,
     ) -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input: cwd string. Output JSON: `Vec<ToolSpec>` after visibility policy.
@@ -653,6 +694,13 @@ pub trait PluginRegistry: Send + Sync {
         &mut self,
         module_id: RString,
         policy: MemoryPolicyObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует request-time HistoryCompactor под module_id в slot `compactor`.
+    fn register_compactor(
+        &mut self,
+        module_id: RString,
+        compactor: CompactorObject,
     ) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует Workflow под module_id в slot `workflow`.

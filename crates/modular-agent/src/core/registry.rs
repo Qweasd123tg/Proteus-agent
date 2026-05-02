@@ -5,7 +5,8 @@ use anyhow::Result;
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, EventEmitter, MemoryPolicy, MemoryStore, ModelClient,
-        PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolRegistry, Workflow,
+        HistoryCompactor, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolRegistry,
+        Workflow,
     },
     core::{
         AppConfig, BuiltinModuleCatalog, ModeAwarePolicy, ModelService, ModuleBuildContext,
@@ -30,6 +31,7 @@ pub struct BuiltinRegistry {
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub patch: Arc<dyn PatchApplier>,
+    pub compactor: Arc<dyn HistoryCompactor>,
     pub workflow: Arc<dyn Workflow>,
     pub renderer: Arc<dyn Renderer>,
 }
@@ -71,6 +73,7 @@ impl BuiltinRegistry {
             catalog.build_memory_policy(&config.modules.memory_policy, &build_ctx)?;
         let context = catalog.build_context(&config.modules.context, &build_ctx)?;
         let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
+        let compactor = catalog.build_compactor(&config.modules.compactor, &build_ctx)?;
         let tools =
             catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
         let policy_ctx = PolicyBuildContext {
@@ -94,6 +97,7 @@ impl BuiltinRegistry {
             tools,
             policy,
             patch,
+            compactor,
             workflow,
             renderer,
         })
@@ -124,6 +128,7 @@ impl BuiltinRegistry {
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
             self.patch.clone(),
+            self.compactor.clone(),
         )
     }
 }

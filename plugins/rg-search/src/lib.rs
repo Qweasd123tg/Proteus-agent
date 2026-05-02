@@ -77,8 +77,15 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
 
     Ok(String::from_utf8_lossy(&output.stdout)
         .lines()
-        .take(query.max_results)
         .filter_map(parse_rg_line)
+        .filter(|chunk| {
+            chunk
+                .path
+                .as_ref()
+                .and_then(|path| path.to_str())
+                .is_some_and(|path| query.matches_path(path))
+        })
+        .take(query.max_results)
         .collect())
 }
 

@@ -26,9 +26,10 @@ use agent_contracts::{
     },
     contracts::RendererObject,
     plugin::{
-        ContextBuilderObject, ContextProviderObject, MemoryPolicyObject, MemoryStoreObject,
-        PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO,
-        PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject, WorkflowObject,
+        CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryPolicyObject,
+        MemoryStoreObject, PatchApplierObject, PluginRegisterError, PluginRegistry,
+        PluginRegistry_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
+        WorkflowObject,
     },
 };
 use anyhow::Result;
@@ -139,6 +140,18 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_memory_policy(&id, policy) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_compactor(
+        &mut self,
+        module_id: RString,
+        compactor: CompactorObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_compactor(&id, compactor) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }

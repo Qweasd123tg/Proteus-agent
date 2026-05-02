@@ -319,6 +319,11 @@ fn builtin_module_catalog_lists_builtin_slots() {
         .into_iter()
         .map(|manifest| manifest.id)
         .collect::<Vec<_>>();
+    let compactor_ids = catalog
+        .manifests_by_kind(ModuleKind::Compactor)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
     let renderer_ids = catalog
         .manifests_by_kind(ModuleKind::Renderer)
         .into_iter()
@@ -334,6 +339,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(context_ids, ["none"]);
     assert_eq!(policy_ids, ["deny_all"]);
     assert_eq!(workflow_ids, ["none"]);
+    assert_eq!(compactor_ids, ["none"]);
     assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
 }
