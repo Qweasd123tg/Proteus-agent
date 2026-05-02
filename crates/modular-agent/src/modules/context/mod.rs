@@ -1,7 +1,7 @@
+mod plugin_builder_adapter;
 mod plugin_adapter;
-mod repo_aware;
-mod simple;
+mod provider;
 
+pub use plugin_builder_adapter::*;
 pub use plugin_adapter::*;
-pub use repo_aware::*;
-pub use simple::*;
+pub use provider::*;

@@ -271,6 +271,7 @@ impl AgentRuntime {
 pub struct AgentRuntimeBuilder {
     config: AppConfig,
     cwd: PathBuf,
+    module_catalog: Option<crate::core::BuiltinModuleCatalog>,
     config_path: Option<PathBuf>,
     event_sink: Option<Arc<dyn EventSink>>,
     approval: Option<Arc<dyn ApprovalTransport>>,
@@ -285,6 +286,7 @@ impl AgentRuntimeBuilder {
         Self {
             config,
             cwd,
+            module_catalog: None,
             config_path: None,
             event_sink: None,
             approval: None,
@@ -297,6 +299,11 @@ impl AgentRuntimeBuilder {
 
     pub fn with_config_path(mut self, path: Option<&std::path::Path>) -> Self {
         self.config_path = path.map(|p| p.to_path_buf());
+        self
+    }
+
+    pub fn with_module_catalog(mut self, catalog: crate::core::BuiltinModuleCatalog) -> Self {
+        self.module_catalog = Some(catalog);
         self
     }
 
@@ -333,6 +340,7 @@ impl AgentRuntimeBuilder {
         let Self {
             config,
             cwd,
+            module_catalog,
             config_path,
             event_sink,
             approval,
@@ -343,7 +351,11 @@ impl AgentRuntimeBuilder {
         } = self;
 
         let permission_mode = config.permissions.mode;
-        let registry = BuiltinRegistry::from_config(&config, cwd.clone())?;
+        let registry = if let Some(catalog) = module_catalog {
+            BuiltinRegistry::from_catalog(&config, cwd.clone(), catalog)?
+        } else {
+            BuiltinRegistry::from_config(&config, cwd.clone())?
+        };
         let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
             let raw: Arc<dyn EventSink> =
                 Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
@@ -420,15 +432,39 @@ fn config_store_root(path: &std::path::Path) -> PathBuf {
 mod tests {
     use std::sync::Arc;
 
+    use agent_contracts::{
+        abi_stable::sabi_trait::TD_Opaque,
+        plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
+    };
     use anyhow::Result;
     use async_trait::async_trait;
+    use coding_workflow::CodingPlanExecuteReviewWorkflow;
+    use context_pack::SimpleContextBuilderPlugin;
 
     use super::*;
     use crate::{
+        core::BuiltinModuleCatalog,
         contracts::{RuntimeContext, Workflow, WorkflowOutput},
         domain::{AgentOutput, AgentTask},
         model_standard::{CanonicalMessage, MessageRole},
     };
+
+    fn test_catalog() -> BuiltinModuleCatalog {
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog
+            .register_plugin_context_builder(
+                "simple",
+                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+            )
+            .expect("register test context builder");
+        catalog
+            .register_plugin_workflow(
+                "coding.plan_execute_review",
+                PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
+            )
+            .expect("register test workflow");
+        catalog
+    }
 
     struct ShortHistoryWorkflow;
 
@@ -453,6 +489,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.modules.patch = "null".to_owned();
         let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+            .with_module_catalog(test_catalog())
             .build()
             .expect("runtime");
 

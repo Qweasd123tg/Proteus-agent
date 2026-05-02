@@ -26,10 +26,9 @@ use agent_contracts::{
     },
     contracts::RendererObject,
     plugin::{
-        ContextProviderObject, MemoryPolicyObject, MemoryStoreObject,
-        PLUGIN_REGISTER_MODULES_V2_SYMBOL, PatchApplierObject, PluginRegisterError,
-        PluginRegisterModulesV2Fn, PluginRegistry, PluginRegistry_TO, PluginRegistryV2,
-        PluginRegistryV2_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
+        ContextBuilderObject, ContextProviderObject, MemoryPolicyObject, MemoryStoreObject,
+        PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO,
+        PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject, WorkflowObject,
     },
 };
 use anyhow::Result;
@@ -108,13 +107,7 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }
     }
-}
 
-struct PluginRegistryV2Adapter<'a> {
-    catalog: &'a mut BuiltinModuleCatalog,
-}
-
-impl<'a> PluginRegistryV2 for PluginRegistryV2Adapter<'a> {
     fn register_context_provider(
         &mut self,
         provider_id: RString,
@@ -127,6 +120,18 @@ impl<'a> PluginRegistryV2 for PluginRegistryV2Adapter<'a> {
         }
     }
 
+    fn register_context_builder(
+        &mut self,
+        module_id: RString,
+        builder: ContextBuilderObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_context_builder(&id, builder) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
     fn register_memory_policy(
         &mut self,
         module_id: RString,
@@ -134,6 +139,18 @@ impl<'a> PluginRegistryV2 for PluginRegistryV2Adapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_memory_policy(&id, policy) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_workflow(
+        &mut self,
+        module_id: RString,
+        workflow: WorkflowObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_workflow(&id, workflow) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }
@@ -385,13 +402,6 @@ fn load_one_plugin_inner(
         .init_root_module::<PluginRoot_Ref>()
         .map_err(|err| anyhow::anyhow!("failed to init root module: {err}"))?;
 
-    let register_v2_fn = unsafe {
-        raw_lib
-            .get::<PluginRegisterModulesV2Fn>(PLUGIN_REGISTER_MODULES_V2_SYMBOL)
-            .ok()
-            .map(|symbol| *symbol)
-    };
-
     // Приоритет: manifest переопределяет значения из PluginRoot. Manifest
     // читается до загрузки .so, поэтому его имя и описание — authoritative
     // для listing'а. Если manifest'а нет или поле пустое — fallback на
@@ -416,21 +426,6 @@ fn load_one_plugin_inner(
         RResult::ROk(()) => {
             drop(registry_to);
             drop(adapter);
-            if let Some(register_v2_fn) = register_v2_fn {
-                let mut adapter_v2 = PluginRegistryV2Adapter { catalog };
-                let mut registry_v2_to: PluginRegistryV2_TO<_> =
-                    PluginRegistryV2_TO::from_ptr(&mut adapter_v2, TD_Opaque);
-                if let RResult::RErr(err) = register_v2_fn(&mut registry_v2_to) {
-                    drop(registry_v2_to);
-                    drop(adapter_v2);
-                    catalog.rollback_to(checkpoint);
-                    return Err(anyhow::anyhow!(
-                        "plugin '{}' register_modules_v2 failed: {}",
-                        root_name,
-                        err.message
-                    ));
-                }
-            }
             // Важно: leak'аем RawLibrary только после успешной регистрации —
             // иначе при drop символы плагина станут dangling, а trait objects
             // из этого dylib живут в catalog всё время процесса.

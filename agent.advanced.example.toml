@@ -7,7 +7,8 @@ model = "fake-tool-model"
 stream = false
 
 [modules]
-workflow = "single_loop"
+# Provided by the coding-workflow plugin installed by ./install.sh.
+workflow = "coding.plan_execute_review"
 search = "null"
 memory = "none"
 memory_policy = "none"

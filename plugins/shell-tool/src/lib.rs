@@ -191,3 +191,64 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     }
     .leak_into_prefix()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    fn invoke(cwd: &std::path::Path, command: &str) -> Value {
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": {
+                "command": command
+            }
+        });
+        let result = invoke_impl(&call.to_string(), &cwd.display().to_string()).expect("invoke");
+        serde_json::from_str(&result).expect("tool result")
+    }
+
+    #[test]
+    fn shell_runs_command_in_workspace() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("sample.txt"), "hello").expect("sample");
+
+        let result = invoke(dir.path(), "pwd && cat sample.txt");
+
+        assert_eq!(result["ok"], true);
+        let output = result["output"].as_str().expect("output");
+        assert!(output.contains(dir.path().to_str().unwrap()), "{output}");
+        assert!(output.contains("hello"), "{output}");
+        assert_eq!(result["metadata"]["timed_out"], false);
+        assert_eq!(result["metadata"]["status"], 0);
+    }
+
+    #[test]
+    fn shell_reports_nonzero_exit_as_failed_tool_result() {
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let result = invoke(dir.path(), "printf problem >&2; exit 7");
+
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["output"], "problem");
+        assert_eq!(result["error"], "process exited with code 7");
+        assert_eq!(result["metadata"]["status"], 7);
+    }
+
+    #[test]
+    fn shell_requires_command_arg() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": {}
+        });
+
+        let error = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .expect_err("missing command must error");
+
+        assert!(error.to_string().contains("requires string arg 'command'"));
+    }
+}

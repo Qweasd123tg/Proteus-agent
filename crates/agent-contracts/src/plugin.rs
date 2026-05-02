@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::RendererObject,
-    domain::{AgentOutput, AgentTask},
+    domain::{AgentOutput, AgentTask, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
 };
 
@@ -322,6 +322,73 @@ impl std::error::Error for PluginContextError {}
 pub type ContextProviderObject = PluginContextProvider_TO<abi_stable::std_types::RBox<()>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginContextBuilderInput {
+    pub task: AgentTask,
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+/// Host capabilities exposed to full ContextBuilder plugins.
+#[sabi_trait]
+pub trait PluginContextBuilderHost: Send + Sync {
+    /// Input JSON: `SearchQuery`. Output JSON: `Vec<ContextChunk>`.
+    fn search_json(&self, query_json: RString) -> RResult<RString, PluginContextBuilderHostError>;
+
+    /// Input JSON: `MemoryQuery`. Output JSON: `Vec<MemoryItem>`.
+    fn recall_memory_json(
+        &self,
+        query_json: RString,
+    ) -> RResult<RString, PluginContextBuilderHostError>;
+
+    /// Input JSON: `PluginContextProviderInput`. Output JSON:
+    /// `Vec<ContextChunk>` from an already registered provider.
+    fn context_provider_json(
+        &self,
+        provider_id: RString,
+        input_json: RString,
+    ) -> RResult<RString, PluginContextBuilderHostError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginContextBuilderHostError {
+    pub message: RString,
+}
+
+impl PluginContextBuilderHostError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginContextBuilderHostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginContextBuilderHostError {}
+
+pub type PluginContextBuilderHostMut<'a> =
+    PluginContextBuilderHost_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
+
+/// Sync sabi_trait for full ContextBuilder plugins.
+#[sabi_trait]
+pub trait PluginContextBuilder: Send + Sync + 'static {
+    /// Input JSON: `PluginContextBuilderInput`. Output JSON: `ContextBundle`.
+    fn build_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginContextBuilderHostMut<'_>,
+    ) -> RResult<RString, PluginContextError>;
+}
+
+pub type ContextBuilderObject = PluginContextBuilder_TO<abi_stable::std_types::RBox<()>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMemoryPolicyInput {
     pub task: AgentTask,
     pub output: AgentOutput,
@@ -363,6 +430,131 @@ impl std::fmt::Display for PluginMemoryPolicyError {
 impl std::error::Error for PluginMemoryPolicyError {}
 
 pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<()>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginWorkflowInput {
+    pub task: AgentTask,
+    #[serde(default)]
+    pub history: Vec<CanonicalMessage>,
+    pub runtime: PluginWorkflowRuntimeInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginWorkflowRuntimeInfo {
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub model_ref: ModelRef,
+    pub model_timeout_ms: u64,
+    pub context_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginWorkflowOutput {
+    pub output: AgentOutput,
+    #[serde(default)]
+    pub messages: Vec<CanonicalMessage>,
+}
+
+/// Host capabilities exposed to workflow plugins.
+///
+/// A workflow plugin should not receive `RuntimeContext` or concrete core
+/// objects. Instead it calls this narrow host API. Every payload is JSON so the
+/// ABI does not depend on Rust layout of complex DTOs.
+#[sabi_trait]
+pub trait PluginWorkflowHost: Send + Sync {
+    /// Input JSON: `AgentTask`. Output JSON: `ContextBundle`.
+    fn build_context_json(
+        &self,
+        task_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `CanonicalModelRequest`. Output JSON:
+    /// `CanonicalModelResponse`.
+    fn complete_model_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input: cwd string. Output JSON: `Vec<ToolSpec>` after visibility policy.
+    fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `AgentTask` and `ToolCall`. Output JSON: `ToolResult`.
+    fn execute_tool_json(
+        &self,
+        task_json: RString,
+        call_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `Event`. Emits with current runtime event context.
+    fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginWorkflowHostError {
+    pub message: RString,
+}
+
+impl PluginWorkflowHostError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginWorkflowHostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginWorkflowHostError {}
+
+pub type PluginWorkflowHostMut<'a> =
+    PluginWorkflowHost_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
+
+/// Sync sabi_trait for workflow plugins.
+///
+/// The plugin runs synchronously; the core adapter executes it in
+/// `spawn_blocking`. Async operations go through `PluginWorkflowHost`, which
+/// bridges back into the runtime.
+#[sabi_trait]
+pub trait PluginWorkflow: Send + Sync + 'static {
+    /// Input JSON: `PluginWorkflowInput`. Output JSON: `PluginWorkflowOutput`.
+    fn run_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginWorkflowHostMut<'_>,
+    ) -> RResult<RString, PluginWorkflowError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginWorkflowError {
+    pub message: RString,
+}
+
+impl PluginWorkflowError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginWorkflowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginWorkflowError {}
+
+pub type WorkflowObject = PluginWorkflow_TO<abi_stable::std_types::RBox<()>>;
 
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
@@ -440,21 +632,19 @@ pub trait PluginRegistry: Send + Sync {
         module_id: RString,
         store: MemoryStoreObject,
     ) -> RResult<(), PluginRegisterError>;
-}
 
-/// V2-регистрация новых plugin capabilities.
-///
-/// Важно: этот trait не расширяет `PluginRegistry`, потому что изменение
-/// vtable `PluginRegistry` ломает загрузку старых dylib. Новые entrypoint'ы
-/// добавляются отдельным optional exported symbol, а не полем `PluginRoot`,
-/// чтобы layout root module оставался совместимым со старыми плагинами.
-#[sabi_trait]
-pub trait PluginRegistryV2: Send + Sync {
     /// Регистрирует provider для `repo_aware` context pipeline.
     fn register_context_provider(
         &mut self,
         provider_id: RString,
         provider: ContextProviderObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует полный ContextBuilder под module_id в slot `context`.
+    fn register_context_builder(
+        &mut self,
+        module_id: RString,
+        builder: ContextBuilderObject,
     ) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует declarative MemoryPolicy под module_id в slot `memory_policy`.
@@ -463,27 +653,24 @@ pub trait PluginRegistryV2: Send + Sync {
         module_id: RString,
         policy: MemoryPolicyObject,
     ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует Workflow под module_id в slot `workflow`.
+    fn register_workflow(
+        &mut self,
+        module_id: RString,
+        workflow: WorkflowObject,
+    ) -> RResult<(), PluginRegisterError>;
 }
 
 /// Тип trait-объекта PluginRegistry, передаваемого в плагин.
 pub type PluginRegistryMut<'a> = PluginRegistry_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
 
-pub type PluginRegistryV2Mut<'a> = PluginRegistryV2_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
-
-/// Имя optional symbol'а, который новый плагин может экспортировать для
-/// регистрации capabilities поверх стабильного `PluginRegistry`.
-pub const PLUGIN_REGISTER_MODULES_V2_SYMBOL: &[u8] = b"agent_plugin_register_modules_v2\0";
-
-/// Тип optional V2 entrypoint'а.
-pub type PluginRegisterModulesV2Fn =
-    extern "C" fn(&mut PluginRegistryV2Mut<'_>) -> RResult<(), PluginRegisterError>;
-
 /// Root module плагина — то, что плагин экспортирует через
 /// `#[export_root_module]`, и что ядро загружает через `PluginRoot_Ref::load_from_file`.
 ///
-/// Структура намеренно держится стабильной для v1 ABI. Новые registry
-/// capabilities добавляются не сюда, а через optional exported symbol
-/// `PLUGIN_REGISTER_MODULES_V2_SYMBOL`.
+/// В текущем workspace старые собранные `.so` не считаются совместимыми между
+/// refactor-итерациями: новые plugin-facing slots добавляются прямо в
+/// `PluginRegistry`, а плагины пересобираются вместе с `agent-contracts`.
 #[repr(C)]
 #[derive(StableAbi)]
 #[sabi(kind(Prefix(prefix_ref = PluginRoot_Ref, prefix_fields = PluginRoot_Prefix)))]

@@ -140,7 +140,7 @@ Runtime должен сохранять эти свойства:
   scoring/budget и git diff summary без записи в conversation history;
 - line-oriented edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
-- `plan_execute_review` как новый `Workflow`, не замена core;
+- `coding.plan_execute_review` как plugin `Workflow`, вынесенный из core;
 - eval report поверх event log для сравнения workflow/context/edit связок;
 - streaming model path;
 - session restore/resume поверх event log;
@@ -172,14 +172,12 @@ path CLI smoke test.
 
 1. ✅ `agent-contracts` выделен в отдельный crate, plugin'ы depend только на него;
 2. ✅ dylib loader через `abi_stable` + `libloading`;
-3. ✅ `PluginRegistry` v1 покрывает `tool`, `renderer`, `policy`, `patch`,
-   `search`, `memory`;
-4. ✅ optional `PluginRegistryV2` добавляет declarative `memory_policy` и
-   `repo_aware` `context_provider` без rebuild старых плагинов;
-5. 🔜 полный `ContextBuilder`, `ModelAdapter` и `Workflow` как плагины — после
-   freeze их trait'ов и async ABI;
+3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
+   `search`, `memory`, declarative `memory_policy`, full `context_builder`,
+   `repo_aware` `context_provider` и `workflow`;
+4. 🔜 `ModelAdapter` как плагин — после freeze trait-а и async ABI;
 6. 🔜 Волна 3: перенос встроенных модулей в отдельные плагины по одному;
-7. ⏳ Волна 4: async-ABI для ModelAdapter/Workflow через `FfiFuture` / `FfiStream`.
+7. ⏳ Волна 4: async-ABI для ModelAdapter через `FfiFuture` / `FfiStream`.
 
 `ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
 простых shell-обёрток и spawn-per-call MCP-вызовов, не замена plugin system и

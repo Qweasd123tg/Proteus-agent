@@ -1,3 +1,3 @@
-mod single_loop;
+mod plugin_adapter;
 
-pub use single_loop::*;
+pub use plugin_adapter::*;

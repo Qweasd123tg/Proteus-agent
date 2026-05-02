@@ -29,12 +29,14 @@ clients/
 plugins/
   hello-renderer/      — демо: декоративная рамка вокруг ответа
   hello-tool/          — демо: tool current_time
-  hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + V2 provider/policy
+  hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
   direct-patch/        — PatchApplier internal patch format под id "direct"
   file-tools/          — реальный набор: read_file / write_file / list_dir / grep
   rg-search/           — SearchBackend на ripgrep под id "rg"
   shell-tool/          — tool shell (sh -lc)
   sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
+  coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
+  context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -44,11 +46,14 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
 - Unified registry с открытым `SlotId`, 10 slot'ов (model, search, memory,
   memory_policy, context, tool, policy, patch, workflow, renderer).
-- Builtin модули во всех slot'ах: fake / openai / openai_compatible / anthropic
-  models, `null` search fallback, `none`/`jsonl`/`sqlite` memory,
-  `none`/`carry_forward` memory policies, `simple`/`repo_aware` context,
-  `allow_all`/`ask_write` policies, `null` patch fallback,
-  `single_loop` workflow, `plain`/`statusline` renderers.
+- Builtin модули в базовых slot'ах: fake / openai / openai_compatible / anthropic
+  models, `null` search fallback, `none`/`jsonl` memory,
+  `none`/`carry_forward` memory policies, `allow_all`/`ask_write` policies,
+  `null` patch fallback,
+  `plain`/`statusline` renderers. Production workflow в core больше не
+  встроен: `coding.single_loop` и `coding.plan_execute_review` поставляет
+  плагин `coding-workflow`; production context builders `simple` и
+  `repo_aware` поставляет плагин `context-pack`.
 - Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
   поставляется плагином `rg-search`, patch backend `direct` — плагином
   `direct-patch`. File I/O
@@ -63,12 +68,12 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 **Плагины (Wave 2):**
 - Dylib plugin loader через abi_stable.
 - Plugin ABI поддерживает `tool`, `renderer`, `policy`, `patch`, `search`,
-  `memory`, declarative `memory_policy` и `context_provider` для
-  `repo_aware` pipeline. Полный `context_builder`, `model` и `workflow`
-  остаются builtin-only.
-- ABI расширяется добавочно: стабильный `PluginRoot`/`PluginRegistry` v1 не
-  меняется, новые capabilities подключаются через optional V2 symbol. Плагин
-  без новых slot'ов не требует rebuild только из-за расширения ABI.
+  `memory`, declarative `memory_policy`, полный `context_builder`,
+  `context_provider` для `repo_aware` pipeline и `workflow` через host
+  capabilities. `model` остаётся builtin-only.
+- ABI intentionally source-level для локальных workspace-плагинов: при
+  изменении `agent-contracts` плагины пересобираются вместе с ядром, а
+  несовместимые старые `.so` отклоняются layout-check'ом.
 - Multi-plugin loading через lower-level libloading API (обход type-cache
   в `RootModule::load_from_file`).
 - Опциональный `plugin.toml` manifest рядом с `.so`.
@@ -123,15 +128,15 @@ target/debug/agent-tui-codex \
 
 Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
 плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
-`direct-patch`, `file-tools`, `shell-tool` и демо-плагины подхватываются
-автоматически.
+`direct-patch`, `file-tools`, `shell-tool`, `coding-workflow`, `context-pack` и демо-плагины
+подхватываются автоматически.
 
 Ручной способ:
 
 ```bash
-cargo build --release --workspace
+cargo build --release --workspace --features context-pack/plugin-entrypoint
 
-for p in file-tools shell-tool rg-search direct-patch hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools shell-tool rg-search direct-patch coding-workflow context-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true

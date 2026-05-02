@@ -14,9 +14,12 @@ use agent_contracts::{
     },
     plugin::{
         ContextProviderObject, PluginContextError, PluginContextProvider, PluginContextProvider_TO,
+        PluginContextBuilder_TO, PluginWorkflow_TO, WorkflowObject,
     },
 };
 use async_trait::async_trait;
+use coding_workflow::{CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow};
+use context_pack::{RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin};
 use futures_util::stream;
 use modular_agent::{
     contracts::{
@@ -40,8 +43,8 @@ use modular_agent::{
         MessageRole, ModelCapabilities, ModelStreamEvent,
     },
     modules::{
-        ApplyPatchTool, FakeModelClient, ModelService, NoMemory, NullSearch, SearchTool,
-        SingleLoopWorkflow,
+        ApplyPatchTool, FakeModelClient, ModelService, NoMemory, NullSearch, PluginWorkflowAdapter,
+        SearchTool,
     },
 };
 use serde_json::json;
@@ -104,8 +107,11 @@ impl PatchApplier for RecordingPatchApplier {
 async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventStore>) {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime =
-        AgentRuntime::with_event_sink(config, dir.path().to_path_buf(), events.clone()).unwrap();
+    let runtime = AgentRuntime::builder(config, dir.path().to_path_buf())
+        .with_event_sink(events.clone())
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
     let output = runtime.run(task.to_owned()).await.unwrap();
     (output.text, events)
 }
@@ -113,6 +119,7 @@ async fn run_with(config: AppConfig, task: &str) -> (String, Arc<InMemoryEventSt
 fn test_config() -> AppConfig {
     disable_plugin_loader();
     let mut config = AppConfig::default();
+    config.modules.workflow = "coding.single_loop".to_owned();
     config.modules.patch = "null".to_owned();
     config.tools.enabled = standard_tool_names()
         .into_iter()
@@ -125,6 +132,55 @@ fn test_config() -> AppConfig {
         .collect();
     config.policy.ask_write.allow = ["search"].into_iter().map(str::to_owned).collect();
     config
+}
+
+fn test_catalog() -> BuiltinModuleCatalog {
+    disable_plugin_loader();
+    let mut catalog = BuiltinModuleCatalog::new();
+    catalog
+        .register_plugin_context_builder(
+            "simple",
+            PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+        )
+        .expect("register test simple context builder");
+    catalog
+        .register_plugin_context_builder(
+            "repo_aware",
+            PluginContextBuilder_TO::from_value(RepoAwareContextBuilderPlugin, TD_Opaque),
+        )
+        .expect("register test repo_aware context builder");
+    catalog
+        .register_plugin_workflow(
+            "coding.single_loop",
+            PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
+        )
+        .expect("register test single loop workflow");
+    catalog
+        .register_plugin_workflow(
+            "coding.plan_execute_review",
+            PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
+        )
+        .expect("register test plan workflow");
+    catalog
+}
+
+fn registry_from_test_config(config: &AppConfig, cwd: &std::path::Path) -> BuiltinRegistry {
+    BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog()).unwrap()
+}
+
+fn try_registry_from_test_config(
+    config: &AppConfig,
+    cwd: &std::path::Path,
+) -> anyhow::Result<BuiltinRegistry> {
+    BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog())
+}
+
+fn single_loop_workflow(max_tool_rounds: usize) -> PluginWorkflowAdapter {
+    let workflow: WorkflowObject = PluginWorkflow_TO::from_value(
+        CodingSingleLoopWorkflow { max_tool_rounds },
+        TD_Opaque,
+    );
+    PluginWorkflowAdapter::new(workflow)
 }
 
 fn configured_tool_names(config: &AppConfig) -> Vec<&str> {
@@ -178,13 +234,13 @@ fn builtin_module_catalog_lists_builtin_slots() {
     );
     assert_eq!(search_ids, ["null"]);
     assert_eq!(memory_policy_ids, ["carry_forward", "none"]);
-    assert_eq!(context_ids, ["repo_aware", "simple"]);
-    assert_eq!(
+    assert!(context_ids.is_empty());
+    assert!(
         catalog
-            .manifest(ModuleKind::Workflow, "single_loop")
-            .unwrap()
-            .capabilities,
-        ["model", "tools", "context"]
+            .manifests_by_kind(ModuleKind::Workflow)
+            .into_iter()
+            .collect::<Vec<_>>()
+            .is_empty()
     );
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
 }
@@ -234,8 +290,11 @@ async fn statusline_renderer_composes_configured_components() {
     config.renderer.statusline.context.max_tokens = Some(100);
 
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime =
-        AgentRuntime::with_event_sink(config, dir.path().to_path_buf(), events.clone()).unwrap();
+    let runtime = AgentRuntime::builder(config, dir.path().to_path_buf())
+        .with_event_sink(events.clone())
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
     let rendered = runtime.render(&output).await.unwrap();
 
@@ -251,7 +310,7 @@ fn statusline_renderer_rejects_unknown_component() {
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.components = vec!["unknown".to_owned()];
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown statusline component should be rejected"),
         Err(error) => error,
     };
@@ -270,7 +329,7 @@ fn statusline_renderer_rejects_unknown_position_at_startup() {
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.position = "middle".to_owned();
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown statusline position should be rejected"),
         Err(error) => error,
     };
@@ -289,7 +348,7 @@ fn statusline_renderer_rejects_unknown_frame_at_startup() {
     config.modules.renderer = "statusline".to_owned();
     config.renderer.statusline.frame = "floating".to_owned();
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown statusline frame should be rejected"),
         Err(error) => error,
     };
@@ -315,22 +374,28 @@ async fn swapping_context_builder_does_not_change_runtime() {
     }
 }
 
-#[test]
-fn unknown_repo_aware_provider_is_rejected_at_startup() {
+#[tokio::test]
+async fn unknown_repo_aware_provider_is_rejected_when_context_is_built() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.modules.context = "repo_aware".to_owned();
     config.context.repo_aware.providers = vec!["mystery".to_owned()];
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
-        Ok(_) => panic!("unknown repo_aware provider should be rejected"),
-        Err(error) => error,
-    };
+    let registry = registry_from_test_config(&config, dir.path());
+    let error = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask::new("summarize repo".to_owned(), dir.path().to_path_buf()),
+            search: Arc::new(NullSearch),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .expect_err("unknown repo_aware provider should be rejected");
 
     assert!(
         error
             .to_string()
-            .contains("unsupported repo_aware context provider: mystery")
+            .contains("unknown context provider: mystery")
     );
 }
 
@@ -363,7 +428,7 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
         "manifest".to_owned(),
         "repo_tree".to_owned(),
     ];
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let bundle = registry
         .context
         .build(ContextBuildInput {
@@ -415,7 +480,7 @@ async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
         "../{}/secret.md",
         outside.path().file_name().unwrap().to_string_lossy()
     )];
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let bundle = registry
         .context
         .build(ContextBuildInput {
@@ -441,7 +506,7 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
     config.modules.context = "repo_aware".to_owned();
     config.context.repo_aware.providers = vec!["search".to_owned()];
     config.context.repo_aware.max_search_results = 4;
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let queries = Arc::new(Mutex::new(Vec::new()));
     let bundle = registry
         .context
@@ -523,7 +588,7 @@ fn unknown_memory_policy_is_rejected_at_startup() {
     let mut config = test_config();
     config.modules.memory_policy = "auto_summary".to_owned();
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown memory policy should be rejected"),
         Err(error) => error,
     };
@@ -571,9 +636,11 @@ async fn swapping_policy_does_not_change_read_tool_execution() {
 async fn runtime_keeps_session_id_and_creates_new_turn_id_per_run() {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime =
-        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events.clone())
-            .unwrap();
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_event_sink(events.clone())
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let first = runtime.run("summarize first".to_owned()).await.unwrap();
     let second = runtime.run("summarize second".to_owned()).await.unwrap();
@@ -617,6 +684,7 @@ async fn runtime_builder_can_reuse_existing_session_and_thread_ids() {
     let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
         .with_event_sink(events.clone())
         .with_session_ids(session_id, thread_id)
+        .with_module_catalog(test_catalog())
         .build()
         .unwrap();
 
@@ -685,7 +753,7 @@ async fn fanout_preserves_event_envelope_identity_across_sinks() {
 async fn tool_visibility_and_execution_policy_are_separate() {
     let dir = temp_workspace();
     let config = test_config();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
 
     assert!(registry.tools.spec("apply_patch").is_ok());
 
@@ -709,7 +777,7 @@ async fn tool_visibility_and_execution_policy_are_separate() {
 async fn tool_visibility_uses_visibility_policy_not_execution_evaluate() {
     let dir = temp_workspace();
     let config = test_config();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let mut ctx = registry.runtime_context(
         new_session_id(),
@@ -737,7 +805,7 @@ async fn tool_visibility_uses_visibility_policy_not_execution_evaluate() {
 async fn execution_policy_receives_real_tool_call_args() {
     let dir = temp_workspace();
     let config = test_config();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let mut ctx = registry.runtime_context(
         new_session_id(),
@@ -815,7 +883,7 @@ fn tool_registry_tracks_tool_source() {
 fn tool_specs_are_returned_in_stable_name_order() {
     let dir = temp_workspace();
     let config = test_config();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let names = registry
         .tools
         .specs()
@@ -850,7 +918,7 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
             handler: "search".to_owned(),
         },
     });
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let spec = registry.tools.spec("project_search").unwrap();
     assert_eq!(spec.description, "Configured search tool");
     assert_eq!(spec.metadata["from"], "config");
@@ -914,7 +982,7 @@ fn configured_native_tool_cannot_lower_handler_safety() {
             handler: "apply_patch".to_owned(),
         },
     });
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
 
     assert_eq!(
         registry.tools.spec("safe_patch").unwrap().safety,
@@ -948,7 +1016,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
         },
     });
     config.modules.policy = "allow_all".to_owned();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
@@ -1005,7 +1073,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
             ],
         },
     });
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
@@ -1096,7 +1164,7 @@ done
             protocol_version: "2025-06-18".to_owned(),
         },
     });
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     assert_eq!(
         registry.tools.spec("mcp_echo").unwrap().safety,
         ToolSafety::RunsCommands
@@ -1161,7 +1229,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
             protocol_version: "2025-06-18".to_owned(),
         },
     });
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
@@ -1214,13 +1282,12 @@ async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive
     let mut config = test_config();
     config.permissions.mode = PermissionMode::Plan;
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime = AgentRuntime::with_event_sink_and_approval_transport(
-        config,
-        dir.path().to_path_buf(),
-        events,
-        Arc::new(TestApprovalTransport { interactive: true }),
-    )
-    .unwrap();
+    let runtime = AgentRuntime::builder(config, dir.path().to_path_buf())
+        .with_event_sink(events)
+        .with_approval(Arc::new(TestApprovalTransport { interactive: true }))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
@@ -1245,7 +1312,7 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.permissions.mode = PermissionMode::Auto;
-    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let mut registry = registry_from_test_config(&config, dir.path());
     registry.tools.register(NetworkTool).unwrap();
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -1302,7 +1369,7 @@ async fn auto_permission_mode_hides_command_and_network_tools() {
 async fn tool_orchestrator_enforces_tool_timeout() {
     let dir = temp_workspace();
     let config = test_config();
-    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let mut registry = registry_from_test_config(&config, dir.path());
     registry.tools.register(SlowTool).unwrap();
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -1345,13 +1412,12 @@ async fn tool_orchestrator_enforces_tool_timeout() {
 async fn interactive_approval_transport_exposes_ask_tools_to_model() {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime = AgentRuntime::with_event_sink_and_approval_transport(
-        test_config(),
-        dir.path().to_path_buf(),
-        events,
-        Arc::new(TestApprovalTransport { interactive: true }),
-    )
-    .unwrap();
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_event_sink(events)
+        .with_approval(Arc::new(TestApprovalTransport { interactive: true }))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
@@ -1364,7 +1430,7 @@ async fn interactive_approval_transport_exposes_ask_tools_to_model() {
 async fn malformed_tool_call_is_rejected_before_approval() {
     let dir = temp_workspace();
     let config = test_config();
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
@@ -1420,7 +1486,7 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.modules.policy = "allow_all".to_owned();
-    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let mut registry = registry_from_test_config(&config, dir.path());
     registry.model = Arc::new(LengthToolCallModel);
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -1432,7 +1498,7 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
         PermissionMode::Normal,
     );
 
-    let output = SingleLoopWorkflow::default()
+    let output = single_loop_workflow(8)
         .run(
             AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
@@ -1461,7 +1527,7 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.modules.policy = "allow_all".to_owned();
-    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let mut registry = registry_from_test_config(&config, dir.path());
     registry.model = Arc::new(FinalAfterToolLimitModel::default());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -1473,7 +1539,7 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
         PermissionMode::Normal,
     );
 
-    let output = SingleLoopWorkflow { max_tool_rounds: 1 }
+    let output = single_loop_workflow(1)
         .run(
             AgentTask::new("write then finish".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
@@ -1505,7 +1571,7 @@ async fn workflow_times_out_hung_model_request() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.runtime.model_timeout_ms = 5;
-    let mut registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let mut registry = registry_from_test_config(&config, dir.path());
     registry.model = Arc::new(NeverModel);
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -1517,7 +1583,7 @@ async fn workflow_times_out_hung_model_request() {
         PermissionMode::Normal,
     );
 
-    let error = SingleLoopWorkflow::default()
+    let error = single_loop_workflow(8)
         .run(
             AgentTask::new("hang".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
@@ -1784,16 +1850,19 @@ impl ApprovalTransport for TestApprovalTransport {
     }
 }
 
-// folder_listing_question_uses_list_dir_context removed together with the
-// `maybe_add_directory_listing_context` heuristic in single_loop.rs — the
-// feature assumed list_dir was a builtin, which it no longer is.
+// folder_listing_question_uses_list_dir_context was removed together with the
+// old directory-listing heuristic. The feature assumed list_dir was a builtin,
+// which it no longer is.
 
 #[tokio::test]
 async fn context_chunks_are_not_persisted_to_runtime_history() {
     let dir = temp_workspace();
     let events = Arc::new(InMemoryEventStore::new());
-    let runtime =
-        AgentRuntime::with_event_sink(test_config(), dir.path().to_path_buf(), events).unwrap();
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_event_sink(events)
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let first = runtime.run("hello".to_owned()).await.unwrap();
     let follow_up = runtime.run("summarize".to_owned()).await.unwrap();
@@ -1811,12 +1880,11 @@ async fn context_chunks_are_not_written_to_session_store() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     std::fs::write(&config_path, "").expect("config file");
-    let runtime = AgentRuntime::new_with_config_path(
-        test_config(),
-        dir.path().to_path_buf(),
-        Some(&config_path),
-    )
-    .unwrap();
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_config_path(Some(&config_path))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let output = runtime.run("hello".to_owned()).await.unwrap();
     let messages_path = runtime.session_dir().unwrap().join("messages.jsonl");
@@ -1844,12 +1912,11 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     std::fs::write(&config_path, "").expect("config file");
-    let first_runtime = AgentRuntime::new_with_config_path(
-        test_config(),
-        dir.path().to_path_buf(),
-        Some(&config_path),
-    )
-    .unwrap();
+    let first_runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_config_path(Some(&config_path))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
 
     let first = first_runtime
         .run("summarize before resume".to_owned())
@@ -1869,6 +1936,7 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 
     let resumed = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
         .resume_from_session_dir(session_dir.clone(), session_id, thread_id)
+        .with_module_catalog(test_catalog())
         .build()
         .unwrap();
     assert_eq!(resumed.history_len().await, 2);
@@ -1942,7 +2010,7 @@ fn ask_write_rejects_unknown_policy_tool_at_startup() {
     let mut config = test_config();
     config.policy.ask_write.allow = vec!["missing_tool".to_owned()];
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown policy tool should be rejected"),
         Err(error) => error,
     };
@@ -1960,7 +2028,7 @@ fn ask_write_rejects_unknown_ask_before_tool_at_startup() {
     let mut config = test_config();
     config.policy.ask_write.ask_before = vec!["missing_tool".to_owned()];
 
-    let error = match BuiltinRegistry::from_config(&config, dir.path().to_path_buf()) {
+    let error = match try_registry_from_test_config(&config, dir.path()) {
         Ok(_) => panic!("unknown ask_before policy tool should be rejected"),
         Err(error) => error,
     };
@@ -1993,7 +2061,7 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
         .allow
         .push("remember_fact".to_owned());
 
-    let registry = BuiltinRegistry::from_config(&config, dir.path().to_path_buf()).unwrap();
+    let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
         new_session_id(),
@@ -2385,50 +2453,9 @@ fn workspace_path_keeps_cyrillic_folder_names() {
     assert_eq!(encoded, "home|qweasd123tg|Проекты|моя_игра");
 }
 
-#[tokio::test]
-async fn sqlite_memory_roundtrip_through_builtin() {
-    use modular_agent::{
-        contracts::MemoryStore,
-        domain::{MemoryItem, MemoryQuery},
-        modules::SqliteMemory,
-    };
-    disable_plugin_loader();
-
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteMemory::open(dir.path().join("memory.sqlite")).unwrap();
-    store
-        .remember(MemoryItem::new(
-            "preference",
-            "prefer dark mode",
-            serde_json::Value::Null,
-        ))
-        .await
-        .unwrap();
-    store
-        .remember(MemoryItem::new(
-            "fact",
-            "React Router v6 is in use",
-            serde_json::Value::Null,
-        ))
-        .await
-        .unwrap();
-
-    let hits = store.recall(MemoryQuery::new("dark", 5)).await.unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].kind, "preference");
-
-    let hits = store.recall(MemoryQuery::new("React", 5)).await.unwrap();
-    assert_eq!(hits.len(), 1);
-    assert!(hits[0].content.contains("React Router"));
-}
-
-#[tokio::test]
-async fn sqlite_memory_selectable_through_catalog() {
-    use modular_agent::{
-        contracts::MemoryStore,
-        core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
-        domain::{MemoryItem, MemoryQuery},
-    };
+#[test]
+fn sqlite_memory_is_plugin_only_without_global_plugins() {
+    use modular_agent::core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext};
     disable_plugin_loader();
 
     let dir = tempfile::tempdir().unwrap();
@@ -2439,16 +2466,10 @@ async fn sqlite_memory_selectable_through_catalog() {
         cwd: dir.path(),
         context_providers: catalog.context_providers(),
     };
-    let store: Arc<dyn MemoryStore> = catalog.build_memory("sqlite", &build_ctx).unwrap();
-    store
-        .remember(MemoryItem::new(
-            "fact",
-            "sample content",
-            serde_json::Value::Null,
-        ))
-        .await
-        .unwrap();
-    let hits = store.recall(MemoryQuery::new("sample", 10)).await.unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].content, "sample content");
+    let error = match catalog.build_memory("sqlite", &build_ctx) {
+        Ok(_) => panic!("sqlite is provided by sqlite-memory plugin, not core"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("unsupported memory module: sqlite"));
 }

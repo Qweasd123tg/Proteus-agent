@@ -98,7 +98,7 @@ event
 - `TurnFinished`;
 - `Error`.
 
-`PatchApplied` существует в enum, но текущий `SingleLoopWorkflow` его не испускает. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
+`PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 `MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
 
@@ -177,9 +177,10 @@ runtime загружает `messages.jsonl` в in-memory history и следую
 session store подключён. Для восстановления нужно явно передать путь к старой
 session directory.
 
-## SingleLoopWorkflow
+## Workflow Loop
 
-Текущий workflow:
+Baseline `coding.single_loop` поставляется плагином `coding-workflow`. Он
+работает через host capabilities ядра:
 
 1. `AgentRuntime::run` берёт `run_lock`;
 2. при первом turn пишет `SessionStarted`;
@@ -197,7 +198,7 @@ session directory.
 14. если лимит rounds исчерпан, делает финальный model call без tools;
 15. пишет `TurnFinished`.
 
-Лимит tool rounds: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
+Лимит tool rounds в `coding.single_loop`: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
 Если approval требуется, `ToolOrchestrator` отправляет запрос через
 `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в

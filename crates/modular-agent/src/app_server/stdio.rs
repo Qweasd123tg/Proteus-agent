@@ -257,17 +257,46 @@ async fn send_stdio_response(
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
+    use agent_contracts::{
+        abi_stable::sabi_trait::TD_Opaque,
+        plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
+    };
+    use coding_workflow::CodingPlanExecuteReviewWorkflow;
+    use context_pack::SimpleContextBuilderPlugin;
     use tokio::sync::mpsc;
 
     use super::*;
+    use crate::core::BuiltinModuleCatalog;
+
+    fn test_catalog() -> BuiltinModuleCatalog {
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog
+            .register_plugin_context_builder(
+                "simple",
+                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+            )
+            .expect("register test context builder");
+        catalog
+            .register_plugin_workflow(
+                "coding.plan_execute_review",
+                PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
+            )
+            .expect("register test workflow");
+        catalog
+    }
 
     #[tokio::test]
     async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
         let cwd = tempfile::tempdir().expect("cwd");
         let mut config = AppConfig::default();
         config.modules.patch = "null".to_owned();
-        let server =
-            AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
+        let server = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
         turn_handles.insert(

@@ -13,7 +13,10 @@ use crate::{
     contracts::{
         ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta,
     },
-    core::{AgentRuntime, AppConfig, BroadcastEventSink, FanoutEventSink, JsonlEventStore},
+    core::{
+        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog, FanoutEventSink,
+        JsonlEventStore,
+    },
     domain::AgentOutput,
     modules::{ChannelApprovalTransport, PendingApproval},
 };
@@ -114,6 +117,25 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
+        Self::launch_inner(config, cwd, config_path, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn launch_with_module_catalog(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        module_catalog: BuiltinModuleCatalog,
+    ) -> Result<AppServerHandle> {
+        Self::launch_inner(config, cwd, config_path, Some(module_catalog))
+    }
+
+    fn launch_inner(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        module_catalog: Option<BuiltinModuleCatalog>,
+    ) -> Result<AppServerHandle> {
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
         let jsonl_raw: Arc<dyn EventSink> =
             Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
@@ -132,13 +154,14 @@ impl AgentAppServer {
 
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
-        let runtime = Arc::new(
-            AgentRuntime::builder(config, cwd)
-                .with_config_path(config_path)
-                .with_event_sink(event_sink)
-                .with_approval(Arc::new(approval_transport))
-                .build()?,
-        );
+        let mut builder = AgentRuntime::builder(config, cwd)
+            .with_config_path(config_path)
+            .with_event_sink(event_sink)
+            .with_approval(Arc::new(approval_transport));
+        if let Some(module_catalog) = module_catalog {
+            builder = builder.with_module_catalog(module_catalog);
+        }
+        let runtime = Arc::new(builder.build()?);
         let (events, _) = broadcast::channel(1024);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
 
@@ -268,6 +291,12 @@ async fn deny_pending_approvals(
 mod tests {
     use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
+    use agent_contracts::{
+        abi_stable::sabi_trait::TD_Opaque,
+        plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
+    };
+    use coding_workflow::CodingPlanExecuteReviewWorkflow;
+    use context_pack::SimpleContextBuilderPlugin;
     use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
     use super::*;
@@ -276,6 +305,23 @@ mod tests {
         domain::{ToolCall, new_call_id},
         modules::PendingApproval,
     };
+
+    fn test_catalog() -> BuiltinModuleCatalog {
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog
+            .register_plugin_context_builder(
+                "simple",
+                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+            )
+            .expect("register test context builder");
+        catalog
+            .register_plugin_workflow(
+                "coding.plan_execute_review",
+                PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
+            )
+            .expect("register test workflow");
+        catalog
+    }
 
     #[tokio::test]
     async fn approval_forwarder_denies_when_no_client_can_receive_request() {
@@ -425,8 +471,13 @@ mod tests {
         let cwd = tempfile::tempdir().expect("cwd");
         let mut config = AppConfig::default();
         config.modules.patch = "null".to_owned();
-        let handle =
-            AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
+        let handle = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
         let mut event_rx = handle.subscribe();
         let (responder, response_rx) = oneshot::channel();
         let approval_id = "approval-cancel".to_owned();

@@ -8,7 +8,7 @@
 > pattern (как у Zed/Nushell) вместо "ссылки на ядро", и hybrid
 > semantic — **reads imperatively, writes declaratively**. Первый
 > полезный backend для coding agents — SQLite + FTS5 (уже сделан в ядре
-> и как `sqlite-memory` плагин).
+> через `sqlite-memory` плагин).
 >
 > Citations в виде `citeturnXXview0` — артефакт рендерера, игнорируй.
 

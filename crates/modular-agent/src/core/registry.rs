@@ -45,6 +45,14 @@ impl BuiltinRegistry {
             let _ = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
         }
 
+        Self::from_catalog(config, cwd, catalog)
+    }
+
+    pub fn from_catalog(
+        config: &AppConfig,
+        cwd: PathBuf,
+        catalog: BuiltinModuleCatalog,
+    ) -> Result<Self> {
         let build_ctx = ModuleBuildContext {
             config,
             cwd: &cwd,

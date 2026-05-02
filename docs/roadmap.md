@@ -44,13 +44,15 @@ UI/business logic в CLI.
 - session/events/history отделены от ephemeral context;
 - CLI/UI зафиксирован как внешний слой;
 - process stdout/stderr bounded до общего truncation.
-- `repo_aware` context добавляет provider pipeline за `ContextBuilder` slot.
+- `repo_aware` context вынесен в `context-pack` и добавляет provider pipeline
+  за `ContextBuilder` slot.
 
 ### v0.1: Repo-Aware Context
 
 Цель - агент лучше понимает проект и тратит меньше токенов.
 
-Базовая `ContextBuilder` implementation уже добавлена как `repo_aware`.
+Базовая `ContextBuilder` implementation вынесена в `context-pack` как
+`repo_aware`.
 Следующий scope - сделать её практически сильнее, не перенося логику в workflow
 или runtime.
 
@@ -83,7 +85,8 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 
 Цель - заменить “один hardcoded loop” на настраиваемое поведение coding-agent.
 
-Первый новый workflow: `plan_execute_review`.
+Первый новый workflow: `coding.plan_execute_review` в плагине
+`coding-workflow`.
 
 Поведение должно настраиваться config-ом:
 
@@ -94,7 +97,9 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 - какие tool groups видны в разных фазах;
 - как ограничивать token budget по фазам.
 
-Важно: `plan_execute_review` является новым `Workflow`, а не расширением core.
+Важно: `coding.plan_execute_review` является новым `Workflow`, а не
+расширением core. Базовая версия уже реализует фазы plan/execute/review; дальше
+нужно наращивать настройки фаз, diff/test tools и политику verification.
 
 ### v0.3: Control Plane
 
@@ -142,31 +147,36 @@ Scope:
   ReasoningDelta как runtime events; `agent-tui` дописывает deltas в tail
   активного assistant-bubble. `FilteredEventSink` не пишет дельты в
   durable JSONL по умолчанию.
-- ✅ SQLite FTS5 memory backend в ядре (modules.memory = "sqlite") и как
-  отдельный плагин (modules.memory = "sqlite_plugin") — proof что
-  PluginMemoryStore ABI работает с реальной I/O-зависимой реализацией.
+- ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
+  `sqlite-memory` (ids `sqlite`, `sqlite_plugin`) — proof что
+  `PluginMemoryStore` ABI работает с реальной I/O-зависимой реализацией без
+  `rusqlite` в core.
 - ✅ Memory end-to-end: builtin `CarryForwardPolicy` (пишет один
   handoff-snippet после каждого turn'а) + tool `remember_fact` (модель
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
-  реально наполняется и recall попадает в context через
-  `SimpleContextBuilder`.
+  реально наполняется и recall попадает в context через plugin context builder
+  `simple`.
 - ✅ Волна 3 (частично) — `read_file` / `write_file` / `list_dir` / `grep` /
   `shell` вынесены из ядра в плагины `file-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
-  `direct-patch`. В ядре остались только slot-dependent tools:
-  `apply_patch`, `search`, `remember_fact`.
+  `direct-patch`, baseline/staged workflows вынесены как plugin ids
+  `coding.single_loop` и `coding.plan_execute_review` в `coding-workflow`.
+  Context builders `simple` и `repo_aware` вынесены в `context-pack`.
+  В ядре остались только slot-dependent tools: `apply_patch`, `search`,
+  `remember_fact`; builtin workflow/context fallback удалён.
   `install.sh` собирает и копирует все плагины в `~/.agent/plugins/`
   автоматически.
 
 Следующий scope:
 
-- MemoryPolicy как плагин (требует FFI callback bridge — плагин зовёт
-  `MemoryStore::recall` из ядра во время `after_turn`); ContextBuilder
-  как плагин (та же инфра — плагин зовёт `search`/`recall`); blueprint
-  в `docs/memory-research.md` (per-call capability + mailbox);
+- усиление `coding.plan_execute_review`: фазовые настройки, diff/test runner
+  tools, режимы auto-verify и компактный phase/debug report;
+- расширение `memory_policy` за пределы декларативного `MemoryPolicyPlan`, если
+  понадобится callback/retrieval во время `after_turn`; blueprint остаётся в
+  `docs/memory-research.md` (per-call capability + mailbox);
 - persistent MCP host (вместо нынешнего spawn-per-call `ConfiguredMcpTool`);
 - Волна 3 — вынос builtin-модулей в плагины по одному;
-- Волна 4 — async slot'ы (ModelAdapter, Workflow) через `FfiFuture` / `FfiStream`.
+- Волна 4 — async model slot (`ModelAdapter`) через `FfiFuture` / `FfiStream`.
 
 ## Не Делать Сейчас
 

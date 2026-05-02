@@ -13,7 +13,8 @@ auth = "x-api-key"
 api_version = "2023-06-01"
 
 [modules]
-workflow = "single_loop"
+# Provided by the coding-workflow plugin installed by ./install.sh.
+workflow = "coding.plan_execute_review"
 # Provided by the rg-search plugin installed by ./install.sh.
 search = "rg"
 memory = "none"

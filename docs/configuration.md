@@ -42,12 +42,15 @@ cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
 env key, `modules.search = "rg"`, `modules.context = "repo_aware"` и
 core-resident tools (`apply_patch`, `remember_fact`, `search`). `rg` приходит
 из плагина `rg-search`, а `modules.patch = "direct"` приходит из плагина
-`direct-patch`, поэтому для этого profile нужен `./install.sh`.
+`direct-patch`; `repo_aware` приходит из `context-pack`, поэтому для этого
+profile нужен `./install.sh`.
 Для полного набора (`read_file`/`write_file`/`list_dir`/`grep`/`shell`)
 установите плагины `file-tools` и `shell-tool` тем же install script.
 
 `agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
-`context = "simple"`, `module_config.*` payloads и core tools (без плагинов).
+`context = "simple"`, `module_config.*` payloads и core tools. `simple`
+поставляется `context-pack`, так что runtime всё равно требует установленный
+context plugin.
 
 `agent.advanced.example.toml` - advanced пример для bring-your-own tools:
 `tools.enabled = []`, а полный набор tools приходит из директории `tools`
@@ -109,7 +112,7 @@ Default env vars:
 ```json
 {
   "modules": {
-    "workflow": "single_loop",
+    "workflow": "coding.plan_execute_review",
     "search": "null",
     "memory": "none",
     "memory_policy": "none",
@@ -122,6 +125,10 @@ Default env vars:
 ```
 
 Поддерживаемые значения перечислены в [modules.md](modules.md).
+Workflow больше не имеет встроенного fallback в core. Для запуска нужно
+установить workflow-плагин, обычно `coding-workflow`, и выбрать
+`modules.workflow = "coding.plan_execute_review"` или baseline
+`"coding.single_loop"`.
 
 ## Module Config
 
@@ -388,12 +395,15 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
 }
 ```
 
-`max_search_results` задаёт лимит поисковых chunks, которые `SimpleContextBuilder` запрашивает через `SearchBackend`. Этот параметр не привязан к конкретной реализации search backend.
+`max_search_results` задаёт лимит поисковых chunks, которые context builder
+`simple` из `context-pack` запрашивает через `SearchBackend`. Этот параметр не
+привязан к конкретной реализации search backend.
 
-`context.repo_aware.providers` задаёт ordered pipeline providers. Сейчас это
-internal provider pipeline внутри `RepoAwareContextBuilder`, а не external
-plugin system. `max_context_bytes` ограничивает суммарный объём selected
-chunks, `max_bytes_per_file` ограничивает project instruction/manifest файлы.
+`context.repo_aware.providers` задаёт ordered pipeline providers внутри
+`repo_aware` builder-а из `context-pack`. External provider-плагины
+добавляются через `register_context_provider` и могут быть включены в этот же
+список. `max_context_bytes` ограничивает суммарный объём selected chunks,
+`max_bytes_per_file` ограничивает project instruction/manifest файлы.
 `repo_tree_max_depth`, `repo_tree_max_entries` и `repo_tree_skip_entries`
 ограничивают recursive tree provider. Search provider извлекает несколько
 targeted queries из текущей задачи и вызывает `SearchBackend` по ним, вместо
@@ -417,13 +427,11 @@ targeted queries из текущей задачи и вызывает `SearchBac
 
 - `none` — no-op, ничего не сохраняет.
 - `jsonl` — append-only JSONL в `.agent/memory.jsonl` (путь настраивается).
-- `sqlite` — SQLite FTS5 в `.agent/memory.sqlite`; создаётся автоматически.
-  `recall(query)` выполняет FTS `MATCH` с rank-ordered `LIMIT`; пустой query
-  возвращает последние items в обратном порядке по id.
 
 Плагин-backend: положите `.so` с реализацией `PluginMemoryStore` в
 `~/.agent/plugins/<name>/` и выберите его через `modules.memory = "<plugin_id>"`
-(например, `"sqlite_plugin"` если установлен `sqlite-memory` плагин).
+(например, `"sqlite"` или legacy alias `"sqlite_plugin"` если установлен
+`sqlite-memory` плагин). SQLite FTS5 больше не линкуется в core.
 
 `modules.memory_policy` выбирает lifecycle policy записи:
 

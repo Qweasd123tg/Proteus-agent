@@ -12,4 +12,6 @@ members = [
     "plugins/shell-tool",
     "plugins/rg-search",
     "plugins/direct-patch",
+    "plugins/coding-workflow",
+    "plugins/context-pack",
 ]

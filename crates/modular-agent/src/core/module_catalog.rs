@@ -19,10 +19,9 @@ use crate::{
         AllowAllPolicy, ApplyPatchTool, AskWritePolicy, BUILTIN_REPO_AWARE_PROVIDER_IDS,
         BuiltinToolProvider, CarryForwardPolicy, ConfiguredMcpTool, ConfiguredNativeTool,
         ConfiguredProcessTool, FakeModelClient, JsonlMemory, NoMemory, NoMemoryPolicy,
-        NullPatchApplier, NullSearch, PlainRenderer, PluginContextProviderAdapter,
-        PluginMemoryPolicyAdapter, RepoAwareContextBuilder, RepoAwareContextConfig,
-        RepoAwareContextProvider, SearchTool, SimpleContextBuilder, SingleLoopWorkflow,
-        StatuslineRenderer, is_builtin_tool_name,
+        NullPatchApplier, NullSearch, PlainRenderer, PluginContextBuilderAdapter,
+        PluginContextProviderAdapter, PluginMemoryPolicyAdapter, RepoAwareContextProvider,
+        SearchTool, StatuslineRenderer, is_builtin_tool_name, PluginWorkflowAdapter,
     },
 };
 
@@ -190,17 +189,6 @@ impl BuiltinModuleCatalog {
             ),
             build_jsonl_memory,
         );
-        catalog.register_module::<dyn MemoryStore>(
-            slot::MEMORY,
-            "sqlite",
-            manifest(
-                "sqlite",
-                ModuleKind::Memory,
-                &["local_file", "sqlite", "fts5"],
-                "SQLite FTS5 memory store ({cwd}/.agent/memory.sqlite).",
-            ),
-            build_sqlite_memory,
-        );
 
         // Memory policies
         catalog.register_module::<dyn MemoryPolicy>(
@@ -224,30 +212,6 @@ impl BuiltinModuleCatalog {
                 "Stores one carry-forward snippet after each turn (last assistant line, 500 chars).",
             ),
             build_carry_forward_policy,
-        );
-
-        // Context builders
-        catalog.register_module::<dyn ContextBuilder>(
-            slot::CONTEXT,
-            "simple",
-            manifest(
-                "simple",
-                ModuleKind::Context,
-                &["memory", "search"],
-                "Simple memory/search context builder.",
-            ),
-            build_simple_context,
-        );
-        catalog.register_module::<dyn ContextBuilder>(
-            slot::CONTEXT,
-            "repo_aware",
-            manifest(
-                "repo_aware",
-                ModuleKind::Context,
-                &["workspace", "providers", "budget"],
-                "Provider-based workspace context builder.",
-            ),
-            build_repo_aware_context,
         );
 
         // Approval policies
@@ -283,19 +247,6 @@ impl BuiltinModuleCatalog {
                 "No-op patch applier.",
             ),
             build_null_patch,
-        );
-
-        // Workflows
-        catalog.register_module::<dyn Workflow>(
-            slot::WORKFLOW,
-            "single_loop",
-            manifest(
-                "single_loop",
-                ModuleKind::Workflow,
-                &["model", "tools", "context"],
-                "Single-loop model/tool workflow.",
-            ),
-            build_single_loop_workflow,
         );
 
         // Renderers
@@ -535,6 +486,63 @@ impl BuiltinModuleCatalog {
         Ok(())
     }
 
+    pub fn register_plugin_context_builder(
+        &mut self,
+        module_id: &str,
+        builder: agent_contracts::plugin::ContextBuilderObject,
+    ) -> Result<()> {
+        validate_plugin_id("context builder module", module_id)?;
+        let slot_id = slot::CONTEXT;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "context builder module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let module_id_for_factory = module_id.to_owned();
+        let builder = Arc::new(builder);
+        let factory_builder = builder.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let ctx = input.module()?;
+            let config = match ctx.config.module_config_value(
+                ModuleKind::Context,
+                &module_id_for_factory,
+            ) {
+                serde_json::Value::Null if module_id_for_factory == "simple" => {
+                    serde_json::to_value(&ctx.config.context.simple)?
+                }
+                serde_json::Value::Null if module_id_for_factory == "repo_aware" => {
+                    serde_json::to_value(&ctx.config.context.repo_aware)?
+                }
+                value => value,
+            };
+            let adapter = PluginContextBuilderAdapter::new(
+                module_id_for_factory.clone(),
+                factory_builder.clone(),
+                config,
+                ctx.context_providers.to_vec(),
+            );
+            Ok(arc_to_any(Arc::new(adapter) as Arc<dyn ContextBuilder>))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Context, &["plugin", "dylib"]);
+        manifest.description = Some(format!("ContextBuilder from plugin (module id: {module_id})"));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(builder);
+        Ok(())
+    }
+
     pub fn register_plugin_memory_policy(
         &mut self,
         module_id: &str,
@@ -668,6 +676,44 @@ impl BuiltinModuleCatalog {
                 factory: erased,
             },
         );
+        Ok(())
+    }
+
+    pub fn register_plugin_workflow(
+        &mut self,
+        module_id: &str,
+        workflow: agent_contracts::plugin::WorkflowObject,
+    ) -> Result<()> {
+        validate_plugin_id("workflow module", module_id)?;
+        let slot_id = slot::WORKFLOW;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "workflow module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        let shared: Arc<dyn Workflow> = Arc::new(PluginWorkflowAdapter::new(workflow));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Workflow, &["plugin", "dylib"]);
+        manifest.description = Some(format!("Workflow from plugin (module id: {module_id})"));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(shared);
         Ok(())
     }
 
@@ -1143,51 +1189,12 @@ fn build_jsonl_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStor
     Ok(Arc::new(JsonlMemory::new(memory_path(ctx)?)))
 }
 
-fn build_sqlite_memory(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
-    let path = crate::modules::default_sqlite_memory_path(ctx.cwd)?;
-    Ok(Arc::new(crate::modules::SqliteMemory::open(path)?))
-}
-
 fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
     Ok(Arc::new(NoMemoryPolicy))
 }
 
 fn build_carry_forward_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
     Ok(Arc::new(CarryForwardPolicy))
-}
-
-fn build_simple_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::Context,
-        "simple",
-        ctx.config.context.simple.clone(),
-    )?;
-    Ok(Arc::new(SimpleContextBuilder {
-        max_search_results: config.max_search_results,
-    }))
-}
-
-fn build_repo_aware_context(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::Context,
-        "repo_aware",
-        ctx.config.context.repo_aware.clone(),
-    )?;
-    Ok(Arc::new(RepoAwareContextBuilder::new(
-        RepoAwareContextConfig {
-            providers: config.providers,
-            max_context_bytes: config.max_context_bytes,
-            max_bytes_per_file: config.max_bytes_per_file,
-            max_search_results: config.max_search_results,
-            memory_limit: config.memory_limit,
-            repo_tree_max_entries: config.repo_tree_max_entries,
-            repo_tree_max_depth: config.repo_tree_max_depth,
-            repo_tree_skip_entries: config.repo_tree_skip_entries,
-            project_instruction_files: config.project_instruction_files,
-            manifest_files: config.manifest_files,
-            external_providers: ctx.context_providers.to_vec(),
-        },
-    )?))
 }
 
 fn build_allow_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
@@ -1218,10 +1225,6 @@ fn build_ask_write_policy(ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn Approv
 
 fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
     Ok(Arc::new(NullPatchApplier))
-}
-
-fn build_single_loop_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
-    Ok(Arc::new(SingleLoopWorkflow::default()))
 }
 
 fn build_plain_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {

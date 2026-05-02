@@ -6,16 +6,22 @@
 cargo test --workspace
 ```
 
-Текущий workspace гоняет ~162 тестов: unit-тесты `agent-contracts`, unit-тесты адаптеров и plugin-адаптеров в `modular-agent`, интеграционные тесты `module_swap.rs` и тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для любого PR.
+Текущий workspace гоняет unit-тесты `agent-contracts`, адаптеров и
+plugin-адаптеров в `modular-agent`, интеграционные тесты `module_swap.rs` и
+тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для
+любого PR.
 
 ## Что Фиксируют Текущие Тесты
 
 `crates/modular-agent/tests/module_swap.rs` проверяет:
 
 - `search = null` и `search = rg` не требуют изменений runtime;
-- `BuiltinModuleCatalog` перечисляет built-in manifests для model/search/memory_policy/workflow slots;
+- `BuiltinModuleCatalog` перечисляет built-in manifests для core-owned slots и
+  не содержит production workflow/context без плагина;
 - `modules list` рендерит catalog без запуска runtime;
-- `memory = none` / `jsonl` / `sqlite` — swap через config не меняет runtime;
+- `memory = none` / `jsonl` — swap через config не меняет runtime;
+- plugin memory backends вроде `sqlite-memory` тестируются в plugin crate и
+  подключаются через обычный `MemoryStore` slot;
 - `memory_policy = none` / `carry_forward` — первый no-op, второй пишет один handoff-snippet после turn'а;
 - `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution;
 - `remember_fact` tool принимает `{kind, content}` и отвергает невалидный kind с `WritesFiles` safety;
@@ -129,8 +135,8 @@ canonical DTO не ломаются.
 Отчёт должен фиксировать success/fail, tests passed, model calls, tool calls,
 approval count, duration, tokens/cost, changed files, diff size, unnecessary
 edits и failure reason. Главная первая сравнительная пара:
-`single_loop/simple_context/internal_patch` против
-`plan_execute_review/repo_aware/edit_file`.
+`coding.single_loop/simple_context/direct_patch` против
+`coding.plan_execute_review/repo_aware/direct_patch`.
 
 ## Когда Достаточно Документационной Проверки
 

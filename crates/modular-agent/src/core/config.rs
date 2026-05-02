@@ -150,6 +150,15 @@ impl AppConfig {
             .with_context(|| format!("failed to parse module_config.{key}.{id}"))
     }
 
+    pub fn module_config_value(&self, kind: ModuleKind, id: &str) -> serde_json::Value {
+        let key = module_kind_config_key(kind);
+        self.module_config
+            .get(key)
+            .and_then(|slot| slot.get(id))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    }
+
     async fn with_tool_manifests(mut self, config_path: Option<&Path>) -> Result<Self> {
         let Some(path) = self.tools_path(config_path) else {
             return Ok(self);
@@ -559,7 +568,7 @@ fn default_model_name() -> String {
 }
 
 fn default_workflow() -> String {
-    "single_loop".to_owned()
+    "coding.plan_execute_review".to_owned()
 }
 
 fn default_search() -> String {
@@ -644,7 +653,8 @@ fn default_tools_path() -> Option<PathBuf> {
 fn default_tool_input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": true
     })
 }
 
@@ -943,4 +953,27 @@ fn expand_home(path: PathBuf) -> PathBuf {
         return PathBuf::from(home).join(stripped);
     }
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_tool_default_schema_allows_additional_properties() {
+        let tool: ConfiguredToolConfig = serde_json::from_value(serde_json::json!({
+            "name": "echo_args",
+            "description": "Echo model arguments.",
+            "safety": "RunsCommands",
+            "executor": {
+                "kind": "process",
+                "command": "echo"
+            }
+        }))
+        .expect("configured tool");
+
+        assert_eq!(tool.input_schema["type"], "object");
+        assert_eq!(tool.input_schema["properties"], serde_json::json!({}));
+        assert_eq!(tool.input_schema["additionalProperties"], true);
+    }
 }

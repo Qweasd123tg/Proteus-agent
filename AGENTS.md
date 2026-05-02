@@ -26,7 +26,11 @@ plugins/
     hello-policy-patch/  - демо ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
     file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
     shell-tool/          - tool shell (sh -lc)
+    rg-search/           - SearchBackend на ripgrep под id "rg"
+    direct-patch/        - PatchApplier internal patch format под id "direct"
     sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
+    coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
+    context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.

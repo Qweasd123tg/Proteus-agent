@@ -1,11 +1,9 @@
 //! SQLite FTS5 memory store как dylib-плагин.
 //!
-//! Реализация идентична `modules::SqliteMemory` в ядре, но упакована
-//! в cdylib чтобы проверить что `PluginMemoryStore` ABI работает с
-//! реальной I/O-зависимой реализацией.
+//! SQLite backend вынесен из ядра в cdylib чтобы `modular-agent` не зависел
+//! от `rusqlite`, а реальное persistent memory подключалось через plugin ABI.
 //!
-//! Регистрируется под id `"sqlite_plugin"` чтобы не конфликтовать с
-//! builtin id `"sqlite"` в catalog'е.
+//! Регистрируется под id `"sqlite"` и legacy alias `"sqlite_plugin"`.
 //!
 //! Путь к базе: `$HOME/.agent/memory-plugin.sqlite` (создаётся при
 //! старте, если нет). Hardcoded для простоты первой итерации; в
@@ -200,16 +198,21 @@ fn fts_match_expression(text: &str) -> String {
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
-    let store = match SqlitePluginStore::open() {
-        Ok(store) => store,
-        Err(error) => {
-            return RResult::RErr(PluginRegisterError::new(format!(
-                "sqlite-memory init failed: {error:#}"
-            )));
+    for id in ["sqlite", "sqlite_plugin"] {
+        let store = match SqlitePluginStore::open() {
+            Ok(store) => store,
+            Err(error) => {
+                return RResult::RErr(PluginRegisterError::new(format!(
+                    "sqlite-memory init failed: {error:#}"
+                )));
+            }
+        };
+        let obj: MemoryStoreObject = PluginMemoryStore_TO::from_value(store, TD_Opaque);
+        if let RResult::RErr(err) = registry.register_memory_store(RString::from(id), obj) {
+            return RResult::RErr(err);
         }
-    };
-    let obj: MemoryStoreObject = PluginMemoryStore_TO::from_value(store, TD_Opaque);
-    registry.register_memory_store(RString::from("sqlite_plugin"), obj)
+    }
+    RResult::ROk(())
 }
 
 #[export_root_module]
@@ -217,9 +220,66 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("sqlite-memory"),
         description: RStr::from_str(
-            "SQLite FTS5 memory store plugin (registers 'sqlite_plugin' in memory slot)",
+            "SQLite FTS5 memory store plugin (registers 'sqlite' and 'sqlite_plugin')",
         ),
         register_modules,
     }
     .leak_into_prefix()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh_conn() -> Mutex<Connection> {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        conn.execute_batch(SCHEMA).expect("schema");
+        Mutex::new(conn)
+    }
+
+    #[test]
+    fn remember_then_recall_by_fts_match() {
+        let conn = fresh_conn();
+        remember_impl(
+            &conn,
+            r#"{"kind":"preference","content":"prefer dark mode","metadata":{"source":"test"}}"#,
+        )
+        .expect("remember preference");
+        remember_impl(
+            &conn,
+            r#"{"kind":"fact","content":"React Router v6 is in use","metadata":null}"#,
+        )
+        .expect("remember fact");
+
+        let payload = recall_impl(&conn, r#"{"text":"dark","limit":5}"#).expect("recall");
+        let items: Vec<ItemWire> = serde_json::from_str(&payload).expect("items");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "preference");
+        assert_eq!(items[0].metadata["source"], "test");
+    }
+
+    #[test]
+    fn empty_query_returns_recent_items_first() {
+        let conn = fresh_conn();
+        remember_impl(&conn, r#"{"kind":"fact","content":"first","metadata":null}"#)
+            .expect("first");
+        remember_impl(&conn, r#"{"kind":"fact","content":"second","metadata":null}"#)
+            .expect("second");
+
+        let payload = recall_impl(&conn, r#"{"text":"","limit":2}"#).expect("recall");
+        let items: Vec<ItemWire> = serde_json::from_str(&payload).expect("items");
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].content, "second");
+        assert_eq!(items[1].content, "first");
+    }
+
+    #[test]
+    fn fts_match_expression_sanitizes_tokens() {
+        assert_eq!(
+            fts_match_expression("React Router!!! v6"),
+            "\"React\"* AND \"Router\"* AND \"v6\"*"
+        );
+    }
 }

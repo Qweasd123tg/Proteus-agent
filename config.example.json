@@ -26,7 +26,7 @@
     }
   },
   "modules": {
-    "workflow": "single_loop",
+    "workflow": "coding.plan_execute_review",
     "search": "null",
     "memory": "none",
     "memory_policy": "none",

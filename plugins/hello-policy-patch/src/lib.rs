@@ -4,7 +4,8 @@
 //! - ApprovalPolicy — всегда `Ask`, описание `"hello-policy says ask"`.
 //! - PatchApplier — noop, возвращает `PatchResult { ok: true, summary: "hello-patch noop" }`.
 //! - SearchBackend — всегда один chunk с пометкой "hello-search noop".
-//! - Optional V2: context_provider и declarative memory_policy под id `"hello"`.
+//! - ContextProvider и declarative MemoryPolicy под id `"hello"`.
+//! - Workflow под id `"hello"`.
 //!
 //! Польза ноль, цель — показать что policy/patch/search slot'ы доступны плагинам.
 
@@ -24,9 +25,10 @@ use agent_contracts::{
         PluginApprovalPolicy_TO, PluginContextError, PluginContextProvider,
         PluginContextProvider_TO, PluginMemoryPolicy, PluginMemoryPolicy_TO,
         PluginMemoryPolicyError, PluginPatchApplier, PluginPatchApplier_TO, PluginPatchError,
-        PluginPolicyError, PluginRegisterError, PluginRegistryMut, PluginRegistryV2Mut, PluginRoot,
-        PluginRoot_Ref, PluginSearchBackend, PluginSearchBackend_TO, PluginSearchError,
-        PolicyObject, SearchBackendObject,
+        PluginPolicyError, PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
+        PluginSearchBackend, PluginSearchBackend_TO, PluginSearchError, PluginWorkflow,
+        PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
+        PluginWorkflow_TO, PolicyObject, SearchBackendObject, WorkflowObject,
     },
 };
 use serde_json::json;
@@ -115,6 +117,35 @@ impl PluginMemoryPolicy for HelloMemoryPolicy {
     }
 }
 
+struct HelloWorkflow;
+
+impl PluginWorkflow for HelloWorkflow {
+    fn run_json(
+        &self,
+        input_json: RString,
+        _host: &mut PluginWorkflowHostMut<'_>,
+    ) -> RResult<RString, PluginWorkflowError> {
+        let input: PluginWorkflowInput = match serde_json::from_str(input_json.as_str()) {
+            Ok(input) => input,
+            Err(error) => return RResult::RErr(PluginWorkflowError::new(error.to_string())),
+        };
+        let output = PluginWorkflowOutput {
+            output: agent_contracts::domain::AgentOutput::new(
+                "hello workflow noop",
+                json!({
+                    "source": "hello-policy-patch",
+                    "task": input.task.text,
+                }),
+            ),
+            messages: input.history,
+        };
+        match serde_json::to_string(&output) {
+            Ok(body) => RResult::ROk(RString::from(body)),
+            Err(error) => RResult::RErr(PluginWorkflowError::new(error.to_string())),
+        }
+    }
+}
+
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
@@ -133,13 +164,6 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
-    RResult::ROk(())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn agent_plugin_register_modules_v2(
-    registry: &mut PluginRegistryV2Mut<'_>,
-) -> RResult<(), PluginRegisterError> {
     let context: ContextProviderObject =
         PluginContextProvider_TO::from_value(HelloContextProvider, TD_Opaque);
     if let RResult::RErr(err) = registry.register_context_provider(RString::from("hello"), context)
@@ -155,6 +179,11 @@ pub extern "C" fn agent_plugin_register_modules_v2(
         return RResult::RErr(err);
     }
 
+    let workflow: WorkflowObject = PluginWorkflow_TO::from_value(HelloWorkflow, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_workflow(RString::from("hello"), workflow) {
+        return RResult::RErr(err);
+    }
+
     RResult::ROk(())
 }
 
@@ -163,7 +192,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("hello-policy-patch"),
         description: RStr::from_str(
-            "Sample plugin: registers 'hello' ApprovalPolicy (Ask), PatchApplier (noop), and SearchBackend (noop)",
+            "Sample plugin: registers 'hello' policy, patch, search, context provider, memory policy, and workflow demos",
         ),
         register_modules,
     }
