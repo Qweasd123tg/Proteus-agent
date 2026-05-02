@@ -6,6 +6,7 @@
 //! самом ядре — границa client/core проведена через wire protocol.
 
 mod driver;
+mod markdown;
 mod state;
 mod visual;
 

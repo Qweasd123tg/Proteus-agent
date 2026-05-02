@@ -32,6 +32,8 @@ use ratatui::{
 
 #[path = "../driver.rs"]
 mod driver;
+#[path = "../markdown.rs"]
+mod markdown;
 
 use driver::{AgentDriver, DriverConfig};
 
@@ -450,13 +452,13 @@ fn handle_app_event(
         },
         E::UserMessageSubmitted { .. } => {}
         E::TurnOutput { output } => {
-            let mut lines = Vec::new();
-            for line in output.text.lines() {
-                lines.push(Line::from(vec![
-                    Span::styled("• ", Style::default().fg(Color::Reset)),
-                    Span::raw(line.to_owned()),
-                ]));
-            }
+            let width = terminal.size()?.width as usize;
+            let mut lines = markdown::render_assistant_markdown(
+                &output.text,
+                "• ",
+                Style::default().fg(Color::Reset),
+                width,
+            );
             lines.push(Line::raw(""));
             push_history(terminal, lines)?;
             state.pending_model = false;

@@ -372,6 +372,16 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
         return;
     }
 
+    if matches!(message.role, VisualRole::Assistant) {
+        lines.extend(crate::markdown::render_assistant_markdown(
+            &message.text,
+            prefix,
+            style,
+            width,
+        ));
+        return;
+    }
+
     let mut first_segment = true;
     for source_line in message.text.lines() {
         let segments = wrap_text(source_line, text_width);

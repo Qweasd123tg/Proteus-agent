@@ -5,6 +5,8 @@ use std::{
     time::Duration,
 };
 
+mod cli_markdown;
+
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
@@ -32,6 +34,8 @@ struct Cli {
     auto_mode: bool,
     #[arg(long, value_enum)]
     permission_mode: Option<CliPermissionMode>,
+    #[arg(long, value_enum, default_value_t = CliMarkdownMode::Auto)]
+    markdown: CliMarkdownMode,
     #[arg(trailing_var_arg = true)]
     task: Vec<String>,
 }
@@ -41,6 +45,13 @@ enum CliPermissionMode {
     Plan,
     Normal,
     Auto,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliMarkdownMode {
+    Auto,
+    On,
+    Off,
 }
 
 impl From<CliPermissionMode> for PermissionMode {
@@ -56,6 +67,7 @@ impl From<CliPermissionMode> for PermissionMode {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let markdown_enabled = markdown_enabled(cli.markdown);
     if is_modules_list_command(&cli.task) {
         let mut catalog = BuiltinModuleCatalog::new();
         let plugin_reports = modular_agent::core::default_plugins_dir()
@@ -96,7 +108,7 @@ async fn main() -> Result<()> {
             config_path.as_deref(),
             terminal_approval_transport(),
         )?;
-        return run_repl(runtime, config, cwd).await;
+        return run_repl(runtime, config, cwd, markdown_enabled).await;
     }
 
     let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
@@ -106,8 +118,32 @@ async fn main() -> Result<()> {
         terminal_approval_transport(),
     )?;
     let output = runtime.run(cli.task.join(" ")).await?;
-    println!("{}", runtime.render(&output).await?);
+    println!(
+        "{}",
+        render_cli_output(&runtime, &output, markdown_enabled).await?
+    );
     Ok(())
+}
+
+fn markdown_enabled(mode: CliMarkdownMode) -> bool {
+    match mode {
+        CliMarkdownMode::Auto => io::stdout().is_terminal(),
+        CliMarkdownMode::On => true,
+        CliMarkdownMode::Off => false,
+    }
+}
+
+async fn render_cli_output(
+    runtime: &AgentRuntime,
+    output: &AgentOutput,
+    markdown_enabled: bool,
+) -> Result<String> {
+    if !markdown_enabled {
+        return runtime.render(output).await;
+    }
+    let mut rendered_output = output.clone();
+    rendered_output.text = cli_markdown::render_markdown_ansi(&output.text);
+    runtime.render(&rendered_output).await
 }
 
 fn is_modules_list_command(task: &[String]) -> bool {
@@ -398,7 +434,12 @@ async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
     Ok(format!("stored ({kind}): {content}"))
 }
 
-async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Result<()> {
+async fn run_repl(
+    runtime: AgentRuntime,
+    config: AppConfig,
+    cwd: PathBuf,
+    markdown_enabled: bool,
+) -> Result<()> {
     println!("{}", repl_header(&config, &cwd, runtime.session_dir())?);
     let tty_composer = io::stdin().is_terminal() && io::stdout().is_terminal();
     let mut footer = initial_footer(&config)?;
@@ -473,7 +514,7 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
 
         match run_with_spinner(&runtime, input.to_owned(), tty_composer).await {
             Ok(output) => {
-                print_assistant_output(&output.text, tty_composer).await?;
+                print_assistant_output(&output.text, tty_composer, markdown_enabled).await?;
                 footer = footer_from_output(&config, &output)?;
             }
             Err(error) => eprintln!("error: {error:#}"),
@@ -569,7 +610,19 @@ async fn run_with_spinner(
     }
 }
 
-async fn print_assistant_output(text: &str, tty_composer: bool) -> Result<()> {
+async fn print_assistant_output(
+    text: &str,
+    tty_composer: bool,
+    markdown_enabled: bool,
+) -> Result<()> {
+    let rendered;
+    let text = if markdown_enabled {
+        rendered = cli_markdown::render_markdown_ansi(text);
+        rendered.as_str()
+    } else {
+        text
+    };
+
     if !tty_composer {
         println!("{}", assistant_output(text));
         return Ok(());
