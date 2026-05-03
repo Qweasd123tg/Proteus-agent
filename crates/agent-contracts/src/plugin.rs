@@ -532,11 +532,11 @@ pub struct PluginWorkflowOutput {
 /// ABI does not depend on Rust layout of complex DTOs.
 #[sabi_trait]
 pub trait PluginWorkflowHost: Send + Sync {
+    /// Cooperative cancellation signal for long sync workflow loops.
+    fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError>;
+
     /// Input JSON: `AgentTask`. Output JSON: `ContextBundle`.
-    fn build_context_json(
-        &self,
-        task_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError>;
+    fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input JSON: `CanonicalModelRequest`. Output JSON:
     /// `CanonicalModelResponse`.
@@ -555,10 +555,8 @@ pub trait PluginWorkflowHost: Send + Sync {
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input JSON: `ToolExposureRequest`. Output JSON: `ToolExposureOutput`.
-    fn select_tools_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError>;
+    fn select_tools_json(&self, request_json: RString)
+    -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input JSON: `AgentTask` and `ToolCall`. Output JSON: `ToolResult`.
     fn execute_tool_json(

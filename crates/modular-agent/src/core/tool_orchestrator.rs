@@ -63,6 +63,9 @@ impl ToolOrchestrator {
         task: &AgentTask,
         call: ToolCall,
     ) -> Result<ToolResult> {
+        if ctx.is_cancelled() {
+            anyhow::bail!("turn canceled by client");
+        }
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
@@ -87,15 +90,18 @@ impl ToolOrchestrator {
                     reason: reason.clone(),
                 })
                 .await?;
-                let approval = ctx
-                    .approval
-                    .request_approval(ApprovalRequest::new(
-                        call.clone(),
-                        task.cwd.clone(),
-                        reason.clone(),
-                        tool_spec.clone(),
-                    ))
-                    .await?;
+                let approval_request = ctx.approval.request_approval(ApprovalRequest::new(
+                    call.clone(),
+                    task.cwd.clone(),
+                    reason.clone(),
+                    tool_spec.clone(),
+                ));
+                let approval = tokio::select! {
+                    result = approval_request => result?,
+                    _ = ctx.cancellation.cancelled() => {
+                        return Err(anyhow!("turn canceled by client"));
+                    }
+                };
                 ctx.emit(Event::ApprovalResolved {
                     call_id: call.id.clone(),
                     approved: approval.approved,
@@ -160,24 +166,34 @@ impl ToolOrchestrator {
             .and_then(|spec| spec.timeout_ms)
             .unwrap_or(self.default_timeout_ms);
         let started = Instant::now();
-        let result = match timeout(
-            Duration::from_millis(timeout_ms),
-            tool.invoke(call, ToolContext::new(task.cwd.clone())),
-        )
-        .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => ToolResult::error(call.id.clone(), error.to_string())
-                .with_metadata(json!({ "tool": call.name })),
-            Err(_) => ToolResult::error(
-                call.id.clone(),
-                format!("tool timed out after {timeout_ms}ms"),
-            )
-            .with_metadata(json!({
-                "tool": call.name,
-                "timed_out": true,
-                "timeout_ms": timeout_ms,
-            })),
+        let tool_ctx = ToolContext {
+            cwd: task.cwd.clone(),
+            cancellation: ctx.cancellation.clone(),
+        };
+        let result = tokio::select! {
+            result = timeout(Duration::from_millis(timeout_ms), tool.invoke(call, tool_ctx)) => {
+                match result {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(error)) => ToolResult::error(call.id.clone(), error.to_string())
+                        .with_metadata(json!({ "tool": call.name })),
+                    Err(_) => ToolResult::error(
+                        call.id.clone(),
+                        format!("tool timed out after {timeout_ms}ms"),
+                    )
+                    .with_metadata(json!({
+                        "tool": call.name,
+                        "timed_out": true,
+                        "timeout_ms": timeout_ms,
+                    })),
+                }
+            }
+            _ = ctx.cancellation.cancelled() => {
+                ToolResult::error(call.id.clone(), "tool call canceled")
+                    .with_metadata(json!({
+                        "tool": call.name,
+                        "canceled": true,
+                    }))
+            }
         };
 
         let mut result = self.truncate_result(result);

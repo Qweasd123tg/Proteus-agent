@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta,
+        ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
+        is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
@@ -47,10 +48,19 @@ impl AppServerHandle {
     }
 
     pub async fn send_user_message(&self, text: String) -> Result<AgentOutput> {
+        self.send_user_message_with_cancellation(text, CancellationToken::new())
+            .await
+    }
+
+    pub async fn send_user_message_with_cancellation(
+        &self,
+        text: String,
+        cancellation: CancellationToken,
+    ) -> Result<AgentOutput> {
         let _ = self
             .events
             .send(AppServerEvent::UserMessageSubmitted { text: text.clone() });
-        match self.runtime.run(text).await {
+        match self.runtime.run_with_cancellation(text, cancellation).await {
             Ok(output) => {
                 let _ = self.events.send(AppServerEvent::TurnOutput {
                     output: output.clone(),

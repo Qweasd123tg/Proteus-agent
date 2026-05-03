@@ -101,7 +101,16 @@ impl WorkflowHost {
         T: serde::Serialize,
         F: std::future::Future<Output = Result<T>>,
     {
-        match self.handle.block_on(future) {
+        let cancellation = self.ctx.cancellation.clone();
+        match self.handle.block_on(async move {
+            if cancellation.is_cancelled() {
+                anyhow::bail!("turn canceled by client");
+            }
+            tokio::select! {
+                result = future => result,
+                _ = cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
+            }
+        }) {
             Ok(value) => match serde_json::to_string(&value) {
                 Ok(json) => RResult::ROk(RString::from(json)),
                 Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
@@ -112,6 +121,10 @@ impl WorkflowHost {
 }
 
 impl PluginWorkflowHost for WorkflowHost {
+    fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError> {
+        RResult::ROk(self.ctx.is_cancelled())
+    }
+
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
         let task: AgentTask = match serde_json::from_str(task_json.as_str()) {
             Ok(task) => task,
@@ -168,6 +181,9 @@ impl PluginWorkflowHost for WorkflowHost {
     }
 
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
+        if self.ctx.is_cancelled() {
+            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
+        }
         let cwd = PathBuf::from(cwd.as_str());
         match serde_json::to_string(&self.tool_orchestrator.visible_tool_specs(&self.ctx, &cwd)) {
             Ok(json) => RResult::ROk(RString::from(json)),
@@ -218,7 +234,15 @@ impl PluginWorkflowHost for WorkflowHost {
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
         let ctx = self.ctx.clone();
-        match self.handle.block_on(async move { ctx.emit(event).await }) {
+        match self.handle.block_on(async move {
+            if ctx.is_cancelled() {
+                anyhow::bail!("turn canceled by client");
+            }
+            tokio::select! {
+                result = ctx.emit(event) => result,
+                _ = ctx.cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
+            }
+        }) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }

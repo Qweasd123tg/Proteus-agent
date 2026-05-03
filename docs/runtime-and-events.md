@@ -151,8 +151,9 @@ event
 Каждая строка stdout является либо `event`, либо `response`. `send` запускает
 turn асинхронно, поэтому UI может отправить `approval` или `cancel` в тот же
 процесс, пока turn работает или ждёт решения. `cancel.target_id` ссылается на
-`id` исходного `send`; transport abort-ит active или queued task и отправляет
-failed `response` для отменённого `send`.
+`id` исходного `send`; transport сигналит turn-level `CancellationToken`,
+отклоняет pending approvals, abort-ит active/queued task и отправляет failed
+`response` для отменённого `send`.
 
 ## Session Store
 
@@ -273,9 +274,12 @@ name и canonical JSON args будет approved без нового pending app-
 `ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors обрезаются до общего лимита orchestrator-а.
 
 `runtime.workflow_timeout_ms` ограничивает весь workflow turn и освобождает
-runtime lock при зависшем workflow. Для sync dylib-плагинов timeout означает,
-что runtime перестал ждать результат; уже запущенный native код может
-продолжить работу в blocking thread до возврата. Недоверенные или потенциально
+runtime lock при зависшем workflow. При timeout runtime также сигналит
+turn-level cancellation token. `RuntimeContext` передаёт этот token в tools,
+а workflow plugin host проверяет его перед/во время host calls
+(`build_context`, `complete_model`, `execute_tool`, `emit_event`). Для sync
+dylib-плагинов это cooperative cancellation: код, уже выполняющийся внутри
+плагина без host calls, не hard-kill'ится. Недоверенные или потенциально
 вечные плагины требуют отдельной process isolation.
 
 `runtime.model_timeout_ms = 0` отключает timeout одного model request,

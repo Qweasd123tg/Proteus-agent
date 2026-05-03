@@ -269,7 +269,10 @@ ModelAdapter остаётся async (в ядре, не плагин). Streaming 
 
 Workflow plugin ABI выбран иначе: workflow сам sync, а async runtime операции
 идут через host capability callbacks. Это позволяет вынести agent behavior
-раньше, не таща весь `RuntimeContext` через FFI.
+раньше, не таща весь `RuntimeContext` через FFI. Host также отдаёт
+`is_cancelled()` и проверяет turn-level cancellation token перед/во время
+async callbacks; sync workflow-код должен периодически выходить через host
+calls, если хочет нормально реагировать на `/cancel` и workflow timeout.
 
 ---
 

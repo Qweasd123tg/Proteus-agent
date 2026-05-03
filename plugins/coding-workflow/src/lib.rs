@@ -425,6 +425,7 @@ fn compact_messages(
     messages: &[CanonicalMessage],
     reason: &str,
 ) -> Result<Vec<CanonicalMessage>, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
     let compaction_input = CompactionInput::new(
         input.task.clone(),
         input.runtime.model_ref.clone(),
@@ -451,6 +452,7 @@ fn build_context(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
 ) -> Result<ContextBundle, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
     let task_json = to_json_string(&input.task)?;
     let bundle_json = match host.build_context_json(RString::from(task_json)) {
         RResult::ROk(json) => json,
@@ -464,6 +466,7 @@ fn complete_model(
     request: &CanonicalModelRequest,
     phase: &str,
 ) -> Result<CanonicalModelResponse, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
     let request_json = to_json_string(request)?;
     let response_json = match host.complete_model_json(RString::from(request_json)) {
         RResult::ROk(json) => json,
@@ -478,6 +481,7 @@ fn visible_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
 ) -> Result<Vec<ToolSpec>, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
     let request = ToolExposureRequest::new(input.task.clone()).with_reason("before_model_request");
     let request_json = to_json_string(&request)?;
     let tools_json = match host.select_tools_json(RString::from(request_json)) {
@@ -494,6 +498,7 @@ fn execute_tool(
     input: &PluginWorkflowInput,
     call: &ToolCall,
 ) -> Result<ToolResult, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
     let task_json = to_json_string(&input.task)?;
     let call_json = to_json_string(call)?;
     let result_json = match host
@@ -503,6 +508,14 @@ fn execute_tool(
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
     from_json_string(result_json.as_str())
+}
+
+fn ensure_not_cancelled(host: &mut PluginWorkflowHostMut<'_>) -> Result<(), PluginWorkflowError> {
+    match host.is_cancelled() {
+        RResult::ROk(false) => Ok(()),
+        RResult::ROk(true) => Err(PluginWorkflowError::new("turn canceled by client")),
+        RResult::RErr(error) => Err(PluginWorkflowError::new(error.message.into_string())),
+    }
 }
 
 fn emit_event(
@@ -855,6 +868,10 @@ mod tests {
     }
 
     impl PluginWorkflowHost for FakeHost {
+        fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError> {
+            RResult::ROk(false)
+        }
+
         fn build_context_json(
             &self,
             task_json: RString,

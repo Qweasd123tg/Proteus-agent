@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
 
 use crate::{
-    contracts::{ApprovalTransport, EventEmitter, EventSink, MemoryPolicyInput},
+    contracts::{ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput},
     core::{
         AppConfig, BuiltinRegistry, CachedApprovalTransport, HeadlessApprovalTransport,
         JsonlEventStore, SessionStore,
@@ -118,9 +118,21 @@ impl AgentRuntime {
     }
 
     pub async fn run(&self, text: String) -> Result<AgentOutput> {
+        self.run_with_cancellation(text, CancellationToken::new())
+            .await
+    }
+
+    pub async fn run_with_cancellation(
+        &self,
+        text: String,
+        cancellation: CancellationToken,
+    ) -> Result<AgentOutput> {
         let _run_guard = self.session.run_lock.lock().await;
         self.ensure_session_started().await?;
         let turn_id = new_turn_id();
+        if cancellation.is_cancelled() {
+            anyhow::bail!("turn canceled by client");
+        }
         let event_context = EventContext::new(
             self.session.session_id,
             self.session.thread_id,
@@ -150,14 +162,18 @@ impl AgentRuntime {
                 turn_id: Some(turn_id),
             });
         }
-        let runtime_context = self.services.registry.runtime_context(
-            self.session.session_id,
-            self.session.thread_id,
-            turn_id,
-            self.services.events.clone(),
-            self.services.approval.clone(),
-            self.services.permission_mode,
-        );
+        let runtime_context = self
+            .services
+            .registry
+            .runtime_context(
+                self.session.session_id,
+                self.session.thread_id,
+                turn_id,
+                self.services.events.clone(),
+                self.services.approval.clone(),
+                self.services.permission_mode,
+            )
+            .with_cancellation(cancellation.clone());
         let history = self.session.history.lock().await.clone();
         let previous_history_len = history.len();
         let workflow_timeout_ms = self.services.registry.runtime_config.workflow_timeout_ms;
@@ -172,9 +188,13 @@ impl AgentRuntime {
             timeout(Duration::from_millis(workflow_timeout_ms), workflow)
                 .await
                 .map_err(|_| {
+                    cancellation.cancel();
                     anyhow::anyhow!("workflow timed out after {workflow_timeout_ms}ms")
                 })??
         };
+        if cancellation.is_cancelled() {
+            anyhow::bail!("turn canceled by client");
+        }
         anyhow::ensure!(
             workflow_output.messages.len() >= previous_history_len,
             "workflow returned fewer messages than it received: output {}, input {}",

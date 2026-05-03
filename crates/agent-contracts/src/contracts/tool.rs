@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt,
     path::PathBuf,
     sync::{
         Arc,
@@ -9,6 +10,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use tokio::sync::Notify;
 
 use crate::domain::{ToolCall, ToolResult, ToolSpec};
 
@@ -27,9 +29,23 @@ impl ToolContext {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct CancellationToken {
-    cancelled: Arc<AtomicBool>,
+    inner: Arc<CancellationState>,
+}
+
+#[derive(Default)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    notify: Notify,
+}
+
+impl fmt::Debug for CancellationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .finish()
+    }
 }
 
 impl CancellationToken {
@@ -38,11 +54,20 @@ impl CancellationToken {
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
+        if !self.inner.cancelled.swap(true, Ordering::SeqCst) {
+            self.inner.notify.notify_waiters();
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.inner.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.inner.notify.notified().await;
     }
 }
 
@@ -50,6 +75,37 @@ impl CancellationToken {
 pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_token_wakes_waiters() {
+        let token = CancellationToken::new();
+        let waiter = token.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            waiter.cancelled().await;
+            tx.send(()).expect("send wake");
+        });
+
+        token.cancel();
+        rx.await.expect("waiter should wake");
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancellation_token_returns_immediately_after_cancel() {
+        let token = CancellationToken::new();
+        token.cancel();
+
+        token.cancelled().await;
+
+        assert!(token.is_cancelled());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -7,7 +7,7 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::core::AppConfig;
+use crate::{contracts::CancellationToken, core::AppConfig};
 
 use super::{
     AgentAppServer, AppServerEvent, AppServerHandle,
@@ -78,8 +78,8 @@ pub async fn run_stdio_app_server(
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
     let mut shutdown_requested = false;
-    let mut keyed_turn_handles = HashMap::new();
-    let mut anonymous_turn_handles = Vec::new();
+    let mut keyed_turn_handles = HashMap::<String, StdioTurnHandle>::new();
+    let mut anonymous_turn_handles = Vec::<StdioTurnHandle>::new();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -173,17 +173,17 @@ pub async fn run_stdio_app_server(
 
     if shutdown_requested {
         for (_, handle) in keyed_turn_handles {
-            handle.abort();
+            handle.cancel();
         }
         for handle in anonymous_turn_handles {
-            handle.abort();
+            handle.cancel();
         }
     } else {
         for (_, handle) in keyed_turn_handles {
-            let _ = handle.await;
+            let _ = handle.join.await;
         }
         for handle in anonymous_turn_handles {
-            let _ = handle.await;
+            let _ = handle.join.await;
         }
         server.shutdown().await;
     }
@@ -197,21 +197,39 @@ fn spawn_stdio_turn(
     output_tx: mpsc::Sender<StdioOutput>,
     id: Option<String>,
     text: String,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let result = match server.send_user_message(text).await {
+) -> StdioTurnHandle {
+    let cancellation = CancellationToken::new();
+    let turn_cancellation = cancellation.clone();
+    let join = tokio::spawn(async move {
+        let result = match server
+            .send_user_message_with_cancellation(text, turn_cancellation)
+            .await
+        {
             Ok(output) => serde_json::to_value(output)
                 .map(Some)
                 .map_err(anyhow::Error::from),
             Err(error) => Err(error),
         };
         send_stdio_response(&output_tx, id, result).await;
-    })
+    });
+    StdioTurnHandle { join, cancellation }
+}
+
+struct StdioTurnHandle {
+    join: tokio::task::JoinHandle<()>,
+    cancellation: CancellationToken,
+}
+
+impl StdioTurnHandle {
+    fn cancel(&self) {
+        self.cancellation.cancel();
+        self.join.abort();
+    }
 }
 
 async fn cancel_stdio_turn(
     server: &AppServerHandle,
-    turn_handles: &mut HashMap<String, tokio::task::JoinHandle<()>>,
+    turn_handles: &mut HashMap<String, StdioTurnHandle>,
     output_tx: &mpsc::Sender<StdioOutput>,
     target_id: &str,
 ) -> Result<()> {
@@ -219,7 +237,7 @@ async fn cancel_stdio_turn(
     let handle = turn_handles
         .remove(target_id)
         .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
-    handle.abort();
+    handle.cancel();
     send_stdio_response(
         output_tx,
         Some(target_id.to_owned()),
@@ -232,8 +250,8 @@ async fn cancel_stdio_turn(
     Ok(())
 }
 
-fn prune_finished_turns(turn_handles: &mut HashMap<String, tokio::task::JoinHandle<()>>) {
-    turn_handles.retain(|_, handle| !handle.is_finished());
+fn prune_finished_turns(turn_handles: &mut HashMap<String, StdioTurnHandle>) {
+    turn_handles.retain(|_, handle| !handle.join.is_finished());
 }
 
 async fn send_stdio_response(
@@ -319,11 +337,15 @@ mod tests {
         .expect("app server");
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
+        let cancellation = CancellationToken::new();
         turn_handles.insert(
             "send-1".to_owned(),
-            tokio::spawn(async {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }),
+            StdioTurnHandle {
+                join: tokio::spawn(async {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }),
+                cancellation: cancellation.clone(),
+            },
         );
 
         cancel_stdio_turn(&server, &mut turn_handles, &output_tx, "send-1")
@@ -331,6 +353,7 @@ mod tests {
             .expect("cancel turn");
 
         assert!(turn_handles.is_empty());
+        assert!(cancellation.is_cancelled());
         let output = output_rx.recv().await.expect("target response");
         match output {
             StdioOutput::Response {

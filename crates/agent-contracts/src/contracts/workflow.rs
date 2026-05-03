@@ -5,8 +5,9 @@ use async_trait::async_trait;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, ContextBuilder, EventEmitter, HistoryCompactor,
-        MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure, ToolRegistry,
+        ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
+        HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure,
+        ToolRegistry,
     },
     domain::{AgentOutput, AgentTask, Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
@@ -21,6 +22,7 @@ pub struct RuntimeContext {
     pub model_ref: ModelRef,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
+    pub cancellation: CancellationToken,
     pub events: Arc<EventEmitter>,
     pub model: Arc<dyn ModelClient>,
     pub search: Arc<dyn SearchBackend>,
@@ -62,6 +64,7 @@ impl RuntimeContext {
             model_ref,
             model_timeout_ms,
             context_timeout_ms,
+            cancellation: CancellationToken::new(),
             events,
             model,
             search,
@@ -74,6 +77,15 @@ impl RuntimeContext {
             compactor,
             tool_exposure,
         }
+    }
+
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
     }
 
     pub fn event_context(&self) -> EventContext {
