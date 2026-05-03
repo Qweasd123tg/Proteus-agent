@@ -32,8 +32,7 @@ use crate::{
 
 /// DECSET 1007 — alternate scroll mode. Терминал сам переводит wheel
 /// в клавиши Up/Down. Выделение текста мышью остаётся стандартным,
-/// потому что мы НЕ включаем EnableMouseCapture. Подсмотрено в
-/// OpenAI codex-rs/tui/src/tui.rs.
+/// потому что мы НЕ включаем EnableMouseCapture.
 #[derive(Debug, Clone, Copy)]
 struct EnableAlternateScroll;
 

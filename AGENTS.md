@@ -19,7 +19,7 @@ crates/
     agent-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
     modular-agent/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
 clients/
-    tui/                 - внешний TUI-клиент (бинарники agent-tui, agent-tui-codex)
+    tui/                 - внешний TUI-клиент (бинарник agent-tui)
 plugins/
     hello-renderer/      - референсный renderer-плагин (sabi_trait)
     hello-tool/          - минимальный tool-плагин

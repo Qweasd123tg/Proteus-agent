@@ -9,12 +9,6 @@ description = "Terminal UI client for modular-agent over AppServer stdio"
 name = "agent-tui"
 path = "src/main.rs"
 
-# Экспериментальный клиент в стиле Codex TUI: inline viewport,
-# история через scrollback терминала, bordered composer.
-[[bin]]
-name = "agent-tui-codex"
-path = "src/codex/main.rs"
-
 [dependencies]
 agent-contracts = { path = "../../crates/agent-contracts" }
 anyhow = "1"

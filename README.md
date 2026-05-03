@@ -25,7 +25,7 @@ crates/
   agent-contracts/  — публичные trait'ы и DTO; плагины и клиенты depend сюда
   modular-agent/    — ядро: runtime, registry, loaders, app-server, CLI
 clients/
-  tui/              — два TUI клиента (fullscreen + codex-style inline)
+  tui/              — внешний fullscreen TUI-клиент
 plugins/
   hello-renderer/      — демо: декоративная рамка вокруг ответа
   hello-tool/          — демо: tool current_time
@@ -91,9 +91,6 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 
 **Клиенты:**
 - `agent-tui` — fullscreen ratatui UI над `agent server stdio`.
-- `agent-tui-codex` — экспериментальный inline-viewport клиент в духе
-  OpenAI Codex TUI (транскрипт в scrollback терминала, только
-  bottom-composer "живой").
 
 ## Быстрый запуск
 
@@ -116,14 +113,7 @@ cargo run -- doctor
 ### TUI клиент
 
 ```bash
-# fullscreen
 target/debug/agent-tui \
-  --agent-bin target/debug/modular-agent \
-  --config ~/.config/agent-qweasd123tg/config.json \
-  --cwd .
-
-# codex-style (история в scrollback)
-target/debug/agent-tui-codex \
   --agent-bin target/debug/modular-agent \
   --config ~/.config/agent-qweasd123tg/config.json \
   --cwd .
@@ -133,7 +123,7 @@ target/debug/agent-tui-codex \
 историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
 (или колёсиком через alternate scroll).
 
-Оба TUI клиента рендерят assistant markdown на стороне клиента:
+TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks и inline
 `code`/bold/italic.
 
