@@ -599,6 +599,7 @@ fn extract_search_queries(task: &str) -> Vec<String> {
         if token.len() < 3 || token.chars().all(|ch| ch.is_ascii_digit()) {
             continue;
         }
+        let normalized = token.to_ascii_lowercase();
         let looks_code_like = token.contains('_')
             || token.contains('-')
             || token.chars().any(|ch| ch.is_ascii_uppercase())
@@ -606,7 +607,11 @@ fn extract_search_queries(task: &str) -> Vec<String> {
             || token.ends_with(".toml")
             || token.ends_with(".md")
             || token.ends_with(".json");
-        if looks_code_like && seen.insert(token.to_owned()) {
+        let looks_domain_relevant = REPO_SEARCH_ALLOWLIST.contains(&normalized.as_str())
+            || (token.len() >= 4
+                && token.chars().all(|ch| ch.is_ascii_lowercase())
+                && !REPO_SEARCH_STOPWORDS.contains(&normalized.as_str()));
+        if (looks_code_like || looks_domain_relevant) && seen.insert(normalized.clone()) {
             queries.push(token.to_owned());
         }
         if queries.len() >= 4 {
@@ -621,6 +626,39 @@ fn extract_search_queries(task: &str) -> Vec<String> {
     }
     queries
 }
+
+const REPO_SEARCH_ALLOWLIST: &[&str] = &[
+    "agent",
+    "approval",
+    "cancel",
+    "config",
+    "context",
+    "event",
+    "history",
+    "memory",
+    "model",
+    "module",
+    "patch",
+    "plugin",
+    "policy",
+    "provider",
+    "renderer",
+    "runtime",
+    "search",
+    "session",
+    "shell",
+    "stdio",
+    "tool",
+    "tools",
+    "transport",
+    "workflow",
+];
+
+const REPO_SEARCH_STOPWORDS: &[&str] = &[
+    "about", "after", "also", "before", "between", "could", "does", "done", "from", "have", "into",
+    "just", "like", "more", "need", "only", "over", "should", "some", "that", "then", "there",
+    "this", "what", "when", "where", "while", "with", "without", "would",
+];
 
 fn token_estimate(chunks: &[ContextChunk]) -> u32 {
     chunks
@@ -821,5 +859,26 @@ mod tests {
             read_bounded_workspace_utf8_file(dir.path(), &link, 100).expect("bounded read");
 
         assert!(content.is_none());
+    }
+
+    #[test]
+    fn extract_search_queries_keeps_domain_lowercase_terms() {
+        let queries = extract_search_queries("почему approval не работает где shell policy?");
+
+        assert_eq!(queries, vec!["approval", "shell", "policy"]);
+    }
+
+    #[test]
+    fn extract_search_queries_skips_common_lowercase_stopwords() {
+        let queries = extract_search_queries("what should this context workflow inspect");
+
+        assert_eq!(queries, vec!["context", "workflow", "inspect"]);
+    }
+
+    #[test]
+    fn extract_search_queries_dedupes_case_insensitively() {
+        let queries = extract_search_queries("Workflow workflow ToolSafety tool_safety");
+
+        assert_eq!(queries, vec!["Workflow", "ToolSafety", "tool_safety"]);
     }
 }
