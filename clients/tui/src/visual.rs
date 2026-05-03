@@ -334,7 +334,9 @@ fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
         .max(30)
         .min(width.saturating_sub(4).max(24));
     let title = ">_ Modular Agent";
-    let right = content_width.saturating_sub(title.chars().count());
+    let right = content_width
+        .saturating_add(1)
+        .saturating_sub(title.chars().count());
 
     let mut lines = vec![Line::from(Span::styled(
         format!("╭─{}{}╮", title, "─".repeat(right)),
@@ -539,5 +541,30 @@ mod tests {
         assert_eq!(format_elapsed(Duration::from_secs(5)), "00:05");
         assert_eq!(format_elapsed(Duration::from_secs(125)), "02:05");
         assert_eq!(format_elapsed(Duration::from_secs(3_665)), "1:01:05");
+    }
+
+    #[test]
+    fn session_card_borders_have_equal_width() {
+        let state = VisualState {
+            model: "anthropic/deepseek-v4-pro",
+            cwd: Path::new("/tmp/workspace"),
+            session_dir: None,
+            messages: &[],
+            input: "",
+            footer: "",
+            status: "ready",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            thinking_elapsed: None,
+        };
+
+        let lines = session_card(&state, 80);
+        let top_width = lines[0].width();
+        let bottom_width = lines[4].width();
+
+        assert_eq!(top_width, bottom_width);
     }
 }
