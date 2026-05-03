@@ -30,6 +30,9 @@ cargo run -- --markdown on summarize project
 Для pipe/redirection `--markdown auto` не добавляет ANSI escape sequences, чтобы
 сырой markdown можно было сохранить в файл.
 
+Terminal markdown renderer поддерживает типичные ответы агента: headings,
+списки, pipe tables, quotes, fenced code blocks и inline `code`/bold/italic.
+
 Явный рабочий каталог:
 
 ```bash

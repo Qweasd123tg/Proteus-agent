@@ -8,8 +8,10 @@ const YELLOW: &str = "\x1b[33m";
 pub(crate) fn render_markdown_ansi(text: &str) -> String {
     let mut rendered = String::new();
     let mut in_code_block = false;
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut index = 0usize;
 
-    for raw_line in text.lines() {
+    while let Some(raw_line) = lines.get(index) {
         let line = raw_line.trim_end_matches('\r');
         let trimmed = line.trim_start();
 
@@ -27,6 +29,7 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
                 rendered.push_str(RESET);
             }
             rendered.push('\n');
+            index += 1;
             continue;
         }
 
@@ -35,6 +38,13 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
             rendered.push_str(line);
             rendered.push_str(RESET);
             rendered.push('\n');
+            index += 1;
+            continue;
+        }
+
+        if let Some((table, consumed)) = parse_table(&lines, index) {
+            rendered.push_str(&render_table_ansi(&table));
+            index += consumed;
             continue;
         }
 
@@ -47,6 +57,7 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
             rendered.push_str(heading);
             rendered.push_str(RESET);
             rendered.push('\n');
+            index += 1;
             continue;
         }
 
@@ -56,6 +67,7 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
             rendered.push_str(RESET);
             rendered.push_str(&render_inline_ansi(quote));
             rendered.push('\n');
+            index += 1;
             continue;
         }
 
@@ -66,11 +78,13 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
             rendered.push(' ');
             rendered.push_str(&render_inline_ansi(body));
             rendered.push('\n');
+            index += 1;
             continue;
         }
 
         rendered.push_str(&render_inline_ansi(line));
         rendered.push('\n');
+        index += 1;
     }
 
     if text.ends_with('\n') {
@@ -79,6 +93,148 @@ pub(crate) fn render_markdown_ansi(text: &str) -> String {
         rendered.pop();
         rendered
     }
+}
+
+#[derive(Debug)]
+struct MarkdownTable {
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+    widths: Vec<usize>,
+}
+
+fn parse_table(lines: &[&str], start: usize) -> Option<(MarkdownTable, usize)> {
+    let header = parse_pipe_row(lines.get(start)?.trim_end_matches('\r'))?;
+    let separator = parse_pipe_row(lines.get(start + 1)?.trim_end_matches('\r'))?;
+    if header.len() < 2 || separator.len() != header.len() {
+        return None;
+    }
+    if !separator.iter().all(|cell| is_separator_cell(cell)) {
+        return None;
+    }
+
+    let mut rows = Vec::new();
+    let mut index = start + 2;
+    while let Some(raw_line) = lines.get(index) {
+        let line = raw_line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            break;
+        }
+        let Some(row) = parse_pipe_row(line) else {
+            break;
+        };
+        if row.len() < 2 {
+            break;
+        }
+        rows.push(normalize_row(row, header.len()));
+        index += 1;
+    }
+
+    let mut widths = header
+        .iter()
+        .map(|cell| cell.chars().count())
+        .collect::<Vec<_>>();
+    for row in &rows {
+        for (idx, cell) in row.iter().enumerate() {
+            widths[idx] = widths[idx].max(cell.chars().count());
+        }
+    }
+
+    Some((
+        MarkdownTable {
+            header,
+            rows,
+            widths,
+        },
+        index - start,
+    ))
+}
+
+fn parse_pipe_row(line: &str) -> Option<Vec<String>> {
+    if !line.contains('|') {
+        return None;
+    }
+    let trimmed = line.trim();
+    let inner = trimmed
+        .strip_prefix('|')
+        .unwrap_or(trimmed)
+        .strip_suffix('|')
+        .unwrap_or(trimmed.strip_prefix('|').unwrap_or(trimmed));
+    let cells = inner
+        .split('|')
+        .map(|cell| cell.trim().to_owned())
+        .collect::<Vec<_>>();
+    (cells.len() >= 2).then_some(cells)
+}
+
+fn is_separator_cell(cell: &str) -> bool {
+    let trimmed = cell.trim();
+    trimmed.len() >= 3 && trimmed.contains('-') && trimmed.chars().all(|ch| ch == '-' || ch == ':')
+}
+
+fn normalize_row(mut row: Vec<String>, width: usize) -> Vec<String> {
+    row.truncate(width);
+    row.resize_with(width, String::new);
+    row
+}
+
+fn render_table_ansi(table: &MarkdownTable) -> String {
+    let mut out = String::new();
+    out.push_str(DIM);
+    out.push_str(&table_border('┌', '┬', '┐', &table.widths));
+    out.push_str(RESET);
+    out.push('\n');
+    out.push_str(&render_table_row(&table.header, &table.widths, true));
+    out.push('\n');
+    out.push_str(DIM);
+    out.push_str(&table_border('├', '┼', '┤', &table.widths));
+    out.push_str(RESET);
+    out.push('\n');
+    for row in &table.rows {
+        out.push_str(&render_table_row(row, &table.widths, false));
+        out.push('\n');
+    }
+    out.push_str(DIM);
+    out.push_str(&table_border('└', '┴', '┘', &table.widths));
+    out.push_str(RESET);
+    out.push('\n');
+    out
+}
+
+fn table_border(left: char, middle: char, right: char, widths: &[usize]) -> String {
+    let mut out = String::new();
+    out.push(left);
+    for (idx, width) in widths.iter().enumerate() {
+        if idx > 0 {
+            out.push(middle);
+        }
+        out.push_str(&"─".repeat(width + 2));
+    }
+    out.push(right);
+    out
+}
+
+fn render_table_row(row: &[String], widths: &[usize], header: bool) -> String {
+    let mut out = String::new();
+    out.push_str(DIM);
+    out.push('│');
+    out.push_str(RESET);
+    for (idx, width) in widths.iter().enumerate() {
+        let cell = row.get(idx).map(String::as_str).unwrap_or_default();
+        let padding = width.saturating_sub(cell.chars().count());
+        out.push(' ');
+        if header {
+            out.push_str(BOLD);
+            out.push_str(cell);
+            out.push_str(RESET);
+        } else {
+            out.push_str(cell);
+        }
+        out.push_str(&" ".repeat(padding + 1));
+        out.push_str(DIM);
+        out.push('│');
+        out.push_str(RESET);
+    }
+    out
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {
@@ -172,5 +328,22 @@ mod tests {
     fn preserves_trailing_newline() {
         assert!(render_markdown_ansi("hello\n").ends_with('\n'));
         assert!(!render_markdown_ansi("hello").ends_with('\n'));
+    }
+
+    #[test]
+    fn renders_pipe_table_as_aligned_box() {
+        let rendered =
+            render_markdown_ansi("| Name | Value |\n| --- | --- |\n| alpha | 1 |\n| beta | 20 |");
+        assert!(rendered.contains("┌───────┬───────┐"));
+        assert!(rendered.contains("\x1b[1mName\x1b[0m"));
+        assert!(rendered.contains("alpha"));
+        assert!(rendered.contains("beta "));
+        assert!(rendered.contains("└───────┴───────┘"));
+    }
+
+    #[test]
+    fn does_not_treat_regular_pipes_as_table_without_separator() {
+        let rendered = render_markdown_ansi("a | b\nnot a table");
+        assert_eq!(rendered, "a | b\nnot a table");
     }
 }

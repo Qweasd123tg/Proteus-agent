@@ -137,7 +137,8 @@ target/debug/agent-tui-codex \
 (или колёсиком через alternate scroll).
 
 Оба TUI клиента рендерят assistant markdown на стороне клиента:
-headings, списки, quotes, fenced code blocks и inline `code`/bold/italic.
+headings, списки, tables, quotes, fenced code blocks и inline
+`code`/bold/italic.
 
 ### Плагины
 
