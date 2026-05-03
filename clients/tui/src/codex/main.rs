@@ -48,6 +48,7 @@ struct AppState {
     spinner_index: usize,
     pending_model: bool,
     pending_approval: Option<PendingApproval>,
+    last_error: Option<String>,
     should_quit: bool,
     #[allow(dead_code)]
     cwd: PathBuf,
@@ -68,6 +69,7 @@ impl AppState {
             spinner_index: 0,
             pending_model: false,
             pending_approval: None,
+            last_error: None,
             should_quit: false,
             cwd,
         }
@@ -216,12 +218,11 @@ async fn run_app(cli: Cli) -> Result<()> {
                     }
                     Some(StdioOutput::Response { ok, error, .. }) => {
                         if !ok {
-                            push_history(&mut terminal, vec![
-                                Line::from(vec![
-                                    Span::styled("! ", Style::default().fg(Color::Red)),
-                                    Span::raw(error.unwrap_or_else(|| "request failed".into())),
-                                ]),
-                            ])?;
+                            push_error_history(
+                                &mut terminal,
+                                &mut state,
+                                error.unwrap_or_else(|| "request failed".into()),
+                            )?;
                             dirty = true;
                         }
                     }
@@ -349,6 +350,7 @@ async fn handle_term_event(
                             Line::raw(""),
                         ],
                     )?;
+                    state.last_error = None;
                     state.pending_model = true;
                     state.status = "thinking...".into();
                     driver.send(&StdioRequest::Send { id: None, text }).await?;
@@ -477,13 +479,7 @@ fn handle_app_event(
             state.status = "thinking...".into();
         }
         E::Error { message } => {
-            push_history(
-                terminal,
-                vec![Line::from(vec![
-                    Span::styled("! ", Style::default().fg(Color::Red)),
-                    Span::styled(message, Style::default().fg(Color::Red)),
-                ])],
-            )?;
+            push_error_history(terminal, state, message)?;
             state.pending_model = false;
             state.status = "error".into();
         }
@@ -540,6 +536,44 @@ fn push_history(
         }
     })?;
     Ok(())
+}
+
+fn push_error_history(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    message: String,
+) -> Result<()> {
+    if state.last_error.as_deref() == Some(message.as_str()) {
+        return Ok(());
+    }
+    state.last_error = Some(message.clone());
+
+    let width = terminal.size()?.width as usize;
+    let body_width = width.saturating_sub(2).max(1);
+    let style = Style::default().fg(Color::Red);
+    let mut lines = Vec::new();
+    let mut first_segment = true;
+
+    for source_line in message.lines() {
+        let segments = wrap_text(source_line, body_width);
+        if segments.is_empty() {
+            lines.push(Line::raw(""));
+            continue;
+        }
+        for segment in segments {
+            let prefix = if first_segment { "! " } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(prefix.to_owned(), style),
+                Span::styled(segment, style),
+            ]));
+            first_segment = false;
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled("! request failed", style)));
+    }
+    push_history(terminal, lines)
 }
 
 fn draw_bottom_pane(
@@ -640,6 +674,25 @@ fn display_cwd(path: &std::path::Path) -> String {
         return format!("~/{}", rest.display());
     }
     path.display().to_string()
+}
+
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut segments = Vec::new();
+    let mut segment = String::new();
+    for ch in text.chars() {
+        segment.push(ch);
+        if segment.chars().count() >= width {
+            segments.push(std::mem::take(&mut segment));
+        }
+    }
+    if !segment.is_empty() {
+        segments.push(segment);
+    }
+    segments
 }
 
 fn compact_json(value: &serde_json::Value, max: usize) -> String {

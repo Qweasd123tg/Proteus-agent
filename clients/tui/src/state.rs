@@ -26,6 +26,7 @@ pub struct AppState {
     scroll_offset: usize,
     pending_approval: Option<AppApprovalRequest>,
     streaming_assistant_idx: Option<usize>,
+    last_error: Option<String>,
 }
 
 impl AppState {
@@ -46,6 +47,7 @@ impl AppState {
             scroll_offset: 0,
             pending_approval: None,
             streaming_assistant_idx: None,
+            last_error: None,
         }
     }
 
@@ -76,6 +78,10 @@ impl AppState {
     }
 
     pub fn push_error(&mut self, text: String) {
+        if self.last_error.as_deref() == Some(text.as_str()) {
+            return;
+        }
+        self.last_error = Some(text.clone());
         self.messages.push(VisualMessage::error(text));
     }
 
@@ -113,6 +119,7 @@ impl AppState {
 
     pub fn mark_user_sent(&mut self, text: String) {
         self.messages.push(VisualMessage::user(text));
+        self.last_error = None;
         self.pending_model = true;
         self.status = "thinking...".to_owned();
         self.scroll_offset = 0;
@@ -156,7 +163,7 @@ impl AppState {
                 self.status = "thinking...".to_owned();
             }
             AppServerEvent::Error { message } => {
-                self.messages.push(VisualMessage::error(message));
+                self.push_error(message);
                 self.pending_model = false;
                 self.status = "error".to_owned();
             }
@@ -239,7 +246,7 @@ impl AppState {
             }
             Event::TurnStarted { .. } => {}
             Event::Error { message } => {
-                self.messages.push(VisualMessage::error(message));
+                self.push_error(message);
             }
             _ => {}
         }
@@ -293,3 +300,33 @@ fn footer_hint() -> String {
 
 #[allow(dead_code)]
 fn _unused(_: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::visual::VisualRole;
+
+    fn error_count(state: &AppState) -> usize {
+        state
+            .visual_state()
+            .messages
+            .iter()
+            .filter(|message| matches!(message.role, VisualRole::Error))
+            .count()
+    }
+
+    #[test]
+    fn duplicate_errors_are_collapsed_until_next_turn() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+
+        state.ingest(AppServerEvent::Error {
+            message: "boom".to_owned(),
+        });
+        state.push_error("boom".to_owned());
+        assert_eq!(error_count(&state), 1);
+
+        state.mark_user_sent("retry".to_owned());
+        state.push_error("boom".to_owned());
+        assert_eq!(error_count(&state), 2);
+    }
+}
