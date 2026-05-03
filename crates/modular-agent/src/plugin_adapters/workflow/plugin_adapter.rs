@@ -12,8 +12,8 @@ use agent_contracts::{
         std_types::{RResult, RString},
     },
     plugin::{
-        PluginWorkflowHost, PluginWorkflowHostError, PluginWorkflowHostMut, PluginWorkflowHost_TO,
-        PluginWorkflowInput, PluginWorkflowOutput, PluginWorkflow_TO, WorkflowObject,
+        PluginWorkflow_TO, PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
+        PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput, WorkflowObject,
     },
 };
 use anyhow::{Context, Result, anyhow};
@@ -22,8 +22,8 @@ use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput,
-        ToolExposureRequest, Workflow, WorkflowOutput,
+        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput, ToolExposureRequest,
+        Workflow, WorkflowOutput,
     },
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
@@ -75,11 +75,7 @@ impl Workflow for PluginWorkflowAdapter {
             };
             let mut host_to: PluginWorkflowHostMut<'_> =
                 PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
-            match PluginWorkflow_TO::run_json(
-                &*workflow,
-                RString::from(input_json),
-                &mut host_to,
-            ) {
+            match PluginWorkflow_TO::run_json(&*workflow, RString::from(input_json), &mut host_to) {
                 RResult::ROk(output) => Ok(output.into_string()),
                 RResult::RErr(err) => Err(anyhow!("workflow plugin error: {}", err.message)),
             }
@@ -116,10 +112,7 @@ impl WorkflowHost {
 }
 
 impl PluginWorkflowHost for WorkflowHost {
-    fn build_context_json(
-        &self,
-        task_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+    fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
         let task: AgentTask = match serde_json::from_str(task_json.as_str()) {
             Ok(task) => task,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
@@ -149,12 +142,16 @@ impl PluginWorkflowHost for WorkflowHost {
         };
         let ctx = self.ctx.clone();
         self.block_on_json(async move {
-            timeout(
-                Duration::from_millis(ctx.model_timeout_ms),
-                ctx.model.complete(request),
-            )
-            .await
-            .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
+            if ctx.model_timeout_ms == 0 {
+                ctx.model.complete(request).await
+            } else {
+                timeout(
+                    Duration::from_millis(ctx.model_timeout_ms),
+                    ctx.model.complete(request),
+                )
+                .await
+                .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
+            }
         })
     }
 
@@ -238,9 +235,8 @@ mod tests {
             std_types::{RResult, RString},
         },
         plugin::{
-            PluginContextBuilder_TO,
-            PluginWorkflow, PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput,
-            PluginWorkflowOutput, PluginWorkflow_TO,
+            PluginContextBuilder_TO, PluginWorkflow, PluginWorkflow_TO, PluginWorkflowError,
+            PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
         },
     };
     use context_pack::SimpleContextBuilderPlugin;
@@ -250,11 +246,9 @@ mod tests {
     use crate::{
         contracts::{EventEmitter, ToolRegistry},
         core::{HeadlessApprovalTransport, InMemoryEventStore},
-        domain::{
-            AgentOutput, Event, ModelRef, new_session_id, new_thread_id, new_turn_id,
-        },
-        plugin_adapters::PluginContextBuilderAdapter,
+        domain::{AgentOutput, Event, ModelRef, new_session_id, new_thread_id, new_turn_id},
         model_standard::{CanonicalMessage, ContentPart, MessageRole},
+        plugin_adapters::PluginContextBuilderAdapter,
         stubs::{
             AllVisibleToolExposure, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier,
             NullSearch,
@@ -330,14 +324,15 @@ mod tests {
                 ),
                 messages,
             };
-            RResult::ROk(RString::from(serde_json::to_string(&output).expect("output json")))
+            RResult::ROk(RString::from(
+                serde_json::to_string(&output).expect("output json"),
+            ))
         }
     }
 
     #[tokio::test]
     async fn plugin_workflow_can_call_host_context_and_emit_events() {
-        let workflow =
-            PluginWorkflow_TO::from_value(ContextSmokeWorkflow, TD_Opaque);
+        let workflow = PluginWorkflow_TO::from_value(ContextSmokeWorkflow, TD_Opaque);
         let adapter = PluginWorkflowAdapter::new(workflow);
         let events = Arc::new(InMemoryEventStore::new());
         let ctx = RuntimeContext::new(

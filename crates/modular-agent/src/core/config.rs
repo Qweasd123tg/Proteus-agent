@@ -544,7 +544,7 @@ fn default_approval_timeout_ms() -> u64 {
 }
 
 fn default_model_timeout_ms() -> u64 {
-    120_000
+    10_800_000
 }
 
 fn default_context_timeout_ms() -> u64 {
@@ -552,7 +552,7 @@ fn default_context_timeout_ms() -> u64 {
 }
 
 fn default_workflow_timeout_ms() -> u64 {
-    600_000
+    14_400_000
 }
 
 fn default_config_path() -> Option<PathBuf> {

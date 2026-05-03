@@ -3,7 +3,10 @@
 //! Не зависит от ratatui/crossterm — чистая бизнес-логика обработки
 //! `AppServerEvent`'ов.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
@@ -27,6 +30,8 @@ pub struct AppState {
     pending_approval: Option<AppApprovalRequest>,
     streaming_assistant_idx: Option<usize>,
     last_error: Option<String>,
+    turn_started_at: Option<Instant>,
+    model_started_at: Option<Instant>,
 }
 
 impl AppState {
@@ -48,6 +53,8 @@ impl AppState {
             pending_approval: None,
             streaming_assistant_idx: None,
             last_error: None,
+            turn_started_at: None,
+            model_started_at: None,
         }
     }
 
@@ -65,6 +72,7 @@ impl AppState {
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
             streaming: self.streaming_assistant_idx.is_some(),
+            thinking_elapsed: self.thinking_elapsed(),
         }
     }
 
@@ -120,6 +128,9 @@ impl AppState {
     pub fn mark_user_sent(&mut self, text: String) {
         self.messages.push(VisualMessage::user(text));
         self.last_error = None;
+        let now = Instant::now();
+        self.turn_started_at = Some(now);
+        self.model_started_at = None;
         self.pending_model = true;
         self.status = "thinking...".to_owned();
         self.scroll_offset = 0;
@@ -152,9 +163,12 @@ impl AppState {
                 }
                 self.streaming_assistant_idx = None;
                 self.pending_model = false;
+                self.turn_started_at = None;
+                self.model_started_at = None;
                 self.status = "ready".to_owned();
             }
             AppServerEvent::ApprovalRequested { request } => {
+                self.model_started_at = None;
                 self.pending_approval = Some(request);
                 self.status = "approval needed".to_owned();
             }
@@ -165,6 +179,8 @@ impl AppState {
             AppServerEvent::Error { message } => {
                 self.push_error(message);
                 self.pending_model = false;
+                self.turn_started_at = None;
+                self.model_started_at = None;
                 self.status = "error".to_owned();
             }
             AppServerEvent::Shutdown => {
@@ -198,9 +214,11 @@ impl AppState {
             }
             Event::ModelRequestPrepared { model } => {
                 self.model_label = format!("{}/{}", model.provider, model.model);
+                self.model_started_at = Some(Instant::now());
                 self.status = "calling model...".to_owned();
             }
             Event::ModelResponseReceived { finish_reason } => {
+                self.model_started_at = None;
                 self.status = format!("model: {finish_reason:?}");
             }
             Event::AssistantTextDelta { text } => {
@@ -283,6 +301,12 @@ impl AppState {
                 return;
             }
         }
+    }
+
+    fn thinking_elapsed(&self) -> Option<Duration> {
+        self.model_started_at
+            .or(self.turn_started_at)
+            .map(|started_at| started_at.elapsed())
     }
 }
 

@@ -104,8 +104,9 @@
     "approval_timeout_ms": 300000
   },
   "runtime": {
-    "model_timeout_ms": 120000,
-    "context_timeout_ms": 30000
+    "model_timeout_ms": 1080000010800000,
+    "context_timeout_ms": 30000,
+    "workflow_timeout_ms": 14400000
   },
   "event_log": {
     "path": ".agent/events.jsonl"

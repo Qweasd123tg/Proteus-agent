@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use agent_contracts::app_protocol::AppApprovalRequest;
 use ratatui::{
@@ -24,6 +27,7 @@ pub(crate) struct VisualState<'a> {
     pub pending_approval: Option<&'a AppApprovalRequest>,
     pub pending_model: bool,
     pub streaming: bool,
+    pub thinking_elapsed: Option<Duration>,
 }
 
 pub(crate) struct VisualSurface {
@@ -93,8 +97,12 @@ impl VisualComponent for TranscriptComponent {
                 Span::styled("• ", Style::default().fg(Color::Yellow)),
                 Span::styled(
                     format!(
-                        "{} Working (esc to interrupt)",
-                        SPINNER[state.spinner_index % SPINNER.len()]
+                        "{} Working {}(esc to interrupt)",
+                        SPINNER[state.spinner_index % SPINNER.len()],
+                        state
+                            .thinking_elapsed
+                            .map(|elapsed| format!("{} ", format_elapsed(elapsed)))
+                            .unwrap_or_default()
                     ),
                     Style::default().fg(Color::Yellow),
                 ),
@@ -152,6 +160,11 @@ impl VisualComponent for FooterComponent {
             "y approve · n deny · esc deny".to_owned()
         } else if state.scroll_offset > 0 {
             "end to bottom · page up/down scroll".to_owned()
+        } else if state.pending_model {
+            match state.thinking_elapsed {
+                Some(elapsed) => format!("{} · {}", state.status, format_elapsed(elapsed)),
+                None => state.status.to_owned(),
+            }
         } else {
             state.status.to_owned()
         };
@@ -487,6 +500,19 @@ pub(crate) fn truncate(input: impl Into<String>, width: usize) -> String {
     format!("{prefix}…")
 }
 
+fn format_elapsed(elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs();
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let seconds = seconds % 60;
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    }
+}
+
 fn display_path(path: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if let Some(home) = home
@@ -502,4 +528,16 @@ fn display_path(path: &Path) -> String {
 
 fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_elapsed_for_footer_stopwatch() {
+        assert_eq!(format_elapsed(Duration::from_secs(5)), "00:05");
+        assert_eq!(format_elapsed(Duration::from_secs(125)), "02:05");
+        assert_eq!(format_elapsed(Duration::from_secs(3_665)), "1:01:05");
+    }
 }

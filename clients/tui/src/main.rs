@@ -183,7 +183,7 @@ fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // ОС ломаются. Вместо этого используется alternate scroll (DECSET 1007):
     // терминал сам транслирует колёсико в Up/Down arrows, которые мы ловим
     // как обычные KeyCode::Up/Down. Выделение мышью при этом работает
-    // ровно как в bash. Паттерн подсмотрен у OpenAI Codex CLI.
+    // ровно как в bash.
     execute!(out, EnterAlternateScreen, EnableAlternateScroll)?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)

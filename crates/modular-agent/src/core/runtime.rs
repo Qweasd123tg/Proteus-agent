@@ -161,15 +161,20 @@ impl AgentRuntime {
         let history = self.session.history.lock().await.clone();
         let previous_history_len = history.len();
         let workflow_timeout_ms = self.services.registry.runtime_config.workflow_timeout_ms;
-        let workflow_output = timeout(
-            Duration::from_millis(workflow_timeout_ms),
-            self.services
-                .registry
-                .workflow
-                .run(task.clone(), history, runtime_context),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("workflow timed out after {workflow_timeout_ms}ms"))??;
+        let workflow = self
+            .services
+            .registry
+            .workflow
+            .run(task.clone(), history, runtime_context);
+        let workflow_output = if workflow_timeout_ms == 0 {
+            workflow.await?
+        } else {
+            timeout(Duration::from_millis(workflow_timeout_ms), workflow)
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("workflow timed out after {workflow_timeout_ms}ms")
+                })??
+        };
         anyhow::ensure!(
             workflow_output.messages.len() >= previous_history_len,
             "workflow returned fewer messages than it received: output {}, input {}",
@@ -490,6 +495,7 @@ mod tests {
 
     struct ShortHistoryWorkflow;
     struct HangingWorkflow;
+    struct DelayedWorkflow;
 
     #[async_trait]
     impl Workflow for ShortHistoryWorkflow {
@@ -519,6 +525,19 @@ mod tests {
                 AgentOutput::text("too late"),
                 Vec::new(),
             ))
+        }
+    }
+
+    #[async_trait]
+    impl Workflow for DelayedWorkflow {
+        async fn run(
+            &self,
+            _task: AgentTask,
+            _history: Vec<CanonicalMessage>,
+            _ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok(WorkflowOutput::new(AgentOutput::text("done"), Vec::new()))
         }
     }
 
@@ -569,5 +588,21 @@ mod tests {
             .expect_err("hung workflow must time out");
 
         assert!(error.to_string().contains("workflow timed out after 50ms"));
+    }
+
+    #[tokio::test]
+    async fn workflow_timeout_zero_disables_runtime_timeout() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let mut config = AppConfig::default();
+        config.runtime.workflow_timeout_ms = 0;
+        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+        runtime.services.registry.workflow = Arc::new(DelayedWorkflow);
+
+        let output = runtime.run("current".to_owned()).await.unwrap();
+
+        assert_eq!(output.text, "done");
     }
 }

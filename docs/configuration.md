@@ -350,9 +350,9 @@ pending approvals.
 ```json
 {
   "runtime": {
-    "model_timeout_ms": 120000,
+    "model_timeout_ms": 10800000,
     "context_timeout_ms": 30000,
-    "workflow_timeout_ms": 600000
+    "workflow_timeout_ms": 14400000
   }
 }
 ```
@@ -365,6 +365,10 @@ model request. `runtime.workflow_timeout_ms` ограничивает весь w
 не является hard-kill уже запущенного native кода; для недоверенных плагинов
 нужна process isolation. При timeout turn завершается ошибкой вместо
 бесконечного await.
+
+Значение `0` у `runtime.model_timeout_ms` или `runtime.workflow_timeout_ms`
+отключает соответствующий timeout. Дефолты рассчитаны на медленные reasoning
+модели: 3 часа на один model request и 4 часа на весь workflow turn.
 
 ## Policy
 

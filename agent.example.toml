@@ -53,9 +53,9 @@ manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom
 approval_timeout_ms = 300000
 
 [runtime]
-model_timeout_ms = 120000
+model_timeout_ms = 10800000
 context_timeout_ms = 30000
-workflow_timeout_ms = 600000
+workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".agent/events.jsonl"
