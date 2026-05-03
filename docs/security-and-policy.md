@@ -139,7 +139,15 @@ approvals. `ToolOrchestrator` передаёт модели tools через
 `ToolCall`, поэтому execution policy видит аргументы модели и не зависит от
 fake visibility call.
 
-Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`, `ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с `ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой `output`/`error` обрезается единым лимитом orchestrator-а с metadata о truncation.
+Если `Tool::invoke` возвращает ошибку или превышает `ToolSpec.timeout_ms`,
+`ToolOrchestrator` не роняет turn целиком: он пишет `ToolFinished` с
+`ToolResult { ok: false }` и передаёт ошибку модели как tool result. Большой
+`output`/`error` обрезается единым лимитом orchestrator-а с metadata о
+truncation. Перед обрезкой полный текст сохраняется в workspace artifact под
+`.agent/tool-outputs/<tool>/<call>-output.txt` или
+`.agent/tool-outputs/<tool>/<call>-error.txt`, а preview получает короткую
+подсказку с путём. Это позволяет модели читать полный вывод обычным
+`read_file` только если он реально нужен.
 
 `ToolContext` содержит `CancellationToken`, чтобы long-running tools могли
 кооперативно остановиться. Текущие built-in tools пока в основном полагаются на
