@@ -150,13 +150,14 @@ failed `response` для отменённого `send`.
 Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для directory-based layout `~/.config/agent-qweasd123tg/configs` session store живёт в `~/.config/agent-qweasd123tg/sessions`:
 
 ```text
-<config-dir>/sessions/<encoded-workspace>/<workspace-label>|<YYYYMMDD-HHMMSS>|<session-id>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<YYYYMMDD-HHMMSS>-<short-numeric-id>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<YYYYMMDD-HHMMSS>-<short-numeric-id>/session.json
 ```
 
 Пример:
 
 ```text
-/home/qweasd123tg/.config/agent-qweasd123tg/sessions/home|game/game|20260427-153000|<uuid>/messages.jsonl
+/home/qweasd123tg/.config/agent-qweasd123tg/sessions/home|game/20260427-153000-1234567890/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:
@@ -164,6 +165,13 @@ failed `response` для отменённого `send`.
 - path components соединяются через `|`;
 - пробелы и нестандартные символы заменяются на `_`;
 - кириллица сохраняется как alphanumeric.
+
+Имя самой session directory не дублирует имя workspace: оно уже находится в
+parent directory. Полный UUID `SessionId` остаётся runtime/DTO идентификатором
+и пишется в `session.json`; короткий numeric suffix нужен только для
+человекочитаемого имени папки. Legacy-папки формата
+`<workspace-label>|<YYYYMMDD-HHMMSS>|<uuid>` всё ещё открываются через
+fallback parser.
 
 ## History
 
