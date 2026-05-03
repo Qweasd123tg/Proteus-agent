@@ -25,6 +25,7 @@ pub struct AgentDriver {
     pub events: mpsc::UnboundedReceiver<StdioOutput>,
 }
 
+#[derive(Clone)]
 pub struct DriverConfig {
     /// Путь к бинарю ядра. Если None — `modular-agent` ищется в `$PATH`.
     pub agent_bin: Option<PathBuf>,
@@ -32,6 +33,8 @@ pub struct DriverConfig {
     pub config_path: Option<PathBuf>,
     /// Рабочая директория, которую ядро должно использовать.
     pub cwd: Option<PathBuf>,
+    /// Session directory для resume. Передаётся как `--resume-session`.
+    pub resume_session: Option<PathBuf>,
 }
 
 impl AgentDriver {
@@ -50,6 +53,9 @@ impl AgentDriver {
         }
         if let Some(cwd) = &cfg.cwd {
             cmd.arg("--cwd").arg(cwd);
+        }
+        if let Some(session_dir) = &cfg.resume_session {
+            cmd.arg("--resume-session").arg(session_dir);
         }
         cmd.arg("server").arg("stdio");
         // stderr ядра → /tmp/agent-tui-core.log (append).
@@ -123,7 +129,7 @@ impl AgentDriver {
     }
 
     /// Отправить Shutdown и дождаться exit кода.
-    pub async fn shutdown(mut self) -> Result<()> {
+    pub async fn shutdown(&mut self) -> Result<()> {
         let _ = self.send(&StdioRequest::Shutdown { id: None }).await;
         // Дадим ядру время завершиться gracefully.
         let wait_result =

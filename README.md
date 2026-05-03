@@ -113,9 +113,9 @@ cargo run -- doctor
 ### TUI клиент
 
 ```bash
-target/debug/agent-tui \
-  --agent-bin target/debug/modular-agent \
-  --config ~/.config/agent-qweasd123tg/config.json \
+agent-tui \
+  --agent-bin ~/.local/bin/agent \
+  --config ~/.config/agent-qweasd123tg/configs \
   --cwd .
 ```
 
@@ -123,9 +123,10 @@ target/debug/agent-tui \
 историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
 (или колёсиком через alternate scroll).
 
-Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/quit`. `/resume` пока
-требует расширения app-server protocol: runtime умеет resume session directory,
-но текущий TUI transport не переключает session у уже запущенного server.
+Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`,
+`/resume <session-dir>`, `/quit`. `/resume` принимает путь к session directory
+или к `messages.jsonl` внутри неё и перезапускает app-server stdio на этой
+истории.
 
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks и inline

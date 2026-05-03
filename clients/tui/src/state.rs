@@ -101,10 +101,31 @@ impl AppState {
         self.messages.push(VisualMessage::system(text));
     }
 
+    pub fn session_dir(&self) -> Option<&Path> {
+        self.session_dir.as_deref()
+    }
+
     pub fn clear_transcript(&mut self) {
         self.messages.clear();
         self.messages
             .push(VisualMessage::system("History cleared."));
+    }
+
+    pub fn reset_after_resume(&mut self, session_dir: PathBuf) {
+        self.messages.clear();
+        self.session_dir = Some(session_dir.clone());
+        self.pending_model = false;
+        self.pending_approval = None;
+        self.streaming_assistant_idx = None;
+        self.active_turn_id = None;
+        self.turn_started_at = None;
+        self.model_started_at = None;
+        self.last_error = None;
+        self.status = "resumed".to_owned();
+        self.messages.push(VisualMessage::system(format!(
+            "Resumed session: {}",
+            session_dir.display()
+        )));
     }
 
     pub fn has_pending_approval(&self) -> bool {

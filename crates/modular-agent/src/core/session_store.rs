@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Local;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
@@ -115,6 +115,35 @@ impl SessionStore {
     }
 }
 
+pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
+    if session_path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
+        return session_path
+            .parent()
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow!("messages.jsonl path has no parent session dir"));
+    }
+    Ok(session_path)
+}
+
+pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
+    let name = session_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            anyhow!(
+                "session dir has no UTF-8 file name: {}",
+                session_dir.display()
+            )
+        })?;
+    let raw_id = name
+        .rsplit('|')
+        .next()
+        .filter(|part| !part.is_empty())
+        .ok_or_else(|| anyhow!("session dir name does not contain session id: {name}"))?;
+    uuid::Uuid::parse_str(raw_id)
+        .with_context(|| format!("failed to parse session id from session dir name: {name}"))
+}
+
 pub fn encode_workspace_path(path: &Path) -> String {
     let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let parts = path
@@ -163,6 +192,38 @@ mod tests {
     use crate::model_standard::{CanonicalMessage, MessageRole};
 
     use super::*;
+
+    #[test]
+    fn session_id_from_dir_reads_suffix_after_pipe() {
+        let session_id = new_session_id();
+        let session_dir = PathBuf::from(format!("workspace|20260503-120000|{session_id}"));
+
+        let parsed = session_id_from_session_dir(&session_dir).expect("session id");
+
+        assert_eq!(parsed, session_id);
+    }
+
+    #[test]
+    fn session_id_from_dir_rejects_missing_uuid_suffix() {
+        let error =
+            session_id_from_session_dir(Path::new("workspace|20260503-120000|")).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("session dir name does not contain session id")
+        );
+    }
+
+    #[test]
+    fn normalize_session_dir_accepts_messages_jsonl_path() {
+        let session_dir = PathBuf::from("workspace|20260503-120000|session-id");
+        let messages_path = session_dir.join("messages.jsonl");
+
+        let normalized = normalize_session_dir_path(messages_path).expect("normalized");
+
+        assert_eq!(normalized, session_dir);
+    }
 
     #[test]
     fn session_dir_includes_session_id_to_avoid_same_second_collisions() {

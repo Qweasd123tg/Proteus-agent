@@ -9,12 +9,14 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use modular_agent::app_server::stdio::run_stdio_app_server;
-use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety};
+use modular_agent::domain::{
+    AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
+};
 use modular_agent::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
-        ModuleBuildContext,
+        ModuleBuildContext, normalize_session_dir_path, session_id_from_session_dir,
     },
 };
 use serde_json::Value;
@@ -27,6 +29,8 @@ struct Cli {
     config: Option<PathBuf>,
     #[arg(long)]
     cwd: Option<PathBuf>,
+    #[arg(long)]
+    resume_session: Option<PathBuf>,
     #[arg(short, long)]
     interactive: bool,
     #[arg(long)]
@@ -94,27 +98,44 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if is_app_server_stdio_command(&cli.task) {
-        return run_stdio_app_server(config, cwd, config_path).await;
+        return run_stdio_app_server(config, cwd, config_path, cli.resume_session).await;
     }
     if cli.interactive || cli.task.is_empty() {
-        let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
+        let runtime = build_cli_runtime(
             config.clone(),
             cwd.clone(),
             config_path.as_deref(),
-            terminal_approval_transport(),
+            cli.resume_session.clone(),
         )?;
         return run_repl(runtime, config, cwd).await;
     }
 
-    let runtime = AgentRuntime::new_with_config_path_and_approval_transport(
+    let runtime = build_cli_runtime(
         config.clone(),
         cwd.clone(),
         config_path.as_deref(),
-        terminal_approval_transport(),
+        cli.resume_session.clone(),
     )?;
     let output = runtime.run(cli.task.join(" ")).await?;
     println!("{}", runtime.render(&output).await?);
     Ok(())
+}
+
+fn build_cli_runtime(
+    config: AppConfig,
+    cwd: PathBuf,
+    config_path: Option<&std::path::Path>,
+    resume_session: Option<PathBuf>,
+) -> Result<AgentRuntime> {
+    let mut builder = AgentRuntime::builder(config, cwd)
+        .with_config_path(config_path)
+        .with_approval(terminal_approval_transport());
+    if let Some(session_dir) = resume_session {
+        let session_dir = normalize_session_dir_path(session_dir)?;
+        let session_id = session_id_from_session_dir(&session_dir)?;
+        builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id());
+    }
+    builder.build()
 }
 
 fn is_modules_list_command(task: &[String]) -> bool {

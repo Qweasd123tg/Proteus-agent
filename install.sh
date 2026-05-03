@@ -4,6 +4,7 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/agent"
+tui_bin_path="${bin_dir}/agent-tui"
 plugins_dir="${HOME}/.agent/plugins"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
@@ -14,6 +15,12 @@ cat > "${bin_path}" <<EOF
 exec "${project_dir}/target/release/modular-agent" "\$@"
 EOF
 chmod 755 "${bin_path}"
+
+cat > "${tui_bin_path}" <<EOF
+#!/usr/bin/env sh
+exec "${project_dir}/target/release/agent-tui" "\$@"
+EOF
+chmod 755 "${tui_bin_path}"
 
 # Install plugins. File I/O (file-tools) and shell (shell-tool) are required
 # for a typical coding workflow; other sample plugins are optional proofs.
@@ -32,6 +39,7 @@ for plugin in file-tools shell-tool rg-search direct-patch coding-workflow conte
 done
 
 echo "Installed: ${bin_path}"
+echo "Installed: ${tui_bin_path}"
 echo "Plugins:   ${plugins_dir}"
 case ":\${PATH}:" in
   *:"${bin_dir}":*) ;;

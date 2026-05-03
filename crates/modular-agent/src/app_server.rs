@@ -14,10 +14,11 @@ use crate::{
         ApprovalCacheScope, ApprovalResponse, EventSink, FilteredEventSink, is_streaming_delta,
     },
     core::{
-        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog, FanoutEventSink,
-        JsonlEventStore, ChannelApprovalTransport, PendingApproval,
+        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
+        ChannelApprovalTransport, FanoutEventSink, JsonlEventStore, PendingApproval,
+        normalize_session_dir_path, session_id_from_session_dir,
     },
-    domain::AgentOutput,
+    domain::{AgentOutput, new_thread_id},
 };
 
 pub mod protocol;
@@ -116,7 +117,16 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None)
+        Self::launch_inner(config, cwd, config_path, None, None)
+    }
+
+    pub fn launch_resumed(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        session_dir: PathBuf,
+    ) -> Result<AppServerHandle> {
+        Self::launch_inner(config, cwd, config_path, None, Some(session_dir))
     }
 
     #[cfg(test)]
@@ -126,7 +136,7 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         module_catalog: BuiltinModuleCatalog,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, Some(module_catalog))
+        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None)
     }
 
     fn launch_inner(
@@ -134,6 +144,7 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
         module_catalog: Option<BuiltinModuleCatalog>,
+        resume_session_dir: Option<PathBuf>,
     ) -> Result<AppServerHandle> {
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
         let jsonl_raw: Arc<dyn EventSink> =
@@ -157,6 +168,11 @@ impl AgentAppServer {
             .with_config_path(config_path)
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport));
+        if let Some(session_dir) = resume_session_dir {
+            let session_dir = normalize_session_dir_path(session_dir)?;
+            let session_id = session_id_from_session_dir(&session_dir)?;
+            builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id());
+        }
         if let Some(module_catalog) = module_catalog {
             builder = builder.with_module_catalog(module_catalog);
         }

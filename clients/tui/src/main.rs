@@ -205,12 +205,13 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
         .cwd
         .clone()
         .unwrap_or(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let mut driver = AgentDriver::spawn(DriverConfig {
-        agent_bin: cli.agent_bin,
+    let driver_config = DriverConfig {
+        agent_bin: cli.agent_bin.clone(),
         config_path: cli.config_path.clone(),
         cwd: Some(cwd.clone()),
-    })
-    .await?;
+        resume_session: None,
+    };
+    let mut driver = AgentDriver::spawn(driver_config.clone()).await?;
 
     let mut state = AppState::new(cwd, cli.config_path);
     let surface = VisualSurface::default();
@@ -292,6 +293,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         if handle_term_event(
                             &mut state,
                             &mut driver,
+                            &driver_config,
                             &mut canceled_turn_responses,
                             &mut cancel_request_responses,
                             ev,
@@ -322,6 +324,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
 async fn handle_term_event(
     state: &mut AppState,
     driver: &mut AgentDriver,
+    driver_config: &DriverConfig,
     canceled_turn_responses: &mut HashSet<String>,
     cancel_request_responses: &mut HashSet<String>,
     ev: CTerm,
@@ -396,6 +399,7 @@ async fn handle_term_event(
                             handle_slash_command(
                                 state,
                                 driver,
+                                driver_config,
                                 canceled_turn_responses,
                                 cancel_request_responses,
                                 &text,
@@ -469,15 +473,20 @@ async fn handle_term_event(
 async fn handle_slash_command(
     state: &mut AppState,
     driver: &mut AgentDriver,
+    driver_config: &DriverConfig,
     canceled_turn_responses: &mut HashSet<String>,
     cancel_request_responses: &mut HashSet<String>,
     text: &str,
 ) -> Result<()> {
     let command = text.trim();
-    match command {
+    let (name, rest) = command
+        .split_once(char::is_whitespace)
+        .map(|(name, rest)| (name, rest.trim()))
+        .unwrap_or((command, ""));
+    match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /quit\n/resume is planned for app protocol: runtime has resume_from_session_dir, TUI transport does not expose it yet.",
+                "/help commands: /clear, /cancel, /resume <session-dir>, /session, /quit",
             );
         }
         "/clear" => {
@@ -501,16 +510,68 @@ async fn handle_slash_command(
         "/quit" | "/exit" => {
             state.should_quit = true;
         }
+        "/session" => {
+            let message = state
+                .session_dir()
+                .map(|path| format!("session: {}", path.display()))
+                .unwrap_or_else(|| "session: not persisted".to_owned());
+            state.push_system(message);
+        }
         "/resume" => {
-            state.push_system(
-                "/resume needs app_protocol support for session dirs. Runtime can resume_from_session_dir, but TUI cannot switch server session yet.",
-            );
+            if rest.is_empty() {
+                state.push_system("usage: /resume <session-dir-or-messages.jsonl>");
+            } else {
+                resume_session(state, driver, driver_config, rest).await?;
+                canceled_turn_responses.clear();
+                cancel_request_responses.clear();
+            }
         }
         _ => {
-            state.push_error(format!("unknown command: {command}. Try /help"));
+            state.push_error(format!("unknown command: {name}. Try /help"));
         }
     }
     Ok(())
+}
+
+async fn resume_session(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &DriverConfig,
+    raw_path: &str,
+) -> Result<()> {
+    let session_dir = resolve_session_dir(raw_path)?;
+    let mut resumed_config = driver_config.clone();
+    resumed_config.resume_session = Some(session_dir.clone());
+
+    driver.shutdown().await?;
+    *driver = AgentDriver::spawn(resumed_config).await?;
+    state.reset_after_resume(session_dir);
+    Ok(())
+}
+
+fn resolve_session_dir(raw_path: &str) -> Result<PathBuf> {
+    let path = expand_home(raw_path.trim());
+    let metadata = std::fs::metadata(&path)
+        .with_context(|| format!("failed to inspect session path {}", path.display()))?;
+    if metadata.is_dir() {
+        return Ok(path);
+    }
+    if path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
+        return path
+            .parent()
+            .map(PathBuf::from)
+            .context("messages.jsonl path has no parent session dir");
+    }
+    anyhow::bail!("resume path is not a session directory: {}", path.display())
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(path)
 }
 
 async fn request_cancel(
@@ -533,4 +594,29 @@ async fn request_cancel(
     cancel_request_responses.insert(request_id);
     state.mark_cancel_requested();
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_session_dir_accepts_directory() {
+        let dir = tempfile::tempdir().expect("session dir");
+
+        let resolved = resolve_session_dir(&dir.path().display().to_string()).expect("resolved");
+
+        assert_eq!(resolved, dir.path());
+    }
+
+    #[test]
+    fn resolve_session_dir_accepts_messages_jsonl_file() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let messages = dir.path().join("messages.jsonl");
+        std::fs::write(&messages, "").expect("messages file");
+
+        let resolved = resolve_session_dir(&messages.display().to_string()).expect("resolved");
+
+        assert_eq!(resolved, dir.path());
+    }
 }

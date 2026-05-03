@@ -18,8 +18,13 @@ pub async fn run_stdio_app_server(
     config: AppConfig,
     cwd: PathBuf,
     config_path: Option<PathBuf>,
+    resume_session_dir: Option<PathBuf>,
 ) -> Result<()> {
-    let server = AgentAppServer::launch(config, cwd, config_path.as_deref())?;
+    let server = if let Some(session_dir) = resume_session_dir {
+        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir)?
+    } else {
+        AgentAppServer::launch(config, cwd, config_path.as_deref())?
+    };
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
 
     let mut events = server.subscribe();
