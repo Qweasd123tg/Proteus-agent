@@ -9,13 +9,11 @@ Runtime состоит из `AgentRuntime`, `BuiltinRegistry`, `RuntimeContext`,
 ```bash
 cargo run
 cargo run -- --interactive
-cargo run -- --markdown off --interactive
 ```
 
-Интерактивный режим использует line REPL. В TTY CLI по умолчанию рендерит
-assistant markdown как ANSI (`--markdown auto`); `--markdown off` оставляет
-сырой markdown. Визуальные клиенты не входят в этот binary и должны
-подключаться отдельным процессом через app-server transport.
+Интерактивный режим использует line REPL. Визуальные клиенты не входят в этот
+
+binary и должны  подключаться отдельным процессом через app-server transport.
 
 Одна задача:
 
@@ -24,14 +22,7 @@ cargo run -- summarize project
 cargo run -- --plan summarize project
 cargo run -- --auto apply patch
 cargo run -- --permission-mode normal summarize project
-cargo run -- --markdown on summarize project
 ```
-
-Для pipe/redirection `--markdown auto` не добавляет ANSI escape sequences, чтобы
-сырой markdown можно было сохранить в файл.
-
-Terminal markdown renderer поддерживает типичные ответы агента: headings,
-списки, pipe tables, quotes, fenced code blocks и inline `code`/bold/italic.
 
 Явный рабочий каталог:
 

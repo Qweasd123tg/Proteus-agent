@@ -109,12 +109,7 @@ cargo build --workspace
 cargo run
 # или single turn
 cargo run -- "describe the project layout"
-# markdown в терминале включён автоматически для TTY; для raw вывода:
-cargo run -- --markdown off "describe the project layout"
 ```
-
-`--markdown auto|on|off` управляет terminal markdown-рендерингом в CLI.
-При выводе в pipe/redirection режим `auto` оставляет сырой markdown.
 
 ### TUI клиент
 
