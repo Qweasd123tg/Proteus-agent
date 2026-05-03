@@ -7,8 +7,8 @@ Runtime состоит из `AgentRuntime`, `BuiltinRegistry`, `RuntimeContext`,
 Интерактивный REPL:
 
 ```bash
-cargo run
-cargo run -- --interactive
+cargo run --bin modular-agent
+cargo run --bin modular-agent -- --interactive
 ```
 
 Интерактивный режим использует line REPL. Визуальные клиенты не входят в этот
@@ -18,27 +18,29 @@ binary и должны  подключаться отдельным процес
 Одна задача:
 
 ```bash
-cargo run -- summarize project
-cargo run -- --plan summarize project
-cargo run -- --auto apply patch
-cargo run -- --permission-mode normal summarize project
+cargo run --bin modular-agent -- summarize project
+cargo run --bin modular-agent -- --plan summarize project
+cargo run --bin modular-agent -- --auto apply patch
+cargo run --bin modular-agent -- --permission-mode normal summarize project
 ```
 
 Диагностика окружения без запуска turn'а:
 
 ```bash
-cargo run -- doctor
+cargo run --bin modular-agent -- doctor
 ```
 
 `doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
-module ids и tool registry. Команда также подсвечивает старые configured native
-tools (`read_file`/`write_file`/`list_dir`/`shell`), которые теперь должны
-приходить через plugin tools в `tools.enabled`.
+module ids, активный model provider, наличие секрета провайдера, внешние
+команды вроде `rg`, runtime timeout'ы, event log path и tool registry. Команда
+также подсвечивает старые configured native tools
+(`read_file`/`write_file`/`list_dir`/`shell`), которые теперь должны приходить
+через plugin tools в `tools.enabled`.
 
 Явный рабочий каталог:
 
 ```bash
-cargo run -- --cwd /path/to/project summarize project
+cargo run --bin modular-agent -- --cwd /path/to/project summarize project
 ```
 
 Headless app-server для внешнего UI:

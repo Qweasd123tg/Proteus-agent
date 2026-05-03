@@ -1,6 +1,7 @@
 use std::{
     io::{self, IsTerminal, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::Duration,
 };
@@ -200,11 +201,6 @@ async fn run_doctor(
         }
     };
 
-    match config.active_model_config() {
-        Ok(model) => findings.ok(format!("model: {}/{}", model.provider, model.model)),
-        Err(error) => findings.error(format!("model config: {error:#}")),
-    }
-
     let mut catalog = BuiltinModuleCatalog::new();
     let plugin_reports = modular_agent::core::default_plugins_dir()
         .map(|plugins_dir| {
@@ -230,8 +226,12 @@ async fn run_doctor(
         }
     }
 
+    check_model_config(&mut findings, &catalog, &config);
     check_selected_modules(&mut findings, &catalog, &config);
     check_configured_tools(&mut findings, &config);
+    check_external_commands(&mut findings, &config, cwd);
+    check_runtime_limits(&mut findings, &config);
+    check_filesystem_paths(&mut findings, &config, cwd);
 
     match build_tool_registry_for_listing(&config, cwd) {
         Ok(registry) => findings.ok(format!("tool registry: {} tools", registry.entries().len())),
@@ -243,6 +243,104 @@ async fn run_doctor(
         bail!("doctor found errors");
     }
     Ok(())
+}
+
+fn check_model_config(
+    findings: &mut DoctorFindings,
+    catalog: &BuiltinModuleCatalog,
+    config: &AppConfig,
+) {
+    let model = match config.active_model_config() {
+        Ok(model) => model,
+        Err(error) => {
+            findings.error(format!("model config: {error:#}"));
+            return;
+        }
+    };
+
+    findings.ok(format!("model: {}/{}", model.provider, model.model));
+    if catalog
+        .manifest(ModuleKind::Model, model.provider.as_str())
+        .is_some()
+    {
+        findings.ok(format!("module model: {}", model.provider));
+    } else {
+        findings.error(format!(
+            "module model is not registered: {}",
+            model.provider
+        ));
+    }
+
+    check_model_secret(findings, &model);
+}
+
+fn check_model_secret(findings: &mut DoctorFindings, model: &modular_agent::core::ModelConfig) {
+    let Some((default_env, json_key)) = provider_secret_defaults(&model.provider) else {
+        if model.provider == "fake" {
+            findings.ok("model secret: not required for fake provider");
+        } else {
+            findings.warn(format!(
+                "model secret: no built-in secret check for provider '{}'",
+                model.provider
+            ));
+        }
+        return;
+    };
+
+    let Some(provider_config) = model.provider_config.as_object() else {
+        check_env_secret(findings, default_env);
+        return;
+    };
+
+    if provider_config
+        .get("api_key")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        findings.warn("model secret: inline api_key configured; env/file is safer");
+        return;
+    }
+
+    if let Some(path) = provider_config.get("api_key_file").and_then(Value::as_str) {
+        let path = Path::new(path);
+        let key = provider_config
+            .get("api_key_json_key")
+            .and_then(Value::as_str)
+            .unwrap_or(json_key);
+        if path.exists() {
+            findings.ok(format!(
+                "model secret: api_key_file {} key '{}'",
+                path.display(),
+                key
+            ));
+        } else {
+            findings.error(format!("model secret file is missing: {}", path.display()));
+        }
+        return;
+    }
+
+    let env_name = provider_config
+        .get("api_key_env")
+        .and_then(Value::as_str)
+        .unwrap_or(default_env);
+    check_env_secret(findings, env_name);
+}
+
+fn provider_secret_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
+    match provider {
+        "anthropic" => Some(("ANTHROPIC_API_KEY", "anthropic_api_key")),
+        "openai" | "openai_compatible" => Some(("OPENAI_API_KEY", "openai_api_key")),
+        _ => None,
+    }
+}
+
+fn check_env_secret(findings: &mut DoctorFindings, env_name: &str) {
+    match std::env::var(env_name) {
+        Ok(value) if !value.trim().is_empty() => {
+            findings.ok(format!("model secret: env {env_name} is set"));
+        }
+        _ => findings.error(format!("model secret env is missing: {env_name}")),
+    }
 }
 
 fn check_selected_modules(
@@ -299,6 +397,195 @@ fn check_configured_tools(findings: &mut DoctorFindings, config: &AppConfig) {
                 )),
             }
         }
+    }
+}
+
+fn check_external_commands(findings: &mut DoctorFindings, config: &AppConfig, cwd: &Path) {
+    if config.modules.search == "rg" {
+        check_command(findings, "rg", cwd, "search backend rg");
+    }
+
+    for tool in &config.tools.configured {
+        match &tool.executor {
+            ConfiguredToolExecutorConfig::Process { command, .. } => {
+                check_command(
+                    findings,
+                    command,
+                    cwd,
+                    &format!("configured process tool '{}'", tool.name),
+                );
+            }
+            ConfiguredToolExecutorConfig::Mcp { command, .. } => {
+                check_command(
+                    findings,
+                    command,
+                    cwd,
+                    &format!("configured MCP tool '{}'", tool.name),
+                );
+            }
+            ConfiguredToolExecutorConfig::Native { .. } => {}
+        }
+    }
+
+    for server in &config.tools.mcp_servers {
+        check_command(
+            findings,
+            &server.command,
+            cwd,
+            &format!("MCP server '{}'", server.name),
+        );
+    }
+}
+
+fn check_command(findings: &mut DoctorFindings, command: &str, cwd: &Path, label: &str) {
+    if command_resolves(command, cwd) {
+        findings.ok(format!("{label}: command available ({command})"));
+    } else {
+        findings.error(format!("{label}: command not found ({command})"));
+    }
+}
+
+fn command_resolves(command: &str, cwd: &Path) -> bool {
+    let command_path = Path::new(command);
+    if command_path.is_absolute() {
+        return command_path.exists();
+    }
+    if command.contains('/') || command.contains('\\') {
+        return cwd.join(command_path).exists();
+    }
+    command_in_path(command)
+}
+
+fn command_in_path(command: &str) -> bool {
+    if command.trim().is_empty() {
+        return false;
+    }
+    if command == "rg" {
+        return Command::new(command)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+    }
+
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&paths).any(|path| path.join(command).exists())
+}
+
+fn check_runtime_limits(findings: &mut DoctorFindings, config: &AppConfig) {
+    check_timeout_ms(
+        findings,
+        "runtime.model_timeout_ms",
+        config.runtime.model_timeout_ms,
+        120_000,
+    );
+    check_timeout_ms(
+        findings,
+        "runtime.context_timeout_ms",
+        config.runtime.context_timeout_ms,
+        10_000,
+    );
+    check_timeout_ms(
+        findings,
+        "runtime.workflow_timeout_ms",
+        config.runtime.workflow_timeout_ms,
+        300_000,
+    );
+    findings.ok(format!(
+        "app_server.approval_timeout_ms: {}",
+        format_timeout_ms(config.app_server.approval_timeout_ms)
+    ));
+}
+
+fn check_timeout_ms(
+    findings: &mut DoctorFindings,
+    name: &str,
+    value: u64,
+    recommended_minimum: u64,
+) {
+    if value == 0 {
+        findings.ok(format!("{name}: disabled"));
+    } else if value < recommended_minimum {
+        findings.warn(format!(
+            "{name}: {} may be too low for real agents",
+            format_timeout_ms(value)
+        ));
+    } else {
+        findings.ok(format!("{name}: {}", format_timeout_ms(value)));
+    }
+}
+
+fn format_timeout_ms(value: u64) -> String {
+    if value == 0 {
+        return "disabled".to_owned();
+    }
+    if value % 3_600_000 == 0 {
+        return format!("{}h", value / 3_600_000);
+    }
+    if value % 60_000 == 0 {
+        return format!("{}m", value / 60_000);
+    }
+    if value % 1_000 == 0 {
+        return format!("{}s", value / 1_000);
+    }
+    format!("{value}ms")
+}
+
+fn check_filesystem_paths(findings: &mut DoctorFindings, config: &AppConfig, cwd: &Path) {
+    if cwd.is_dir() {
+        findings.ok(format!("workspace dir exists: {}", cwd.display()));
+    } else {
+        findings.error(format!("workspace dir is missing: {}", cwd.display()));
+    }
+
+    let event_log_path = if config.event_log.path.is_absolute() {
+        config.event_log.path.clone()
+    } else {
+        cwd.join(&config.event_log.path)
+    };
+    match event_log_path.parent() {
+        Some(parent) if parent.exists() => {
+            if parent
+                .metadata()
+                .map(|metadata| metadata.permissions().readonly())
+                .unwrap_or(false)
+            {
+                findings.error(format!(
+                    "event log parent is read-only: {}",
+                    parent.display()
+                ));
+            } else {
+                findings.ok(format!("event log: {}", event_log_path.display()));
+            }
+        }
+        Some(parent) => {
+            if first_existing_ancestor(parent).is_some() {
+                findings.warn(format!(
+                    "event log parent will be created at runtime: {}",
+                    parent.display()
+                ));
+            } else {
+                findings.error(format!(
+                    "event log parent has no existing ancestor: {}",
+                    parent.display()
+                ));
+            }
+        }
+        None => findings.warn(format!(
+            "event log path has no parent: {}",
+            event_log_path.display()
+        )),
+    }
+}
+
+fn first_existing_ancestor(path: &Path) -> Option<PathBuf> {
+    let mut current = path;
+    loop {
+        if current.exists() {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
     }
 }
 
@@ -1029,6 +1316,79 @@ mod tests {
         let mut findings = DoctorFindings::default();
         check_configured_tools(&mut findings, &config);
         assert!(findings.has_errors());
+    }
+
+    #[test]
+    fn doctor_accepts_fake_model_without_secret() {
+        let config = AppConfig::default();
+        let catalog = BuiltinModuleCatalog::new();
+        let mut findings = DoctorFindings::default();
+
+        check_model_config(&mut findings, &catalog, &config);
+
+        assert!(!findings.has_errors());
+        assert!(
+            findings
+                .entries
+                .iter()
+                .any(|entry| entry.message == "model secret: not required for fake provider")
+        );
+    }
+
+    #[test]
+    fn doctor_flags_missing_provider_secret_env() {
+        const ENV_NAME: &str = "AGENT_DOCTOR_TEST_MISSING_API_KEY";
+        unsafe {
+            std::env::remove_var(ENV_NAME);
+        }
+        let model = modular_agent::core::ModelConfig {
+            provider: "anthropic".to_owned(),
+            model: "claude-test".to_owned(),
+            stream: false,
+            provider_config: serde_json::json!({ "api_key_env": ENV_NAME }),
+        };
+        let mut findings = DoctorFindings::default();
+
+        check_model_secret(&mut findings, &model);
+
+        assert!(findings.has_errors());
+        assert!(
+            findings
+                .entries
+                .iter()
+                .any(|entry| entry.message.contains(ENV_NAME))
+        );
+    }
+
+    #[test]
+    fn doctor_resolves_relative_commands_from_cwd() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("tool.sh"), "#!/bin/sh\n").expect("tool");
+
+        assert!(command_resolves("./tool.sh", dir.path()));
+        assert!(!command_resolves("./missing.sh", dir.path()));
+    }
+
+    #[test]
+    fn doctor_warns_on_short_model_timeout() {
+        let mut findings = DoctorFindings::default();
+
+        check_timeout_ms(&mut findings, "runtime.model_timeout_ms", 1_000, 120_000);
+
+        assert!(
+            findings
+                .entries
+                .iter()
+                .any(|entry| entry.level == "warn" && entry.message.contains("too low"))
+        );
+    }
+
+    #[test]
+    fn doctor_formats_timeouts_for_readability() {
+        assert_eq!(format_timeout_ms(0), "disabled");
+        assert_eq!(format_timeout_ms(120_000), "2m");
+        assert_eq!(format_timeout_ms(10_800_000), "3h");
+        assert_eq!(format_timeout_ms(1_500), "1500ms");
     }
 
     #[test]

@@ -9,8 +9,8 @@
 Если передан `--config`, используется только этот путь:
 
 ```bash
-cargo run -- --config config.example.json
-cargo run -- --config "$HOME/.config/agent-qweasd123tg/configs"
+cargo run --bin modular-agent -- --config config.example.json
+cargo run --bin modular-agent -- --config "$HOME/.config/agent-qweasd123tg/configs"
 ```
 
 Если `--config` не передан, путь ищется так:

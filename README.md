@@ -103,12 +103,17 @@ cargo build --workspace
 ### REPL ядра (без внешнего клиента)
 
 ```bash
-cargo run
+cargo run --bin modular-agent
 # или single turn
-cargo run -- "describe the project layout"
+cargo run --bin modular-agent -- "describe the project layout"
 # проверить config/plugins/modules/tools без запуска turn'а
-cargo run -- doctor
+cargo run --bin modular-agent -- doctor
 ```
+
+`doctor` не делает model request. Он проверяет config source, загрузку
+плагинов, выбранные module ids, активный model provider, наличие секрета
+провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
+собираемость tool registry.
 
 ### TUI клиент
 
@@ -168,7 +173,7 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 
 ```bash
 ./install.sh
-# добавляет ~/.local/bin/agent с cd + cargo run
+# добавляет ~/.local/bin/agent с cd + cargo run --bin modular-agent
 ```
 
 ## Конфигурация
