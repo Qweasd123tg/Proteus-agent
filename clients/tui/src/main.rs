@@ -8,6 +8,7 @@
 mod driver;
 mod markdown;
 mod session_picker;
+mod slash_commands;
 mod state;
 mod visual;
 
@@ -436,7 +437,9 @@ async fn handle_term_event(
 
             match key.code {
                 KeyCode::Enter => {
-                    if let Some(text) = state.take_input_for_send() {
+                    if state.complete_partial_slash_suggestion() {
+                        return Ok(true);
+                    } else if let Some(text) = state.take_input_for_send() {
                         if text.starts_with('/') {
                             handle_slash_command(
                                 state,
@@ -460,6 +463,18 @@ async fn handle_term_event(
                         return Ok(true);
                     }
                 }
+                KeyCode::Tab => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_next();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::BackTab => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
+                }
                 KeyCode::Backspace => {
                     state.backspace();
                     return Ok(true);
@@ -469,22 +484,43 @@ async fn handle_term_event(
                     return Ok(true);
                 }
                 KeyCode::PageUp => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
                     state.scroll_up(5);
                     return Ok(true);
                 }
                 KeyCode::PageDown => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_next();
+                        return Ok(true);
+                    }
                     state.scroll_down(5);
                     return Ok(true);
                 }
                 // Wheel scroll через alternate-scroll mode приходит как
                 // Up/Down arrows. Ловим и скроллим транскрипт на 1 строку.
                 KeyCode::Up => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
                     state.scroll_up(1);
                     return Ok(true);
                 }
                 KeyCode::Down => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_next();
+                        return Ok(true);
+                    }
                     state.scroll_down(1);
                     return Ok(true);
+                }
+                KeyCode::Right => {
+                    if state.complete_slash_suggestion() {
+                        return Ok(true);
+                    }
                 }
                 KeyCode::End => {
                     state.scroll_to_bottom();

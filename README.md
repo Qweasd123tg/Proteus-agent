@@ -121,7 +121,9 @@ agent-tui \
 
 Клавиши TUI: **Enter** отправить, **Ctrl+C** выйти, **Ctrl+L** очистить
 историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
-(или колёсиком через alternate scroll).
+(или колёсиком через alternate scroll). При вводе `/` TUI показывает команды:
+**Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
+выполняет точную команду или подставляет неполную.
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`,
 `/resume [session-dir]`, `/quit`. `/resume` без аргумента открывает меню

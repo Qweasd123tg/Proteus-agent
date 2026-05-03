@@ -15,6 +15,7 @@ use agent_contracts::{
 
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
+    slash_commands::{is_exact_slash_command, matching_slash_commands},
     visual::{ToolCard, ToolStatus, VisualMessage, VisualState},
 };
 
@@ -38,6 +39,7 @@ pub struct AppState {
     active_turn_id: Option<String>,
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
+    slash_selection: usize,
 }
 
 impl AppState {
@@ -64,6 +66,7 @@ impl AppState {
             active_turn_id: None,
             next_turn_index: 0,
             resume_picker: None,
+            slash_selection: 0,
         }
     }
 
@@ -83,6 +86,7 @@ impl AppState {
             streaming: self.streaming_assistant_idx.is_some(),
             thinking_elapsed: self.thinking_elapsed(),
             resume_picker: self.resume_picker.as_ref(),
+            slash_selection: self.slash_selection,
         }
     }
 
@@ -182,10 +186,12 @@ impl AppState {
 
     pub fn type_char(&mut self, ch: char) {
         self.input.push(ch);
+        self.clamp_slash_selection();
     }
 
     pub fn backspace(&mut self) {
         self.input.pop();
+        self.clamp_slash_selection();
     }
 
     pub fn take_input_for_send(&mut self) -> Option<String> {
@@ -195,7 +201,48 @@ impl AppState {
         }
         let text = trimmed.to_owned();
         self.input.clear();
+        self.slash_selection = 0;
         Some(text)
+    }
+
+    pub fn has_slash_suggestions(&self) -> bool {
+        !matching_slash_commands(&self.input).is_empty()
+    }
+
+    pub fn move_slash_selection_next(&mut self) {
+        let count = matching_slash_commands(&self.input).len();
+        if count > 0 {
+            self.slash_selection = (self.slash_selection + 1) % count;
+        }
+    }
+
+    pub fn move_slash_selection_prev(&mut self) {
+        let count = matching_slash_commands(&self.input).len();
+        if count == 0 {
+            self.slash_selection = 0;
+        } else if self.slash_selection == 0 {
+            self.slash_selection = count - 1;
+        } else {
+            self.slash_selection -= 1;
+        }
+    }
+
+    pub fn complete_slash_suggestion(&mut self) -> bool {
+        let matches = matching_slash_commands(&self.input);
+        let Some(command) = matches.get(self.slash_selection.min(matches.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        self.input = format!("{} ", command.name);
+        self.slash_selection = 0;
+        true
+    }
+
+    pub fn complete_partial_slash_suggestion(&mut self) -> bool {
+        if is_exact_slash_command(&self.input) {
+            return false;
+        }
+        self.complete_slash_suggestion()
     }
 
     pub fn next_turn_id(&mut self) -> String {
@@ -402,6 +449,15 @@ impl AppState {
         self.model_started_at
             .or(self.turn_started_at)
             .map(|started_at| started_at.elapsed())
+    }
+
+    fn clamp_slash_selection(&mut self) {
+        let count = matching_slash_commands(&self.input).len();
+        if count == 0 {
+            self.slash_selection = 0;
+        } else {
+            self.slash_selection = self.slash_selection.min(count - 1);
+        }
     }
 }
 

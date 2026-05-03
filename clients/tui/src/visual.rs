@@ -12,7 +12,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::session_picker::ResumePicker;
+use crate::{
+    session_picker::ResumePicker,
+    slash_commands::{SlashCommand, matching_slash_commands},
+};
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -31,6 +34,7 @@ pub(crate) struct VisualState<'a> {
     pub streaming: bool,
     pub thinking_elapsed: Option<Duration>,
     pub resume_picker: Option<&'a ResumePicker>,
+    pub slash_selection: usize,
 }
 
 pub(crate) struct VisualSurface {
@@ -39,6 +43,7 @@ pub(crate) struct VisualSurface {
     footer: FooterComponent,
     approval: ApprovalComponent,
     resume_picker: ResumePickerComponent,
+    slash: SlashComponent,
 }
 
 impl Default for VisualSurface {
@@ -49,6 +54,7 @@ impl Default for VisualSurface {
             footer: FooterComponent,
             approval: ApprovalComponent,
             resume_picker: ResumePickerComponent,
+            slash: SlashComponent,
         }
     }
 }
@@ -67,6 +73,7 @@ impl VisualSurface {
         self.transcript.render(frame, chunks[0], state);
         self.composer.render(frame, chunks[1], state);
         self.footer.render(frame, chunks[2], state);
+        self.slash.render(frame, chunks[1], state);
 
         let cursor_x = chunks[1].x + 2 + state.input.chars().count() as u16;
         let cursor_y = chunks[1].y;
@@ -94,6 +101,7 @@ struct ComposerComponent;
 struct FooterComponent;
 struct ApprovalComponent;
 struct ResumePickerComponent;
+struct SlashComponent;
 
 impl VisualComponent for TranscriptComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
@@ -170,6 +178,8 @@ impl VisualComponent for FooterComponent {
             "y/н approve · n/т/esc deny".to_owned()
         } else if state.resume_picker.is_some() {
             "enter resume · esc close · up/down select".to_owned()
+        } else if !matching_slash_commands(state.input).is_empty() {
+            "tab/up/down select · right complete · enter run".to_owned()
         } else if state.scroll_offset > 0 {
             "end to bottom · page up/down scroll".to_owned()
         } else if state.pending_model {
@@ -188,6 +198,77 @@ impl VisualComponent for FooterComponent {
             ))),
             area,
         );
+    }
+}
+
+impl SlashComponent {
+    fn render(&self, frame: &mut Frame, composer_area: Rect, state: &VisualState<'_>) {
+        let matches = matching_slash_commands(state.input);
+        if matches.is_empty() || state.pending_approval.is_some() || state.resume_picker.is_some() {
+            return;
+        }
+
+        let max_width = frame.area().width.saturating_sub(2);
+        let width = max_width.clamp(36, 74);
+        let visible_count = matches.len().min(7);
+        let height = (visible_count as u16).saturating_add(2);
+        let x = composer_area.x;
+        let y = composer_area.y.saturating_sub(height);
+        let area = Rect::new(x, y, width, height);
+        let selected = state.slash_selection.min(matches.len().saturating_sub(1));
+
+        frame.render_widget(Clear, area);
+
+        let mut lines = Vec::new();
+        for (index, command) in visible_matches(&matches, selected, visible_count)
+            .into_iter()
+            .enumerate()
+        {
+            let absolute_index = slash_window_start(selected, visible_count) + index;
+            let selected_row = absolute_index == selected;
+            let marker = if selected_row { "› " } else { "  " };
+            let style = if selected_row {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::Reset)
+            };
+            let usage_width = (area.width as usize).saturating_div(2).saturating_sub(4);
+            let description_width = (area.width as usize)
+                .saturating_sub(usage_width)
+                .saturating_sub(7);
+            lines.push(Line::from(vec![
+                Span::styled(marker, style),
+                Span::styled(truncate(command.usage, usage_width), style),
+                Span::styled("  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    truncate(command.description, description_width),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(Paragraph::new(lines).block(block), area);
+    }
+}
+
+fn visible_matches<'a>(
+    matches: &[&'a SlashCommand],
+    selected: usize,
+    visible_count: usize,
+) -> Vec<&'a SlashCommand> {
+    let start = slash_window_start(selected, visible_count);
+    let end = (start + visible_count).min(matches.len());
+    matches[start..end].to_vec()
+}
+
+fn slash_window_start(selected: usize, visible_count: usize) -> usize {
+    if selected >= visible_count {
+        selected + 1 - visible_count
+    } else {
+        0
     }
 }
 
@@ -641,6 +722,7 @@ mod tests {
             streaming: false,
             thinking_elapsed: None,
             resume_picker: None,
+            slash_selection: 0,
         };
 
         let lines = session_card(&state, 80);
