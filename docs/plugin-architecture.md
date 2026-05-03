@@ -4,6 +4,11 @@
 
 Это корневой документ плагинной архитектуры. Детали ABI и manifest-формата пока описаны прямо здесь; выделение в отдельные файлы — когда соответствующий кусок стабилизируется. MCP-интеграция документируется как tool/config/runtime integration, а не как упаковка плагинов.
 
+Политика появления новых slots описана отдельно в
+`docs/slot-governance.md`. Новая agent-идея сначала раскладывается на
+существующие slots; новый contract добавляется только для класса заменяемого
+поведения, а не под одну конкретную фичу или чужой продукт.
+
 ---
 
 ## Терминология
@@ -165,7 +170,7 @@ MCP-сервера в ToolRegistry.
 
 ### Могут появиться позже
 
-Новые slots могут добавляться без breaking change, потому что `Registry` работает с открытым `SlotId`.
+Новые slots могут добавляться без breaking change, потому что `Registry` работает с открытым `SlotId`, но это не означает, что их нужно добавлять под каждую новую идею. Перед добавлением нового slot применяется `docs/slot-governance.md`: сначала проверяются существующие `Tool`, `Workflow`, `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryPolicy`, `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` и `ModelAdapter`, затем фиксируется generic contract и boundary test.
 
 ---
 

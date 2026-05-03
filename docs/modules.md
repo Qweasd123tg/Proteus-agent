@@ -45,6 +45,13 @@ executors, но external process modules и package manager ещё не реал
 
 ## Slots
 
+Правила добавления новых slots описаны в
+`docs/slot-governance.md`. Коротко: slot добавляется только для класса
+заменяемого поведения с несколькими вероятными реализациями. Feature-specific
+идеи вроде Cursor-like dynamic context или Codex-like tool search сначала
+должны лечь в существующие `ContextBuilder`, `ToolExposure`, `SearchBackend`,
+`Workflow` или research plugin, а не расширять таблицу ниже автоматически.
+
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
 | Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |

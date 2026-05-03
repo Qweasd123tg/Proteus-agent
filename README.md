@@ -212,6 +212,7 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 - [docs/architecture.md](docs/architecture.md) — архитектура ядра и runtime.
 - [docs/plugin-architecture.md](docs/plugin-architecture.md) — как устроены плагины.
 - [docs/modules.md](docs/modules.md) — builtin модули по slot'ам.
+- [docs/slot-governance.md](docs/slot-governance.md) — когда добавлять новый slot, а когда делать plugin/profile.
 - [docs/configuration.md](docs/configuration.md) — config schema, secrets, tools.
 - [docs/runtime-and-events.md](docs/runtime-and-events.md) — REPL, session store, event log, AppServer protocol.
 - [docs/security-and-policy.md](docs/security-and-policy.md) — tool safety, approval policy, workspace boundary.
