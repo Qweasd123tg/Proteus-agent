@@ -342,7 +342,7 @@ async fn handle_term_event(
     ev: CTerm,
 ) -> Result<bool> {
     match ev {
-        CTerm::Key(key) if key.kind == KeyEventKind::Press => {
+        CTerm::Key(key) if is_handled_key_event(key.kind) => {
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 match key.code {
                     KeyCode::Char('c') => {
@@ -587,6 +587,10 @@ async fn handle_term_event(
         _ => {}
     }
     Ok(false)
+}
+
+fn is_handled_key_event(kind: KeyEventKind) -> bool {
+    matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
 async fn handle_slash_command(
@@ -1185,5 +1189,12 @@ mod tests {
         assert_eq!(tool.output_preview, "file  a.md");
         assert!(matches!(history[2].role, VisualRole::Assistant));
         assert_eq!(history[2].text, "done");
+    }
+
+    #[test]
+    fn handled_key_events_include_repeat_for_wheel_scroll() {
+        assert!(is_handled_key_event(KeyEventKind::Press));
+        assert!(is_handled_key_event(KeyEventKind::Repeat));
+        assert!(!is_handled_key_event(KeyEventKind::Release));
     }
 }
