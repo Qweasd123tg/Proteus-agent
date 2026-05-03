@@ -38,7 +38,6 @@ pub(crate) struct VisualState<'a> {
 }
 
 pub(crate) struct VisualSurface {
-    transcript: TranscriptComponent,
     composer: ComposerComponent,
     footer: FooterComponent,
     resume_picker: ResumePickerComponent,
@@ -48,7 +47,6 @@ pub(crate) struct VisualSurface {
 impl Default for VisualSurface {
     fn default() -> Self {
         Self {
-            transcript: TranscriptComponent,
             composer: ComposerComponent,
             footer: FooterComponent,
             resume_picker: ResumePickerComponent,
@@ -58,7 +56,7 @@ impl Default for VisualSurface {
 }
 
 impl VisualSurface {
-    pub(crate) fn render(&self, frame: &mut Frame, state: &VisualState<'_>) {
+    pub(crate) fn render_inline(&self, frame: &mut Frame, state: &VisualState<'_>) {
         if let Some(picker) = state.resume_picker {
             self.resume_picker.render(frame, frame.area(), picker);
             frame.set_cursor_position(Position::new(
@@ -72,24 +70,58 @@ impl VisualSurface {
             return;
         }
 
+        let approval_height = if state.pending_approval.is_some() {
+            9u16.min(frame.area().height.saturating_sub(3))
+        } else {
+            0
+        };
+        let live_height =
+            if state.pending_approval.is_none() && (state.streaming || state.pending_model) {
+                6u16.min(frame.area().height.saturating_sub(approval_height + 3))
+            } else {
+                0
+            };
+        let total_height = approval_height
+            .saturating_add(live_height)
+            .saturating_add(3)
+            .min(frame.area().height);
+        let bottom = Rect::new(
+            frame.area().x,
+            frame.area().bottom().saturating_sub(total_height),
+            frame.area().width,
+            total_height,
+        );
+        frame.render_widget(Clear, bottom);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(4),
+                Constraint::Length(approval_height),
+                Constraint::Length(live_height),
                 Constraint::Length(2),
                 Constraint::Length(1),
             ])
-            .split(frame.area());
+            .split(bottom);
 
-        self.transcript.render(frame, chunks[0], state);
-        self.composer.render(frame, chunks[1], state);
-        self.footer.render(frame, chunks[2], state);
-        self.slash.render(frame, chunks[1], state);
+        if let Some(request) = state.pending_approval {
+            let mut approval_lines = Vec::new();
+            append_approval_lines(&mut approval_lines, request, chunks[0].width as usize);
+            frame.render_widget(Paragraph::new(approval_lines), chunks[0]);
+        }
 
-        let cursor_x = chunks[1].x + 2 + state.input.chars().count() as u16;
-        let cursor_y = chunks[1].y;
+        if live_height > 0 {
+            let live_lines = live_status_lines(state, chunks[1].width as usize);
+            frame.render_widget(Paragraph::new(live_lines), chunks[1]);
+        }
+
+        self.composer.render(frame, chunks[2], state);
+        self.footer.render(frame, chunks[3], state);
+        self.slash.render(frame, chunks[2], state);
+
+        let cursor_x = chunks[2].x + 2 + state.input.chars().count() as u16;
+        let cursor_y = chunks[2].y;
         frame.set_cursor_position(Position::new(
-            cursor_x.min(chunks[1].right().saturating_sub(1)),
+            cursor_x.min(chunks[2].right().saturating_sub(1)),
             cursor_y,
         ));
     }
@@ -99,61 +131,10 @@ trait VisualComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>);
 }
 
-struct TranscriptComponent;
 struct ComposerComponent;
 struct FooterComponent;
 struct ResumePickerComponent;
 struct SlashComponent;
-
-impl VisualComponent for TranscriptComponent {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
-        let mut lines = session_card(state, area.width as usize);
-        for message in state.messages {
-            append_message_lines(&mut lines, message, area.width as usize);
-            lines.push(Line::raw(""));
-        }
-        if state.pending_model && !state.streaming {
-            lines.push(Line::from(vec![
-                Span::styled("• ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    format!(
-                        "{} Working {}(esc to interrupt)",
-                        SPINNER[state.spinner_index % SPINNER.len()],
-                        state
-                            .thinking_elapsed
-                            .map(|elapsed| format!("{} ", format_elapsed(elapsed)))
-                            .unwrap_or_default()
-                    ),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]));
-            lines.push(Line::raw(""));
-        }
-        if let Some(request) = state.pending_approval {
-            append_approval_lines(&mut lines, request, area.width as usize);
-            lines.push(Line::raw(""));
-        }
-        if state.scroll_offset > 0 {
-            lines.push(Line::from(Span::styled(
-                format!("  ↑ {} lines above bottom", state.scroll_offset),
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
-
-        let height = area.height as usize;
-        let max_offset = lines.len().saturating_sub(height);
-        let offset = state.scroll_offset.min(max_offset);
-        let end = lines.len().saturating_sub(offset);
-        let start = end.saturating_sub(height);
-        let visible = if lines.len() > height {
-            lines[start..end].to_vec()
-        } else {
-            lines
-        };
-
-        frame.render_widget(Paragraph::new(visible), area);
-    }
-}
 
 impl VisualComponent for ComposerComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
@@ -205,6 +186,43 @@ impl VisualComponent for FooterComponent {
             area,
         );
     }
+}
+
+fn live_status_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+    if state.streaming
+        && let Some(message) = state.messages.last()
+    {
+        let mut lines = Vec::new();
+        append_message_lines(&mut lines, message, width);
+        return tail_lines(lines, 6);
+    }
+
+    if state.pending_model {
+        return vec![Line::from(vec![
+            Span::styled("• ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!(
+                    "{} Working {}(esc to interrupt)",
+                    SPINNER[state.spinner_index % SPINNER.len()],
+                    state
+                        .thinking_elapsed
+                        .map(|elapsed| format!("{} ", format_elapsed(elapsed)))
+                        .unwrap_or_default()
+                ),
+                Style::default().fg(Color::Yellow),
+            ),
+        ])];
+    }
+
+    Vec::new()
+}
+
+fn tail_lines(mut lines: Vec<Line<'static>>, limit: usize) -> Vec<Line<'static>> {
+    if lines.len() <= limit {
+        return lines;
+    }
+    lines.drain(0..lines.len() - limit);
+    lines
 }
 
 impl SlashComponent {
@@ -524,6 +542,27 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
             first_segment = false;
         }
     }
+}
+
+pub(crate) fn render_scrollback_message(message: &VisualMessage, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    append_message_lines(&mut lines, message, width);
+    lines.push(Line::raw(""));
+    lines.into_iter().map(line_plain_text).collect()
+}
+
+pub(crate) fn render_scrollback_header(state: &VisualState<'_>, width: usize) -> Vec<String> {
+    session_card(state, width)
+        .into_iter()
+        .map(line_plain_text)
+        .collect()
+}
+
+fn line_plain_text(line: Line<'_>) -> String {
+    line.spans
+        .into_iter()
+        .map(|span| span.content.into_owned())
+        .collect()
 }
 
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {

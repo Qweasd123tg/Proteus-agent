@@ -40,6 +40,7 @@ pub struct AppState {
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
     slash_selection: usize,
+    scrollback_cursor: usize,
 }
 
 impl AppState {
@@ -67,6 +68,7 @@ impl AppState {
             next_turn_index: 0,
             resume_picker: None,
             slash_selection: 0,
+            scrollback_cursor: 0,
         }
     }
 
@@ -123,6 +125,7 @@ impl AppState {
         self.messages.clear();
         self.messages
             .push(VisualMessage::system("History cleared."));
+        self.scrollback_cursor = 0;
     }
 
     pub fn reset_after_resume_with_history(
@@ -147,6 +150,7 @@ impl AppState {
         )));
         self.messages.append(&mut history);
         self.scroll_offset = 0;
+        self.scrollback_cursor = 0;
     }
 
     pub fn has_pending_approval(&self) -> bool {
@@ -304,6 +308,22 @@ impl AppState {
 
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
+    }
+
+    pub fn drain_scrollback_messages(&mut self) -> Vec<VisualMessage> {
+        let mut drained = Vec::new();
+        while let Some(message) = self.messages.get(self.scrollback_cursor) {
+            if !is_scrollback_stable_message(
+                self.scrollback_cursor,
+                message,
+                self.streaming_assistant_idx,
+            ) {
+                break;
+            }
+            drained.push(message.clone());
+            self.scrollback_cursor += 1;
+        }
+        drained
     }
 
     /// Главная точка обработки событий от ядра.
@@ -477,6 +497,21 @@ impl AppState {
             self.slash_selection = self.slash_selection.min(count - 1);
         }
     }
+}
+
+fn is_scrollback_stable_message(
+    index: usize,
+    message: &VisualMessage,
+    streaming_idx: Option<usize>,
+) -> bool {
+    if streaming_idx == Some(index) {
+        return false;
+    }
+
+    message
+        .tool
+        .as_ref()
+        .is_none_or(|tool| !matches!(tool.status, ToolStatus::Running))
 }
 
 fn preview(result: &ToolResult) -> String {

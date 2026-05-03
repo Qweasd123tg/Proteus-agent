@@ -24,14 +24,13 @@ use agent_contracts::{
     domain::{CallId, ToolCall, ToolResult},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
-use std::fmt;
-
 use anyhow::{Context, Result};
 use crossterm::{
-    Command,
+    cursor::MoveTo,
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    style::Print,
+    terminal::{Clear as TerminalClear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
@@ -39,45 +38,11 @@ use crate::{
     driver::{AgentDriver, DriverConfig},
     session_picker::ResumePickerItem,
     state::AppState,
-    visual::{ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value},
+    visual::{
+        ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value,
+        render_scrollback_header, render_scrollback_message,
+    },
 };
-
-/// DECSET 1007 — alternate scroll mode. Терминал сам переводит wheel
-/// в клавиши Up/Down. Выделение текста мышью остаётся стандартным,
-/// потому что мы НЕ включаем EnableMouseCapture.
-#[derive(Debug, Clone, Copy)]
-struct EnableAlternateScroll;
-
-impl Command for EnableAlternateScroll {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[?1007h")
-    }
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        Err(std::io::Error::other("use ANSI instead"))
-    }
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct DisableAlternateScroll;
-
-impl Command for DisableAlternateScroll {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[?1007l")
-    }
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        Err(std::io::Error::other("use ANSI instead"))
-    }
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -188,15 +153,10 @@ fn print_help() {
 fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut out = io::stdout();
-    // EnterAlternateScreen + alternate scroll mode.
-    //
-    // EnableMouseCapture НЕ включаем — с ним терминал отдаёт все мышиные
-    // события приложению, и штатное выделение текста + копирование через
-    // ОС ломаются. Вместо этого используется alternate scroll (DECSET 1007):
-    // терминал сам транслирует колёсико в Up/Down arrows, которые мы ловим
-    // как обычные KeyCode::Up/Down. Выделение мышью при этом работает
-    // ровно как в bash.
-    execute!(out, EnterAlternateScreen, EnableAlternateScroll)?;
+    // Основной чат живёт в normal screen: завершённые сообщения пишутся в
+    // настоящий terminal scrollback, поэтому выделение мышью и wheel работают
+    // так же, как в shell. Mouse capture и alternate scroll здесь не включаем.
+    execute!(out, TerminalClear(ClearType::CurrentLine))?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
@@ -205,8 +165,7 @@ fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resu
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        DisableAlternateScroll,
-        LeaveAlternateScreen,
+        TerminalClear(ClearType::CurrentLine)
     )?;
     terminal.show_cursor()?;
     Ok(())
@@ -243,11 +202,13 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut tick = tokio::time::interval(Duration::from_millis(120));
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
+    let mut scrollback_header_printed = false;
     let mut dirty = true;
 
     loop {
         if dirty {
-            terminal.draw(|frame| surface.render(frame, &state.visual_state()))?;
+            flush_scrollback_messages(terminal, &mut state, &mut scrollback_header_printed)?;
+            terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
             dirty = false;
         }
 
@@ -587,6 +548,57 @@ async fn handle_term_event(
         _ => {}
     }
     Ok(false)
+}
+
+fn flush_scrollback_messages(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    header_printed: &mut bool,
+) -> Result<()> {
+    let messages = state.drain_scrollback_messages();
+    if messages.is_empty() && *header_printed {
+        return Ok(());
+    }
+
+    let size = terminal.size()?;
+    let width = size.width.max(1) as usize;
+    if !*header_printed {
+        for line in render_scrollback_header(&state.visual_state(), width) {
+            write_scrollback_line(terminal, &line, width, size.height)?;
+        }
+        *header_printed = true;
+    }
+    for message in messages {
+        for line in render_scrollback_message(&message, width) {
+            write_scrollback_line(terminal, &line, width, size.height)?;
+        }
+    }
+    terminal.clear()?;
+    Ok(())
+}
+
+fn write_scrollback_line(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    line: &str,
+    width: usize,
+    height: u16,
+) -> Result<()> {
+    execute!(
+        terminal.backend_mut(),
+        MoveTo(0, height.saturating_sub(1)),
+        TerminalClear(ClearType::CurrentLine),
+        Print(truncate_terminal_line(line, width)),
+        Print("\n")
+    )?;
+    Ok(())
+}
+
+fn truncate_terminal_line(line: &str, width: usize) -> String {
+    let mut out = String::new();
+    for ch in line.chars().take(width.saturating_sub(1)) {
+        out.push(ch);
+    }
+    out
 }
 
 fn is_handled_key_event(kind: KeyEventKind) -> bool {
