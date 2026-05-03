@@ -188,7 +188,7 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 ## Runtime данные
 
 ```text
-~/.config/agent-qweasd123tg/sessions/<encoded-workspace>/<YYYYMMDD-HHMMSS>-<short-id>/messages.jsonl
+~/.config/agent-qweasd123tg/sessions/<encoded-workspace>/<short-id>/messages.jsonl
 .agent/events.jsonl   (в workspace'е)
 ```
 

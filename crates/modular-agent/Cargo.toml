@@ -8,7 +8,6 @@ agent-contracts = { path = "../agent-contracts" }
 libloading = "0.8"
 anyhow = "1"
 async-trait = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 futures-core = "0.3"
 futures-util = "0.3"

@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
@@ -164,39 +163,20 @@ pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
         Ok(content) => {
             let metadata: SessionMetadata = serde_json::from_str(&content)
                 .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
-            return Ok(metadata.session_id);
+            Ok(metadata.session_id)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(anyhow!(
+            "session metadata file is required: {}",
+            metadata_path.display()
+        )),
         Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to read {}", metadata_path.display()));
+            Err(error).with_context(|| format!("failed to read {}", metadata_path.display()))
         }
     }
-
-    let name = session_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            anyhow!(
-                "session dir has no UTF-8 file name: {}",
-                session_dir.display()
-            )
-        })?;
-    let raw_id = name
-        .rsplit('|')
-        .next()
-        .filter(|part| !part.is_empty())
-        .ok_or_else(|| anyhow!("session dir name does not contain session id: {name}"))?;
-    uuid::Uuid::parse_str(raw_id)
-        .with_context(|| format!("failed to parse session id from session dir name: {name}"))
 }
 
 fn session_dir_name(session_id: SessionId) -> String {
-    format!(
-        "{}-{}",
-        Local::now().format("%Y%m%d-%H%M%S"),
-        short_numeric_session_id(session_id)
-    )
+    short_numeric_session_id(session_id)
 }
 
 fn short_numeric_session_id(session_id: SessionId) -> String {
@@ -265,30 +245,20 @@ mod tests {
     }
 
     #[test]
-    fn session_id_from_dir_reads_legacy_uuid_suffix() {
-        let session_id = new_session_id();
-        let session_dir = PathBuf::from(format!("workspace|20260503-120000|{session_id}"));
-
-        let parsed = session_id_from_session_dir(&session_dir).expect("session id");
-
-        assert_eq!(parsed, session_id);
-    }
-
-    #[test]
-    fn session_id_from_dir_rejects_new_short_name_without_metadata() {
-        let error = session_id_from_session_dir(Path::new("20260503-120000-1234567890"))
-            .expect_err("short session dir needs metadata");
+    fn session_id_from_dir_requires_metadata() {
+        let error = session_id_from_session_dir(Path::new("1234567890"))
+            .expect_err("session dir needs metadata");
 
         assert!(
             error
                 .to_string()
-                .contains("failed to parse session id from session dir name")
+                .contains("session metadata file is required")
         );
     }
 
     #[test]
     fn normalize_session_dir_accepts_messages_jsonl_path() {
-        let session_dir = PathBuf::from("workspace|20260503-120000|session-id");
+        let session_dir = PathBuf::from("1234567890");
         let messages_path = session_dir.join("messages.jsonl");
 
         let normalized = normalize_session_dir_path(messages_path).expect("normalized");
@@ -297,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn session_dir_omits_workspace_label_and_uses_short_numeric_suffix() {
+    fn session_dir_is_short_numeric_id_only() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let cwd_label = cwd.path().file_name().unwrap().to_string_lossy();
@@ -309,11 +279,10 @@ mod tests {
             .file_name()
             .and_then(|name| name.to_str())
             .expect("session dir name");
-        let short_id = name.rsplit('-').next().expect("numeric id");
 
         assert!(!name.contains(cwd_label.as_ref()));
-        assert_eq!(short_id.len(), 10);
-        assert!(short_id.chars().all(|ch| ch.is_ascii_digit()));
+        assert_eq!(name.len(), 10);
+        assert!(name.chars().all(|ch| ch.is_ascii_digit()));
     }
 
     #[test]
