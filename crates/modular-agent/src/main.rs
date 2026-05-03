@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-mod cli_markdown;
+mod cli;
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -142,7 +142,7 @@ async fn render_cli_output(
         return runtime.render(output).await;
     }
     let mut rendered_output = output.clone();
-    rendered_output.text = cli_markdown::render_markdown_ansi(&output.text);
+    rendered_output.text = cli::markdown::render_markdown_ansi(&output.text);
     runtime.render(&rendered_output).await
 }
 
@@ -617,7 +617,7 @@ async fn print_assistant_output(
 ) -> Result<()> {
     let rendered;
     let text = if markdown_enabled {
-        rendered = cli_markdown::render_markdown_ansi(text);
+        rendered = cli::markdown::render_markdown_ansi(text);
         rendered.as_str()
     } else {
         text
