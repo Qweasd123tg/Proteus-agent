@@ -123,6 +123,10 @@ target/debug/agent-tui \
 историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
 (или колёсиком через alternate scroll).
 
+Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/quit`. `/resume` пока
+требует расширения app-server protocol: runtime умеет resume session directory,
+но текущий TUI transport не переключает session у уже запущенного server.
+
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks и inline
 `code`/bold/italic.

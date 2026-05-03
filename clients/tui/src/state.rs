@@ -32,6 +32,8 @@ pub struct AppState {
     last_error: Option<String>,
     turn_started_at: Option<Instant>,
     model_started_at: Option<Instant>,
+    active_turn_id: Option<String>,
+    next_turn_index: u64,
 }
 
 impl AppState {
@@ -55,6 +57,8 @@ impl AppState {
             last_error: None,
             turn_started_at: None,
             model_started_at: None,
+            active_turn_id: None,
+            next_turn_index: 0,
         }
     }
 
@@ -93,6 +97,10 @@ impl AppState {
         self.messages.push(VisualMessage::error(text));
     }
 
+    pub fn push_system(&mut self, text: impl Into<String>) {
+        self.messages.push(VisualMessage::system(text));
+    }
+
     pub fn clear_transcript(&mut self) {
         self.messages.clear();
         self.messages
@@ -125,15 +133,35 @@ impl AppState {
         Some(text)
     }
 
-    pub fn mark_user_sent(&mut self, text: String) {
+    pub fn next_turn_id(&mut self) -> String {
+        self.next_turn_index = self.next_turn_index.wrapping_add(1);
+        format!("turn-{}", self.next_turn_index)
+    }
+
+    pub fn mark_user_sent(&mut self, text: String, turn_id: String) {
         self.messages.push(VisualMessage::user(text));
         self.last_error = None;
         let now = Instant::now();
         self.turn_started_at = Some(now);
         self.model_started_at = None;
+        self.active_turn_id = Some(turn_id);
         self.pending_model = true;
         self.status = "thinking...".to_owned();
         self.scroll_offset = 0;
+    }
+
+    pub fn active_turn_id(&self) -> Option<&str> {
+        self.active_turn_id.as_deref()
+    }
+
+    pub fn mark_cancel_requested(&mut self) {
+        self.pending_model = false;
+        self.turn_started_at = None;
+        self.model_started_at = None;
+        self.active_turn_id = None;
+        self.status = "cancel requested".to_owned();
+        self.messages
+            .push(VisualMessage::system("Turn cancel requested."));
     }
 
     pub fn scroll_up(&mut self, by: usize) {
@@ -165,6 +193,7 @@ impl AppState {
                 self.pending_model = false;
                 self.turn_started_at = None;
                 self.model_started_at = None;
+                self.active_turn_id = None;
                 self.status = "ready".to_owned();
             }
             AppServerEvent::ApprovalRequested { request } => {
@@ -181,6 +210,7 @@ impl AppState {
                 self.pending_model = false;
                 self.turn_started_at = None;
                 self.model_started_at = None;
+                self.active_turn_id = None;
                 self.status = "error".to_owned();
             }
             AppServerEvent::Shutdown => {
@@ -360,7 +390,7 @@ mod tests {
         state.push_error("boom".to_owned());
         assert_eq!(error_count(&state), 1);
 
-        state.mark_user_sent("retry".to_owned());
+        state.mark_user_sent("retry".to_owned(), "turn-test".to_owned());
         state.push_error("boom".to_owned());
         assert_eq!(error_count(&state), 2);
     }
@@ -373,5 +403,18 @@ mod tests {
         );
 
         assert_eq!(preview(&result), "dir  1\nfile  file.md");
+    }
+
+    #[test]
+    fn cancel_requested_clears_active_turn() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.mark_user_sent("long task".to_owned(), "turn-1".to_owned());
+        assert_eq!(state.active_turn_id(), Some("turn-1"));
+        assert!(state.pending_model);
+
+        state.mark_cancel_requested();
+
+        assert_eq!(state.active_turn_id(), None);
+        assert!(!state.pending_model);
     }
 }

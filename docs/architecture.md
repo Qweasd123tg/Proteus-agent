@@ -123,6 +123,11 @@ transport поверх той же boundary. Референсные внешни
 
 Клиент — пример интеграции, а не часть ядра. Протокол обмена живёт в
 `agent-contracts::app_protocol`, так что клиенты не depend на `modular-agent`.
+Команды интерфейса (`/help`, `/clear`, `/cancel`, `/quit`, будущие `/resume`,
+`/sessions`, `/model`, `/doctor`) должны жить в app-client/input routing слое.
+Если команда требует runtime-действие, клиент вызывает явный
+`StdioRequest`/app protocol command; visual-компоненты только отображают
+состояние и не должны напрямую владеть runtime/business logic.
 
 ### App Server Boundary
 

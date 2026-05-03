@@ -10,7 +10,7 @@ mod markdown;
 mod state;
 mod visual;
 
-use std::{io, path::PathBuf, time::Duration};
+use std::{collections::HashSet, io, path::PathBuf, time::Duration};
 
 use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 use std::fmt;
@@ -228,6 +228,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     });
 
     let mut tick = tokio::time::interval(Duration::from_millis(120));
+    let mut canceled_turn_responses = HashSet::<String>::new();
+    let mut cancel_request_responses = HashSet::<String>::new();
     let mut dirty = true;
 
     loop {
@@ -249,7 +251,27 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         state.ingest(*event);
                         dirty = true;
                     }
-                    Some(StdioOutput::Response { ok, error, .. }) => {
+                    Some(StdioOutput::Response { id, ok, error, .. }) => {
+                        if id
+                            .as_ref()
+                            .is_some_and(|id| cancel_request_responses.remove(id))
+                        {
+                            dirty = true;
+                            continue;
+                        }
+
+                        if id
+                            .as_ref()
+                            .is_some_and(|id| canceled_turn_responses.remove(id))
+                            && !ok
+                            && error
+                                .as_deref()
+                                .is_none_or(|error| error.contains("turn canceled"))
+                        {
+                            dirty = true;
+                            continue;
+                        }
+
                         if !ok {
                             state.push_error(error.unwrap_or_else(|| "request failed".into()));
                             dirty = true;
@@ -267,7 +289,15 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
             term_event = input_rx.recv() => {
                 match term_event {
                     Some(ev) => {
-                        if handle_term_event(&mut state, &mut driver, ev).await? {
+                        if handle_term_event(
+                            &mut state,
+                            &mut driver,
+                            &mut canceled_turn_responses,
+                            &mut cancel_request_responses,
+                            ev,
+                        )
+                        .await?
+                        {
                             dirty = true;
                         }
                     }
@@ -292,6 +322,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
 async fn handle_term_event(
     state: &mut AppState,
     driver: &mut AgentDriver,
+    canceled_turn_responses: &mut HashSet<String>,
+    cancel_request_responses: &mut HashSet<String>,
     ev: CTerm,
 ) -> Result<bool> {
     match ev {
@@ -314,10 +346,13 @@ async fn handle_term_event(
                 }
             }
 
-            // Если показан approval — обрабатываем y/n.
+            // Если показан approval — обрабатываем y/n и те же клавиши в RU раскладке.
             if state.has_pending_approval() {
                 match key.code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    KeyCode::Char('y')
+                    | KeyCode::Char('Y')
+                    | KeyCode::Char('н')
+                    | KeyCode::Char('Н') => {
                         if let Some(id) = state.take_pending_approval_id() {
                             driver
                                 .send(&StdioRequest::Approval {
@@ -331,7 +366,11 @@ async fn handle_term_event(
                             return Ok(true);
                         }
                     }
-                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    KeyCode::Char('n')
+                    | KeyCode::Char('N')
+                    | KeyCode::Char('т')
+                    | KeyCode::Char('Т')
+                    | KeyCode::Esc => {
                         if let Some(id) = state.take_pending_approval_id() {
                             driver
                                 .send(&StdioRequest::Approval {
@@ -353,13 +392,25 @@ async fn handle_term_event(
             match key.code {
                 KeyCode::Enter => {
                     if let Some(text) = state.take_input_for_send() {
-                        driver
-                            .send(&StdioRequest::Send {
-                                id: None,
-                                text: text.clone(),
-                            })
+                        if text.starts_with('/') {
+                            handle_slash_command(
+                                state,
+                                driver,
+                                canceled_turn_responses,
+                                cancel_request_responses,
+                                &text,
+                            )
                             .await?;
-                        state.mark_user_sent(text);
+                        } else {
+                            let turn_id = state.next_turn_id();
+                            driver
+                                .send(&StdioRequest::Send {
+                                    id: Some(turn_id.clone()),
+                                    text: text.clone(),
+                                })
+                                .await?;
+                            state.mark_user_sent(text, turn_id);
+                        }
                         return Ok(true);
                     }
                 }
@@ -394,9 +445,16 @@ async fn handle_term_event(
                     return Ok(true);
                 }
                 KeyCode::Esc => {
-                    // Esc на пустом состоянии — отмена последнего turn'а.
-                    if state.pending_model {
-                        // TODO: cancel. Нужен target_id последнего Send.
+                    if state.pending_model
+                        && request_cancel(
+                            state,
+                            driver,
+                            canceled_turn_responses,
+                            cancel_request_responses,
+                        )
+                        .await?
+                    {
+                        return Ok(true);
                     }
                 }
                 _ => {}
@@ -406,4 +464,73 @@ async fn handle_term_event(
         _ => {}
     }
     Ok(false)
+}
+
+async fn handle_slash_command(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    canceled_turn_responses: &mut HashSet<String>,
+    cancel_request_responses: &mut HashSet<String>,
+    text: &str,
+) -> Result<()> {
+    let command = text.trim();
+    match command {
+        "/help" => {
+            state.push_system(
+                "/help commands: /clear, /cancel, /quit\n/resume is planned for app protocol: runtime has resume_from_session_dir, TUI transport does not expose it yet.",
+            );
+        }
+        "/clear" => {
+            driver
+                .send(&StdioRequest::ClearHistory { id: None })
+                .await?;
+            state.clear_transcript();
+        }
+        "/cancel" => {
+            if !request_cancel(
+                state,
+                driver,
+                canceled_turn_responses,
+                cancel_request_responses,
+            )
+            .await?
+            {
+                state.push_system("No active turn to cancel.");
+            }
+        }
+        "/quit" | "/exit" => {
+            state.should_quit = true;
+        }
+        "/resume" => {
+            state.push_system(
+                "/resume needs app_protocol support for session dirs. Runtime can resume_from_session_dir, but TUI cannot switch server session yet.",
+            );
+        }
+        _ => {
+            state.push_error(format!("unknown command: {command}. Try /help"));
+        }
+    }
+    Ok(())
+}
+
+async fn request_cancel(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    canceled_turn_responses: &mut HashSet<String>,
+    cancel_request_responses: &mut HashSet<String>,
+) -> Result<bool> {
+    let Some(turn_id) = state.active_turn_id().map(str::to_owned) else {
+        return Ok(false);
+    };
+    let request_id = format!("cancel-{turn_id}");
+    driver
+        .send(&StdioRequest::Cancel {
+            id: Some(request_id.clone()),
+            target_id: turn_id.clone(),
+        })
+        .await?;
+    canceled_turn_responses.insert(turn_id);
+    cancel_request_responses.insert(request_id);
+    state.mark_cancel_requested();
+    Ok(true)
 }

@@ -157,7 +157,7 @@ impl VisualComponent for ComposerComponent {
 impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
         let left = if state.pending_approval.is_some() {
-            "y approve · n deny · esc deny".to_owned()
+            "y/н approve · n/т/esc deny".to_owned()
         } else if state.scroll_offset > 0 {
             "end to bottom · page up/down scroll".to_owned()
         } else if state.pending_model {
@@ -224,9 +224,9 @@ impl ApprovalComponent {
         }
         body.push(Line::raw(""));
         body.push(Line::from(vec![
-            Span::styled("y", Style::default().fg(Color::Green)),
+            Span::styled("y / н", Style::default().fg(Color::Green)),
             Span::raw(" approve    "),
-            Span::styled("n / esc", Style::default().fg(Color::Red)),
+            Span::styled("n / т / esc", Style::default().fg(Color::Red)),
             Span::raw(" deny"),
         ]));
 
