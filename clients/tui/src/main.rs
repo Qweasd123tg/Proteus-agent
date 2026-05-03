@@ -26,7 +26,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{MoveToColumn, MoveUp},
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     style::Print,
@@ -159,7 +159,7 @@ fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // Основной чат живёт в normal screen: завершённые сообщения пишутся в
     // настоящий terminal scrollback, поэтому выделение мышью и wheel работают
     // так же, как в shell. Mouse capture и alternate scroll здесь не включаем.
-    execute!(out, TerminalClear(ClearType::CurrentLine))?;
+    execute!(out, TerminalClear(ClearType::FromCursorDown))?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
@@ -168,7 +168,7 @@ fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resu
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        TerminalClear(ClearType::CurrentLine)
+        TerminalClear(ClearType::FromCursorDown)
     )?;
     terminal.show_cursor()?;
     Ok(())
@@ -206,7 +206,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
-    let mut inline_panel_height = 0u16;
+    let mut inline_panel = InlinePanelLayout::default();
     let mut picker_alt_screen = false;
     let mut dirty = true;
 
@@ -214,9 +214,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
         if dirty {
             if state.has_resume_picker() {
                 if !picker_alt_screen {
-                    if inline_panel_height > 0 {
-                        clear_inline_panel(terminal, inline_panel_height)?;
-                        inline_panel_height = 0;
+                    if inline_panel.height > 0 {
+                        clear_inline_panel(terminal, inline_panel)?;
+                        inline_panel = InlinePanelLayout::default();
                     }
                     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                     picker_alt_screen = true;
@@ -226,14 +226,13 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                 if picker_alt_screen {
                     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                     picker_alt_screen = false;
-                    inline_panel_height = 0;
+                    inline_panel = InlinePanelLayout::default();
                 }
-                if inline_panel_height > 0 {
-                    clear_inline_panel(terminal, inline_panel_height)?;
-                    inline_panel_height = 0;
+                if inline_panel.height > 0 {
+                    clear_inline_panel(terminal, inline_panel)?;
                 }
                 flush_scrollback_messages(terminal, &mut state, &mut scrollback_header_printed)?;
-                inline_panel_height = draw_inline_panel(terminal, &state, inline_panel_height)?;
+                inline_panel = draw_inline_panel(terminal, &state)?;
             }
             dirty = false;
         }
@@ -593,23 +592,28 @@ fn flush_scrollback_messages(
     let width = size.width.max(1) as usize;
     if !*header_printed {
         for line in render_scrollback_header(&state.visual_state(), width) {
-            write_scrollback_line(terminal, &line, width, size.height)?;
+            write_scrollback_line(terminal, &line, width)?;
         }
         *header_printed = true;
     }
     for message in messages {
         for line in render_scrollback_message(&message, width) {
-            write_scrollback_line(terminal, &line, width, size.height)?;
+            write_scrollback_line(terminal, &line, width)?;
         }
     }
     Ok(())
 }
 
+#[derive(Clone, Copy, Default)]
+struct InlinePanelLayout {
+    height: u16,
+    cursor_row: u16,
+}
+
 fn draw_inline_panel(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &AppState,
-    previous_height: u16,
-) -> Result<u16> {
+) -> Result<InlinePanelLayout> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
     let mut lines = inline_panel_lines(&state.visual_state(), width);
@@ -619,46 +623,41 @@ fn draw_inline_panel(
     }
 
     let panel_height = lines.len() as u16;
-    let clear_height = panel_height.max(previous_height).min(size.height);
-    let start_y = size.height.saturating_sub(clear_height);
-    let top_padding = clear_height.saturating_sub(panel_height) as usize;
-    for row in 0..clear_height {
-        let text = (row as usize)
-            .checked_sub(top_padding)
-            .and_then(|idx| lines.get(idx))
-            .map(|line| truncate_terminal_line(line, width))
-            .unwrap_or_default();
+    for line in &lines {
         execute!(
             terminal.backend_mut(),
-            MoveTo(0, start_y + row),
             TerminalClear(ClearType::CurrentLine),
-            Print(text)
+            Print(truncate_terminal_line(line, width)),
+            Print("\r\n")
         )?;
     }
+    let cursor_row = lines.len().saturating_sub(3) as u16;
+    let rows_from_after_panel = panel_height.saturating_sub(cursor_row);
     execute!(
         terminal.backend_mut(),
-        MoveTo(
-            (2 + state.visual_state().input.chars().count()).min(width.saturating_sub(1)) as u16,
-            size.height.saturating_sub(3)
+        MoveUp(rows_from_after_panel),
+        MoveToColumn(
+            (2 + state.visual_state().input.chars().count()).min(width.saturating_sub(1)) as u16
         )
     )?;
-    Ok(panel_height)
+    Ok(InlinePanelLayout {
+        height: panel_height,
+        cursor_row,
+    })
 }
 
 fn clear_inline_panel(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    height: u16,
+    layout: InlinePanelLayout,
 ) -> Result<()> {
-    let size = terminal.size()?;
-    let clear_height = height.min(size.height);
-    let start_y = size.height.saturating_sub(clear_height);
-    for row in 0..clear_height {
-        execute!(
-            terminal.backend_mut(),
-            MoveTo(0, start_y + row),
-            TerminalClear(ClearType::CurrentLine)
-        )?;
+    if layout.cursor_row > 0 {
+        execute!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
     }
+    execute!(
+        terminal.backend_mut(),
+        MoveToColumn(0),
+        TerminalClear(ClearType::FromCursorDown)
+    )?;
     Ok(())
 }
 
@@ -666,14 +665,12 @@ fn write_scrollback_line(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     line: &str,
     width: usize,
-    height: u16,
 ) -> Result<()> {
     execute!(
         terminal.backend_mut(),
-        MoveTo(0, height.saturating_sub(1)),
         TerminalClear(ClearType::CurrentLine),
         Print(truncate_terminal_line(line, width)),
-        Print("\n")
+        Print("\r\n")
     )?;
     Ok(())
 }
