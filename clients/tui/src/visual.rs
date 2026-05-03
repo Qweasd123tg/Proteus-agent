@@ -127,6 +127,35 @@ impl VisualSurface {
     }
 }
 
+pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if !matching_slash_commands(state.input).is_empty()
+        && state.pending_approval.is_none()
+        && state.resume_picker.is_none()
+    {
+        lines.extend(slash_plain_lines(state, width));
+        lines.push(String::new());
+    }
+
+    if let Some(request) = state.pending_approval {
+        let mut approval_lines = Vec::new();
+        append_approval_lines(&mut approval_lines, request, width);
+        lines.extend(approval_lines.into_iter().map(line_plain_text));
+    } else if state.streaming || state.pending_model {
+        lines.extend(
+            live_status_lines(state, width)
+                .into_iter()
+                .map(line_plain_text),
+        );
+    }
+
+    lines.push(composer_plain_line(state, width));
+    lines.push(String::new());
+    lines.push(footer_plain_line(state, width));
+    lines
+}
+
 trait VisualComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>);
 }
@@ -159,24 +188,23 @@ impl VisualComponent for ComposerComponent {
     }
 }
 
+fn composer_plain_line(state: &VisualState<'_>, width: usize) -> String {
+    let prompt = if state.pending_approval.is_some() {
+        "?"
+    } else {
+        "›"
+    };
+    let input = if state.input.is_empty() && !state.pending_model {
+        "Ask agent to do anything"
+    } else {
+        state.input
+    };
+    truncate(format!("{prompt} {input}"), width)
+}
+
 impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
-        let left = if state.pending_approval.is_some() {
-            "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
-        } else if state.resume_picker.is_some() {
-            "type search · enter resume · esc close · up/down select".to_owned()
-        } else if !matching_slash_commands(state.input).is_empty() {
-            "tab/up/down select · right complete · enter run".to_owned()
-        } else if state.scroll_offset > 0 {
-            "end to bottom · page up/down scroll".to_owned()
-        } else if state.pending_model {
-            match state.thinking_elapsed {
-                Some(elapsed) => format!("{} · {}", state.status, format_elapsed(elapsed)),
-                None => state.status.to_owned(),
-            }
-        } else {
-            state.status.to_owned()
-        };
+        let left = footer_left_text(state);
         let line = truncate(format!("  {left}    {}", state.footer), area.width as usize);
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -185,6 +213,30 @@ impl VisualComponent for FooterComponent {
             ))),
             area,
         );
+    }
+}
+
+fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
+    let left = footer_left_text(state);
+    truncate(format!("  {left}    {}", state.footer), width)
+}
+
+fn footer_left_text(state: &VisualState<'_>) -> String {
+    if state.pending_approval.is_some() {
+        "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
+    } else if state.resume_picker.is_some() {
+        "type search · enter resume · esc close · up/down select".to_owned()
+    } else if !matching_slash_commands(state.input).is_empty() {
+        "tab/up/down select · right complete · enter run".to_owned()
+    } else if state.scroll_offset > 0 {
+        "end to bottom · page up/down scroll".to_owned()
+    } else if state.pending_model {
+        match state.thinking_elapsed {
+            Some(elapsed) => format!("{} · {}", state.status, format_elapsed(elapsed)),
+            None => state.status.to_owned(),
+        }
+    } else {
+        state.status.to_owned()
     }
 }
 
@@ -215,6 +267,39 @@ fn live_status_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>
     }
 
     Vec::new()
+}
+
+fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<String> {
+    let matches = matching_slash_commands(state.input);
+    let visible_count = matches.len().min(7);
+    let selected = state.slash_selection.min(matches.len().saturating_sub(1));
+    let panel_width = width.clamp(36, 74);
+    let mut out = Vec::new();
+    out.push(format!("┌{}┐", "─".repeat(panel_width.saturating_sub(2))));
+    for (index, command) in visible_matches(&matches, selected, visible_count)
+        .into_iter()
+        .enumerate()
+    {
+        let absolute_index = slash_window_start(selected, visible_count) + index;
+        let marker = if absolute_index == selected {
+            "› "
+        } else {
+            "  "
+        };
+        let usage_width = panel_width.saturating_div(2).saturating_sub(4);
+        let description_width = panel_width.saturating_sub(usage_width).saturating_sub(7);
+        let row = format!(
+            "{marker}{}  {}",
+            truncate(command.usage, usage_width),
+            truncate(command.description, description_width)
+        );
+        out.push(format!(
+            "│{}│",
+            pad_right(&row, panel_width.saturating_sub(2))
+        ));
+    }
+    out.push(format!("└{}┘", "─".repeat(panel_width.saturating_sub(2))));
+    out
 }
 
 fn tail_lines(mut lines: Vec<Line<'static>>, limit: usize) -> Vec<Line<'static>> {

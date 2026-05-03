@@ -30,7 +30,10 @@ use crossterm::{
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     style::Print,
-    terminal::{Clear as TerminalClear, ClearType, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        Clear as TerminalClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode,
+    },
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
@@ -39,7 +42,7 @@ use crate::{
     session_picker::ResumePickerItem,
     state::AppState,
     visual::{
-        ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value,
+        ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value, inline_panel_lines,
         render_scrollback_header, render_scrollback_message,
     },
 };
@@ -203,12 +206,35 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
+    let mut inline_panel_height = 0u16;
+    let mut picker_alt_screen = false;
     let mut dirty = true;
 
     loop {
         if dirty {
-            flush_scrollback_messages(terminal, &mut state, &mut scrollback_header_printed)?;
-            terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
+            if state.has_resume_picker() {
+                if !picker_alt_screen {
+                    if inline_panel_height > 0 {
+                        clear_inline_panel(terminal, inline_panel_height)?;
+                        inline_panel_height = 0;
+                    }
+                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                    picker_alt_screen = true;
+                }
+                terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
+            } else {
+                if picker_alt_screen {
+                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                    picker_alt_screen = false;
+                    inline_panel_height = 0;
+                }
+                if inline_panel_height > 0 {
+                    clear_inline_panel(terminal, inline_panel_height)?;
+                    inline_panel_height = 0;
+                }
+                flush_scrollback_messages(terminal, &mut state, &mut scrollback_header_printed)?;
+                inline_panel_height = draw_inline_panel(terminal, &state, inline_panel_height)?;
+            }
             dirty = false;
         }
 
@@ -291,6 +317,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     }
 
     let _ = driver.shutdown().await;
+    if picker_alt_screen {
+        let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    }
     Ok(())
 }
 
@@ -573,7 +602,63 @@ fn flush_scrollback_messages(
             write_scrollback_line(terminal, &line, width, size.height)?;
         }
     }
-    terminal.clear()?;
+    Ok(())
+}
+
+fn draw_inline_panel(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &AppState,
+    previous_height: u16,
+) -> Result<u16> {
+    let size = terminal.size()?;
+    let width = size.width.max(1) as usize;
+    let mut lines = inline_panel_lines(&state.visual_state(), width);
+    let max_lines = size.height.saturating_sub(1) as usize;
+    if lines.len() > max_lines {
+        lines.drain(0..lines.len() - max_lines);
+    }
+
+    let panel_height = lines.len() as u16;
+    let clear_height = panel_height.max(previous_height).min(size.height);
+    let start_y = size.height.saturating_sub(clear_height);
+    let top_padding = clear_height.saturating_sub(panel_height) as usize;
+    for row in 0..clear_height {
+        let text = (row as usize)
+            .checked_sub(top_padding)
+            .and_then(|idx| lines.get(idx))
+            .map(|line| truncate_terminal_line(line, width))
+            .unwrap_or_default();
+        execute!(
+            terminal.backend_mut(),
+            MoveTo(0, start_y + row),
+            TerminalClear(ClearType::CurrentLine),
+            Print(text)
+        )?;
+    }
+    execute!(
+        terminal.backend_mut(),
+        MoveTo(
+            (2 + state.visual_state().input.chars().count()).min(width.saturating_sub(1)) as u16,
+            size.height.saturating_sub(3)
+        )
+    )?;
+    Ok(panel_height)
+}
+
+fn clear_inline_panel(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    height: u16,
+) -> Result<()> {
+    let size = terminal.size()?;
+    let clear_height = height.min(size.height);
+    let start_y = size.height.saturating_sub(clear_height);
+    for row in 0..clear_height {
+        execute!(
+            terminal.backend_mut(),
+            MoveTo(0, start_y + row),
+            TerminalClear(ClearType::CurrentLine)
+        )?;
+    }
     Ok(())
 }
 
