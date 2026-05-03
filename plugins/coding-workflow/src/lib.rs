@@ -288,7 +288,6 @@ fn run_plan_execute_review(
     let plan_message =
         with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
     model_messages.push(plan_message.clone());
-    persistent_messages.push(plan_message);
 
     let mut draft_finish_reason = None;
     let mut tool_round_limit_reached = true;
@@ -1060,8 +1059,13 @@ mod tests {
             output.output.metadata["phases"],
             json!(["plan", "execute", "review"])
         );
-        assert_eq!(output.messages.len(), 4);
-        assert_eq!(output.messages[1].metadata["workflow_phase"], "plan");
+        assert_eq!(output.messages.len(), 3);
+        assert!(
+            output
+                .messages
+                .iter()
+                .all(|message| message.metadata["workflow_phase"] != "plan")
+        );
 
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 3);

@@ -375,7 +375,7 @@ impl AppState {
     /// Главная точка обработки событий от ядра.
     pub fn ingest(&mut self, event: AppServerEvent) {
         match event {
-            AppServerEvent::Runtime { event } => self.ingest_runtime(event),
+            AppServerEvent::Runtime { envelope } => self.ingest_runtime(envelope.event),
             AppServerEvent::UserMessageSubmitted { .. } => {
                 // Уже echo'нули в mark_user_sent, повторно не добавляем.
             }
@@ -659,7 +659,15 @@ mod tests {
         )));
 
         state.ingest(AppServerEvent::Runtime {
-            event: Event::TokenUsageUpdated { usage },
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(
+                    agent_contracts::domain::new_session_id(),
+                    agent_contracts::domain::new_thread_id(),
+                    Some(agent_contracts::domain::new_turn_id()),
+                ),
+                1,
+                Event::TokenUsageUpdated { usage },
+            ),
         });
 
         let report = state.context_report();

@@ -95,7 +95,7 @@ impl From<InMemoryEventStore> for Arc<dyn EventSink> {
 /// blocks or errors because of a slow consumer — `append` always returns Ok.
 #[derive(Debug)]
 pub struct BroadcastEventSink {
-    tx: broadcast::Sender<Event>,
+    tx: broadcast::Sender<EventEnvelope>,
 }
 
 impl BroadcastEventSink {
@@ -104,7 +104,7 @@ impl BroadcastEventSink {
         Self { tx }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+    pub fn subscribe(&self) -> broadcast::Receiver<EventEnvelope> {
         self.tx.subscribe()
     }
 }
@@ -112,7 +112,7 @@ impl BroadcastEventSink {
 #[async_trait::async_trait]
 impl EventSink for BroadcastEventSink {
     async fn append(&self, envelope: EventEnvelope) -> Result<()> {
-        let _ = self.tx.send(envelope.event);
+        let _ = self.tx.send(envelope);
         Ok(())
     }
 }

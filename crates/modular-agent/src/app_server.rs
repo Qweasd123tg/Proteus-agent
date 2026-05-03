@@ -204,8 +204,8 @@ fn spawn_runtime_event_forwarder(
         let mut rx = core_broadcast.subscribe();
         loop {
             match rx.recv().await {
-                Ok(event) => {
-                    let _ = events.send(AppServerEvent::Runtime { event });
+                Ok(envelope) => {
+                    let _ = events.send(AppServerEvent::Runtime { envelope });
                 }
                 Err(broadcast::error::RecvError::Lagged(count)) => {
                     let _ = events.send(AppServerEvent::Error {

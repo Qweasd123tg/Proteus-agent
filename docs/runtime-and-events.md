@@ -128,7 +128,7 @@ event
 
 События app-server:
 
-- `Runtime` - проброшенный runtime `Event`;
+- `Runtime` - проброшенный runtime `EventEnvelope`;
 - `UserMessageSubmitted` - пользовательская команда принята;
 - `TurnOutput` - итоговый `AgentOutput`;
 - `ApprovalRequested` - tool approval ждёт решения UI-клиента;
@@ -245,6 +245,12 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 16. пишет `TurnFinished`.
 
 Лимит tool rounds в `coding.single_loop`: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
+
+`coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
+plan response участвует в execute/review model context, но не пишется в
+persistent history и `messages.jsonl`. В историю сохраняются пользовательское
+сообщение, tool results, execute draft/final assistant messages и итоговый
+review answer.
 
 Если approval требуется, `ToolOrchestrator` отправляет запрос через
 `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в

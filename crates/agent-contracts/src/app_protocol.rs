@@ -25,7 +25,7 @@ use serde_json::Value;
 
 use crate::{
     contracts::ApprovalCacheScope,
-    domain::{AgentOutput, Event, ToolCall, ToolSpec},
+    domain::{AgentOutput, EventEnvelope, ToolCall, ToolSpec},
 };
 
 /// ID approval'а — произвольная строка, уникальная для session агента.
@@ -36,9 +36,9 @@ pub type AppApprovalId = String;
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AppServerEvent {
-    /// Сырое runtime-событие из доменного слоя (TaskReceived, ToolFinished
-    /// и т.п.). UI использует для прогресс-индикации.
-    Runtime { event: Event },
+    /// Runtime-событие с полным envelope. UI использует его для
+    /// прогресс-индикации, timeline/replay и correlation по event/turn ids.
+    Runtime { envelope: EventEnvelope },
 
     /// Пользователь отправил текстовое сообщение (echo обратно клиенту).
     UserMessageSubmitted { text: String },
