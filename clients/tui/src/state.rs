@@ -13,7 +13,10 @@ use agent_contracts::{
     domain::{Event, ToolResult},
 };
 
-use crate::visual::{ToolCard, ToolStatus, VisualMessage, VisualState};
+use crate::{
+    session_picker::{ResumePicker, ResumePickerItem},
+    visual::{ToolCard, ToolStatus, VisualMessage, VisualState},
+};
 
 pub struct AppState {
     pub should_quit: bool,
@@ -34,6 +37,7 @@ pub struct AppState {
     model_started_at: Option<Instant>,
     active_turn_id: Option<String>,
     next_turn_index: u64,
+    resume_picker: Option<ResumePicker>,
 }
 
 impl AppState {
@@ -59,6 +63,7 @@ impl AppState {
             model_started_at: None,
             active_turn_id: None,
             next_turn_index: 0,
+            resume_picker: None,
         }
     }
 
@@ -77,7 +82,12 @@ impl AppState {
             pending_model: self.pending_model,
             streaming: self.streaming_assistant_idx.is_some(),
             thinking_elapsed: self.thinking_elapsed(),
+            resume_picker: self.resume_picker.as_ref(),
         }
+    }
+
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
     }
 
     pub fn advance_spinner(&mut self) -> bool {
@@ -122,6 +132,7 @@ impl AppState {
         self.model_started_at = None;
         self.last_error = None;
         self.status = "resumed".to_owned();
+        self.resume_picker = None;
         self.messages.push(VisualMessage::system(format!(
             "Resumed session: {}",
             session_dir.display()
@@ -130,6 +141,39 @@ impl AppState {
 
     pub fn has_pending_approval(&self) -> bool {
         self.pending_approval.is_some()
+    }
+
+    pub fn has_resume_picker(&self) -> bool {
+        self.resume_picker.is_some()
+    }
+
+    pub fn open_resume_picker(&mut self, items: Vec<ResumePickerItem>) {
+        self.resume_picker = Some(ResumePicker::new(items));
+        self.status = "select session".to_owned();
+    }
+
+    pub fn close_resume_picker(&mut self) {
+        self.resume_picker = None;
+        self.status = "ready".to_owned();
+    }
+
+    pub fn move_resume_selection_up(&mut self, by: usize) {
+        if let Some(picker) = &mut self.resume_picker {
+            picker.move_up(by);
+        }
+    }
+
+    pub fn move_resume_selection_down(&mut self, by: usize) {
+        if let Some(picker) = &mut self.resume_picker {
+            picker.move_down(by);
+        }
+    }
+
+    pub fn selected_resume_session(&self) -> Option<PathBuf> {
+        self.resume_picker
+            .as_ref()
+            .and_then(ResumePicker::selected_item)
+            .map(|item| item.session_dir.clone())
     }
 
     pub fn take_pending_approval_id(&mut self) -> Option<String> {

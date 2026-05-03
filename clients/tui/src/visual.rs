@@ -12,6 +12,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
+use crate::session_picker::ResumePicker;
+
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub(crate) struct VisualState<'a> {
@@ -28,6 +30,7 @@ pub(crate) struct VisualState<'a> {
     pub pending_model: bool,
     pub streaming: bool,
     pub thinking_elapsed: Option<Duration>,
+    pub resume_picker: Option<&'a ResumePicker>,
 }
 
 pub(crate) struct VisualSurface {
@@ -35,6 +38,7 @@ pub(crate) struct VisualSurface {
     composer: ComposerComponent,
     footer: FooterComponent,
     approval: ApprovalComponent,
+    resume_picker: ResumePickerComponent,
 }
 
 impl Default for VisualSurface {
@@ -44,6 +48,7 @@ impl Default for VisualSurface {
             composer: ComposerComponent,
             footer: FooterComponent,
             approval: ApprovalComponent,
+            resume_picker: ResumePickerComponent,
         }
     }
 }
@@ -70,6 +75,10 @@ impl VisualSurface {
             cursor_y,
         ));
 
+        if let Some(picker) = state.resume_picker {
+            self.resume_picker.render(frame, frame.area(), picker);
+        }
+
         if let Some(request) = state.pending_approval {
             self.approval.render(frame, frame.area(), request);
         }
@@ -84,6 +93,7 @@ struct TranscriptComponent;
 struct ComposerComponent;
 struct FooterComponent;
 struct ApprovalComponent;
+struct ResumePickerComponent;
 
 impl VisualComponent for TranscriptComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
@@ -158,6 +168,8 @@ impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
         let left = if state.pending_approval.is_some() {
             "y/н approve · n/т/esc deny".to_owned()
+        } else if state.resume_picker.is_some() {
+            "enter resume · esc close · up/down select".to_owned()
         } else if state.scroll_offset > 0 {
             "end to bottom · page up/down scroll".to_owned()
         } else if state.pending_model {
@@ -176,6 +188,75 @@ impl VisualComponent for FooterComponent {
             ))),
             area,
         );
+    }
+}
+
+impl ResumePickerComponent {
+    fn render(&self, frame: &mut Frame, full: Rect, picker: &ResumePicker) {
+        let modal_width = full
+            .width
+            .saturating_mul(3)
+            .saturating_div(4)
+            .clamp(54, 96)
+            .min(full.width.saturating_sub(2));
+        let wanted_height = (picker.items.len() as u16).saturating_add(4).clamp(7, 16);
+        let modal_height = wanted_height.min(full.height.saturating_sub(2));
+        let x = full.x + full.width.saturating_sub(modal_width) / 2;
+        let y = full.y + full.height.saturating_sub(modal_height) / 2;
+        let area = Rect::new(x, y, modal_width, modal_height);
+
+        frame.render_widget(Clear, area);
+
+        let inner_height = area.height.saturating_sub(2) as usize;
+        let inner_width = area.width.saturating_sub(4) as usize;
+        let list_height = inner_height.saturating_sub(2).saturating_div(2).max(1);
+        let selected = picker.selected.min(picker.items.len().saturating_sub(1));
+        let start = if selected >= list_height {
+            selected + 1 - list_height
+        } else {
+            0
+        };
+        let end = (start + list_height).min(picker.items.len());
+
+        let mut body: Vec<Line<'static>> = Vec::new();
+        if picker.items.is_empty() {
+            body.push(Line::from(Span::styled(
+                "No sessions for this workspace.",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            for (index, item) in picker.items[start..end].iter().enumerate() {
+                let absolute_index = start + index;
+                let selected_row = absolute_index == selected;
+                let marker = if selected_row { "› " } else { "  " };
+                let style = if selected_row {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::Reset)
+                };
+                let title_width = inner_width.saturating_sub(2).max(1);
+                body.push(Line::from(vec![
+                    Span::styled(marker, style),
+                    Span::styled(truncate(item.title.clone(), title_width), style),
+                ]));
+                let detail = truncate(item.detail.clone(), inner_width.saturating_sub(4).max(1));
+                body.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(detail, Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        }
+        body.push(Line::raw(""));
+        body.push(Line::from(Span::styled(
+            "enter resume · esc close",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" resume session ");
+        frame.render_widget(Paragraph::new(body).block(block), area);
     }
 }
 
@@ -559,6 +640,7 @@ mod tests {
             pending_model: false,
             streaming: false,
             thinking_elapsed: None,
+            resume_picker: None,
         };
 
         let lines = session_card(&state, 80);

@@ -7,10 +7,16 @@
 
 mod driver;
 mod markdown;
+mod session_picker;
 mod state;
 mod visual;
 
-use std::{collections::HashSet, io, path::PathBuf, time::Duration};
+use std::{
+    collections::HashSet,
+    io,
+    path::{Component, Path, PathBuf},
+    time::{Duration, SystemTime},
+};
 
 use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 use std::fmt;
@@ -26,6 +32,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::{
     driver::{AgentDriver, DriverConfig},
+    session_picker::ResumePickerItem,
     state::AppState,
     visual::VisualSurface,
 };
@@ -349,6 +356,41 @@ async fn handle_term_event(
                 }
             }
 
+            // Если открыт picker — клавиши управляют выбором session.
+            if state.has_resume_picker() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if let Some(session_dir) = state.selected_resume_session() {
+                            resume_session_dir(state, driver, driver_config, session_dir).await?;
+                            canceled_turn_responses.clear();
+                            cancel_request_responses.clear();
+                        }
+                        return Ok(true);
+                    }
+                    KeyCode::Esc => {
+                        state.close_resume_picker();
+                        return Ok(true);
+                    }
+                    KeyCode::Up => {
+                        state.move_resume_selection_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Down => {
+                        state.move_resume_selection_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::PageUp => {
+                        state.move_resume_selection_up(5);
+                        return Ok(true);
+                    }
+                    KeyCode::PageDown => {
+                        state.move_resume_selection_down(5);
+                        return Ok(true);
+                    }
+                    _ => return Ok(false),
+                }
+            }
+
             // Если показан approval — обрабатываем y/n и те же клавиши в RU раскладке.
             if state.has_pending_approval() {
                 match key.code {
@@ -486,7 +528,7 @@ async fn handle_slash_command(
     match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /resume <session-dir>, /session, /quit",
+                "/help commands: /clear, /cancel, /resume [session-dir], /session, /quit",
             );
         }
         "/clear" => {
@@ -518,8 +560,16 @@ async fn handle_slash_command(
             state.push_system(message);
         }
         "/resume" => {
-            if rest.is_empty() {
-                state.push_system("usage: /resume <session-dir-or-messages.jsonl>");
+            if state.pending_model {
+                state.push_error("cancel active turn before resume".to_owned());
+            } else if rest.is_empty() {
+                let sessions =
+                    list_resume_sessions(driver_config.config_path.as_deref(), state.cwd())?;
+                if sessions.is_empty() {
+                    state.push_system("No sessions found for this workspace.");
+                } else {
+                    state.open_resume_picker(sessions);
+                }
             } else {
                 resume_session(state, driver, driver_config, rest).await?;
                 canceled_turn_responses.clear();
@@ -540,6 +590,15 @@ async fn resume_session(
     raw_path: &str,
 ) -> Result<()> {
     let session_dir = resolve_session_dir(raw_path)?;
+    resume_session_dir(state, driver, driver_config, session_dir).await
+}
+
+async fn resume_session_dir(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &DriverConfig,
+    session_dir: PathBuf,
+) -> Result<()> {
     let mut resumed_config = driver_config.clone();
     resumed_config.resume_session = Some(session_dir.clone());
 
@@ -547,6 +606,151 @@ async fn resume_session(
     *driver = AgentDriver::spawn(resumed_config).await?;
     state.reset_after_resume(session_dir);
     Ok(())
+}
+
+fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<ResumePickerItem>> {
+    let Some(config_path) = config_path
+        .map(Path::to_path_buf)
+        .or_else(default_config_path)
+    else {
+        return Ok(Vec::new());
+    };
+    let sessions_dir = config_store_root(&expand_home_path(&config_path))
+        .join("sessions")
+        .join(encode_workspace_path(cwd));
+    let entries = match std::fs::read_dir(&sessions_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", sessions_dir.display()));
+        }
+    };
+
+    let mut sessions = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read {}", sessions_dir.display()))?;
+        let session_dir = entry.path();
+        if !entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", session_dir.display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let metadata_path = session_dir.join("session.json");
+        let messages_path = session_dir.join("messages.jsonl");
+        if !metadata_path.is_file() {
+            continue;
+        }
+
+        let title = session_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("session")
+            .to_owned();
+        let modified = file_modified_time(&messages_path)
+            .or_else(|| file_modified_time(&metadata_path))
+            .or_else(|| file_modified_time(&session_dir));
+        sessions.push(ResumePickerItem {
+            session_dir,
+            title,
+            detail: format!("updated {}", format_time_ago(modified)),
+        });
+    }
+
+    sessions.sort_by(|left, right| {
+        let left_time = file_modified_time(&left.session_dir.join("messages.jsonl"))
+            .or_else(|| file_modified_time(&left.session_dir));
+        let right_time = file_modified_time(&right.session_dir.join("messages.jsonl"))
+            .or_else(|| file_modified_time(&right.session_dir));
+        right_time.cmp(&left_time)
+    });
+    Ok(sessions)
+}
+
+fn file_modified_time(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+}
+
+fn format_time_ago(time: Option<SystemTime>) -> String {
+    let Some(time) = time else {
+        return "unknown".to_owned();
+    };
+    let Ok(elapsed) = SystemTime::now().duration_since(time) else {
+        return "just now".to_owned();
+    };
+    let seconds = elapsed.as_secs();
+    if seconds < 60 {
+        "just now".to_owned()
+    } else if seconds < 3_600 {
+        format!("{}m ago", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h ago", seconds / 3_600)
+    } else {
+        format!("{}d ago", seconds / 86_400)
+    }
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("AGENT_CONFIG_PATH") {
+        return Some(PathBuf::from(path));
+    }
+    if let Some(config_home) = std::env::var_os("AGENT_CONFIG_HOME") {
+        return Some(PathBuf::from(config_home).join("configs"));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/configs"));
+    }
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs"))
+}
+
+fn config_store_root(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        return path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf());
+    }
+    path.parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn encode_workspace_path(path: &Path) -> String {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let parts = path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(sanitize_path_part(&part.to_string_lossy())),
+            _ => None,
+        })
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        "root".to_owned()
+    } else {
+        parts.join("|")
+    }
+}
+
+fn sanitize_path_part(input: &str) -> String {
+    let mut out = String::new();
+    for ch in input.trim().chars() {
+        if ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_owned()
 }
 
 fn resolve_session_dir(raw_path: &str) -> Result<PathBuf> {
@@ -566,12 +770,24 @@ fn resolve_session_dir(raw_path: &str) -> Result<PathBuf> {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/")
+    expand_home_path(Path::new(path))
+}
+
+fn expand_home_path(path: &Path) -> PathBuf {
+    let Some(path_str) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if path_str == "~"
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home);
+    }
+    if let Some(rest) = path_str.strip_prefix("~/")
         && let Some(home) = std::env::var_os("HOME")
     {
         return PathBuf::from(home).join(rest);
     }
-    PathBuf::from(path)
+    path.to_path_buf()
 }
 
 async fn request_cancel(
@@ -618,5 +834,29 @@ mod tests {
         let resolved = resolve_session_dir(&messages.display().to_string()).expect("resolved");
 
         assert_eq!(resolved, dir.path());
+    }
+
+    #[test]
+    fn list_resume_sessions_reads_current_workspace_sessions() {
+        let config_root = tempfile::tempdir().expect("config root");
+        let config_dir = config_root.path().join("configs");
+        std::fs::create_dir(&config_dir).expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let sessions_dir = config_root
+            .path()
+            .join("sessions")
+            .join(encode_workspace_path(cwd.path()));
+        let valid_session = sessions_dir.join("1234567890");
+        let invalid_session = sessions_dir.join("9999999999");
+        std::fs::create_dir_all(&valid_session).expect("valid session dir");
+        std::fs::create_dir_all(&invalid_session).expect("invalid session dir");
+        std::fs::write(valid_session.join("session.json"), "{}").expect("session metadata");
+        std::fs::write(valid_session.join("messages.jsonl"), "").expect("messages");
+
+        let sessions = list_resume_sessions(Some(&config_dir), cwd.path()).expect("sessions");
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title, "1234567890");
+        assert_eq!(sessions[0].session_dir, valid_session);
     }
 }

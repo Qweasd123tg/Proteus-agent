@@ -124,7 +124,8 @@ agent-tui \
 (или колёсиком через alternate scroll).
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`,
-`/resume <session-dir>`, `/quit`. `/resume` принимает путь к session directory
+`/resume [session-dir]`, `/quit`. `/resume` без аргумента открывает меню
+sessions текущего workspace; с аргументом принимает путь к session directory
 или к `messages.jsonl` внутри неё и перезапускает app-server stdio на этой
 истории.
 
