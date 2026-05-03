@@ -314,8 +314,19 @@ fn preview(result: &ToolResult) -> String {
     if let Some(error) = &result.error {
         return error.clone();
     }
-    let s: String = result.output.chars().take(160).collect();
-    s
+
+    let mut out = String::new();
+    for ch in result.output.chars() {
+        match ch {
+            '\t' => out.push_str("  "),
+            '\r' => {}
+            other => out.push(other),
+        }
+        if out.chars().count() >= 160 {
+            break;
+        }
+    }
+    out
 }
 
 fn footer_hint() -> String {
@@ -352,5 +363,15 @@ mod tests {
         state.mark_user_sent("retry".to_owned());
         state.push_error("boom".to_owned());
         assert_eq!(error_count(&state), 2);
+    }
+
+    #[test]
+    fn preview_normalizes_tab_separated_tool_output() {
+        let result = ToolResult::ok(
+            agent_contracts::domain::new_call_id(),
+            "dir\t1\nfile\tfile.md",
+        );
+
+        assert_eq!(preview(&result), "dir  1\nfile  file.md");
     }
 }
