@@ -10,7 +10,7 @@ use std::{
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
-    domain::{Event, ToolResult},
+    domain::{Event, TokenUsageSnapshot, ToolResult},
 };
 
 use crate::{
@@ -41,6 +41,7 @@ pub struct AppState {
     resume_picker: Option<ResumePicker>,
     slash_selection: usize,
     scrollback_cursor: usize,
+    token_usage: Option<TokenUsageSnapshot>,
 }
 
 impl AppState {
@@ -69,6 +70,7 @@ impl AppState {
             resume_picker: None,
             slash_selection: 0,
             scrollback_cursor: 0,
+            token_usage: None,
         }
     }
 
@@ -121,11 +123,54 @@ impl AppState {
         self.session_dir.as_deref()
     }
 
+    pub fn context_report(&self) -> String {
+        let Some(usage) = &self.token_usage else {
+            return "Context usage: no model request stats yet.".to_owned();
+        };
+
+        let actual = usage
+            .actual
+            .as_ref()
+            .map(|actual| {
+                format!(
+                    "{} input / {} output / {} total",
+                    actual.input_tokens,
+                    actual.output_tokens,
+                    actual.input_tokens + actual.output_tokens
+                )
+            })
+            .unwrap_or_else(|| "not reported by provider".to_owned());
+        let phase = usage.phase.as_deref().unwrap_or("unknown");
+        let mut lines = vec![
+            "Context Usage".to_owned(),
+            format!("model: {}/{}", usage.model.provider, usage.model.model),
+            format!("phase: {phase}"),
+            format!("estimated input: {} tokens", usage.estimated_input_tokens),
+            format!("actual usage: {actual}"),
+            String::new(),
+            "| Category | Tokens | Share |".to_owned(),
+            "| --- | ---: | ---: |".to_owned(),
+        ];
+        for category in &usage.categories {
+            let share = if usage.estimated_input_tokens == 0 {
+                0.0
+            } else {
+                category.tokens as f64 * 100.0 / usage.estimated_input_tokens as f64
+            };
+            lines.push(format!(
+                "| {} | {} | {:.1}% |",
+                category.name, category.tokens, share
+            ));
+        }
+        lines.join("\n")
+    }
+
     pub fn clear_transcript(&mut self) {
         self.messages.clear();
         self.messages
             .push(VisualMessage::system("History cleared."));
         self.scrollback_cursor = 0;
+        self.token_usage = None;
     }
 
     pub fn reset_after_resume_with_history(
@@ -144,6 +189,7 @@ impl AppState {
         self.last_error = None;
         self.status = "resumed".to_owned();
         self.resume_picker = None;
+        self.token_usage = None;
         self.messages.push(VisualMessage::system(format!(
             "Resumed session: {}",
             session_dir.display()
@@ -401,6 +447,10 @@ impl AppState {
                 self.model_started_at = None;
                 self.status = format!("model: {finish_reason:?}");
             }
+            Event::TokenUsageUpdated { usage } => {
+                self.status = format!("context: {}t estimated", usage.estimated_input_tokens);
+                self.token_usage = Some(usage);
+            }
             Event::AssistantTextDelta { text } => {
                 self.append_streaming_text(&text);
             }
@@ -590,5 +640,32 @@ mod tests {
 
         assert_eq!(state.active_turn_id(), None);
         assert!(!state.pending_model);
+    }
+
+    #[test]
+    fn context_report_uses_latest_token_usage_event() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let usage = TokenUsageSnapshot::new(
+            agent_contracts::domain::ModelRef::new("test", "model"),
+            100,
+            vec![
+                agent_contracts::domain::TokenUsageCategory::new("messages", 40),
+                agent_contracts::domain::TokenUsageCategory::new("tool_schemas", 60),
+            ],
+        )
+        .with_phase("execute")
+        .with_actual(Some(agent_contracts::model_standard::TokenUsage::new(
+            110, 12,
+        )));
+
+        state.ingest(AppServerEvent::Runtime {
+            event: Event::TokenUsageUpdated { usage },
+        });
+
+        let report = state.context_report();
+        assert!(report.contains("model: test/model"));
+        assert!(report.contains("phase: execute"));
+        assert!(report.contains("| tool_schemas | 60 | 60.0% |"));
+        assert!(report.contains("110 input / 12 output / 122 total"));
     }
 }

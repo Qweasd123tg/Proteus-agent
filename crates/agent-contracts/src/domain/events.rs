@@ -6,7 +6,7 @@ use crate::domain::{
     AgentOutput, AgentTask, CallId, EventId, ModelRef, PatchResult, SessionId, ThreadId, ToolCall,
     ToolResult, TurnId, new_event_id,
 };
-use crate::model_standard::FinishReason;
+use crate::model_standard::{FinishReason, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
@@ -54,6 +54,58 @@ impl EventEnvelope {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TokenUsageCategory {
+    pub name: String,
+    pub tokens: u32,
+}
+
+impl TokenUsageCategory {
+    pub fn new(name: impl Into<String>, tokens: u32) -> Self {
+        Self {
+            name: name.into(),
+            tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TokenUsageSnapshot {
+    pub model: ModelRef,
+    pub phase: Option<String>,
+    pub estimated_input_tokens: u32,
+    pub categories: Vec<TokenUsageCategory>,
+    pub actual: Option<TokenUsage>,
+}
+
+impl TokenUsageSnapshot {
+    pub fn new(
+        model: ModelRef,
+        estimated_input_tokens: u32,
+        categories: Vec<TokenUsageCategory>,
+    ) -> Self {
+        Self {
+            model,
+            phase: None,
+            estimated_input_tokens,
+            categories,
+            actual: None,
+        }
+    }
+
+    pub fn with_phase(mut self, phase: impl Into<String>) -> Self {
+        self.phase = Some(phase.into());
+        self
+    }
+
+    pub fn with_actual(mut self, actual: Option<TokenUsage>) -> Self {
+        self.actual = actual;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub enum Event {
@@ -78,6 +130,9 @@ pub enum Event {
     },
     ModelResponseReceived {
         finish_reason: FinishReason,
+    },
+    TokenUsageUpdated {
+        usage: TokenUsageSnapshot,
     },
     /// Частичный текстовый chunk от модели во время стрима. Эмитится по
     /// мере прихода SSE-event'ов из провайдера, до финального

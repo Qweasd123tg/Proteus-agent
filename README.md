@@ -128,11 +128,13 @@ TUI показывает команды:
 **Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
 выполняет точную команду или подставляет неполную.
 
-Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`,
-`/resume [session-dir]`, `/quit`. `/resume` без аргумента открывает меню
-sessions текущего workspace на отдельном экране с поиском по conversation
-title/session id; с аргументом принимает путь к session directory или к
-`messages.jsonl` внутри неё и перезапускает app-server stdio на этой истории.
+Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`, `/context`,
+`/resume [session-dir]`, `/quit`. `/context` показывает последнюю оценку
+расхода input tokens по категориям и provider usage, если модель его вернула.
+`/resume` без аргумента открывает меню sessions текущего workspace на
+отдельном экране с поиском по conversation title/session id; с аргументом
+принимает путь к session directory или к `messages.jsonl` внутри неё и
+перезапускает app-server stdio на этой истории.
 
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks и inline

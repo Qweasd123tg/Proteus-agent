@@ -16,15 +16,18 @@ use agent_contracts::{
         std_types::{RResult, RStr, RString},
     },
     contracts::{CompactionInput, ToolExposureRequest},
-    domain::{AgentOutput, ContextBundle, Event, ToolCall, ToolChoice, ToolResult, ToolSpec},
+    domain::{
+        AgentOutput, ContextBundle, Event, TokenUsageCategory, TokenUsageSnapshot, ToolCall,
+        ToolChoice, ToolResult, ToolSpec,
+    },
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
-        FinishReason, InstructionBlock, InstructionKind, MessageRole,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        InstructionBlock, InstructionKind, MessageRole, TokenUsage,
     },
     plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
-        PluginWorkflow, PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput,
-        PluginWorkflowOutput, PluginWorkflow_TO, WorkflowObject,
+        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginWorkflow,
+        PluginWorkflow_TO, PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput,
+        PluginWorkflowOutput, WorkflowObject,
     },
 };
 use serde_json::{Value, json};
@@ -136,7 +139,7 @@ fn run_single_loop(
                 model: request.model.clone(),
             },
         )?;
-        let response = complete_model(host, &request)?;
+        let response = complete_model(host, &request, "single_loop")?;
         emit_event(
             host,
             &Event::ModelResponseReceived {
@@ -191,7 +194,7 @@ fn run_single_loop(
             model: request.model.clone(),
         },
     )?;
-    let response = complete_model(host, &request)?;
+    let response = complete_model(host, &request, "single_loop_final")?;
     emit_event(
         host,
         &Event::ModelResponseReceived {
@@ -261,15 +264,13 @@ fn run_plan_execute_review(
         );
     }
 
-    let mut plan_request = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
-        model_messages.clone(),
-    )
-    .with_instructions(vec![
-        InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
-        InstructionBlock::new(InstructionKind::Developer, PLAN_DEVELOPER_INSTRUCTIONS, 90),
-    ])
-    .with_tool_choice(ToolChoice::None);
+    let mut plan_request =
+        CanonicalModelRequest::new(input.runtime.model_ref.clone(), model_messages.clone())
+            .with_instructions(vec![
+                InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
+                InstructionBlock::new(InstructionKind::Developer, PLAN_DEVELOPER_INSTRUCTIONS, 90),
+            ])
+            .with_tool_choice(ToolChoice::None);
     plan_request.tools.clear();
     emit_event(
         host,
@@ -277,18 +278,15 @@ fn run_plan_execute_review(
             model: plan_request.model.clone(),
         },
     )?;
-    let plan_response = complete_model(host, &plan_request)?;
+    let plan_response = complete_model(host, &plan_request, "plan")?;
     emit_event(
         host,
         &Event::ModelResponseReceived {
             finish_reason: plan_response.finish_reason.clone(),
         },
     )?;
-    let plan_message = with_workflow_phase(
-        plan_response.message,
-        PLAN_EXECUTE_REVIEW_MODULE_ID,
-        "plan",
-    );
+    let plan_message =
+        with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
     model_messages.push(plan_message.clone());
     persistent_messages.push(plan_message);
 
@@ -308,7 +306,7 @@ fn run_plan_execute_review(
                 model: request.model.clone(),
             },
         )?;
-        let response = complete_model(host, &request)?;
+        let response = complete_model(host, &request, "execute")?;
         emit_event(
             host,
             &Event::ModelResponseReceived {
@@ -338,15 +336,17 @@ fn run_plan_execute_review(
         }
     }
 
-    let mut review_request = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
-        model_messages.clone(),
-    )
-    .with_instructions(vec![
-        InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
-        InstructionBlock::new(InstructionKind::Developer, REVIEW_DEVELOPER_INSTRUCTIONS, 90),
-    ])
-    .with_tool_choice(ToolChoice::None);
+    let mut review_request =
+        CanonicalModelRequest::new(input.runtime.model_ref.clone(), model_messages.clone())
+            .with_instructions(vec![
+                InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
+                InstructionBlock::new(
+                    InstructionKind::Developer,
+                    REVIEW_DEVELOPER_INSTRUCTIONS,
+                    90,
+                ),
+            ])
+            .with_tool_choice(ToolChoice::None);
     review_request.tools.clear();
     emit_event(
         host,
@@ -354,7 +354,7 @@ fn run_plan_execute_review(
             model: review_request.model.clone(),
         },
     )?;
-    let final_response = complete_model(host, &review_request)?;
+    let final_response = complete_model(host, &review_request, "review")?;
     emit_event(
         host,
         &Event::ModelResponseReceived {
@@ -413,9 +413,11 @@ fn request_from_state(
         ));
     }
     let messages = compact_messages(input, host, messages, "before_model_request")?;
-    Ok(CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
-        .with_instructions(instructions)
-        .with_tools(tools))
+    Ok(
+        CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
+            .with_instructions(instructions)
+            .with_tools(tools),
+    )
 }
 
 fn compact_messages(
@@ -461,13 +463,16 @@ fn build_context(
 fn complete_model(
     host: &mut PluginWorkflowHostMut<'_>,
     request: &CanonicalModelRequest,
+    phase: &str,
 ) -> Result<CanonicalModelResponse, PluginWorkflowError> {
     let request_json = to_json_string(request)?;
     let response_json = match host.complete_model_json(RString::from(request_json)) {
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
-    from_json_string(response_json.as_str())
+    let response: CanonicalModelResponse = from_json_string(response_json.as_str())?;
+    emit_token_usage(host, request, response.usage.clone(), phase)?;
+    Ok(response)
 }
 
 fn visible_tools(
@@ -492,7 +497,8 @@ fn execute_tool(
 ) -> Result<ToolResult, PluginWorkflowError> {
     let task_json = to_json_string(&input.task)?;
     let call_json = to_json_string(call)?;
-    let result_json = match host.execute_tool_json(RString::from(task_json), RString::from(call_json))
+    let result_json = match host
+        .execute_tool_json(RString::from(task_json), RString::from(call_json))
     {
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
@@ -515,9 +521,7 @@ fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, PluginWorkfl
     serde_json::to_string(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
 }
 
-fn from_json_string<T: serde::de::DeserializeOwned>(
-    value: &str,
-) -> Result<T, PluginWorkflowError> {
+fn from_json_string<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, PluginWorkflowError> {
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
 }
 
@@ -573,6 +577,128 @@ fn output_metadata_with_extra(
     metadata
 }
 
+fn emit_token_usage(
+    host: &mut PluginWorkflowHostMut<'_>,
+    request: &CanonicalModelRequest,
+    actual: Option<TokenUsage>,
+    phase: &str,
+) -> Result<(), PluginWorkflowError> {
+    let usage = request_token_usage_snapshot(request, actual, phase);
+    emit_event(host, &Event::TokenUsageUpdated { usage })
+}
+
+fn request_token_usage_snapshot(
+    request: &CanonicalModelRequest,
+    actual: Option<TokenUsage>,
+    phase: &str,
+) -> TokenUsageSnapshot {
+    let categories = estimate_request_categories(request);
+    let estimated_input_tokens = categories.iter().map(|category| category.tokens).sum();
+    TokenUsageSnapshot::new(request.model.clone(), estimated_input_tokens, categories)
+        .with_phase(phase)
+        .with_actual(actual)
+}
+
+fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsageCategory> {
+    let mut instructions_bytes = request
+        .instructions
+        .iter()
+        .map(|instruction| instruction.text.len())
+        .sum::<usize>();
+    if !request.instructions.is_empty() {
+        instructions_bytes += request.instructions.len() * 8;
+    }
+
+    let mut message_bytes = 0usize;
+    let mut context_bytes = 0usize;
+    let mut tool_result_bytes = 0usize;
+    let mut file_bytes = 0usize;
+    for message in &request.messages {
+        message_bytes += 4;
+        for part in &message.parts {
+            match part {
+                ContentPart::Text { text } | ContentPart::ReasoningSummary { text } => {
+                    message_bytes += text.len();
+                }
+                ContentPart::Context { chunk } => {
+                    context_bytes += chunk.source.len()
+                        + chunk
+                            .path
+                            .as_ref()
+                            .map(|path| path.display().to_string().len())
+                            .unwrap_or_default()
+                        + chunk.content.len()
+                        + chunk.metadata.to_string().len();
+                }
+                ContentPart::FileRef { path, content } => {
+                    file_bytes += path.display().to_string().len()
+                        + content.as_deref().unwrap_or_default().len();
+                }
+                ContentPart::ToolCall { call } => {
+                    message_bytes += call.name.len() + call.args.to_string().len();
+                }
+                ContentPart::ToolResult { result } => {
+                    tool_result_bytes += result.output.len()
+                        + result.error.as_deref().unwrap_or_default().len()
+                        + result.metadata.to_string().len()
+                        + result
+                            .content
+                            .iter()
+                            .map(tool_content_text_len)
+                            .sum::<usize>();
+                }
+                ContentPart::Patch { patch } => {
+                    message_bytes += patch.content.len();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let tool_schema_bytes = request
+        .tools
+        .iter()
+        .map(|tool| {
+            serde_json::to_string(tool)
+                .map(|json| json.len())
+                .unwrap_or(0)
+        })
+        .sum::<usize>();
+
+    [
+        ("instructions", instructions_bytes),
+        ("messages", message_bytes),
+        ("context", context_bytes),
+        ("tool_results", tool_result_bytes),
+        ("files", file_bytes),
+        ("tool_schemas", tool_schema_bytes),
+    ]
+    .into_iter()
+    .filter_map(|(name, bytes)| {
+        let tokens = estimate_tokens_from_bytes(bytes);
+        (tokens > 0).then(|| TokenUsageCategory::new(name, tokens))
+    })
+    .collect()
+}
+
+fn estimate_tokens_from_bytes(bytes: usize) -> u32 {
+    if bytes == 0 {
+        0
+    } else {
+        (bytes / 4).max(1) as u32
+    }
+}
+
+fn tool_content_text_len(content: &agent_contracts::domain::ToolContent) -> usize {
+    match content {
+        agent_contracts::domain::ToolContent::Text { text } => text.len(),
+        agent_contracts::domain::ToolContent::Json { value } => value.to_string().len(),
+        agent_contracts::domain::ToolContent::Image { data, .. }
+        | agent_contracts::domain::ToolContent::Binary { data, .. } => data.len(),
+        _ => 0,
+    }
+}
+
 fn with_workflow_phase(
     mut message: CanonicalMessage,
     module_id: &str,
@@ -580,7 +706,10 @@ fn with_workflow_phase(
 ) -> CanonicalMessage {
     match &mut message.metadata {
         Value::Object(metadata) => {
-            metadata.insert("workflow_module".to_owned(), Value::String(module_id.to_owned()));
+            metadata.insert(
+                "workflow_module".to_owned(),
+                Value::String(module_id.to_owned()),
+            );
             metadata.insert("workflow_phase".to_owned(), Value::String(phase.to_owned()));
         }
         Value::Null => {
@@ -683,11 +812,9 @@ mod tests {
 
     use agent_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
-        domain::{
-            AgentTask, ContextChunk, ModelRef, new_session_id, new_thread_id, new_turn_id,
-        },
+        domain::{AgentTask, ContextChunk, ModelRef, new_session_id, new_thread_id, new_turn_id},
         plugin::{
-            PluginWorkflowHost, PluginWorkflowHostError, PluginWorkflowHost_TO,
+            PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
             PluginWorkflowRuntimeInfo,
         },
     };
@@ -701,14 +828,11 @@ mod tests {
 
     #[test]
     fn estimates_tokens_from_text_context_and_tool_results() {
-        let result = ToolResult::ok(agent_contracts::domain::new_call_id(), "abcd")
-            .with_metadata(json!({}));
+        let result =
+            ToolResult::ok(agent_contracts::domain::new_call_id(), "abcd").with_metadata(json!({}));
         let messages = vec![
             CanonicalMessage::text(MessageRole::User, "abcd"),
-            CanonicalMessage::new(
-                MessageRole::Tool,
-                vec![ContentPart::ToolResult { result }],
-            ),
+            CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }]),
         ];
 
         assert_eq!(estimate_message_tokens(&messages), Some(4));
@@ -742,7 +866,9 @@ mod tests {
                 format!("context for {}", task.text),
             )])
             .with_token_estimate(7);
-            RResult::ROk(RString::from(serde_json::to_string(&bundle).expect("bundle json")))
+            RResult::ROk(RString::from(
+                serde_json::to_string(&bundle).expect("bundle json"),
+            ))
         }
 
         fn complete_model_json(
@@ -829,10 +955,9 @@ mod tests {
         let mut host_to: PluginWorkflowHostMut<'_> =
             PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
 
-        let output_json = match CodingSingleLoopWorkflow::default().run_json(
-            RString::from(input_json),
-            &mut host_to,
-        ) {
+        let output_json = match CodingSingleLoopWorkflow::default()
+            .run_json(RString::from(input_json), &mut host_to)
+        {
             RResult::ROk(json) => json,
             RResult::RErr(error) => panic!("workflow failed: {}", error.message),
         };
@@ -850,12 +975,35 @@ mod tests {
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].tools.len(), 0);
-        assert!(requests[0].messages.iter().any(|message| message.name.as_deref() == Some("context")));
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .any(|message| message.name.as_deref() == Some("context"))
+        );
 
         let events = host.events.lock().expect("events");
-        assert!(events.iter().any(|event| matches!(event, Event::TaskReceived { .. })));
-        assert!(events.iter().any(|event| matches!(event, Event::ContextBuilt { chunks: 1, .. })));
-        assert!(events.iter().any(|event| matches!(event, Event::TurnFinished { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::TaskReceived { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::ContextBuilt { chunks: 1, .. }))
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::TokenUsageUpdated {
+                usage
+            } if usage.categories.iter().any(|category| category.name == "context")
+        )));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::TurnFinished { .. }))
+        );
     }
 
     #[test]
@@ -893,10 +1041,9 @@ mod tests {
         let mut host_to: PluginWorkflowHostMut<'_> =
             PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
 
-        let output_json = match CodingPlanExecuteReviewWorkflow.run_json(
-            RString::from(input_json),
-            &mut host_to,
-        ) {
+        let output_json = match CodingPlanExecuteReviewWorkflow
+            .run_json(RString::from(input_json), &mut host_to)
+        {
             RResult::ROk(json) => json,
             RResult::RErr(error) => panic!("workflow failed: {}", error.message),
         };
@@ -909,7 +1056,10 @@ mod tests {
             output.output.metadata["workflow"]["module_id"],
             PLAN_EXECUTE_REVIEW_MODULE_ID
         );
-        assert_eq!(output.output.metadata["phases"], json!(["plan", "execute", "review"]));
+        assert_eq!(
+            output.output.metadata["phases"],
+            json!(["plan", "execute", "review"])
+        );
         assert_eq!(output.messages.len(), 4);
         assert_eq!(output.messages[1].metadata["workflow_phase"], "plan");
 

@@ -32,6 +32,11 @@ pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
         description: "show current session",
     },
     SlashCommand {
+        name: "/context",
+        usage: "/context",
+        description: "show token usage",
+    },
+    SlashCommand {
         name: "/quit",
         usage: "/quit",
         description: "quit TUI",

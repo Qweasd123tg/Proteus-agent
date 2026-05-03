@@ -703,7 +703,7 @@ async fn handle_slash_command(
     match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /resume [session-dir], /session, /quit",
+                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /quit",
             );
         }
         "/clear" => {
@@ -733,6 +733,9 @@ async fn handle_slash_command(
                 .map(|path| format!("session: {}", path.display()))
                 .unwrap_or_else(|| "session: not persisted".to_owned());
             state.push_system(message);
+        }
+        "/context" => {
+            state.push_system(state.context_report());
         }
         "/resume" => {
             if state.pending_model {

@@ -104,6 +104,7 @@ event
 - `ContextBuilt`;
 - `ModelRequestPrepared`;
 - `ModelResponseReceived`;
+- `TokenUsageUpdated`;
 - `ToolCallRequested`;
 - `ApprovalRequested`;
 - `ApprovalResolved`;
@@ -114,6 +115,12 @@ event
 `PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 `MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
+
+`TokenUsageUpdated` испускается workflow-плагином после каждого model request.
+Событие содержит грубую оценку input tokens по категориям (`instructions`,
+`messages`, `context`, `tool_results`, `files`, `tool_schemas`) и фактический
+`TokenUsage`, если provider adapter вернул usage. Оценка нужна для UI и
+исследования context budget; она не является provider billing source of truth.
 
 ## App Server Boundary
 
@@ -230,11 +237,12 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
 9. вызывает `ModelClient::complete`, реализованный `ModelService`;
 10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
-11. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
-12. добавляет `ToolResult` в canonical messages;
-13. повторяет model call до финального ответа или лимита rounds;
-14. если лимит rounds исчерпан, делает финальный model call без tools;
-15. пишет `TurnFinished`.
+11. пишет `TokenUsageUpdated` с оценкой request categories и provider usage, если он доступен;
+12. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
+13. добавляет `ToolResult` в canonical messages;
+14. повторяет model call до финального ответа или лимита rounds;
+15. если лимит rounds исчерпан, делает финальный model call без tools;
+16. пишет `TurnFinished`.
 
 Лимит tool rounds в `coding.single_loop`: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
