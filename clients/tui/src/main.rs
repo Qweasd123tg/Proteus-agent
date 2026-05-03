@@ -13,13 +13,17 @@ mod state;
 mod visual;
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io,
     path::{Component, Path, PathBuf},
     time::{Duration, SystemTime},
 };
 
-use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
+use agent_contracts::{
+    app_protocol::{StdioOutput, StdioRequest},
+    domain::{CallId, ToolCall, ToolResult},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+};
 use std::fmt;
 
 use anyhow::{Context, Result};
@@ -35,7 +39,7 @@ use crate::{
     driver::{AgentDriver, DriverConfig},
     session_picker::ResumePickerItem,
     state::AppState,
-    visual::VisualSurface,
+    visual::{ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value},
 };
 
 /// DECSET 1007 — alternate scroll mode. Терминал сам переводит wheel
@@ -635,13 +639,131 @@ async fn resume_session_dir(
     driver_config: &DriverConfig,
     session_dir: PathBuf,
 ) -> Result<()> {
+    let history = load_session_history(&session_dir)?;
     let mut resumed_config = driver_config.clone();
     resumed_config.resume_session = Some(session_dir.clone());
 
     driver.shutdown().await?;
     *driver = AgentDriver::spawn(resumed_config).await?;
-    state.reset_after_resume(session_dir);
+    state.reset_after_resume_with_history(session_dir, history);
     Ok(())
+}
+
+fn load_session_history(session_dir: &Path) -> Result<Vec<VisualMessage>> {
+    let messages_path = session_dir.join("messages.jsonl");
+    let content = match std::fs::read_to_string(&messages_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", messages_path.display()));
+        }
+    };
+
+    let mut output = Vec::new();
+    let mut tool_calls = HashMap::<CallId, ToolCall>::new();
+    for (index, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let message: CanonicalMessage = serde_json::from_str(line).with_context(|| {
+            format!(
+                "failed to parse {} line {}",
+                messages_path.display(),
+                index + 1
+            )
+        })?;
+        append_history_message(&mut output, &mut tool_calls, message);
+    }
+    Ok(output)
+}
+
+fn append_history_message(
+    output: &mut Vec<VisualMessage>,
+    tool_calls: &mut HashMap<CallId, ToolCall>,
+    message: CanonicalMessage,
+) {
+    let mut text_parts = Vec::new();
+    for part in message.parts {
+        match part {
+            ContentPart::Text { text } | ContentPart::ReasoningSummary { text } => {
+                if !text.trim().is_empty() {
+                    text_parts.push(text);
+                }
+            }
+            ContentPart::ToolCall { call } => {
+                tool_calls.insert(call.id.clone(), call);
+            }
+            ContentPart::ToolResult { result } => {
+                output.push(history_tool_message(tool_calls, result));
+            }
+            ContentPart::FileRef { path, content } => {
+                let text = match content {
+                    Some(content) => format!("{}:\n{}", path.display(), content),
+                    None => path.display().to_string(),
+                };
+                text_parts.push(text);
+            }
+            ContentPart::Patch { patch } => {
+                text_parts.push(patch.content);
+            }
+            ContentPart::Context { .. } => {}
+            _ => {}
+        }
+    }
+
+    if text_parts.is_empty() {
+        return;
+    }
+    let text = text_parts.join("\n\n");
+    let visual = match message.role {
+        MessageRole::User => VisualMessage::user(text),
+        MessageRole::Assistant => VisualMessage::assistant(text),
+        MessageRole::System | MessageRole::Developer => VisualMessage::system(text),
+        MessageRole::Tool => return,
+        _ => return,
+    };
+    output.push(visual);
+}
+
+fn history_tool_message(
+    tool_calls: &HashMap<CallId, ToolCall>,
+    result: ToolResult,
+) -> VisualMessage {
+    let call = tool_calls.get(&result.call_id);
+    VisualMessage::tool(ToolCard {
+        call_id: result.call_id.clone(),
+        name: call
+            .map(|call| call.name.clone())
+            .unwrap_or_else(|| "tool".to_owned()),
+        args_summary: call
+            .map(|call| compact_value(&call.args))
+            .unwrap_or_default(),
+        status: if result.ok {
+            ToolStatus::Ok
+        } else {
+            ToolStatus::Err
+        },
+        output_preview: history_tool_preview(&result),
+    })
+}
+
+fn history_tool_preview(result: &ToolResult) -> String {
+    if let Some(error) = &result.error {
+        return error.clone();
+    }
+    let mut out = String::new();
+    for ch in result.output.chars() {
+        match ch {
+            '\t' => out.push_str("  "),
+            '\r' => {}
+            other => out.push(other),
+        }
+        if out.chars().count() >= 160 {
+            break;
+        }
+    }
+    out
 }
 
 fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<ResumePickerItem>> {
@@ -894,6 +1016,7 @@ async fn request_cancel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::visual::VisualRole;
 
     #[test]
     fn resolve_session_dir_accepts_directory() {
@@ -937,5 +1060,44 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].title, "1234567890");
         assert_eq!(sessions[0].session_dir, valid_session);
+    }
+
+    #[test]
+    fn load_session_history_renders_text_and_tool_messages() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let call = ToolCall::new("call-1", "list_dir", serde_json::json!({"path":"."}));
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "hello"),
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            ),
+            CanonicalMessage::new(
+                MessageRole::Tool,
+                vec![ContentPart::ToolResult {
+                    result: ToolResult::ok(call.id.clone(), "file  a.md"),
+                }],
+            )
+            .with_tool_call_id(call.id.clone()),
+            CanonicalMessage::text(MessageRole::Assistant, "done"),
+        ];
+        let content = messages
+            .into_iter()
+            .map(|message| serde_json::to_string(&message).expect("message json"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(dir.path().join("messages.jsonl"), content).expect("messages");
+
+        let history = load_session_history(dir.path()).expect("history");
+
+        assert_eq!(history.len(), 3);
+        assert!(matches!(history[0].role, VisualRole::User));
+        assert_eq!(history[0].text, "hello");
+        assert!(matches!(history[1].role, VisualRole::Tool));
+        let tool = history[1].tool.as_ref().expect("tool card");
+        assert_eq!(tool.name, "list_dir");
+        assert_eq!(tool.output_preview, "file  a.md");
+        assert!(matches!(history[2].role, VisualRole::Assistant));
+        assert_eq!(history[2].text, "done");
     }
 }

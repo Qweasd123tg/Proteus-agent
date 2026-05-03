@@ -125,7 +125,11 @@ impl AppState {
             .push(VisualMessage::system("History cleared."));
     }
 
-    pub fn reset_after_resume(&mut self, session_dir: PathBuf) {
+    pub fn reset_after_resume_with_history(
+        &mut self,
+        session_dir: PathBuf,
+        mut history: Vec<VisualMessage>,
+    ) {
         self.messages.clear();
         self.session_dir = Some(session_dir.clone());
         self.pending_model = false;
@@ -141,6 +145,8 @@ impl AppState {
             "Resumed session: {}",
             session_dir.display()
         )));
+        self.messages.append(&mut history);
+        self.scroll_offset = 0;
     }
 
     pub fn has_pending_approval(&self) -> bool {
