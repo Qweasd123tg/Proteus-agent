@@ -1700,28 +1700,6 @@ struct TestApprovalTransport {
 }
 
 #[derive(Debug)]
-struct LongOutputTool;
-
-#[async_trait]
-impl Tool for LongOutputTool {
-    fn spec(&self) -> ToolSpec {
-        ToolSpec::new(
-            "long_output",
-            "returns long test output",
-            json!({ "type": "object" }),
-            ToolSafety::ReadOnly,
-        )
-    }
-
-    async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
-        Ok(ToolResult::ok(
-            call.id.clone(),
-            "0123456789abcdefghijklmnopqrstuvwxyz",
-        ))
-    }
-}
-
-#[derive(Debug)]
 struct RecordingSearch {
     queries: Arc<Mutex<Vec<String>>>,
 }
@@ -2160,110 +2138,6 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
             Event::ToolFinished { result } if !result.ok
         )
     }));
-}
-
-#[tokio::test]
-async fn tool_orchestrator_saves_truncated_output_as_artifact() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.policy = "allow_all".to_owned();
-    let mut registry = registry_from_test_config(&config, dir.path());
-    registry
-        .tools
-        .register_with_source(
-            ToolSource::Dynamic {
-                origin: "test".to_owned(),
-            },
-            LongOutputTool,
-        )
-        .unwrap();
-    let events = Arc::new(InMemoryEventStore::new());
-    let ctx = registry.runtime_context(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
-    );
-
-    let result = ToolOrchestrator::new(30_000, 12)
-        .execute(
-            &ctx,
-            &AgentTask::new("long output".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "long_output", json!({})),
-        )
-        .await
-        .unwrap();
-
-    assert!(result.ok);
-    assert!(result.output.starts_with("0123456789ab"));
-    assert!(result.output.contains("full output saved to"));
-    assert_eq!(result.metadata["output_truncated"], true);
-    assert_eq!(result.metadata["output_original_bytes"], 36);
-    assert_eq!(result.metadata["output_artifact_bytes"], 36);
-    let artifact_path = result.metadata["output_artifact_path"]
-        .as_str()
-        .expect("artifact path");
-    assert!(artifact_path.starts_with(".agent/tool-outputs/long_output/"));
-    let full_output = std::fs::read_to_string(dir.path().join(artifact_path)).expect("artifact");
-    assert_eq!(full_output, "0123456789abcdefghijklmnopqrstuvwxyz");
-
-    let records = events.events().await;
-    assert!(records.iter().any(|event| {
-        matches!(
-            event,
-            Event::ToolFinished { result }
-                if result.metadata["output_artifact_path"].as_str() == Some(artifact_path)
-        )
-    }));
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn tool_orchestrator_rejects_symlink_artifact_directory() {
-    let dir = temp_workspace();
-    let outside = tempfile::tempdir().expect("outside");
-    std::os::unix::fs::symlink(outside.path(), dir.path().join(".agent")).expect("symlink");
-    let mut config = test_config();
-    config.modules.policy = "allow_all".to_owned();
-    let mut registry = registry_from_test_config(&config, dir.path());
-    registry
-        .tools
-        .register_with_source(
-            ToolSource::Dynamic {
-                origin: "test".to_owned(),
-            },
-            LongOutputTool,
-        )
-        .unwrap();
-    let events = Arc::new(InMemoryEventStore::new());
-    let ctx = registry.runtime_context(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
-    );
-
-    let result = ToolOrchestrator::new(30_000, 12)
-        .execute(
-            &ctx,
-            &AgentTask::new("long output".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "long_output", json!({})),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(result.metadata["output_truncated"], true);
-    assert!(result.metadata.get("output_artifact_path").is_none());
-    assert!(
-        std::fs::read_dir(outside.path())
-            .expect("outside dir")
-            .next()
-            .is_none()
-    );
 }
 
 // write_file workspace-escape tests moved to the file-tools plugin.

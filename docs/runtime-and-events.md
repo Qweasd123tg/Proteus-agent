@@ -271,11 +271,7 @@ name и canonical JSON args будет approved без нового pending app-
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 
-`ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет
-failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors
-обрезаются до общего лимита orchestrator-а. Если результат пришлось обрезать,
-полный текст сохраняется в `.agent/tool-outputs/`, а tool result получает
-`metadata.output_artifact_path` / `metadata.error_artifact_path`.
+`ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors обрезаются до общего лимита orchestrator-а.
 
 `runtime.workflow_timeout_ms` ограничивает весь workflow turn и освобождает
 runtime lock при зависшем workflow. При timeout runtime также сигналит

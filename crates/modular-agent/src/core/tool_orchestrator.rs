@@ -1,9 +1,9 @@
 use std::{
-    path::{Component, Path, PathBuf},
+    path::Path,
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use tokio::time::timeout;
 
@@ -196,7 +196,7 @@ impl ToolOrchestrator {
             }
         };
 
-        let mut result = self.truncate_result(ctx, task, &call.name, result).await;
+        let mut result = self.truncate_result(result);
         result.metadata = metadata_with(
             result.metadata,
             "duration_ms",
@@ -213,47 +213,16 @@ impl ToolOrchestrator {
         Ok(result)
     }
 
-    async fn truncate_result(
-        &self,
-        ctx: &RuntimeContext,
-        task: &AgentTask,
-        tool_name: &str,
-        mut result: ToolResult,
-    ) -> ToolResult {
+    fn truncate_result(&self, mut result: ToolResult) -> ToolResult {
         let (output, output_truncated, output_original_bytes) =
-            truncate_utf8(&result.output, self.max_output_bytes);
-        let output_artifact = if output_truncated {
-            self.write_tool_artifact(
-                ctx,
-                task,
-                tool_name,
-                &result.call_id,
-                "output",
-                &result.output,
-            )
-            .await
-        } else {
-            None
-        };
+            truncate_utf8(result.output, self.max_output_bytes);
         result.output = output;
 
-        let (error, error_truncated, error_original_bytes, error_artifact) = match result
+        let (error, error_truncated, error_original_bytes) = result
             .error
-            .take()
-        {
-            Some(error) => {
-                let (truncated_error, truncated, original_bytes) =
-                    truncate_utf8(&error, self.max_output_bytes);
-                let artifact = if truncated {
-                    self.write_tool_artifact(ctx, task, tool_name, &result.call_id, "error", &error)
-                        .await
-                } else {
-                    None
-                };
-                (Some(truncated_error), truncated, original_bytes, artifact)
-            }
-            None => (None, false, 0, None),
-        };
+            .map(|error| truncate_utf8(error, self.max_output_bytes))
+            .map(|(error, truncated, original_bytes)| (Some(error), truncated, original_bytes))
+            .unwrap_or((None, false, 0));
         result.error = error;
 
         if output_truncated || error_truncated {
@@ -265,20 +234,6 @@ impl ToolOrchestrator {
                     "output_original_bytes",
                     json!(output_original_bytes),
                 );
-                if let Some(artifact) = output_artifact {
-                    result.output.push_str(&format!(
-                        "\n\n[output truncated to {} bytes; full output saved to {}]",
-                        self.max_output_bytes,
-                        artifact.relative_path.display()
-                    ));
-                    metadata = metadata_with(
-                        metadata,
-                        "output_artifact_path",
-                        json!(artifact.relative_path.to_string_lossy()),
-                    );
-                    metadata =
-                        metadata_with(metadata, "output_artifact_bytes", json!(artifact.bytes));
-                }
             }
             if error_truncated {
                 metadata = metadata_with(metadata, "error_truncated", json!(true));
@@ -287,27 +242,6 @@ impl ToolOrchestrator {
                     "error_original_bytes",
                     json!(error_original_bytes),
                 );
-                if let Some(artifact) = error_artifact {
-                    let note = format!(
-                        "\n\n[error truncated to {} bytes; full error saved to {}]",
-                        self.max_output_bytes,
-                        artifact.relative_path.display()
-                    );
-                    result.error = Some(match result.error.take() {
-                        Some(mut error) => {
-                            error.push_str(&note);
-                            error
-                        }
-                        None => note,
-                    });
-                    metadata = metadata_with(
-                        metadata,
-                        "error_artifact_path",
-                        json!(artifact.relative_path.to_string_lossy()),
-                    );
-                    metadata =
-                        metadata_with(metadata, "error_artifact_bytes", json!(artifact.bytes));
-                }
             }
             metadata = metadata_with(metadata, "max_output_bytes", json!(self.max_output_bytes));
             result.metadata = metadata;
@@ -315,136 +249,12 @@ impl ToolOrchestrator {
 
         result
     }
-
-    async fn write_tool_artifact(
-        &self,
-        _ctx: &RuntimeContext,
-        task: &AgentTask,
-        tool_name: &str,
-        call_id: &str,
-        stream: &str,
-        content: &str,
-    ) -> Option<ToolArtifactRef> {
-        let relative_path = tool_artifact_relative_path(tool_name, call_id, stream);
-        match write_workspace_text_artifact(&task.cwd, &relative_path, content).await {
-            Ok(()) => Some(ToolArtifactRef {
-                relative_path,
-                bytes: content.len(),
-            }),
-            Err(error) => {
-                eprintln!(
-                    "warning: failed to write tool output artifact {}: {error:#}",
-                    task.cwd.join(&relative_path).display()
-                );
-                None
-            }
-        }
-    }
 }
 
-#[derive(Debug, Clone)]
-struct ToolArtifactRef {
-    relative_path: PathBuf,
-    bytes: usize,
-}
-
-async fn write_workspace_text_artifact(
-    workspace: &Path,
-    relative_path: &Path,
-    content: &str,
-) -> Result<()> {
-    ensure_relative_artifact_path(relative_path)?;
-    let path = workspace.join(relative_path);
-    let parent = relative_path
-        .parent()
-        .ok_or_else(|| anyhow!("artifact path has no parent: {}", relative_path.display()))?;
-    reject_existing_symlink_components(workspace, parent).await?;
-    tokio::fs::create_dir_all(workspace.join(parent))
-        .await
-        .with_context(|| format!("failed to create {}", workspace.join(parent).display()))?;
-    tokio::fs::write(path, content)
-        .await
-        .with_context(|| format!("failed to write {}", workspace.join(relative_path).display()))?;
-    Ok(())
-}
-
-fn ensure_relative_artifact_path(path: &Path) -> Result<()> {
-    for component in path.components() {
-        match component {
-            Component::Normal(_) | Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                anyhow::bail!("artifact path must stay inside workspace: {}", path.display());
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn reject_existing_symlink_components(workspace: &Path, relative_dir: &Path) -> Result<()> {
-    let mut current = workspace.to_path_buf();
-    for component in relative_dir.components() {
-        match component {
-            Component::Normal(part) => {
-                current.push(part);
-                match tokio::fs::symlink_metadata(&current).await {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        anyhow::bail!(
-                            "artifact directory must not contain symlink component: {}",
-                            current.display()
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                    Err(error) => return Err(error).with_context(|| {
-                        format!("failed to inspect artifact path {}", current.display())
-                    }),
-                }
-            }
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                anyhow::bail!(
-                    "artifact directory must stay inside workspace: {}",
-                    relative_dir.display()
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
-fn tool_artifact_relative_path(tool_name: &str, call_id: &str, stream: &str) -> PathBuf {
-    PathBuf::from(".agent")
-        .join("tool-outputs")
-        .join(sanitize_path_segment(tool_name))
-        .join(format!(
-            "{}-{}.txt",
-            sanitize_path_segment(call_id),
-            sanitize_path_segment(stream)
-        ))
-}
-
-fn sanitize_path_segment(value: &str) -> String {
-    let sanitized = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "unknown".to_owned()
-    } else {
-        sanitized
-    }
-}
-
-fn truncate_utf8(value: &str, max_bytes: usize) -> (String, bool, usize) {
+fn truncate_utf8(value: String, max_bytes: usize) -> (String, bool, usize) {
     let original_bytes = value.len();
     if original_bytes <= max_bytes {
-        return (value.to_owned(), false, original_bytes);
+        return (value, false, original_bytes);
     }
 
     let mut end = max_bytes;
