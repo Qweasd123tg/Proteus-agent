@@ -376,6 +376,22 @@ async fn handle_term_event(
                         state.close_resume_picker();
                         return Ok(true);
                     }
+                    KeyCode::Backspace => {
+                        state.backspace_resume_query();
+                        return Ok(true);
+                    }
+                    KeyCode::Char(ch) => {
+                        state.type_resume_query_char(ch);
+                        return Ok(true);
+                    }
+                    KeyCode::Tab => {
+                        state.move_resume_selection_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::BackTab => {
+                        state.move_resume_selection_up(1);
+                        return Ok(true);
+                    }
                     KeyCode::Up => {
                         state.move_resume_selection_up(1);
                         return Ok(true);
@@ -396,11 +412,12 @@ async fn handle_term_event(
                 }
             }
 
-            // Если показан approval — обрабатываем y/n и те же клавиши в RU раскладке.
+            // Если показан approval — обрабатываем y/n/p и те же клавиши в RU раскладке.
             if state.has_pending_approval() {
                 match key.code {
                     KeyCode::Char('y')
                     | KeyCode::Char('Y')
+                    | KeyCode::Char('1')
                     | KeyCode::Char('н')
                     | KeyCode::Char('Н') => {
                         if let Some(id) = state.take_pending_approval_id() {
@@ -416,8 +433,28 @@ async fn handle_term_event(
                             return Ok(true);
                         }
                     }
+                    KeyCode::Char('p')
+                    | KeyCode::Char('P')
+                    | KeyCode::Char('2')
+                    | KeyCode::Char('з')
+                    | KeyCode::Char('З') => {
+                        if let Some(id) = state.take_pending_approval_id() {
+                            driver
+                                .send(&StdioRequest::Approval {
+                                    id: None,
+                                    approval_id: id,
+                                    approved: true,
+                                    note: None,
+                                    cache:
+                                        agent_contracts::contracts::ApprovalCacheScope::ExactCall,
+                                })
+                                .await?;
+                            return Ok(true);
+                        }
+                    }
                     KeyCode::Char('n')
                     | KeyCode::Char('N')
+                    | KeyCode::Char('3')
                     | KeyCode::Char('т')
                     | KeyCode::Char('Т')
                     | KeyCode::Esc => {
@@ -726,6 +763,23 @@ fn append_history_message(
     output.push(visual);
 }
 
+fn message_text(message: &CanonicalMessage) -> String {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } | ContentPart::ReasoningSummary { text } => {
+                Some(text.as_str())
+            }
+            ContentPart::FileRef { path, .. } => path.to_str(),
+            ContentPart::Patch { patch } => Some(patch.content.as_str()),
+            _ => None,
+        })
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 fn history_tool_message(
     tool_calls: &HashMap<CallId, ToolCall>,
     result: ToolResult,
@@ -857,17 +911,49 @@ fn append_resume_sessions_from_dir(
             .and_then(|name| name.to_str())
             .unwrap_or("session")
             .to_owned();
+        let created = file_created_time(&metadata_path)
+            .or_else(|| file_created_time(&session_dir))
+            .or_else(|| file_modified_time(&metadata_path))
+            .or_else(|| file_modified_time(&session_dir));
         let modified = file_modified_time(&messages_path)
             .or_else(|| file_modified_time(&metadata_path))
             .or_else(|| file_modified_time(&session_dir));
+        let conversation = session_conversation_title(&messages_path)
+            .unwrap_or_else(|| "empty session".to_owned());
         sessions.push(ResumePickerItem {
             session_dir,
-            title,
-            detail: format!("updated {}", format_time_ago(modified)),
+            id: title,
+            created: format_time_ago(created),
+            updated_label: format_time_ago(modified),
+            branch: "-".to_owned(),
+            conversation,
             updated: modified,
         });
     }
     Ok(())
+}
+
+fn session_conversation_title(messages_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(messages_path).ok()?;
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let message = serde_json::from_str::<CanonicalMessage>(line).ok()?;
+        if matches!(message.role, MessageRole::User) {
+            let text = message_text(&message);
+            if !text.trim().is_empty() {
+                return Some(text.replace('\n', " "));
+            }
+        }
+    }
+    None
+}
+
+fn file_created_time(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.created())
+        .ok()
 }
 
 fn file_modified_time(path: &Path) -> Option<SystemTime> {
@@ -1058,7 +1144,7 @@ mod tests {
         let sessions = list_resume_sessions(Some(&config_dir), cwd.path()).expect("sessions");
 
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].title, "1234567890");
+        assert_eq!(sessions[0].id, "1234567890");
         assert_eq!(sessions[0].session_dir, valid_session);
     }
 

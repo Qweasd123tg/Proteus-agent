@@ -179,6 +179,18 @@ impl AppState {
         }
     }
 
+    pub fn type_resume_query_char(&mut self, ch: char) {
+        if let Some(picker) = &mut self.resume_picker {
+            picker.type_char(ch);
+        }
+    }
+
+    pub fn backspace_resume_query(&mut self) {
+        if let Some(picker) = &mut self.resume_picker {
+            picker.backspace();
+        }
+    }
+
     pub fn selected_resume_session(&self) -> Option<PathBuf> {
         self.resume_picker
             .as_ref()

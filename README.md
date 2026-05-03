@@ -120,16 +120,18 @@ agent-tui \
 ```
 
 Клавиши TUI: **Enter** отправить, **Ctrl+C** выйти, **Ctrl+L** очистить
-историю, **y/n/Esc** ответ на approval, **PageUp/PageDown/End** скролл
-(или колёсиком через alternate scroll). При вводе `/` TUI показывает команды:
+историю, **1/y/н** approve, **2/p/з** approve + exact-call cache,
+**3/n/т/Esc** deny, **PageUp/PageDown/End** скролл
+(или колёсиком через alternate scroll). Approval показывается inline в
+транскрипте, без отдельного modal окна. При вводе `/` TUI показывает команды:
 **Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
 выполняет точную команду или подставляет неполную.
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`,
 `/resume [session-dir]`, `/quit`. `/resume` без аргумента открывает меню
-sessions текущего workspace; с аргументом принимает путь к session directory
-или к `messages.jsonl` внутри неё и перезапускает app-server stdio на этой
-истории.
+sessions текущего workspace на отдельном экране с поиском по conversation
+title/session id; с аргументом принимает путь к session directory или к
+`messages.jsonl` внутри неё и перезапускает app-server stdio на этой истории.
 
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks и inline

@@ -41,7 +41,6 @@ pub(crate) struct VisualSurface {
     transcript: TranscriptComponent,
     composer: ComposerComponent,
     footer: FooterComponent,
-    approval: ApprovalComponent,
     resume_picker: ResumePickerComponent,
     slash: SlashComponent,
 }
@@ -52,7 +51,6 @@ impl Default for VisualSurface {
             transcript: TranscriptComponent,
             composer: ComposerComponent,
             footer: FooterComponent,
-            approval: ApprovalComponent,
             resume_picker: ResumePickerComponent,
             slash: SlashComponent,
         }
@@ -61,6 +59,19 @@ impl Default for VisualSurface {
 
 impl VisualSurface {
     pub(crate) fn render(&self, frame: &mut Frame, state: &VisualState<'_>) {
+        if let Some(picker) = state.resume_picker {
+            self.resume_picker.render(frame, frame.area(), picker);
+            frame.set_cursor_position(Position::new(
+                picker
+                    .query
+                    .chars()
+                    .count()
+                    .min(frame.area().width.saturating_sub(1) as usize) as u16,
+                1,
+            ));
+            return;
+        }
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -81,14 +92,6 @@ impl VisualSurface {
             cursor_x.min(chunks[1].right().saturating_sub(1)),
             cursor_y,
         ));
-
-        if let Some(picker) = state.resume_picker {
-            self.resume_picker.render(frame, frame.area(), picker);
-        }
-
-        if let Some(request) = state.pending_approval {
-            self.approval.render(frame, frame.area(), request);
-        }
     }
 }
 
@@ -99,7 +102,6 @@ trait VisualComponent {
 struct TranscriptComponent;
 struct ComposerComponent;
 struct FooterComponent;
-struct ApprovalComponent;
 struct ResumePickerComponent;
 struct SlashComponent;
 
@@ -125,6 +127,10 @@ impl VisualComponent for TranscriptComponent {
                     Style::default().fg(Color::Yellow),
                 ),
             ]));
+            lines.push(Line::raw(""));
+        }
+        if let Some(request) = state.pending_approval {
+            append_approval_lines(&mut lines, request, area.width as usize);
             lines.push(Line::raw(""));
         }
         if state.scroll_offset > 0 {
@@ -175,9 +181,9 @@ impl VisualComponent for ComposerComponent {
 impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
         let left = if state.pending_approval.is_some() {
-            "y/н approve · n/т/esc deny".to_owned()
+            "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
         } else if state.resume_picker.is_some() {
-            "enter resume · esc close · up/down select".to_owned()
+            "type search · enter resume · esc close · up/down select".to_owned()
         } else if !matching_slash_commands(state.input).is_empty() {
             "tab/up/down select · right complete · enter run".to_owned()
         } else if state.scroll_offset > 0 {
@@ -274,39 +280,52 @@ fn slash_window_start(selected: usize, visible_count: usize) -> usize {
 
 impl ResumePickerComponent {
     fn render(&self, frame: &mut Frame, full: Rect, picker: &ResumePicker) {
-        let modal_width = full
-            .width
-            .saturating_mul(3)
-            .saturating_div(4)
-            .clamp(54, 96)
-            .min(full.width.saturating_sub(2));
-        let wanted_height = (picker.items.len() as u16).saturating_add(4).clamp(7, 16);
-        let modal_height = wanted_height.min(full.height.saturating_sub(2));
-        let x = full.x + full.width.saturating_sub(modal_width) / 2;
-        let y = full.y + full.height.saturating_sub(modal_height) / 2;
-        let area = Rect::new(x, y, modal_width, modal_height);
-
+        let area = full;
         frame.render_widget(Clear, area);
 
-        let inner_height = area.height.saturating_sub(2) as usize;
-        let inner_width = area.width.saturating_sub(4) as usize;
-        let list_height = inner_height.saturating_sub(2).saturating_div(2).max(1);
-        let selected = picker.selected.min(picker.items.len().saturating_sub(1));
-        let start = if selected >= list_height {
+        let items = picker.filtered_items();
+        let list_height = area.height.saturating_sub(5) as usize;
+        let selected = picker.selected.min(items.len().saturating_sub(1));
+        let start = if selected >= list_height && list_height > 0 {
             selected + 1 - list_height
         } else {
             0
         };
-        let end = (start + list_height).min(picker.items.len());
+        let end = (start + list_height).min(items.len());
+        let width = area.width as usize;
+        let conversation_width = width.saturating_sub(41).max(12);
 
         let mut body: Vec<Line<'static>> = Vec::new();
-        if picker.items.is_empty() {
+        body.push(Line::from(vec![
+            Span::styled(
+                "Resume a previous session",
+                Style::default().fg(Color::Reset),
+            ),
+            Span::raw("  "),
+            Span::styled("Sort: Updated", Style::default().fg(Color::DarkGray)),
+        ]));
+        if picker.query.is_empty() {
             body.push(Line::from(Span::styled(
-                "No sessions for this workspace.",
+                "Type to search",
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
-            for (index, item) in picker.items[start..end].iter().enumerate() {
+            body.push(Line::from(picker.query.clone()));
+        }
+        body.push(Line::from(vec![
+            Span::styled("  Created      ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Updated      ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Branch  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Conversation", Style::default().fg(Color::DarkGray)),
+        ]));
+
+        if items.is_empty() {
+            body.push(Line::from(Span::styled(
+                "  No sessions found for this workspace.",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            for (index, item) in items[start..end].iter().enumerate() {
                 let absolute_index = start + index;
                 let selected_row = absolute_index == selected;
                 let marker = if selected_row { "› " } else { "  " };
@@ -315,88 +334,17 @@ impl ResumePickerComponent {
                 } else {
                     Style::default().fg(Color::Reset)
                 };
-                let title_width = inner_width.saturating_sub(2).max(1);
                 body.push(Line::from(vec![
                     Span::styled(marker, style),
-                    Span::styled(truncate(item.title.clone(), title_width), style),
-                ]));
-                let detail = truncate(item.detail.clone(), inner_width.saturating_sub(4).max(1));
-                body.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(detail, Style::default().fg(Color::DarkGray)),
+                    Span::styled(pad_right(&item.created, 13), style),
+                    Span::styled(pad_right(&item.updated_label, 13), style),
+                    Span::styled(pad_right(&item.branch, 8), style),
+                    Span::styled(truncate(&item.conversation, conversation_width), style),
                 ]));
             }
         }
-        body.push(Line::raw(""));
-        body.push(Line::from(Span::styled(
-            "enter resume · esc close",
-            Style::default().fg(Color::DarkGray),
-        )));
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title(" resume session ");
-        frame.render_widget(Paragraph::new(body).block(block), area);
-    }
-}
-
-impl ApprovalComponent {
-    fn render(&self, frame: &mut Frame, full: Rect, request: &AppApprovalRequest) {
-        let modal_width = full
-            .width
-            .saturating_mul(3)
-            .saturating_div(4)
-            .clamp(50, 96)
-            .min(full.width.saturating_sub(2));
-        let modal_height = 11u16.min(full.height.saturating_sub(2));
-        let x = full.x + full.width.saturating_sub(modal_width) / 2;
-        let y = full.y + full.height.saturating_sub(modal_height) / 2;
-        let area = Rect::new(x, y, modal_width, modal_height);
-
-        frame.render_widget(Clear, area);
-
-        let safety = request
-            .tool_spec
-            .as_ref()
-            .map(|spec| format!("{:?}", spec.safety))
-            .unwrap_or_else(|| "unknown".to_owned());
-        let args = compact_value(&request.call.args);
-        let inner_width = area.width.saturating_sub(4) as usize;
-
-        let mut body: Vec<Line<'static>> = Vec::new();
-        body.push(Line::from(vec![
-            Span::styled("tool ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                request.call.name.clone(),
-                Style::default().fg(Color::Yellow),
-            ),
-            Span::styled(format!(" · {safety}"), Style::default().fg(Color::DarkGray)),
-        ]));
-        body.push(Line::from(format!("cwd  {}", request.cwd.display())));
-        body.push(Line::raw(""));
-        for seg in wrap_text(&request.reason, inner_width) {
-            body.push(Line::from(seg));
-        }
-        for seg in wrap_text(&format!("args {args}"), inner_width) {
-            body.push(Line::from(Span::styled(
-                seg,
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
-        body.push(Line::raw(""));
-        body.push(Line::from(vec![
-            Span::styled("y / н", Style::default().fg(Color::Green)),
-            Span::raw(" approve    "),
-            Span::styled("n / т / esc", Style::default().fg(Color::Red)),
-            Span::raw(" deny"),
-        ]));
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
-            .title(" approval ");
-        frame.render_widget(Paragraph::new(body).block(block), area);
+        frame.render_widget(Paragraph::new(body), area);
     }
 }
 
@@ -621,6 +569,73 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
     }
 }
 
+fn append_approval_lines(
+    lines: &mut Vec<Line<'static>>,
+    request: &AppApprovalRequest,
+    width: usize,
+) {
+    let safety = request
+        .tool_spec
+        .as_ref()
+        .map(|spec| format!("{:?}", spec.safety))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let args = compact_value(&request.call.args);
+    let text_width = width.saturating_sub(4).max(1);
+
+    lines.push(Line::from(vec![
+        Span::styled("? ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            "Would you like to allow this tool call?",
+            Style::default().fg(Color::Yellow),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  tool: "),
+        Span::styled(
+            request.call.name.clone(),
+            Style::default().fg(Color::Yellow),
+        ),
+        Span::styled(format!(" · {safety}"), Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  cwd:  "),
+        Span::styled(
+            truncate(request.cwd.display().to_string(), text_width),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]));
+    for seg in wrap_text(&format!("reason: {}", request.reason), text_width) {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(seg, Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    for seg in wrap_text(&format!("args: {args}"), text_width) {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(seg, Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("1. Yes, proceed", Style::default().fg(Color::Green)),
+        Span::raw("  "),
+        Span::styled(
+            "2. Yes, remember exact call",
+            Style::default().fg(Color::Green),
+        ),
+        Span::raw("  "),
+        Span::styled("3. No", Style::default().fg(Color::Red)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "y/н approve · p/з remember · n/т/esc deny",
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]));
+}
+
 pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if text.is_empty() {
         return Vec::new();
@@ -662,6 +677,12 @@ pub(crate) fn truncate(input: impl Into<String>, width: usize) -> String {
     }
     let prefix: String = input.chars().take(width - 1).collect();
     format!("{prefix}…")
+}
+
+fn pad_right(input: &str, width: usize) -> String {
+    let truncated = truncate(input, width);
+    let padding = width.saturating_sub(truncated.chars().count());
+    format!("{truncated}{}", " ".repeat(padding))
 }
 
 fn format_elapsed(elapsed: Duration) -> String {

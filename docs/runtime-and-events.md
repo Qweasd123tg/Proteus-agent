@@ -192,13 +192,17 @@ runtime загружает `messages.jsonl` в in-memory history и следую
 дописывают только новые сообщения.
 
 Во внешнем TUI `/resume [session-dir]` является app-client командой, а не
-visual-layer логикой. Без аргумента TUI открывает меню sessions текущего
-workspace, читая директории из `<config-root>/sessions/<encoded-workspace>/`.
-С выбранной session или явным аргументом текущая реализация перезапускает
-`agent server stdio` с `--resume-session <session-dir>`; runtime вызывает
-`resume_from_session_dir`, загружает `messages.jsonl` и продолжает дописывать
-новые сообщения в эту же session directory. Команда также принимает путь прямо
-к `messages.jsonl`, тогда TUI использует parent directory как session dir.
+visual-layer логикой. Без аргумента TUI открывает fullscreen picker sessions
+текущего workspace, читая директории из
+`<config-root>/sessions/<encoded-workspace>/`; ввод в picker фильтрует список
+по conversation title, branch и короткому session id. С выбранной session или
+явным аргументом текущая реализация перезапускает `agent server stdio` с
+`--resume-session <session-dir>`; runtime вызывает `resume_from_session_dir`,
+загружает `messages.jsonl` и продолжает дописывать новые сообщения в эту же
+session directory. TUI также читает тот же `messages.jsonl` перед
+перезапуском, чтобы восстановить transcript на экране. Команда принимает путь
+прямо к `messages.jsonl`, тогда TUI использует parent directory как session
+dir.
 
 CLI тоже принимает `--resume-session <session-dir-or-messages.jsonl>` для
 single-turn и interactive mode; это тот же runtime builder path, без отдельной
