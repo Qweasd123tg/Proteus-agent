@@ -17,4 +17,5 @@ members = [
     "plugins/memory-pack",
     "plugins/policy-pack",
     "plugins/renderer-pack",
+    "plugins/tool-output-artifacts",
 ]

@@ -334,6 +334,10 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   (`hello-policy-patch` также демонстрирует `context_provider`, declarative
   `memory_policy` и `workflow`).
 - ✅ Реальные плагины: `file-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
+- 📝 Draft plugin pack: `tool-output-artifacts` хранит черновик стратегии
+  `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
+  workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
+  не устанавливается через `install.sh`, пока такого slot-а нет в contracts.
 - ✅ SQLite FTS5 memory store вынесен из ядра; `rusqlite` больше не является зависимостью `modular-agent`.
 - ✅ Политика дубликатов: duplicate plugin tool names отклоняются при регистрации; если пользователь явно включает plugin tool, но его имя уже занято builtin/configured tool, сборка registry завершается ошибкой конфигурации. Для renderer / policy / patch / search / memory / memory_policy — bail при конфликте `(slot, id)`, loader переводит в stderr warning.
 - ✅ Escape hatch `AGENT_PLUGINS_DISABLE=1` для тестов.

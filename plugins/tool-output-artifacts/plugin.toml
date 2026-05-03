@@ -1,0 +1,6 @@
+name = "tool-output-artifacts"
+version = "0.1.0"
+description = "Draft ToolResult artifact strategy for future ToolResultProcessor/ToolOutputStore slot."
+author = "modular-agent"
+tags = ["draft", "tool-output", "artifacts", "dynamic-context"]
+requires_agent_contracts = "0.1"
