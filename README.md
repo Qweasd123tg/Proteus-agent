@@ -109,6 +109,8 @@ cargo build --workspace
 cargo run
 # или single turn
 cargo run -- "describe the project layout"
+# проверить config/plugins/modules/tools без запуска turn'а
+cargo run -- doctor
 ```
 
 ### TUI клиент

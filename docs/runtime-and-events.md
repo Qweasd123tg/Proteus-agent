@@ -24,6 +24,17 @@ cargo run -- --auto apply patch
 cargo run -- --permission-mode normal summarize project
 ```
 
+Диагностика окружения без запуска turn'а:
+
+```bash
+cargo run -- doctor
+```
+
+`doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
+module ids и tool registry. Команда также подсвечивает старые configured native
+tools (`read_file`/`write_file`/`list_dir`/`shell`), которые теперь должны
+приходить через plugin tools в `tools.enabled`.
+
 Явный рабочий каталог:
 
 ```bash

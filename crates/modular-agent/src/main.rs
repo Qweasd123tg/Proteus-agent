@@ -12,7 +12,10 @@ use modular_agent::app_server::stdio::run_stdio_app_server;
 use modular_agent::domain::{AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety};
 use modular_agent::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
-    core::{AgentRuntime, AppConfig, BuiltinModuleCatalog, ModuleBuildContext},
+    core::{
+        AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
+        ModuleBuildContext,
+    },
 };
 use serde_json::Value;
 use tokio::time::sleep;
@@ -75,12 +78,16 @@ async fn main() -> Result<()> {
         .config
         .clone()
         .or_else(AppConfig::default_user_config_path);
-    let mut config = AppConfig::load(cli.config.as_deref()).await?;
-    config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
     let cwd = match cli.cwd {
-        Some(cwd) => cwd,
+        Some(ref cwd) => cwd.clone(),
         None => std::env::current_dir()?,
     };
+    if is_doctor_command(&cli.task) {
+        return run_doctor(cli.config.as_deref(), config_path.as_deref(), &cwd).await;
+    }
+
+    let mut config = AppConfig::load(cli.config.as_deref()).await?;
+    config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
     if is_tools_list_command(&cli.task) {
         let registry = build_tool_registry_for_listing(&config, &cwd)?;
         println!("{}", render_tool_list(&registry));
@@ -120,6 +127,215 @@ fn is_tools_list_command(task: &[String]) -> bool {
 
 fn is_app_server_stdio_command(task: &[String]) -> bool {
     matches!(task, [server, transport] if server == "server" && transport == "stdio")
+}
+
+fn is_doctor_command(task: &[String]) -> bool {
+    matches!(task, [command] if command == "doctor")
+}
+
+async fn run_doctor(
+    explicit_config: Option<&std::path::Path>,
+    effective_config: Option<&std::path::Path>,
+    cwd: &std::path::Path,
+) -> Result<()> {
+    let mut findings = DoctorFindings::default();
+    findings.ok(format!("cwd: {}", cwd.display()));
+
+    match effective_config {
+        Some(path) if path.exists() => {
+            let source = if explicit_config.is_some() {
+                "explicit"
+            } else {
+                "default"
+            };
+            findings.ok(format!("config ({source}): {}", path.display()));
+        }
+        Some(path) => findings.warn(format!(
+            "config path does not exist, defaults will be used: {}",
+            path.display()
+        )),
+        None => findings.warn("no config path could be resolved; defaults will be used"),
+    }
+
+    if let Some(root) = config_root_for_doctor(effective_config) {
+        let legacy_json = root.join("config.json");
+        if legacy_json.exists() {
+            findings.warn(format!(
+                "legacy config.json is not used when configs/ exists: {}",
+                legacy_json.display()
+            ));
+        }
+    }
+
+    let config = match AppConfig::load(explicit_config).await {
+        Ok(config) => {
+            findings.ok("config loaded");
+            config
+        }
+        Err(error) => {
+            findings.error(format!("config failed to load: {error:#}"));
+            findings.print();
+            bail!("doctor found errors");
+        }
+    };
+
+    match config.active_model_config() {
+        Ok(model) => findings.ok(format!("model: {}/{}", model.provider, model.model)),
+        Err(error) => findings.error(format!("model config: {error:#}")),
+    }
+
+    let mut catalog = BuiltinModuleCatalog::new();
+    let plugin_reports = modular_agent::core::default_plugins_dir()
+        .map(|plugins_dir| {
+            findings.ok(format!("plugins dir: {}", plugins_dir.display()));
+            modular_agent::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
+        })
+        .unwrap_or_else(|| {
+            findings.warn("plugins dir could not be resolved");
+            Vec::new()
+        });
+
+    if plugin_reports.is_empty() {
+        findings.warn("no plugins discovered");
+    }
+    for report in &plugin_reports {
+        match &report.result {
+            Ok(info) => findings.ok(format!("plugin loaded: {}", info.name)),
+            Err(error) => findings.error(format!(
+                "plugin failed: {}: {}",
+                report.path.display(),
+                first_line(&error.to_string())
+            )),
+        }
+    }
+
+    check_selected_modules(&mut findings, &catalog, &config);
+    check_configured_tools(&mut findings, &config);
+
+    match build_tool_registry_for_listing(&config, cwd) {
+        Ok(registry) => findings.ok(format!("tool registry: {} tools", registry.entries().len())),
+        Err(error) => findings.error(format!("tool registry failed: {error:#}")),
+    }
+
+    findings.print();
+    if findings.has_errors() {
+        bail!("doctor found errors");
+    }
+    Ok(())
+}
+
+fn check_selected_modules(
+    findings: &mut DoctorFindings,
+    catalog: &BuiltinModuleCatalog,
+    config: &AppConfig,
+) {
+    if config.modules.workflow == "single_loop" {
+        findings.error("modules.workflow = \"single_loop\" is legacy; use \"coding.single_loop\"");
+    }
+    if config.modules.workflow == "plan_execute_review" {
+        findings.error(
+            "modules.workflow = \"plan_execute_review\" is legacy; use \"coding.plan_execute_review\"",
+        );
+    }
+
+    let selected = [
+        (ModuleKind::Search, config.modules.search.as_str()),
+        (ModuleKind::Memory, config.modules.memory.as_str()),
+        (
+            ModuleKind::MemoryPolicy,
+            config.modules.memory_policy.as_str(),
+        ),
+        (ModuleKind::Context, config.modules.context.as_str()),
+        (ModuleKind::Policy, config.modules.policy.as_str()),
+        (ModuleKind::Patch, config.modules.patch.as_str()),
+        (ModuleKind::Compactor, config.modules.compactor.as_str()),
+        (
+            ModuleKind::ToolExposure,
+            config.modules.tool_exposure.as_str(),
+        ),
+        (ModuleKind::Workflow, config.modules.workflow.as_str()),
+        (ModuleKind::Renderer, config.modules.renderer.as_str()),
+    ];
+
+    for (kind, id) in selected {
+        let label = module_kind_label(&kind);
+        if catalog.manifest(kind.clone(), id).is_some() {
+            findings.ok(format!("module {label}: {id}"));
+        } else {
+            findings.error(format!("module {label} is not registered: {id}"));
+        }
+    }
+}
+
+fn check_configured_tools(findings: &mut DoctorFindings, config: &AppConfig) {
+    for tool in &config.tools.configured {
+        if let ConfiguredToolExecutorConfig::Native { handler } = &tool.executor {
+            match handler.as_str() {
+                "apply_patch" | "search" => {}
+                other => findings.error(format!(
+                    "configured tool '{}' uses legacy native handler '{}'; use plugin tools.enabled instead",
+                    tool.name, other
+                )),
+            }
+        }
+    }
+}
+
+fn config_root_for_doctor(config_path: Option<&std::path::Path>) -> Option<PathBuf> {
+    let path = config_path?;
+    if path.is_file() {
+        return path.parent().map(std::path::Path::to_path_buf);
+    }
+    if path.file_name().and_then(|name| name.to_str()) == Some("configs") {
+        return path.parent().map(std::path::Path::to_path_buf);
+    }
+    Some(path.to_path_buf())
+}
+
+#[derive(Default)]
+struct DoctorFindings {
+    entries: Vec<DoctorFinding>,
+}
+
+impl DoctorFindings {
+    fn ok(&mut self, message: impl Into<String>) {
+        self.entries.push(DoctorFinding::new("ok", message));
+    }
+
+    fn warn(&mut self, message: impl Into<String>) {
+        self.entries.push(DoctorFinding::new("warn", message));
+    }
+
+    fn error(&mut self, message: impl Into<String>) {
+        self.entries.push(DoctorFinding::new("error", message));
+    }
+
+    fn has_errors(&self) -> bool {
+        self.entries.iter().any(|entry| entry.level == "error")
+    }
+
+    fn print(&self) {
+        let rows = self
+            .entries
+            .iter()
+            .map(|entry| [entry.level.to_owned(), entry.message.clone()])
+            .collect::<Vec<_>>();
+        println!("{}", render_table(["status", "check"], &rows));
+    }
+}
+
+struct DoctorFinding {
+    level: &'static str,
+    message: String,
+}
+
+impl DoctorFinding {
+    fn new(level: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            level,
+            message: message.into(),
+        }
+    }
 }
 
 fn render_module_list(manifests: &[ModuleManifest]) -> String {
@@ -756,6 +972,42 @@ mod tests {
             "stdio".to_owned(),
             "extra".to_owned()
         ]));
+    }
+
+    #[test]
+    fn doctor_command_is_exact() {
+        assert!(is_doctor_command(&["doctor".to_owned()]));
+        assert!(!is_doctor_command(&[
+            "doctor".to_owned(),
+            "extra".to_owned()
+        ]));
+        assert!(!is_doctor_command(&[
+            "tools".to_owned(),
+            "doctor".to_owned()
+        ]));
+    }
+
+    #[test]
+    fn doctor_flags_legacy_native_file_tool_handlers() {
+        let mut config = AppConfig::default();
+        config
+            .tools
+            .configured
+            .push(modular_agent::core::ConfiguredToolConfig {
+                name: "read_file".to_owned(),
+                description: "old file reader".to_owned(),
+                input_schema: serde_json::json!({ "type": "object" }),
+                safety: ToolSafety::ReadOnly,
+                timeout_ms: None,
+                metadata: serde_json::Value::Null,
+                executor: ConfiguredToolExecutorConfig::Native {
+                    handler: "read_file".to_owned(),
+                },
+            });
+
+        let mut findings = DoctorFindings::default();
+        check_configured_tools(&mut findings, &config);
+        assert!(findings.has_errors());
     }
 
     #[test]
