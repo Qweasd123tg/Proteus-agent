@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::SystemTime};
 
 #[derive(Clone)]
 pub(crate) struct ResumePicker {
@@ -11,6 +11,7 @@ pub(crate) struct ResumePickerItem {
     pub session_dir: PathBuf,
     pub title: String,
     pub detail: String,
+    pub updated: Option<SystemTime>,
 }
 
 impl ResumePicker {

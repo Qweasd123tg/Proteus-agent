@@ -609,25 +609,69 @@ async fn resume_session_dir(
 }
 
 fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<ResumePickerItem>> {
-    let Some(config_path) = config_path
-        .map(Path::to_path_buf)
-        .or_else(default_config_path)
-    else {
-        return Ok(Vec::new());
-    };
-    let sessions_dir = config_store_root(&expand_home_path(&config_path))
-        .join("sessions")
-        .join(encode_workspace_path(cwd));
-    let entries = match std::fs::read_dir(&sessions_dir) {
+    let mut sessions = Vec::new();
+    for root in candidate_config_roots(config_path) {
+        let sessions_dir = root.join("sessions").join(encode_workspace_path(cwd));
+        append_resume_sessions_from_dir(&sessions_dir, &mut sessions)?;
+    }
+
+    sessions.sort_by(|left, right| right.updated.cmp(&left.updated));
+    Ok(sessions)
+}
+
+fn candidate_config_roots(config_path: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(config_path) = config_path {
+        push_config_root_candidates(&mut roots, expand_home_path(config_path));
+    }
+    if let Some(default_path) = default_config_path() {
+        push_config_root_candidates(&mut roots, expand_home_path(&default_path));
+    }
+    dedup_paths(roots)
+}
+
+fn push_config_root_candidates(roots: &mut Vec<PathBuf>, path: PathBuf) {
+    roots.push(config_store_root(&path));
+
+    if path.file_name().and_then(|name| name.to_str()) == Some("configs")
+        && let Some(parent) = path.parent()
+    {
+        roots.push(parent.to_path_buf());
+    }
+
+    if let Some(parent) = path.parent() {
+        roots.push(parent.to_path_buf());
+        if parent.file_name().and_then(|name| name.to_str()) == Some("configs")
+            && let Some(root) = parent.parent()
+        {
+            roots.push(root.to_path_buf());
+        }
+    }
+}
+
+fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for path in paths {
+        if !out.iter().any(|existing| existing == &path) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+fn append_resume_sessions_from_dir(
+    sessions_dir: &Path,
+    sessions: &mut Vec<ResumePickerItem>,
+) -> Result<()> {
+    let entries = match std::fs::read_dir(sessions_dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
             return Err(error)
                 .with_context(|| format!("failed to read {}", sessions_dir.display()));
         }
     };
 
-    let mut sessions = Vec::new();
     for entry in entries {
         let entry = entry.with_context(|| format!("failed to read {}", sessions_dir.display()))?;
         let session_dir = entry.path();
@@ -643,6 +687,12 @@ fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<Re
         if !metadata_path.is_file() {
             continue;
         }
+        if sessions
+            .iter()
+            .any(|item| item.session_dir.as_path() == session_dir.as_path())
+        {
+            continue;
+        }
 
         let title = session_dir
             .file_name()
@@ -656,17 +706,10 @@ fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<Re
             session_dir,
             title,
             detail: format!("updated {}", format_time_ago(modified)),
+            updated: modified,
         });
     }
-
-    sessions.sort_by(|left, right| {
-        let left_time = file_modified_time(&left.session_dir.join("messages.jsonl"))
-            .or_else(|| file_modified_time(&left.session_dir));
-        let right_time = file_modified_time(&right.session_dir.join("messages.jsonl"))
-            .or_else(|| file_modified_time(&right.session_dir));
-        right_time.cmp(&left_time)
-    });
-    Ok(sessions)
+    Ok(())
 }
 
 fn file_modified_time(path: &Path) -> Option<SystemTime> {
