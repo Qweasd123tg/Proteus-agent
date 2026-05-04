@@ -129,6 +129,12 @@ Provider usage является source of truth для фактических in
 breakdown остаётся оценкой для UI и исследования context budget; он не является
 provider billing source of truth.
 
+TUI хранит последний `TokenUsageUpdated`, а также суммирует request-level usage
+по текущему turn и текущей TUI-session. При смене `turn_id` в `EventEnvelope`
+turn totals сбрасываются, session totals продолжают расти. На resume/clear TUI
+сбрасывает локальные totals; восстановление usage totals из event log остаётся
+отдельной задачей.
+
 ## App Server Boundary
 
 `crates/modular-agent/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport в `crates/modular-agent/src/app_server/stdio.rs`, а JSONL DTO лежат в `crates/modular-agent/src/app_server/protocol.rs`. Будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.

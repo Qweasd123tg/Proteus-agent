@@ -4,13 +4,14 @@
 //! `AppServerEvent`'ов.
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
-    domain::{Event, TokenUsageSnapshot, TokenUsageSource, ToolResult},
+    domain::{Event, TokenUsageSnapshot, TokenUsageSource, ToolResult, TurnId},
 };
 
 use crate::{
@@ -42,6 +43,9 @@ pub struct AppState {
     slash_selection: usize,
     scrollback_cursor: usize,
     token_usage: Option<TokenUsageSnapshot>,
+    usage_turn_id: Option<TurnId>,
+    turn_usage: UsageTotals,
+    session_usage: UsageTotals,
 }
 
 impl AppState {
@@ -71,6 +75,9 @@ impl AppState {
             slash_selection: 0,
             scrollback_cursor: 0,
             token_usage: None,
+            usage_turn_id: None,
+            turn_usage: UsageTotals::default(),
+            session_usage: UsageTotals::default(),
         }
     }
 
@@ -170,6 +177,7 @@ impl AppState {
 
         lines.extend([
             String::new(),
+            "Latest request estimate".to_owned(),
             "| Category | Tokens | Share |".to_owned(),
             "| --- | ---: | ---: |".to_owned(),
         ]);
@@ -187,6 +195,8 @@ impl AppState {
                 share
             ));
         }
+        append_usage_totals_section(&mut lines, "Current turn totals", &self.turn_usage);
+        append_usage_totals_section(&mut lines, "Session totals", &self.session_usage);
         lines.join("\n")
     }
 
@@ -196,6 +206,9 @@ impl AppState {
             .push(VisualMessage::system("History cleared."));
         self.scrollback_cursor = 0;
         self.token_usage = None;
+        self.usage_turn_id = None;
+        self.turn_usage = UsageTotals::default();
+        self.session_usage = UsageTotals::default();
     }
 
     pub fn reset_after_resume_with_history(
@@ -215,6 +228,9 @@ impl AppState {
         self.status = "resumed".to_owned();
         self.resume_picker = None;
         self.token_usage = None;
+        self.usage_turn_id = None;
+        self.turn_usage = UsageTotals::default();
+        self.session_usage = UsageTotals::default();
         self.messages.push(VisualMessage::system(format!(
             "Resumed session: {}",
             session_dir.display()
@@ -350,6 +366,8 @@ impl AppState {
         self.turn_started_at = Some(now);
         self.model_started_at = None;
         self.active_turn_id = Some(turn_id);
+        self.usage_turn_id = None;
+        self.turn_usage = UsageTotals::default();
         self.pending_model = true;
         self.status = "thinking...".to_owned();
         self.scroll_offset = 0;
@@ -364,6 +382,7 @@ impl AppState {
         self.turn_started_at = None;
         self.model_started_at = None;
         self.active_turn_id = None;
+        self.usage_turn_id = None;
         self.status = "cancel requested".to_owned();
         self.messages
             .push(VisualMessage::system("Turn cancel requested."));
@@ -404,7 +423,9 @@ impl AppState {
     /// Главная точка обработки событий от ядра.
     pub fn ingest(&mut self, event: AppServerEvent) {
         match event {
-            AppServerEvent::Runtime { envelope } => self.ingest_runtime(envelope.event),
+            AppServerEvent::Runtime { envelope } => {
+                self.ingest_runtime(envelope.event, envelope.turn_id)
+            }
             AppServerEvent::UserMessageSubmitted { .. } => {
                 // Уже echo'нули в mark_user_sent, повторно не добавляем.
             }
@@ -419,6 +440,7 @@ impl AppState {
                 self.turn_started_at = None;
                 self.model_started_at = None;
                 self.active_turn_id = None;
+                self.usage_turn_id = None;
                 self.status = "ready".to_owned();
             }
             AppServerEvent::ApprovalRequested { request } => {
@@ -436,6 +458,7 @@ impl AppState {
                 self.turn_started_at = None;
                 self.model_started_at = None;
                 self.active_turn_id = None;
+                self.usage_turn_id = None;
                 self.status = "error".to_owned();
             }
             AppServerEvent::Shutdown => {
@@ -447,10 +470,13 @@ impl AppState {
         }
     }
 
-    fn ingest_runtime(&mut self, event: Event) {
+    fn ingest_runtime(&mut self, event: Event, envelope_turn_id: Option<TurnId>) {
         match event {
             Event::SessionStarted { session_id, cwd } => {
                 self.cwd = cwd;
+                self.usage_turn_id = None;
+                self.turn_usage = UsageTotals::default();
+                self.session_usage = UsageTotals::default();
                 // session_id пока не используем для session_dir — driver не
                 // даёт этого. TODO: добавить в wire protocol если нужно.
                 let _ = session_id;
@@ -478,6 +504,7 @@ impl AppState {
             }
             Event::TokenUsageUpdated { usage } => {
                 self.status = format!("context: {}t estimated", usage.estimated_input_tokens);
+                self.accumulate_token_usage(&usage, envelope_turn_id);
                 self.token_usage = Some(usage);
             }
             Event::AssistantTextDelta { text } => {
@@ -521,12 +548,24 @@ impl AppState {
             Event::ApprovalRequested { .. } | Event::ApprovalResolved { .. } => {
                 // Обрабатывается через AppServerEvent::Approval*.
             }
-            Event::TurnStarted { .. } => {}
+            Event::TurnStarted { turn_id, .. } => {
+                self.usage_turn_id = Some(turn_id);
+                self.turn_usage = UsageTotals::default();
+            }
             Event::Error { message } => {
                 self.push_error(message);
             }
             _ => {}
         }
+    }
+
+    fn accumulate_token_usage(&mut self, usage: &TokenUsageSnapshot, turn_id: Option<TurnId>) {
+        if turn_id.is_some() && self.usage_turn_id != turn_id {
+            self.usage_turn_id = turn_id;
+            self.turn_usage = UsageTotals::default();
+        }
+        self.turn_usage.add_snapshot(usage);
+        self.session_usage.add_snapshot(usage);
     }
 
     fn append_streaming_text(&mut self, chunk: &str) {
@@ -578,6 +617,50 @@ impl AppState {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct UsageTotals {
+    requests: u32,
+    estimated_input_tokens: u32,
+    provider_reports: u32,
+    provider_input_tokens: u32,
+    provider_output_tokens: u32,
+    cached_input_tokens: u32,
+    cache_creation_input_tokens: u32,
+    reasoning_output_tokens: u32,
+    categories: BTreeMap<String, u32>,
+}
+
+impl UsageTotals {
+    fn add_snapshot(&mut self, usage: &TokenUsageSnapshot) {
+        self.requests = self.requests.saturating_add(1);
+        self.estimated_input_tokens = self
+            .estimated_input_tokens
+            .saturating_add(usage.estimated_input_tokens);
+        for category in &usage.categories {
+            let entry = self.categories.entry(category.name.clone()).or_default();
+            *entry = entry.saturating_add(category.tokens);
+        }
+        if let Some(actual) = &usage.actual {
+            self.provider_reports = self.provider_reports.saturating_add(1);
+            self.provider_input_tokens = self
+                .provider_input_tokens
+                .saturating_add(actual.input_tokens);
+            self.provider_output_tokens = self
+                .provider_output_tokens
+                .saturating_add(actual.output_tokens);
+            self.cached_input_tokens = self
+                .cached_input_tokens
+                .saturating_add(actual.cached_input_tokens.unwrap_or_default());
+            self.cache_creation_input_tokens = self
+                .cache_creation_input_tokens
+                .saturating_add(actual.cache_creation_input_tokens.unwrap_or_default());
+            self.reasoning_output_tokens = self
+                .reasoning_output_tokens
+                .saturating_add(actual.reasoning_output_tokens.unwrap_or_default());
+        }
+    }
+}
+
 fn provider_usage_line(actual: &agent_contracts::model_standard::TokenUsage) -> String {
     let total = actual.input_tokens + actual.output_tokens;
     let mut line = format!(
@@ -595,6 +678,83 @@ fn provider_usage_line(actual: &agent_contracts::model_standard::TokenUsage) -> 
     }
     if let Some(tokens) = actual.reasoning_output_tokens {
         details.push(format!("reasoning {}", format_tokens(tokens)));
+    }
+    if !details.is_empty() {
+        line.push_str(" · ");
+        line.push_str(&details.join(" · "));
+    }
+    line
+}
+
+fn append_usage_totals_section(lines: &mut Vec<String>, title: &str, totals: &UsageTotals) {
+    lines.push(String::new());
+    lines.push(title.to_owned());
+    if totals.requests == 0 {
+        lines.push("no requests yet".to_owned());
+        return;
+    }
+
+    lines.push(format!("requests: {}", totals.requests));
+    lines.push(format!(
+        "estimated input: {}",
+        format_tokens(totals.estimated_input_tokens)
+    ));
+    lines.push(format!("provider usage: {}", provider_totals_line(totals)));
+
+    if totals.categories.is_empty() {
+        return;
+    }
+    lines.extend([
+        "| Category | Tokens | Share |".to_owned(),
+        "| --- | ---: | ---: |".to_owned(),
+    ]);
+    for (name, tokens) in &totals.categories {
+        let share = if totals.estimated_input_tokens == 0 {
+            0.0
+        } else {
+            *tokens as f64 * 100.0 / totals.estimated_input_tokens as f64
+        };
+        lines.push(format!(
+            "| {} | {} | {:.1}% |",
+            category_label(name),
+            format_tokens(*tokens),
+            share
+        ));
+    }
+}
+
+fn provider_totals_line(totals: &UsageTotals) -> String {
+    if totals.provider_reports == 0 {
+        return "not reported by provider".to_owned();
+    }
+    let total = totals
+        .provider_input_tokens
+        .saturating_add(totals.provider_output_tokens);
+    let mut line = format!(
+        "{} input / {} output / {} total across {} request(s)",
+        format_tokens(totals.provider_input_tokens),
+        format_tokens(totals.provider_output_tokens),
+        format_tokens(total),
+        totals.provider_reports
+    );
+    let mut details = Vec::new();
+    if totals.cached_input_tokens > 0 {
+        details.push(format!(
+            "cache read {}",
+            format_tokens(totals.cached_input_tokens)
+        ));
+    }
+    if totals.cache_creation_input_tokens > 0 {
+        details.push(format!(
+            "cache write {}",
+            format_tokens(totals.cache_creation_input_tokens)
+        ));
+    }
+    if totals.reasoning_output_tokens > 0 {
+        details.push(format!(
+            "reasoning {}",
+            format_tokens(totals.reasoning_output_tokens)
+        ));
     }
     if !details.is_empty() {
         line.push_str(" · ");
@@ -821,5 +981,63 @@ mod tests {
         assert!(report.contains("37.5k / 1.0m tokens (3.8%)"));
         assert!(report.contains("| Instructions | 8.6k | 22.9% |"));
         assert!(report.contains("| Tool schemas | 28.0k | 74.7% |"));
+    }
+
+    #[test]
+    fn context_report_accumulates_turn_and_session_usage() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let first_turn = agent_contracts::domain::new_turn_id();
+        let second_turn = agent_contracts::domain::new_turn_id();
+
+        let first = TokenUsageSnapshot::new(
+            agent_contracts::domain::ModelRef::new("test", "model"),
+            100,
+            vec![agent_contracts::domain::TokenUsageCategory::new(
+                "messages", 100,
+            )],
+        )
+        .with_actual(Some(
+            agent_contracts::model_standard::TokenUsage::new(110, 10)
+                .with_cached_input_tokens(Some(20)),
+        ));
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(first_turn)),
+                1,
+                Event::TokenUsageUpdated { usage: first },
+            ),
+        });
+
+        let second = TokenUsageSnapshot::new(
+            agent_contracts::domain::ModelRef::new("test", "model"),
+            50,
+            vec![agent_contracts::domain::TokenUsageCategory::new(
+                "tool_schemas",
+                50,
+            )],
+        )
+        .with_actual(Some(agent_contracts::model_standard::TokenUsage::new(
+            55, 5,
+        )));
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(
+                    session_id,
+                    thread_id,
+                    Some(second_turn),
+                ),
+                2,
+                Event::TokenUsageUpdated { usage: second },
+            ),
+        });
+
+        let report = state.context_report();
+        assert!(report.contains("Current turn totals\nrequests: 1\nestimated input: 50"));
+        assert!(report.contains("55 input / 5 output / 60 total across 1 request(s)"));
+        assert!(report.contains("Session totals\nrequests: 2\nestimated input: 150"));
+        assert!(report.contains("165 input / 15 output / 180 total across 2 request(s)"));
+        assert!(report.contains("cache read 20"));
     }
 }
