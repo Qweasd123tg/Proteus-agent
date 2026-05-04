@@ -629,18 +629,21 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
     }
 }
 
-pub(crate) fn render_scrollback_message(message: &VisualMessage, width: usize) -> Vec<String> {
+pub(crate) fn render_scrollback_message(
+    message: &VisualMessage,
+    width: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     append_message_lines(&mut lines, message, width);
     lines.push(Line::raw(""));
-    lines.into_iter().map(line_plain_text).collect()
+    lines
 }
 
-pub(crate) fn render_scrollback_header(state: &VisualState<'_>, width: usize) -> Vec<String> {
+pub(crate) fn render_scrollback_header(
+    state: &VisualState<'_>,
+    width: usize,
+) -> Vec<Line<'static>> {
     session_card(state, width)
-        .into_iter()
-        .map(line_plain_text)
-        .collect()
 }
 
 fn line_plain_text(line: Line<'_>) -> String {
@@ -875,5 +878,14 @@ mod tests {
         let bottom_width = lines[4].width();
 
         assert_eq!(top_width, bottom_width);
+    }
+
+    #[test]
+    fn scrollback_message_keeps_markdown_spans() {
+        let lines = render_scrollback_message(&VisualMessage::assistant("Use `cargo test`."), 80);
+
+        assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
+        assert_eq!(lines[0].spans[2].content.as_ref(), "cargo test");
+        assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
     }
 }

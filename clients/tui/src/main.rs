@@ -29,13 +29,18 @@ use crossterm::{
     cursor::{MoveToColumn, MoveUp},
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    style::Print,
+    style::{Attribute, Color as CTermColor, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{
         Clear as TerminalClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
         disable_raw_mode, enable_raw_mode,
     },
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    style::{Color as RColor, Modifier, Style},
+    text::Line,
+};
 
 use crate::{
     driver::{AgentDriver, DriverConfig},
@@ -663,24 +668,96 @@ fn clear_inline_panel(
 
 fn write_scrollback_line(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    line: &str,
+    line: &Line<'_>,
     width: usize,
 ) -> Result<()> {
     execute!(
         terminal.backend_mut(),
-        TerminalClear(ClearType::CurrentLine),
-        Print(truncate_terminal_line(line, width)),
+        TerminalClear(ClearType::CurrentLine)
+    )?;
+
+    let mut remaining = width.saturating_sub(1);
+    for span in &line.spans {
+        if remaining == 0 {
+            break;
+        }
+
+        let text = take_terminal_chars(span.content.as_ref(), remaining);
+        if text.is_empty() {
+            continue;
+        }
+        remaining = remaining.saturating_sub(text.chars().count());
+        apply_terminal_style(terminal, span.style)?;
+        execute!(terminal.backend_mut(), Print(text))?;
+    }
+
+    execute!(
+        terminal.backend_mut(),
+        ResetColor,
+        SetAttribute(Attribute::Reset),
         Print("\r\n")
     )?;
     Ok(())
 }
 
 fn truncate_terminal_line(line: &str, width: usize) -> String {
+    take_terminal_chars(line, width.saturating_sub(1))
+}
+
+fn take_terminal_chars(line: &str, width: usize) -> String {
     let mut out = String::new();
-    for ch in line.chars().take(width.saturating_sub(1)) {
+    for ch in line.chars().take(width) {
         out.push(ch);
     }
     out
+}
+
+fn apply_terminal_style(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    style: Style,
+) -> Result<()> {
+    execute!(
+        terminal.backend_mut(),
+        ResetColor,
+        SetAttribute(Attribute::Reset)
+    )?;
+    if let Some(color) = style.fg.and_then(to_crossterm_color) {
+        execute!(terminal.backend_mut(), SetForegroundColor(color))?;
+    }
+    if style.add_modifier.contains(Modifier::BOLD) {
+        execute!(terminal.backend_mut(), SetAttribute(Attribute::Bold))?;
+    }
+    if style.add_modifier.contains(Modifier::ITALIC) {
+        execute!(terminal.backend_mut(), SetAttribute(Attribute::Italic))?;
+    }
+    if style.add_modifier.contains(Modifier::DIM) {
+        execute!(terminal.backend_mut(), SetAttribute(Attribute::Dim))?;
+    }
+    Ok(())
+}
+
+fn to_crossterm_color(color: RColor) -> Option<CTermColor> {
+    match color {
+        RColor::Reset => None,
+        RColor::Black => Some(CTermColor::Black),
+        RColor::Red => Some(CTermColor::DarkRed),
+        RColor::Green => Some(CTermColor::DarkGreen),
+        RColor::Yellow => Some(CTermColor::DarkYellow),
+        RColor::Blue => Some(CTermColor::DarkBlue),
+        RColor::Magenta => Some(CTermColor::DarkMagenta),
+        RColor::Cyan => Some(CTermColor::DarkCyan),
+        RColor::Gray => Some(CTermColor::Grey),
+        RColor::DarkGray => Some(CTermColor::DarkGrey),
+        RColor::LightRed => Some(CTermColor::Red),
+        RColor::LightGreen => Some(CTermColor::Green),
+        RColor::LightYellow => Some(CTermColor::Yellow),
+        RColor::LightBlue => Some(CTermColor::Blue),
+        RColor::LightMagenta => Some(CTermColor::Magenta),
+        RColor::LightCyan => Some(CTermColor::Cyan),
+        RColor::White => Some(CTermColor::White),
+        RColor::Rgb(r, g, b) => Some(CTermColor::Rgb { r, g, b }),
+        RColor::Indexed(index) => Some(CTermColor::AnsiValue(index)),
+    }
 }
 
 fn is_handled_key_event(kind: KeyEventKind) -> bool {

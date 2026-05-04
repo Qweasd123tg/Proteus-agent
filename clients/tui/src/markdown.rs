@@ -47,14 +47,13 @@ pub(crate) fn render_assistant_markdown(
             continue;
         }
 
-        if source.is_empty() {
-            lines.push(Line::raw(""));
-            index += 1;
-            continue;
-        }
-
         if in_code_block {
-            for segment in wrap_text(source, content_width) {
+            let segments = if source.is_empty() {
+                vec![String::new()]
+            } else {
+                wrap_text(source, content_width)
+            };
+            for segment in segments {
                 push_line(
                     &mut lines,
                     &mut first,
@@ -66,6 +65,12 @@ pub(crate) fn render_assistant_markdown(
                     ],
                 );
             }
+            index += 1;
+            continue;
+        }
+
+        if source.is_empty() {
+            lines.push(Line::raw(""));
             index += 1;
             continue;
         }
@@ -536,5 +541,22 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert!(rendered.contains('…'));
+    }
+
+    #[test]
+    fn keeps_fenced_code_blocks_contiguous() {
+        let lines = render_assistant_markdown(
+            "``` toml\n[modules]\ncontext = \"spec_first\"\n\n[module_config.context.spec_first]\n```",
+            "• ",
+            Style::default(),
+            80,
+        );
+        assert_eq!(lines[0].spans[1].content.as_ref(), "``` toml");
+        assert_eq!(lines[1].spans[1].content.as_ref(), "│ ");
+        assert_eq!(lines[2].spans[1].content.as_ref(), "│ ");
+        assert_eq!(lines[3].spans[1].content.as_ref(), "│ ");
+        assert_eq!(lines[3].spans[2].content.as_ref(), "");
+        assert_eq!(lines[4].spans[1].content.as_ref(), "│ ");
+        assert_eq!(lines[5].spans[1].content.as_ref(), "```");
     }
 }
