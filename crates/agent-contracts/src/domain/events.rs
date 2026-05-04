@@ -76,6 +76,8 @@ pub struct TokenUsageSnapshot {
     pub model: ModelRef,
     pub phase: Option<String>,
     pub estimated_input_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_input_tokens: Option<u32>,
     pub categories: Vec<TokenUsageCategory>,
     pub actual: Option<TokenUsage>,
 }
@@ -90,6 +92,7 @@ impl TokenUsageSnapshot {
             model,
             phase: None,
             estimated_input_tokens,
+            max_input_tokens: None,
             categories,
             actual: None,
         }
@@ -102,6 +105,11 @@ impl TokenUsageSnapshot {
 
     pub fn with_actual(mut self, actual: Option<TokenUsage>) -> Self {
         self.actual = actual;
+        self
+    }
+
+    pub fn with_max_input_tokens(mut self, max_input_tokens: Option<u32>) -> Self {
+        self.max_input_tokens = max_input_tokens;
         self
     }
 }

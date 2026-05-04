@@ -608,6 +608,7 @@ fn request_token_usage_snapshot(
     let estimated_input_tokens = categories.iter().map(|category| category.tokens).sum();
     TokenUsageSnapshot::new(request.model.clone(), estimated_input_tokens, categories)
         .with_phase(phase)
+        .with_max_input_tokens(request.limits.max_input_tokens)
         .with_actual(actual)
 }
 

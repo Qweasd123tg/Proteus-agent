@@ -132,25 +132,55 @@ impl AppState {
             .actual
             .as_ref()
             .map(|actual| {
+                let total = actual.input_tokens + actual.output_tokens;
                 format!(
                     "{} input / {} output / {} total",
-                    actual.input_tokens,
-                    actual.output_tokens,
-                    actual.input_tokens + actual.output_tokens
+                    format_tokens(actual.input_tokens),
+                    format_tokens(actual.output_tokens),
+                    format_tokens(total)
                 )
             })
             .unwrap_or_else(|| "not reported by provider".to_owned());
         let phase = usage.phase.as_deref().unwrap_or("unknown");
+        let used = usage.estimated_input_tokens;
+        let window_line = usage
+            .max_input_tokens
+            .map(|window| {
+                let percent = percent_of(used, window);
+                let free = window.saturating_sub(used);
+                format!(
+                    "{} / {} tokens ({percent:.1}%)",
+                    format_tokens(used),
+                    format_tokens(window)
+                ) + &format!(" · free {}", format_tokens(free))
+            })
+            .unwrap_or_else(|| format!("{} tokens", format_tokens(used)));
+        let bar = usage.max_input_tokens.map(|window| {
+            format!(
+                "{} used · {} free",
+                usage_bar(used, window, 24),
+                format_tokens(window.saturating_sub(used))
+            )
+        });
+
         let mut lines = vec![
             "Context Usage".to_owned(),
             format!("model: {}/{}", usage.model.provider, usage.model.model),
             format!("phase: {phase}"),
-            format!("estimated input: {} tokens", usage.estimated_input_tokens),
+            format!("estimated input: {window_line}"),
             format!("actual usage: {actual}"),
+        ];
+
+        if let Some(bar) = bar {
+            lines.push(format!("window: {bar}"));
+        }
+
+        lines.extend([
             String::new(),
             "| Category | Tokens | Share |".to_owned(),
             "| --- | ---: | ---: |".to_owned(),
-        ];
+        ]);
+
         for category in &usage.categories {
             let share = if usage.estimated_input_tokens == 0 {
                 0.0
@@ -159,7 +189,9 @@ impl AppState {
             };
             lines.push(format!(
                 "| {} | {} | {:.1}% |",
-                category.name, category.tokens, share
+                category_label(&category.name),
+                format_tokens(category.tokens),
+                share
             ));
         }
         lines.join("\n")
@@ -549,6 +581,50 @@ impl AppState {
     }
 }
 
+fn percent_of(value: u32, total: u32) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        value as f64 * 100.0 / total as f64
+    }
+}
+
+fn usage_bar(used: u32, total: u32, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let filled = if total == 0 {
+        0
+    } else {
+        ((used.min(total) as usize * width) + (total as usize / 2)) / total as usize
+    }
+    .min(width);
+    format!("[{}{}]", "#".repeat(filled), ".".repeat(width - filled))
+}
+
+fn format_tokens(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}m", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn category_label(name: &str) -> String {
+    match name {
+        "instructions" => "Instructions",
+        "messages" => "Messages",
+        "context" => "Context",
+        "tool_results" => "Tool results",
+        "files" => "Files",
+        "tool_schemas" => "Tool schemas",
+        other => other,
+    }
+    .to_owned()
+}
+
 fn is_scrollback_stable_message(
     index: usize,
     message: &VisualMessage,
@@ -654,6 +730,7 @@ mod tests {
             ],
         )
         .with_phase("execute")
+        .with_max_input_tokens(Some(200))
         .with_actual(Some(agent_contracts::model_standard::TokenUsage::new(
             110, 12,
         )));
@@ -673,7 +750,40 @@ mod tests {
         let report = state.context_report();
         assert!(report.contains("model: test/model"));
         assert!(report.contains("phase: execute"));
-        assert!(report.contains("| tool_schemas | 60 | 60.0% |"));
+        assert!(report.contains("estimated input: 100 / 200 tokens (50.0%) · free 100"));
+        assert!(report.contains("window: [############............] used · 100 free"));
+        assert!(report.contains("| Tool schemas | 60 | 60.0% |"));
         assert!(report.contains("110 input / 12 output / 122 total"));
+    }
+
+    #[test]
+    fn context_report_formats_large_token_counts() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let usage = TokenUsageSnapshot::new(
+            agent_contracts::domain::ModelRef::new("test", "large"),
+            37_500,
+            vec![
+                agent_contracts::domain::TokenUsageCategory::new("instructions", 8_600),
+                agent_contracts::domain::TokenUsageCategory::new("tool_schemas", 28_000),
+            ],
+        )
+        .with_max_input_tokens(Some(1_000_000));
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(
+                    agent_contracts::domain::new_session_id(),
+                    agent_contracts::domain::new_thread_id(),
+                    Some(agent_contracts::domain::new_turn_id()),
+                ),
+                1,
+                Event::TokenUsageUpdated { usage },
+            ),
+        });
+
+        let report = state.context_report();
+        assert!(report.contains("37.5k / 1.0m tokens (3.8%)"));
+        assert!(report.contains("| Instructions | 8.6k | 22.9% |"));
+        assert!(report.contains("| Tool schemas | 28.0k | 74.7% |"));
     }
 }
