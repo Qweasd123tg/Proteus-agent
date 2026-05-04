@@ -214,10 +214,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut scrollback_header_printed = false;
     let mut inline_panel = InlinePanelLayout::default();
     let mut picker_alt_screen = false;
-    let mut dirty = true;
+    let mut startup_ready = false;
+    let mut dirty = false;
 
     loop {
-        if dirty {
+        if dirty && startup_ready {
             if state.has_resume_picker() {
                 if !picker_alt_screen {
                     if inline_panel.height > 0 {
@@ -253,9 +254,10 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
             output = driver.events.recv() => {
                 match output {
                     Some(StdioOutput::Event { event }) => {
+                        startup_ready = true;
                         let header_before = state.header_identity();
                         state.ingest(*event);
-                        if state.header_identity() != header_before {
+                        if scrollback_header_printed && state.header_identity() != header_before {
                             if picker_alt_screen {
                                 terminal.clear()?;
                             } else {
@@ -270,6 +272,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         dirty = true;
                     }
                     Some(StdioOutput::Response { id, ok, error, .. }) => {
+                        startup_ready = true;
                         if id
                             .as_ref()
                             .is_some_and(|id| cancel_request_responses.remove(id))
@@ -297,6 +300,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                     }
                     Some(_) => {}
                     None => {
+                        startup_ready = true;
                         state.push_error("agent process exited unexpectedly".into());
                         dirty = true;
                         state.should_quit = true;
