@@ -239,6 +239,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         inline_panel = InlinePanelLayout::default();
                     }
                     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                    terminal.clear()?;
                     picker_alt_screen = true;
                 }
                 terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
