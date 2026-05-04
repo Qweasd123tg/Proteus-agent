@@ -8,9 +8,9 @@ use agent_contracts::{
         std_types::{RResult, RString},
     },
     plugin::{
-        ContextBuilderObject, PluginContextBuilderHost, PluginContextBuilderHostError,
-        PluginContextBuilderHostMut, PluginContextBuilderHost_TO, PluginContextBuilderInput,
-        PluginContextBuilder_TO, PluginContextProviderInput,
+        ContextBuilderObject, PluginContextBuilder_TO, PluginContextBuilderHost,
+        PluginContextBuilderHost_TO, PluginContextBuilderHostError, PluginContextBuilderHostMut,
+        PluginContextBuilderInput, PluginContextProviderInput,
     },
 };
 use anyhow::{Result, anyhow};
@@ -83,8 +83,9 @@ impl ContextBuilder for PluginContextBuilderAdapter {
         .await
         .map_err(|join_err| anyhow!("context builder plugin join error: {join_err}"))??;
 
-        serde_json::from_str(&output_json)
-            .map_err(|error| anyhow!("context builder plugin returned invalid ContextBundle JSON: {error}"))
+        serde_json::from_str(&output_json).map_err(|error| {
+            anyhow!("context builder plugin returned invalid ContextBundle JSON: {error}")
+        })
     }
 }
 
@@ -103,9 +104,7 @@ impl ContextBuilderHost {
         match self.handle.block_on(future) {
             Ok(value) => match serde_json::to_string(&value) {
                 Ok(json) => RResult::ROk(RString::from(json)),
-                Err(error) => {
-                    RResult::RErr(PluginContextBuilderHostError::new(error.to_string()))
-                }
+                Err(error) => RResult::RErr(PluginContextBuilderHostError::new(error.to_string())),
             },
             Err(error) => RResult::RErr(PluginContextBuilderHostError::new(format!("{error:#}"))),
         }

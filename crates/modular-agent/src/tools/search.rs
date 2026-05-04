@@ -66,10 +66,7 @@ impl Tool for SearchTool {
         if let Some(use_case) = use_case {
             search_query = search_query.with_use_case(use_case);
         }
-        let chunks = self
-            .search
-            .search(search_query)
-            .await?;
+        let chunks = self.search.search(search_query).await?;
         Ok(ToolResult::new(
             call.id.clone(),
             true,

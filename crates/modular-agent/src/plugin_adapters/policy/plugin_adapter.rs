@@ -205,11 +205,10 @@ mod tests {
 
     #[test]
     fn plugin_ask_decision_passes_through() {
-        let adapter =
-            PluginPolicyAdapter::new(
-                PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque),
-                serde_json::Value::Null,
-            );
+        let adapter = PluginPolicyAdapter::new(
+            PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque),
+            serde_json::Value::Null,
+        );
         let decision = adapter.evaluate(&make_call(), &make_ctx());
         match decision {
             PolicyDecision::Ask { reason } => assert_eq!(reason, "ask from plugin"),
@@ -219,11 +218,10 @@ mod tests {
 
     #[test]
     fn plugin_allow_visibility_passes_through() {
-        let adapter =
-            PluginPolicyAdapter::new(
-                PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque),
-                serde_json::Value::Null,
-            );
+        let adapter = PluginPolicyAdapter::new(
+            PluginApprovalPolicy_TO::from_value(AskPolicy, TD_Opaque),
+            serde_json::Value::Null,
+        );
         let decision = adapter.evaluate_visibility(&make_vis_ctx());
         assert!(matches!(decision, PolicyDecision::Allow));
     }
@@ -245,11 +243,10 @@ mod tests {
 
     #[test]
     fn plugin_rerror_is_denied() {
-        let adapter =
-            PluginPolicyAdapter::new(
-                PluginApprovalPolicy_TO::from_value(ErrPolicy, TD_Opaque),
-                serde_json::Value::Null,
-            );
+        let adapter = PluginPolicyAdapter::new(
+            PluginApprovalPolicy_TO::from_value(ErrPolicy, TD_Opaque),
+            serde_json::Value::Null,
+        );
         let decision = adapter.evaluate(&make_call(), &make_ctx());
         match decision {
             PolicyDecision::Deny { reason } => {

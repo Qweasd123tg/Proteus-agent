@@ -8,9 +8,7 @@ use agent_contracts::{
     plugin::{ContextProviderObject, PluginContextProvider_TO, PluginContextProviderInput},
 };
 
-use crate::{
-    contracts::ContextBuildInput, core::RepoAwareContextProvider, domain::ContextChunk,
-};
+use crate::{contracts::ContextBuildInput, core::RepoAwareContextProvider, domain::ContextChunk};
 
 pub struct PluginContextProviderAdapter {
     provider_id: String,

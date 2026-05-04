@@ -114,6 +114,9 @@ mod tests {
     async fn invalid_json_propagates_as_anyhow() {
         let adapter = wrap(BrokenJsonCompactor);
         let err = adapter.compact(make_input()).await.unwrap_err();
-        assert!(err.to_string().contains("invalid CompactionOutput"), "{err}");
+        assert!(
+            err.to_string().contains("invalid CompactionOutput"),
+            "{err}"
+        );
     }
 }

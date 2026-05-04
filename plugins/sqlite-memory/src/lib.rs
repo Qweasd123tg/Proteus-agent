@@ -262,10 +262,16 @@ mod tests {
     #[test]
     fn empty_query_returns_recent_items_first() {
         let conn = fresh_conn();
-        remember_impl(&conn, r#"{"kind":"fact","content":"first","metadata":null}"#)
-            .expect("first");
-        remember_impl(&conn, r#"{"kind":"fact","content":"second","metadata":null}"#)
-            .expect("second");
+        remember_impl(
+            &conn,
+            r#"{"kind":"fact","content":"first","metadata":null}"#,
+        )
+        .expect("first");
+        remember_impl(
+            &conn,
+            r#"{"kind":"fact","content":"second","metadata":null}"#,
+        )
+        .expect("second");
 
         let payload = recall_impl(&conn, r#"{"text":"","limit":2}"#).expect("recall");
         let items: Vec<ItemWire> = serde_json::from_str(&payload).expect("items");

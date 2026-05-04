@@ -3,8 +3,8 @@
 //! This layer intentionally contains glue code only. Real implementations live
 //! in `plugins/`; no-op/fake fallback implementations live in `stubs/`.
 
-pub mod context;
 pub mod compactor;
+pub mod context;
 pub mod memory;
 pub mod patch;
 pub mod policy;
@@ -13,8 +13,8 @@ pub mod tool;
 pub mod tool_exposure;
 pub mod workflow;
 
-pub use context::*;
 pub use compactor::*;
+pub use context::*;
 pub use memory::*;
 pub use patch::*;
 pub use policy::*;

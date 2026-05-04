@@ -27,8 +27,8 @@ use agent_contracts::{
         PluginMemoryPolicyError, PluginPatchApplier, PluginPatchApplier_TO, PluginPatchError,
         PluginPolicyError, PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
         PluginSearchBackend, PluginSearchBackend_TO, PluginSearchError, PluginWorkflow,
-        PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
-        PluginWorkflow_TO, PolicyObject, SearchBackendObject, WorkflowObject,
+        PluginWorkflow_TO, PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput,
+        PluginWorkflowOutput, PolicyObject, SearchBackendObject, WorkflowObject,
     },
 };
 use serde_json::json;

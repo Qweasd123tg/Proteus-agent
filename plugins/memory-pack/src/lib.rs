@@ -94,7 +94,9 @@ impl PluginMemoryStore for JsonlMemoryStorePlugin {
 fn remember_impl(path: &PathBuf, lock: &Mutex<()>, item_json: &str) -> Result<()> {
     let item: MemoryItem =
         serde_json::from_str(item_json).with_context(|| "invalid MemoryItem JSON")?;
-    let _guard = lock.lock().map_err(|_| anyhow!("jsonl memory mutex poisoned"))?;
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow!("jsonl memory mutex poisoned"))?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -201,9 +203,7 @@ extern "C" fn register_modules(
 ) -> RResult<(), PluginRegisterError> {
     let store: MemoryStoreObject =
         PluginMemoryStore_TO::from_value(JsonlMemoryStorePlugin::default(), TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_memory_store(AbiRString::from("jsonl"), store)
-    {
+    if let RResult::RErr(error) = registry.register_memory_store(AbiRString::from("jsonl"), store) {
         return RResult::RErr(error);
     }
 
@@ -268,8 +268,7 @@ mod tests {
             ],
         };
         let plugin = CarryForwardMemoryPolicyPlugin;
-        let result = plugin
-            .after_turn_json(serde_json::to_string(&input).unwrap().into());
+        let result = plugin.after_turn_json(serde_json::to_string(&input).unwrap().into());
         let RResult::ROk(body) = result else {
             panic!("policy should succeed");
         };

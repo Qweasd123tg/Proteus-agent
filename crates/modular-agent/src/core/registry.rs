@@ -4,8 +4,8 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventEmitter, MemoryPolicy, MemoryStore, ModelClient,
-        HistoryCompactor, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure,
+        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryPolicy, MemoryStore,
+        ModelClient, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure,
         ToolRegistry, Workflow,
     },
     core::{

@@ -117,6 +117,9 @@ mod tests {
     async fn invalid_json_propagates_as_anyhow() {
         let adapter = wrap(BrokenJsonToolExposure);
         let err = adapter.select(make_input()).await.unwrap_err();
-        assert!(err.to_string().contains("invalid ToolExposureOutput"), "{err}");
+        assert!(
+            err.to_string().contains("invalid ToolExposureOutput"),
+            "{err}"
+        );
     }
 }

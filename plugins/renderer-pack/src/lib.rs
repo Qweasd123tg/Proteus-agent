@@ -17,7 +17,7 @@ use agent_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RStr, RString as AbiRString},
     },
-    contracts::{RendererObject, Renderer_TO},
+    contracts::{Renderer_TO, RendererObject},
     plugin::{PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref},
 };
 use anyhow::{Result, bail};

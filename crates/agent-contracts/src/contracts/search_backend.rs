@@ -90,8 +90,8 @@ mod tests {
 
     #[test]
     fn search_query_path_filters_match_prefix_and_suffix() {
-        let query = SearchQuery::new("needle", PathBuf::from("."), 10)
-            .with_path_filters(["src/"], [".rs"]);
+        let query =
+            SearchQuery::new("needle", PathBuf::from("."), 10).with_path_filters(["src/"], [".rs"]);
 
         assert!(query.matches_path("src/main.rs"));
         assert!(!query.matches_path("tests/main.rs"));

@@ -23,11 +23,7 @@ pub struct CompactionInput {
 }
 
 impl CompactionInput {
-    pub fn new(
-        task: AgentTask,
-        model_ref: ModelRef,
-        messages: Vec<CanonicalMessage>,
-    ) -> Self {
+    pub fn new(task: AgentTask, model_ref: ModelRef, messages: Vec<CanonicalMessage>) -> Self {
         Self {
             task,
             model_ref,

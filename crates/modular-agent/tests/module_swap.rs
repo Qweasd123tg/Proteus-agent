@@ -13,8 +13,8 @@ use agent_contracts::{
         std_types::{RResult, RString},
     },
     plugin::{
-        ContextProviderObject, PluginContextError, PluginContextProvider, PluginContextProvider_TO,
-        PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginMemoryPolicy_TO,
+        ContextProviderObject, PluginApprovalPolicy_TO, PluginContextBuilder_TO,
+        PluginContextError, PluginContextProvider, PluginContextProvider_TO, PluginMemoryPolicy_TO,
         PluginMemoryStore_TO, PluginWorkflow_TO, WorkflowObject,
     },
 };
@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use coding_workflow::{CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow};
 use context_pack::{RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin};
 use futures_util::stream;
+use memory_pack::{CarryForwardMemoryPolicyPlugin, JsonlMemoryStorePlugin};
 use modular_agent::{
     contracts::{
         ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
@@ -48,7 +49,6 @@ use modular_agent::{
     stubs::{FakeModelClient, NoMemory, NullSearch},
     tools::{ApplyPatchTool, SearchTool},
 };
-use memory_pack::{CarryForwardMemoryPolicyPlugin, JsonlMemoryStorePlugin};
 use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin};
 use renderer_pack::{PlainRendererPlugin, StatuslineRendererPlugin};
 use serde_json::json;
@@ -258,10 +258,8 @@ fn try_registry_from_test_config(
 }
 
 fn single_loop_workflow(max_tool_rounds: usize) -> PluginWorkflowAdapter {
-    let workflow: WorkflowObject = PluginWorkflow_TO::from_value(
-        CodingSingleLoopWorkflow { max_tool_rounds },
-        TD_Opaque,
-    );
+    let workflow: WorkflowObject =
+        PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow { max_tool_rounds }, TD_Opaque);
     PluginWorkflowAdapter::new(workflow)
 }
 
@@ -1168,7 +1166,11 @@ done
     assert_eq!(spec.metadata["mcp_server"], "demo-mcp");
     assert_eq!(spec.metadata["remote_tool"], "remote_echo");
     assert_eq!(
-        registry.tools.entry("demo-mcp__remote_echo").unwrap().source,
+        registry
+            .tools
+            .entry("demo-mcp__remote_echo")
+            .unwrap()
+            .source,
         ToolSource::Mcp {
             server: "demo-mcp".to_owned()
         }
@@ -2475,5 +2477,9 @@ fn sqlite_memory_is_plugin_only_without_global_plugins() {
         Err(error) => error,
     };
 
-    assert!(error.to_string().contains("unsupported memory module: sqlite"));
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported memory module: sqlite")
+    );
 }
