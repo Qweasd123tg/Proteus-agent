@@ -48,6 +48,8 @@ pub struct AppState {
     active_turn_id: Option<String>,
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
+    context_report: Option<String>,
+    context_report_scroll: usize,
     slash_selection: usize,
     scrollback_cursor: usize,
     token_usage: Option<TokenUsageSnapshot>,
@@ -83,6 +85,8 @@ impl AppState {
             active_turn_id: None,
             next_turn_index: 0,
             resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
             slash_selection: 0,
             scrollback_cursor: 0,
             token_usage: None,
@@ -109,6 +113,8 @@ impl AppState {
             streaming: self.streaming_assistant_idx.is_some(),
             thinking_elapsed: self.thinking_elapsed(),
             resume_picker: self.resume_picker.as_ref(),
+            context_report: self.context_report.as_deref(),
+            context_report_scroll: self.context_report_scroll,
             slash_selection: self.slash_selection,
         }
     }
@@ -152,7 +158,7 @@ impl AppState {
 
     pub fn context_report(&self) -> String {
         let Some(usage) = &self.token_usage else {
-            return "Context usage: no model request stats yet.".to_owned();
+            return self.history_context_report();
         };
 
         let actual = usage.actual.as_ref().map_or_else(
@@ -220,6 +226,108 @@ impl AppState {
         lines.join("\n")
     }
 
+    fn history_context_report(&self) -> String {
+        let mut user_tokens = 0u32;
+        let mut assistant_tokens = 0u32;
+        let mut system_tokens = 0u32;
+        let mut tool_tokens = 0u32;
+        let mut messages = 0usize;
+        for message in &self.messages {
+            let tokens = estimate_tokens(&message.text);
+            match message.role {
+                crate::visual::VisualRole::User => {
+                    user_tokens = user_tokens.saturating_add(tokens);
+                    messages += 1;
+                }
+                crate::visual::VisualRole::Assistant => {
+                    assistant_tokens = assistant_tokens.saturating_add(tokens);
+                    messages += 1;
+                }
+                crate::visual::VisualRole::System => {
+                    system_tokens = system_tokens.saturating_add(tokens);
+                }
+                crate::visual::VisualRole::Tool => {
+                    tool_tokens = tool_tokens.saturating_add(estimate_tokens(
+                        message
+                            .tool
+                            .as_ref()
+                            .map_or("", |tool| tool.output_preview.as_str()),
+                    ));
+                }
+                crate::visual::VisualRole::Error => {}
+            }
+        }
+        let total = user_tokens
+            .saturating_add(assistant_tokens)
+            .saturating_add(system_tokens)
+            .saturating_add(tool_tokens);
+        if total == 0 {
+            return "Context Usage\nsource: history estimate\n\nNo model request stats yet and no loaded chat history to estimate.".to_owned();
+        }
+
+        let mut lines = vec![
+            "Context Usage".to_owned(),
+            format!("model: {}", self.model_label),
+            "source: history estimate".to_owned(),
+            format!("estimated history input: {}", format_tokens(total)),
+            format!("messages: {messages}"),
+            String::new(),
+            "Loaded history estimate".to_owned(),
+            "| Category | Tokens | Share |".to_owned(),
+            "| --- | ---: | ---: |".to_owned(),
+        ];
+        for (name, tokens) in [
+            ("User messages", user_tokens),
+            ("Assistant messages", assistant_tokens),
+            ("System messages", system_tokens),
+            ("Tool results", tool_tokens),
+        ] {
+            if tokens == 0 {
+                continue;
+            }
+            let share = tokens as f64 * 100.0 / total as f64;
+            lines.push(format!(
+                "| {name} | {} | {:.1}% |",
+                format_tokens(tokens),
+                share
+            ));
+        }
+        lines.push(String::new());
+        lines.push(
+            "Provider usage is not available until the next model request in this TUI session."
+                .to_owned(),
+        );
+        lines.join("\n")
+    }
+
+    pub fn open_context_report(&mut self) {
+        self.context_report = Some(self.context_report());
+        self.context_report_scroll = 0;
+        self.status = "context".to_owned();
+    }
+
+    pub fn close_context_report(&mut self) {
+        self.context_report = None;
+        self.context_report_scroll = 0;
+        self.status = "ready".to_owned();
+    }
+
+    pub fn has_context_report(&self) -> bool {
+        self.context_report.is_some()
+    }
+
+    pub fn has_fullscreen_overlay(&self) -> bool {
+        self.has_resume_picker() || self.has_context_report()
+    }
+
+    pub fn scroll_context_report_up(&mut self, by: usize) {
+        self.context_report_scroll = self.context_report_scroll.saturating_add(by);
+    }
+
+    pub fn scroll_context_report_down(&mut self, by: usize) {
+        self.context_report_scroll = self.context_report_scroll.saturating_sub(by);
+    }
+
     pub fn clear_transcript(&mut self) {
         self.messages.clear();
         self.messages
@@ -248,6 +356,8 @@ impl AppState {
         self.last_error = None;
         self.status = "resumed".to_owned();
         self.resume_picker = None;
+        self.context_report = None;
+        self.context_report_scroll = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -901,6 +1011,11 @@ fn usage_bar(used: u32, total: u32, width: usize) -> String {
     format!("[{}{}]", "#".repeat(filled), ".".repeat(width - filled))
 }
 
+fn estimate_tokens(text: &str) -> u32 {
+    let chars = text.chars().count() as u32;
+    chars.saturating_add(3) / 4
+}
+
 fn format_tokens(tokens: u32) -> String {
     if tokens >= 1_000_000 {
         format!("{:.1}m", tokens as f64 / 1_000_000.0)
@@ -1047,6 +1162,38 @@ mod tests {
             submission.paste_ranges[0].char_count,
             pasted.chars().count()
         );
+    }
+
+    #[test]
+    fn context_report_estimates_loaded_history_without_live_usage() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.messages.clear();
+        state
+            .messages
+            .push(VisualMessage::user("hello from previous session"));
+        state
+            .messages
+            .push(VisualMessage::assistant("previous answer"));
+
+        let report = state.context_report();
+
+        assert!(report.contains("source: history estimate"));
+        assert!(report.contains("Loaded history estimate"));
+        assert!(report.contains("| User messages |"));
+        assert!(!report.contains("no model request stats yet"));
+    }
+
+    #[test]
+    fn context_report_overlay_state_opens_and_closes() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+
+        state.open_context_report();
+        assert!(state.has_context_report());
+        assert!(state.has_fullscreen_overlay());
+
+        state.close_context_report();
+        assert!(!state.has_context_report());
+        assert!(!state.has_fullscreen_overlay());
     }
 
     #[test]

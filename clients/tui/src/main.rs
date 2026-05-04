@@ -229,7 +229,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
 
     loop {
         if dirty && startup_ready {
-            if state.has_resume_picker() {
+            if state.has_fullscreen_overlay() {
                 if !picker_alt_screen {
                     if inline_panel.height > 0 {
                         clear_inline_panel(terminal, inline_panel)?;
@@ -382,7 +382,9 @@ async fn handle_term_event(
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 match key.code {
                     KeyCode::Char('c') => {
-                        if state.input_is_empty() {
+                        if state.has_context_report() {
+                            state.close_context_report();
+                        } else if state.input_is_empty() {
                             state.arm_or_confirm_quit();
                         } else {
                             state.clear_input();
@@ -390,6 +392,32 @@ async fn handle_term_event(
                         return Ok(true);
                     }
                     _ => {}
+                }
+            }
+
+            if state.has_context_report() {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                        state.close_context_report();
+                        return Ok(true);
+                    }
+                    KeyCode::Up => {
+                        state.scroll_context_report_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Down => {
+                        state.scroll_context_report_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::PageUp => {
+                        state.scroll_context_report_up(8);
+                        return Ok(true);
+                    }
+                    KeyCode::PageDown => {
+                        state.scroll_context_report_down(8);
+                        return Ok(true);
+                    }
+                    _ => return Ok(false),
                 }
             }
 
@@ -908,9 +936,7 @@ async fn handle_slash_command(
                 .unwrap_or_else(|| "session: not persisted".to_owned());
             state.push_system(message);
         }
-        "/context" => {
-            state.push_system(state.context_report());
-        }
+        "/context" => state.open_context_report(),
         "/resume" => {
             if state.pending_model {
                 state.push_error("cancel active turn before resume".to_owned());

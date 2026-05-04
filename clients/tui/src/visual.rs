@@ -36,6 +36,8 @@ pub(crate) struct VisualState<'a> {
     pub streaming: bool,
     pub thinking_elapsed: Option<Duration>,
     pub resume_picker: Option<&'a ResumePicker>,
+    pub context_report: Option<&'a str>,
+    pub context_report_scroll: usize,
     pub slash_selection: usize,
 }
 
@@ -50,6 +52,7 @@ pub(crate) struct VisualSurface {
     composer: ComposerComponent,
     footer: FooterComponent,
     resume_picker: ResumePickerComponent,
+    context_report: ContextReportComponent,
     slash: SlashComponent,
 }
 
@@ -59,6 +62,7 @@ impl Default for VisualSurface {
             composer: ComposerComponent,
             footer: FooterComponent,
             resume_picker: ResumePickerComponent,
+            context_report: ContextReportComponent,
             slash: SlashComponent,
         }
     }
@@ -76,6 +80,11 @@ impl VisualSurface {
                     .min(frame.area().width.saturating_sub(1) as usize) as u16,
                 1,
             ));
+            return;
+        }
+        if let Some(report) = state.context_report {
+            self.context_report
+                .render(frame, frame.area(), report, state.context_report_scroll);
             return;
         }
 
@@ -190,6 +199,7 @@ trait VisualComponent {
 struct ComposerComponent;
 struct FooterComponent;
 struct ResumePickerComponent;
+struct ContextReportComponent;
 struct SlashComponent;
 
 impl VisualComponent for ComposerComponent {
@@ -651,6 +661,30 @@ impl ResumePickerComponent {
     }
 }
 
+impl ContextReportComponent {
+    fn render(&self, frame: &mut Frame, full: Rect, report: &str, scroll: usize) {
+        frame.render_widget(Clear, full);
+        let width = full.width as usize;
+        let mut body = Vec::<Line<'static>>::new();
+        body.push(Line::from(vec![
+            Span::styled("Context Usage", Style::default().fg(Color::Reset)),
+            Span::raw("  "),
+            Span::styled("Esc close", Style::default().fg(Color::DarkGray)),
+        ]));
+        body.push(Line::raw(""));
+
+        let content_width = width.saturating_sub(1).max(1);
+        let content_height = full.height.saturating_sub(2) as usize;
+        let rendered =
+            crate::markdown::render_assistant_markdown(report, "", Style::default(), content_width);
+        let max_scroll = rendered.len().saturating_sub(content_height);
+        let start = scroll.min(max_scroll);
+        body.extend(rendered.into_iter().skip(start).take(content_height));
+
+        frame.render_widget(Paragraph::new(body), full);
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct VisualMessage {
     pub role: VisualRole,
@@ -1081,6 +1115,8 @@ mod tests {
             streaming: false,
             thinking_elapsed: None,
             resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
             slash_selection: 0,
         };
 
