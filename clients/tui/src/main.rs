@@ -41,6 +41,7 @@ use ratatui::{
     style::{Color as RColor, Modifier, Style},
     text::Line,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     driver::{AgentDriver, DriverConfig},
@@ -595,14 +596,15 @@ fn flush_scrollback_messages(
 
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
+    let render_width = width.saturating_sub(1).max(1);
     if !*header_printed {
-        for line in render_scrollback_header(&state.visual_state(), width) {
+        for line in render_scrollback_header(&state.visual_state(), render_width) {
             write_scrollback_line(terminal, &line, width)?;
         }
         *header_printed = true;
     }
     for message in messages {
-        for line in render_scrollback_message(&message, width) {
+        for line in render_scrollback_message(&message, render_width) {
             write_scrollback_line(terminal, &line, width)?;
         }
     }
@@ -686,7 +688,7 @@ fn write_scrollback_line(
         if text.is_empty() {
             continue;
         }
-        remaining = remaining.saturating_sub(text.chars().count());
+        remaining = remaining.saturating_sub(UnicodeWidthStr::width(text.as_str()));
         apply_terminal_style(terminal, span.style)?;
         execute!(terminal.backend_mut(), Print(text))?;
     }
@@ -706,8 +708,14 @@ fn truncate_terminal_line(line: &str, width: usize) -> String {
 
 fn take_terminal_chars(line: &str, width: usize) -> String {
     let mut out = String::new();
+    let mut used = 0usize;
     for ch in line.chars().take(width) {
+        let ch_width = ch.width().unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
         out.push(ch);
+        used += ch_width;
     }
     out
 }

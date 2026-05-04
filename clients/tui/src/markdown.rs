@@ -2,6 +2,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub(crate) fn render_assistant_markdown(
     text: &str,
@@ -12,7 +13,7 @@ pub(crate) fn render_assistant_markdown(
     let mut lines = Vec::new();
     let mut first = true;
     let mut in_code_block = false;
-    let content_width = width.saturating_sub(prefix.chars().count()).max(1);
+    let content_width = width.saturating_sub(display_width(prefix)).max(1);
 
     if text.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -75,24 +76,38 @@ pub(crate) fn render_assistant_markdown(
             continue;
         }
 
+        if is_horizontal_rule(trimmed) {
+            push_line(
+                &mut lines,
+                &mut first,
+                prefix,
+                prefix_style,
+                vec![Span::styled(
+                    "─".repeat(content_width.min(72)),
+                    horizontal_rule_style(),
+                )],
+            );
+            index += 1;
+            continue;
+        }
+
         if let Some((table, consumed)) = parse_table(&raw_lines, index, content_width) {
             render_table_lines(&mut lines, &mut first, prefix, prefix_style, &table);
             index += consumed;
             continue;
         }
 
-        if let Some((level, heading)) = heading(source) {
-            let marker = "#".repeat(level);
-            for segment in wrap_text(heading, content_width.saturating_sub(level + 1).max(1)) {
+        if let Some((_level, heading)) = heading(source) {
+            for (idx, segment) in wrap_text(heading, content_width.saturating_sub(2).max(1))
+                .into_iter()
+                .enumerate()
+            {
                 push_line(
                     &mut lines,
                     &mut first,
                     prefix,
                     prefix_style,
-                    vec![
-                        Span::styled(format!("{marker} "), heading_marker_style()),
-                        Span::styled(segment, heading_style()),
-                    ],
+                    heading_spans(&segment, idx == 0),
                 );
             }
             index += 1;
@@ -110,7 +125,7 @@ pub(crate) fn render_assistant_markdown(
         }
 
         if let Some((marker, body)) = list_item(trimmed) {
-            let marker_width = marker.chars().count() + 1;
+            let marker_width = display_width(marker) + 1;
             for (idx, segment) in wrap_text(body, content_width.saturating_sub(marker_width).max(1))
                 .into_iter()
                 .enumerate()
@@ -176,11 +191,11 @@ fn parse_table(lines: &[&str], start: usize, max_width: usize) -> Option<(Markdo
 
     let mut widths = header
         .iter()
-        .map(|cell| cell.chars().count())
+        .map(|cell| inline_width(cell))
         .collect::<Vec<_>>();
     for row in &rows {
         for (idx, cell) in row.iter().enumerate() {
-            widths[idx] = widths[idx].max(cell.chars().count());
+            widths[idx] = widths[idx].max(inline_width(cell));
         }
     }
     fit_table_width(&mut widths, max_width);
@@ -312,32 +327,20 @@ fn render_table_row(row: &[String], widths: &[usize], header: bool) -> Vec<Span<
     let mut spans = vec![Span::styled("│", table_border_style())];
     for (idx, width) in widths.iter().enumerate() {
         let cell = row.get(idx).map(String::as_str).unwrap_or_default();
-        let cell = truncate_cell(cell, *width);
-        let padding = width.saturating_sub(cell.chars().count());
+        let base_style = if header {
+            table_header_style()
+        } else {
+            Style::default()
+        };
+        let cell_spans = truncate_spans(inline_spans(cell, base_style), *width);
+        let cell_width = spans_width(&cell_spans);
+        let padding = width.saturating_sub(cell_width);
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(
-            cell,
-            if header {
-                table_header_style()
-            } else {
-                Style::default()
-            },
-        ));
+        spans.extend(cell_spans);
         spans.push(Span::raw(" ".repeat(padding + 1)));
         spans.push(Span::styled("│", table_border_style()));
     }
     spans
-}
-
-fn truncate_cell(cell: &str, width: usize) -> String {
-    if cell.chars().count() <= width {
-        return cell.to_owned();
-    }
-    if width <= 1 {
-        return "…".to_owned();
-    }
-    let prefix = cell.chars().take(width - 1).collect::<String>();
-    format!("{prefix}…")
 }
 
 fn push_line(
@@ -365,6 +368,16 @@ fn heading(line: &str) -> Option<(usize, &str)> {
     Some((level, rest.strip_prefix(' ')?.trim()))
 }
 
+fn is_horizontal_rule(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.len() < 3 {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|ch| ch == '-' || ch == '_' || ch == '*')
+}
+
 fn list_item(line: &str) -> Option<(&str, &str)> {
     for marker in ["- ", "* ", "+ "] {
         if let Some(body) = line.strip_prefix(marker) {
@@ -387,7 +400,10 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
         if let Some(after) = rest.strip_prefix('`')
             && let Some(end) = after.find('`')
         {
-            spans.push(Span::styled(after[..end].to_owned(), inline_code_style()));
+            spans.push(Span::styled(
+                after[..end].to_owned(),
+                inline_code_style().add_modifier(base.add_modifier),
+            ));
             rest = &after[end + 1..];
             continue;
         }
@@ -395,8 +411,8 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
         if let Some(after) = rest.strip_prefix("**")
             && let Some(end) = after.find("**")
         {
-            spans.push(Span::styled(
-                after[..end].to_owned(),
+            spans.extend(inline_spans(
+                &after[..end],
                 base.add_modifier(Modifier::BOLD),
             ));
             rest = &after[end + 2..];
@@ -406,8 +422,8 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
         if let Some(after) = rest.strip_prefix('*')
             && let Some(end) = after.find('*')
         {
-            spans.push(Span::styled(
-                after[..end].to_owned(),
+            spans.extend(inline_spans(
+                &after[..end],
                 base.add_modifier(Modifier::ITALIC),
             ));
             rest = &after[end + 1..];
@@ -437,16 +453,89 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 
     let mut segments = Vec::new();
     let mut segment = String::new();
+    let mut segment_width = 0usize;
     for ch in text.chars() {
-        segment.push(ch);
-        if segment.chars().count() >= width {
+        let ch_width = ch.width().unwrap_or(0);
+        if segment_width > 0 && segment_width + ch_width > width {
             segments.push(std::mem::take(&mut segment));
+            segment_width = 0;
+        }
+        segment.push(ch);
+        segment_width += ch_width;
+        if segment_width >= width {
+            segments.push(std::mem::take(&mut segment));
+            segment_width = 0;
         }
     }
     if !segment.is_empty() {
         segments.push(segment);
     }
     segments
+}
+
+fn heading_spans(text: &str, first: bool) -> Vec<Span<'static>> {
+    let marker = if first { "▌ " } else { "  " };
+    vec![
+        Span::styled(marker, heading_marker_style()),
+        Span::styled(text.to_owned(), heading_style()),
+    ]
+}
+
+fn inline_width(text: &str) -> usize {
+    spans_width(&inline_spans(text, Style::default()))
+}
+
+fn spans_width(spans: &[Span<'_>]) -> usize {
+    spans
+        .iter()
+        .map(|span| display_width(span.content.as_ref()))
+        .sum()
+}
+
+fn truncate_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+    if spans_width(&spans) <= width {
+        return spans;
+    }
+    if width == 0 {
+        return Vec::new();
+    }
+    if width == 1 {
+        return vec![Span::raw("…")];
+    }
+
+    let mut out = Vec::new();
+    let mut remaining = width - 1;
+    for span in spans {
+        if remaining == 0 {
+            break;
+        }
+        let taken = take_display_width(span.content.as_ref(), remaining);
+        if taken.is_empty() {
+            continue;
+        }
+        remaining = remaining.saturating_sub(display_width(&taken));
+        out.push(Span::styled(taken, span.style));
+    }
+    out.push(Span::raw("…"));
+    out
+}
+
+fn take_display_width(text: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = ch.width().unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
+
+fn display_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
 }
 
 fn heading_style() -> Style {
@@ -456,6 +545,10 @@ fn heading_style() -> Style {
 }
 
 fn heading_marker_style() -> Style {
+    Style::default().fg(Color::DarkGray)
+}
+
+fn horizontal_rule_style() -> Style {
     Style::default().fg(Color::DarkGray)
 }
 
@@ -541,6 +634,58 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert!(rendered.contains('…'));
+    }
+
+    #[test]
+    fn table_cells_render_inline_markdown() {
+        let lines = render_assistant_markdown(
+            "| Provider | Что делает |\n| --- | --- |\n| **`type_signatures`** | Вытаскивает сигнатуры |",
+            "• ",
+            Style::default(),
+            80,
+        );
+        let rendered = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(rendered.contains("type_signatures"));
+        assert!(!rendered.contains("**"));
+        assert!(!rendered.contains('`'));
+        assert_eq!(lines[3].spans[3].style.fg, Some(Color::Yellow));
+        assert!(
+            lines[3].spans[3]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn table_width_uses_terminal_columns() {
+        let lines = render_assistant_markdown(
+            "| Provider | Что делает |\n| --- | --- |\n| **`type_signatures`** | Вытаскивает сигнатуры функций/типов, к которым обращается задача |\n| **`open_issues`** | Поиск по issues/багам, связанным с задачей |",
+            "• ",
+            Style::default(),
+            58,
+        );
+
+        assert!(lines.iter().all(|line| line.width() <= 58));
+        assert!(lines[0].spans[1].content.ends_with('┐'));
+        assert_eq!(lines[3].spans.last().unwrap().content.as_ref(), "│");
+    }
+
+    #[test]
+    fn renders_horizontal_rules_without_raw_markers() {
+        let lines = render_assistant_markdown("---\n## Section", "• ", Style::default(), 30);
+
+        assert_eq!(
+            lines[0].spans[1].content.as_ref(),
+            "────────────────────────────"
+        );
+        assert_eq!(lines[1].spans[1].content.as_ref(), "▌ ");
+        assert_eq!(lines[1].spans[2].content.as_ref(), "Section");
     }
 
     #[test]
