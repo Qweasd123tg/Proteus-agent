@@ -27,7 +27,10 @@ use agent_contracts::{
 use anyhow::{Context, Result};
 use crossterm::{
     cursor::{MoveTo, MoveToColumn, MoveUp},
-    event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
+        KeyModifiers,
+    },
     execute,
     style::{Attribute, Color as CTermColor, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{
@@ -78,6 +81,7 @@ fn install_panic_hook() {
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableBracketedPaste,
             crossterm::event::DisableMouseCapture,
         );
 
@@ -165,7 +169,12 @@ fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // Основной чат живёт в normal screen: завершённые сообщения пишутся в
     // настоящий terminal scrollback, поэтому выделение мышью и wheel работают
     // так же, как в shell. Mouse capture и alternate scroll здесь не включаем.
-    execute!(out, MoveTo(0, 0), TerminalClear(ClearType::All))?;
+    execute!(
+        out,
+        EnableBracketedPaste,
+        MoveTo(0, 0),
+        TerminalClear(ClearType::All)
+    )?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
@@ -174,6 +183,7 @@ fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resu
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
+        DisableBracketedPaste,
         TerminalClear(ClearType::FromCursorDown)
     )?;
     terminal.show_cursor()?;
@@ -504,9 +514,7 @@ async fn handle_term_event(
 
             match key.code {
                 KeyCode::Enter => {
-                    if state.complete_partial_slash_suggestion() {
-                        return Ok(true);
-                    } else if let Some(text) = state.take_input_for_send() {
+                    if let Some(text) = state.take_input_for_send() {
                         if text.starts_with('/') {
                             handle_slash_command(
                                 state,
@@ -532,7 +540,7 @@ async fn handle_term_event(
                 }
                 KeyCode::Tab => {
                     if state.has_slash_suggestions() {
-                        state.move_slash_selection_next();
+                        state.complete_slash_suggestion();
                         return Ok(true);
                     }
                 }
@@ -609,6 +617,10 @@ async fn handle_term_event(
                 _ => {}
             }
         }
+        CTerm::Paste(text) => {
+            state.paste_text(&text);
+            return Ok(true);
+        }
         _ => {}
     }
     Ok(false)
@@ -670,30 +682,32 @@ fn draw_inline_panel(
 ) -> Result<InlinePanelLayout> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
-    let mut lines = inline_panel_lines(&state.visual_state(), width);
+    let panel = inline_panel_lines(&state.visual_state(), width);
+    let mut lines = panel.lines;
+    let mut cursor_row = panel.cursor_row;
+    let cursor_col = panel.cursor_col;
     let max_lines = size.height.saturating_sub(1) as usize;
     if lines.len() > max_lines {
-        lines.drain(0..lines.len() - max_lines);
+        let drained = lines.len() - max_lines;
+        lines.drain(0..drained);
+        cursor_row = cursor_row.saturating_sub(drained);
     }
 
     let panel_height = lines.len() as u16;
     for line in &lines {
         execute!(
             terminal.backend_mut(),
-            TerminalClear(ClearType::CurrentLine),
-            Print(truncate_terminal_line(line, width)),
-            Print("\r\n")
+            TerminalClear(ClearType::CurrentLine)
         )?;
+        write_terminal_line_without_newline(terminal, line, width)?;
+        execute!(terminal.backend_mut(), Print("\r\n"))?;
     }
-    let cursor_row = lines.len().saturating_sub(3) as u16;
+    let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
     let rows_from_after_panel = panel_height.saturating_sub(cursor_row);
     execute!(
         terminal.backend_mut(),
         MoveUp(rows_from_after_panel),
-        MoveToColumn(
-            (2 + UnicodeWidthStr::width(state.visual_state().input)).min(width.saturating_sub(1))
-                as u16
-        )
+        MoveToColumn(cursor_col.min(width.saturating_sub(1)) as u16)
     )?;
     Ok(InlinePanelLayout {
         height: panel_height,
@@ -750,8 +764,31 @@ fn write_scrollback_line(
     Ok(())
 }
 
-fn truncate_terminal_line(line: &str, width: usize) -> String {
-    take_terminal_chars(line, width.saturating_sub(1))
+fn write_terminal_line_without_newline(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    line: &Line<'_>,
+    width: usize,
+) -> Result<()> {
+    let mut remaining = width.saturating_sub(1);
+    for span in &line.spans {
+        if remaining == 0 {
+            break;
+        }
+
+        let text = take_terminal_chars(span.content.as_ref(), remaining);
+        if text.is_empty() {
+            continue;
+        }
+        remaining = remaining.saturating_sub(UnicodeWidthStr::width(text.as_str()));
+        apply_terminal_style(terminal, span.style)?;
+        execute!(terminal.backend_mut(), Print(text))?;
+    }
+    execute!(
+        terminal.backend_mut(),
+        ResetColor,
+        SetAttribute(Attribute::Reset)
+    )?;
+    Ok(())
 }
 
 fn take_terminal_chars(line: &str, width: usize) -> String {

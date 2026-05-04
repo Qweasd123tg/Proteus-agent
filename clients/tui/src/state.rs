@@ -16,7 +16,7 @@ use agent_contracts::{
 
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
-    slash_commands::{is_exact_slash_command, matching_slash_commands},
+    slash_commands::matching_slash_commands,
     visual::{ToolCard, ToolStatus, VisualMessage, VisualState},
 };
 
@@ -309,6 +309,12 @@ impl AppState {
         self.clamp_slash_selection();
     }
 
+    pub fn paste_text(&mut self, text: &str) {
+        self.input
+            .push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
+        self.clamp_slash_selection();
+    }
+
     pub fn backspace(&mut self) {
         self.input.pop();
         self.clamp_slash_selection();
@@ -358,20 +364,14 @@ impl AppState {
         true
     }
 
-    pub fn complete_partial_slash_suggestion(&mut self) -> bool {
-        if is_exact_slash_command(&self.input) {
-            return false;
-        }
-        self.complete_slash_suggestion()
-    }
-
     pub fn next_turn_id(&mut self) -> String {
         self.next_turn_index = self.next_turn_index.wrapping_add(1);
         format!("turn-{}", self.next_turn_index)
     }
 
     pub fn mark_user_sent(&mut self, text: String, turn_id: String) {
-        self.messages.push(VisualMessage::user(text));
+        self.messages
+            .push(VisualMessage::user(user_echo_text(&text)));
         self.last_error = None;
         let now = Instant::now();
         self.turn_started_at = Some(now);
@@ -895,6 +895,16 @@ fn short_session_label(label: &str) -> String {
         format!("{short}...")
     } else {
         short
+    }
+}
+
+fn user_echo_text(text: &str) -> String {
+    let char_count = text.chars().count();
+    let line_count = text.lines().count().max(1);
+    if char_count > 1200 || line_count > 6 {
+        format!("[Pasted Content {char_count} chars]")
+    } else {
+        text.to_owned()
     }
 }
 

@@ -67,11 +67,6 @@ pub(crate) fn matching_slash_commands(input: &str) -> Vec<&'static SlashCommand>
         .collect()
 }
 
-pub(crate) fn is_exact_slash_command(input: &str) -> bool {
-    let trimmed = input.trim();
-    SLASH_COMMANDS.iter().any(|command| command.name == trimmed)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

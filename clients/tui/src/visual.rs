@@ -11,6 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     session_picker::ResumePicker,
@@ -127,33 +128,45 @@ impl VisualSurface {
     }
 }
 
-pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> Vec<String> {
+pub(crate) struct InlinePanelLines {
+    pub lines: Vec<Line<'static>>,
+    pub cursor_row: usize,
+    pub cursor_col: usize,
+}
+
+pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> InlinePanelLines {
     let mut lines = Vec::new();
 
     if !matching_slash_commands(state.input).is_empty()
         && state.pending_approval.is_none()
         && state.resume_picker.is_none()
     {
-        lines.extend(slash_plain_lines(state, width));
-        lines.push(String::new());
+        lines.extend(slash_plain_lines(state, width).into_iter().map(Line::raw));
+        lines.push(Line::raw(""));
     }
 
     if let Some(request) = state.pending_approval {
         let mut approval_lines = Vec::new();
         append_approval_lines(&mut approval_lines, request, width);
-        lines.extend(approval_lines.into_iter().map(line_plain_text));
+        lines.extend(approval_lines);
     } else if state.streaming || state.pending_model {
-        lines.extend(
-            live_status_lines(state, width)
-                .into_iter()
-                .map(line_plain_text),
-        );
+        lines.extend(live_status_lines(state, width));
     }
 
-    lines.push(composer_plain_line(state, width));
-    lines.push(String::new());
-    lines.push(footer_plain_line(state, width));
-    lines
+    let composer_start = lines.len();
+    let (composer_lines, composer_cursor_row, cursor_col) = composer_lines(state, width);
+    lines.extend(composer_lines);
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        footer_plain_line(state, width),
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    InlinePanelLines {
+        lines,
+        cursor_row: composer_start + composer_cursor_row,
+        cursor_col,
+    }
 }
 
 trait VisualComponent {
@@ -188,18 +201,117 @@ impl VisualComponent for ComposerComponent {
     }
 }
 
-fn composer_plain_line(state: &VisualState<'_>, width: usize) -> String {
+fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>, usize, usize) {
     let prompt = if state.pending_approval.is_some() {
-        "?"
+        Span::styled("?", Style::default().fg(Color::Yellow))
     } else {
-        "›"
+        Span::styled("›", Style::default().fg(Color::Cyan))
     };
-    let input = if state.input.is_empty() && !state.pending_model {
-        "Ask agent to do anything"
+    let available_width = width.saturating_sub(1).max(1);
+    let prompt_width = 2usize.min(available_width);
+
+    if state.input.is_empty() && !state.pending_model {
+        return (
+            vec![Line::from(vec![
+                prompt,
+                Span::raw(" "),
+                Span::styled(
+                    "Ask agent to do anything",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])],
+            0,
+            prompt_width,
+        );
+    }
+
+    let display_input = composer_display_input(state.input);
+    let wrapped = wrap_input_for_width(&display_input, available_width, prompt_width);
+    let mut lines = Vec::new();
+    for (idx, segment) in wrapped.lines.iter().enumerate() {
+        if idx == 0 {
+            lines.push(Line::from(vec![
+                prompt.clone(),
+                Span::raw(" "),
+                Span::raw(segment.clone()),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::raw(segment.clone()),
+            ]));
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![prompt, Span::raw(" ")]));
+    }
+    (lines, wrapped.cursor_row, wrapped.cursor_col)
+}
+
+struct WrappedInput {
+    lines: Vec<String>,
+    cursor_row: usize,
+    cursor_col: usize,
+}
+
+fn composer_display_input(input: &str) -> String {
+    let char_count = input.chars().count();
+    let line_count = input.lines().count().max(1);
+    if char_count > 1200 || line_count > 6 {
+        format!("[Pasted Content {char_count} chars]")
     } else {
-        state.input
+        input.to_owned()
+    }
+}
+
+fn wrap_input_for_width(input: &str, width: usize, first_prefix_width: usize) -> WrappedInput {
+    let first_limit = width.saturating_sub(first_prefix_width).max(1);
+    let next_prefix_width = 2usize.min(width);
+    let next_limit = width.saturating_sub(next_prefix_width).max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    let mut first = true;
+
+    for ch in input.chars() {
+        if ch == '\r' {
+            continue;
+        }
+        if ch == '\n' {
+            lines.push(current);
+            current = String::new();
+            used = 0;
+            first = false;
+            continue;
+        }
+
+        let ch_width = ch.width().unwrap_or(0);
+        let limit = if first { first_limit } else { next_limit };
+        if used > 0 && used + ch_width > limit {
+            lines.push(current);
+            current = String::new();
+            used = 0;
+            first = false;
+        }
+        current.push(ch);
+        used += ch_width;
+    }
+    lines.push(current);
+
+    let cursor_row = lines.len().saturating_sub(1);
+    let prefix_width = if cursor_row == 0 {
+        first_prefix_width
+    } else {
+        next_prefix_width
     };
-    truncate(format!("{prompt} {input}"), width)
+    let cursor_col = prefix_width + UnicodeWidthStr::width(lines[cursor_row].as_str());
+
+    WrappedInput {
+        lines,
+        cursor_row,
+        cursor_col,
+    }
 }
 
 impl VisualComponent for FooterComponent {
@@ -227,7 +339,7 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     } else if state.resume_picker.is_some() {
         "type search · enter resume · esc close · up/down select".to_owned()
     } else if !matching_slash_commands(state.input).is_empty() {
-        "tab/up/down select · right complete · enter run".to_owned()
+        "tab/right complete · up/down select · enter run".to_owned()
     } else if state.scroll_offset > 0 {
         "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
@@ -637,13 +749,6 @@ pub(crate) fn render_scrollback_header(
     width: usize,
 ) -> Vec<Line<'static>> {
     session_card(state, width)
-}
-
-fn line_plain_text(line: Line<'_>) -> String {
-    line.spans
-        .into_iter()
-        .map(|span| span.content.into_owned())
-        .collect()
 }
 
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
