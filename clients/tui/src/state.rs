@@ -17,8 +17,13 @@ use agent_contracts::{
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::matching_slash_commands,
-    visual::{ToolCard, ToolStatus, VisualMessage, VisualState},
+    visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualState},
 };
+
+pub(crate) struct InputSubmission {
+    pub text: String,
+    pub paste_ranges: Vec<InputPasteRange>,
+}
 
 pub struct AppState {
     pub should_quit: bool,
@@ -31,6 +36,8 @@ pub struct AppState {
     footer: String,
     messages: Vec<VisualMessage>,
     input: String,
+    input_paste_ranges: Vec<InputPasteRange>,
+    quit_armed: bool,
     spinner_index: usize,
     scroll_offset: usize,
     pending_approval: Option<AppApprovalRequest>,
@@ -64,6 +71,8 @@ impl AppState {
                 "Connected to modular-agent. Type and press Enter.",
             )],
             input: String::new(),
+            input_paste_ranges: Vec::new(),
+            quit_armed: false,
             spinner_index: 0,
             scroll_offset: 0,
             pending_approval: None,
@@ -90,6 +99,7 @@ impl AppState {
             session_label: &self.session_label,
             messages: &self.messages,
             input: &self.input,
+            input_paste_ranges: &self.input_paste_ranges,
             footer: &self.footer,
             status: &self.status,
             spinner_index: self.spinner_index,
@@ -306,29 +316,91 @@ impl AppState {
 
     pub fn type_char(&mut self, ch: char) {
         self.input.push(ch);
+        self.quit_armed = false;
         self.clamp_slash_selection();
     }
 
     pub fn paste_text(&mut self, text: &str) {
-        self.input
-            .push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let start = self.input.len();
+        self.input.push_str(&normalized);
+        if is_large_paste(&normalized) {
+            self.input_paste_ranges.push(InputPasteRange {
+                start,
+                end: self.input.len(),
+                char_count: normalized.chars().count(),
+            });
+        }
+        self.quit_armed = false;
         self.clamp_slash_selection();
     }
 
     pub fn backspace(&mut self) {
-        self.input.pop();
+        if let Some(range) = self
+            .input_paste_ranges
+            .last()
+            .filter(|range| range.end == self.input.len())
+            .cloned()
+        {
+            self.input.truncate(range.start);
+            self.input_paste_ranges.pop();
+        } else {
+            self.input.pop();
+        }
+        self.quit_armed = false;
         self.clamp_slash_selection();
     }
 
-    pub fn take_input_for_send(&mut self) -> Option<String> {
+    pub fn clear_input(&mut self) {
+        self.input.clear();
+        self.input_paste_ranges.clear();
+        self.slash_selection = 0;
+        self.quit_armed = false;
+    }
+
+    pub fn input_is_empty(&self) -> bool {
+        self.input.trim().is_empty()
+    }
+
+    pub fn arm_or_confirm_quit(&mut self) -> bool {
+        if self.quit_armed {
+            self.should_quit = true;
+            true
+        } else {
+            self.quit_armed = true;
+            self.status = "press ctrl+c again to quit".to_owned();
+            false
+        }
+    }
+
+    pub fn take_input_for_send(&mut self) -> Option<InputSubmission> {
         let trimmed = self.input.trim();
         if trimmed.is_empty() {
             return None;
         }
-        let text = trimmed.to_owned();
-        self.input.clear();
-        self.slash_selection = 0;
-        Some(text)
+        let trim_start = self.input.len() - self.input.trim_start().len();
+        let trim_end = self.input.trim_end().len();
+        let paste_ranges = self
+            .input_paste_ranges
+            .iter()
+            .filter_map(|range| {
+                if range.start < trim_start || range.end > trim_end {
+                    None
+                } else {
+                    Some(InputPasteRange {
+                        start: range.start - trim_start,
+                        end: range.end - trim_start,
+                        char_count: range.char_count,
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+        let submission = InputSubmission {
+            text: trimmed.to_owned(),
+            paste_ranges,
+        };
+        self.clear_input();
+        Some(submission)
     }
 
     pub fn has_slash_suggestions(&self) -> bool {
@@ -360,6 +432,8 @@ impl AppState {
             return false;
         };
         self.input = format!("{} ", command.name);
+        self.input_paste_ranges.clear();
+        self.quit_armed = false;
         self.slash_selection = 0;
         true
     }
@@ -369,9 +443,14 @@ impl AppState {
         format!("turn-{}", self.next_turn_index)
     }
 
-    pub fn mark_user_sent(&mut self, text: String, turn_id: String) {
+    pub fn mark_user_sent(
+        &mut self,
+        text: String,
+        paste_ranges: Vec<InputPasteRange>,
+        turn_id: String,
+    ) {
         self.messages
-            .push(VisualMessage::user(user_echo_text(&text)));
+            .push(VisualMessage::user_with_paste_ranges(text, paste_ranges));
         self.last_error = None;
         let now = Instant::now();
         self.turn_started_at = Some(now);
@@ -873,7 +952,7 @@ fn preview(result: &ToolResult) -> String {
 }
 
 fn footer_hint() -> String {
-    "enter send · ctrl+c quit · ctrl+l clear".to_owned()
+    "enter send · ctrl+c clear/quit".to_owned()
 }
 
 fn session_label_from_dir(session_dir: &Path) -> String {
@@ -898,14 +977,10 @@ fn short_session_label(label: &str) -> String {
     }
 }
 
-fn user_echo_text(text: &str) -> String {
+fn is_large_paste(text: &str) -> bool {
     let char_count = text.chars().count();
     let line_count = text.lines().count().max(1);
-    if char_count > 1200 || line_count > 6 {
-        format!("[Pasted Content {char_count} chars]")
-    } else {
-        text.to_owned()
-    }
+    char_count > 1200 || line_count > 6
 }
 
 #[cfg(test)]
@@ -932,7 +1007,7 @@ mod tests {
         state.push_error("boom".to_owned());
         assert_eq!(error_count(&state), 1);
 
-        state.mark_user_sent("retry".to_owned(), "turn-test".to_owned());
+        state.mark_user_sent("retry".to_owned(), Vec::new(), "turn-test".to_owned());
         state.push_error("boom".to_owned());
         assert_eq!(error_count(&state), 2);
     }
@@ -948,9 +1023,29 @@ mod tests {
     }
 
     #[test]
+    fn large_paste_is_sent_as_full_text_with_display_range() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let pasted = "line\n".repeat(8);
+
+        state.type_char('a');
+        state.paste_text(&pasted);
+        state.type_char('z');
+
+        let submission = state.take_input_for_send().expect("submission");
+        assert_eq!(submission.text, format!("a{pasted}z"));
+        assert_eq!(submission.paste_ranges.len(), 1);
+        assert_eq!(submission.paste_ranges[0].start, 1);
+        assert_eq!(submission.paste_ranges[0].end, 1 + pasted.len());
+        assert_eq!(
+            submission.paste_ranges[0].char_count,
+            pasted.chars().count()
+        );
+    }
+
+    #[test]
     fn cancel_requested_clears_active_turn() {
         let mut state = AppState::new(PathBuf::from("."), None);
-        state.mark_user_sent("long task".to_owned(), "turn-1".to_owned());
+        state.mark_user_sent("long task".to_owned(), Vec::new(), "turn-1".to_owned());
         assert_eq!(state.active_turn_id(), Some("turn-1"));
         assert!(state.pending_model);
 

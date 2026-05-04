@@ -382,15 +382,11 @@ async fn handle_term_event(
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 match key.code {
                     KeyCode::Char('c') => {
-                        state.should_quit = true;
-                        return Ok(true);
-                    }
-                    KeyCode::Char('l') => {
-                        // Очистка истории — отправляем ClearHistory.
-                        driver
-                            .send(&StdioRequest::ClearHistory { id: None })
-                            .await?;
-                        state.clear_transcript();
+                        if state.input_is_empty() {
+                            state.arm_or_confirm_quit();
+                        } else {
+                            state.clear_input();
+                        }
                         return Ok(true);
                     }
                     _ => {}
@@ -514,15 +510,15 @@ async fn handle_term_event(
 
             match key.code {
                 KeyCode::Enter => {
-                    if let Some(text) = state.take_input_for_send() {
-                        if text.starts_with('/') {
+                    if let Some(submission) = state.take_input_for_send() {
+                        if submission.text.starts_with('/') {
                             handle_slash_command(
                                 state,
                                 driver,
                                 driver_config,
                                 canceled_turn_responses,
                                 cancel_request_responses,
-                                &text,
+                                &submission.text,
                             )
                             .await?;
                         } else {
@@ -530,10 +526,10 @@ async fn handle_term_event(
                             driver
                                 .send(&StdioRequest::Send {
                                     id: Some(turn_id.clone()),
-                                    text: text.clone(),
+                                    text: submission.text.clone(),
                                 })
                                 .await?;
-                            state.mark_user_sent(text, turn_id);
+                            state.mark_user_sent(submission.text, submission.paste_ranges, turn_id);
                         }
                         return Ok(true);
                     }

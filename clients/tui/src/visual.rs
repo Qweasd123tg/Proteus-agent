@@ -26,6 +26,7 @@ pub(crate) struct VisualState<'a> {
     pub session_label: &'a str,
     pub messages: &'a [VisualMessage],
     pub input: &'a str,
+    pub input_paste_ranges: &'a [InputPasteRange],
     pub footer: &'a str,
     pub status: &'a str,
     pub spinner_index: usize,
@@ -36,6 +37,13 @@ pub(crate) struct VisualState<'a> {
     pub thinking_elapsed: Option<Duration>,
     pub resume_picker: Option<&'a ResumePicker>,
     pub slash_selection: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InputPasteRange {
+    pub start: usize,
+    pub end: usize,
+    pub char_count: usize,
 }
 
 pub(crate) struct VisualSurface {
@@ -134,6 +142,12 @@ pub(crate) struct InlinePanelLines {
     pub cursor_col: usize,
 }
 
+#[derive(Clone)]
+struct DisplaySegment {
+    text: String,
+    style: Style,
+}
+
 pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> InlinePanelLines {
     let mut lines = Vec::new();
 
@@ -225,21 +239,19 @@ fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>,
         );
     }
 
-    let display_input = composer_display_input(state.input);
-    let wrapped = wrap_input_for_width(&display_input, available_width, prompt_width);
+    let segments =
+        display_segments_from_paste_ranges(state.input, state.input_paste_ranges, Style::default());
+    let wrapped = wrap_segments_for_width(&segments, available_width, prompt_width);
     let mut lines = Vec::new();
-    for (idx, segment) in wrapped.lines.iter().enumerate() {
+    for (idx, segments) in wrapped.lines.iter().enumerate() {
         if idx == 0 {
-            lines.push(Line::from(vec![
-                prompt.clone(),
-                Span::raw(" "),
-                Span::raw(segment.clone()),
-            ]));
+            let mut spans = vec![prompt.clone(), Span::raw(" ")];
+            spans.extend(segments.clone());
+            lines.push(Line::from(spans));
         } else {
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::raw(segment.clone()),
-            ]));
+            let mut spans = vec![Span::raw("  ")];
+            spans.extend(segments.clone());
+            lines.push(Line::from(spans));
         }
     }
 
@@ -250,52 +262,48 @@ fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>,
 }
 
 struct WrappedInput {
-    lines: Vec<String>,
+    lines: Vec<Vec<Span<'static>>>,
     cursor_row: usize,
     cursor_col: usize,
 }
 
-fn composer_display_input(input: &str) -> String {
-    let char_count = input.chars().count();
-    let line_count = input.lines().count().max(1);
-    if char_count > 1200 || line_count > 6 {
-        format!("[Pasted Content {char_count} chars]")
-    } else {
-        input.to_owned()
-    }
-}
-
-fn wrap_input_for_width(input: &str, width: usize, first_prefix_width: usize) -> WrappedInput {
+fn wrap_segments_for_width(
+    segments: &[DisplaySegment],
+    width: usize,
+    first_prefix_width: usize,
+) -> WrappedInput {
     let first_limit = width.saturating_sub(first_prefix_width).max(1);
     let next_prefix_width = 2usize.min(width);
     let next_limit = width.saturating_sub(next_prefix_width).max(1);
     let mut lines = Vec::new();
-    let mut current = String::new();
+    let mut current = Vec::<Span<'static>>::new();
     let mut used = 0usize;
     let mut first = true;
 
-    for ch in input.chars() {
-        if ch == '\r' {
-            continue;
-        }
-        if ch == '\n' {
-            lines.push(current);
-            current = String::new();
-            used = 0;
-            first = false;
-            continue;
-        }
+    for segment in segments {
+        for ch in segment.text.chars() {
+            if ch == '\r' {
+                continue;
+            }
+            if ch == '\n' {
+                lines.push(current);
+                current = Vec::new();
+                used = 0;
+                first = false;
+                continue;
+            }
 
-        let ch_width = ch.width().unwrap_or(0);
-        let limit = if first { first_limit } else { next_limit };
-        if used > 0 && used + ch_width > limit {
-            lines.push(current);
-            current = String::new();
-            used = 0;
-            first = false;
+            let ch_width = ch.width().unwrap_or(0);
+            let limit = if first { first_limit } else { next_limit };
+            if used > 0 && used + ch_width > limit {
+                lines.push(current);
+                current = Vec::new();
+                used = 0;
+                first = false;
+            }
+            push_styled_char(&mut current, ch, segment.style);
+            used += ch_width;
         }
-        current.push(ch);
-        used += ch_width;
     }
     lines.push(current);
 
@@ -305,13 +313,72 @@ fn wrap_input_for_width(input: &str, width: usize, first_prefix_width: usize) ->
     } else {
         next_prefix_width
     };
-    let cursor_col = prefix_width + UnicodeWidthStr::width(lines[cursor_row].as_str());
+    let cursor_col = prefix_width + line_width(&lines[cursor_row]);
 
     WrappedInput {
         lines,
         cursor_row,
         cursor_col,
     }
+}
+
+fn display_segments_from_paste_ranges(
+    text: &str,
+    ranges: &[InputPasteRange],
+    normal_style: Style,
+) -> Vec<DisplaySegment> {
+    let mut segments = Vec::new();
+    let mut cursor = 0usize;
+    for range in ranges {
+        if range.start < cursor || range.end > text.len() || range.start > range.end {
+            continue;
+        }
+        if cursor < range.start {
+            segments.push(DisplaySegment {
+                text: text[cursor..range.start].to_owned(),
+                style: normal_style,
+            });
+        }
+        segments.push(DisplaySegment {
+            text: format!("[Pasted Content {} chars]", range.char_count),
+            style: paste_marker_style(),
+        });
+        cursor = range.end;
+    }
+    if cursor < text.len() {
+        segments.push(DisplaySegment {
+            text: text[cursor..].to_owned(),
+            style: normal_style,
+        });
+    }
+    if segments.is_empty() {
+        segments.push(DisplaySegment {
+            text: text.to_owned(),
+            style: normal_style,
+        });
+    }
+    segments
+}
+
+fn push_styled_char(spans: &mut Vec<Span<'static>>, ch: char, style: Style) {
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        last.content.to_mut().push(ch);
+        return;
+    }
+    spans.push(Span::styled(ch.to_string(), style));
+}
+
+fn line_width(spans: &[Span<'_>]) -> usize {
+    spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum()
+}
+
+fn paste_marker_style() -> Style {
+    Style::default().fg(Color::Blue)
 }
 
 impl VisualComponent for FooterComponent {
@@ -567,14 +634,23 @@ impl ResumePickerComponent {
 pub(crate) struct VisualMessage {
     pub role: VisualRole,
     pub text: String,
+    pub paste_ranges: Vec<InputPasteRange>,
     pub tool: Option<ToolCard>,
 }
 
 impl VisualMessage {
     pub(crate) fn user(text: impl Into<String>) -> Self {
+        Self::user_with_paste_ranges(text, Vec::new())
+    }
+
+    pub(crate) fn user_with_paste_ranges(
+        text: impl Into<String>,
+        paste_ranges: Vec<InputPasteRange>,
+    ) -> Self {
         Self {
             role: VisualRole::User,
             text: text.into(),
+            paste_ranges,
             tool: None,
         }
     }
@@ -583,6 +659,7 @@ impl VisualMessage {
         Self {
             role: VisualRole::Assistant,
             text: text.into(),
+            paste_ranges: Vec::new(),
             tool: None,
         }
     }
@@ -591,6 +668,7 @@ impl VisualMessage {
         Self {
             role: VisualRole::System,
             text: text.into(),
+            paste_ranges: Vec::new(),
             tool: None,
         }
     }
@@ -599,6 +677,7 @@ impl VisualMessage {
         Self {
             role: VisualRole::Error,
             text: text.into(),
+            paste_ranges: Vec::new(),
             tool: None,
         }
     }
@@ -607,6 +686,7 @@ impl VisualMessage {
         Self {
             role: VisualRole::Tool,
             text: String::new(),
+            paste_ranges: Vec::new(),
             tool: Some(card),
         }
     }
@@ -712,6 +792,21 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
             style,
             width,
         ));
+        return;
+    }
+
+    if matches!(message.role, VisualRole::User) && !message.paste_ranges.is_empty() {
+        let segments =
+            display_segments_from_paste_ranges(&message.text, &message.paste_ranges, style);
+        let wrapped = wrap_segments_for_width(&segments, text_width, 0);
+        let mut first_segment = true;
+        for segments in wrapped.lines {
+            let line_prefix = if first_segment { prefix } else { "  " };
+            let mut spans = vec![Span::styled(line_prefix.to_owned(), style)];
+            spans.extend(segments);
+            lines.push(Line::from(spans));
+            first_segment = false;
+        }
         return;
     }
 
@@ -955,6 +1050,7 @@ mod tests {
             session_label: "not persisted",
             messages: &[],
             input: "",
+            input_paste_ranges: &[],
             footer: "",
             status: "ready",
             spinner_index: 0,
@@ -981,5 +1077,31 @@ mod tests {
         assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
         assert_eq!(lines[0].spans[2].content.as_ref(), "cargo test");
         assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn user_paste_marker_keeps_surrounding_text_and_style() {
+        let text = "before very large pasted text after";
+        let lines = render_scrollback_message(
+            &VisualMessage::user_with_paste_ranges(
+                text,
+                vec![InputPasteRange {
+                    start: 7,
+                    end: 29,
+                    char_count: 28164,
+                }],
+            ),
+            120,
+        );
+
+        let line = &lines[0];
+        assert!(line.spans.iter().any(|span| span.content == "before "));
+        assert!(line.spans.iter().any(|span| span.content == " after"));
+        let marker = line
+            .spans
+            .iter()
+            .find(|span| span.content == "[Pasted Content 28164 chars]")
+            .expect("marker");
+        assert_eq!(marker.style.fg, Some(Color::Blue));
     }
 }
