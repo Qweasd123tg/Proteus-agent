@@ -299,7 +299,7 @@ task
   `tools/list` discovery и dylib-плагины; полноценный MCP provider/registry
   как persistent host ещё не реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому `recall` работает только если выбранный context builder включает memory provider.
-- Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим при `stream = true` в provider config. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. TUI клиент `agent-tui` дописывает text delta в последний assistant-bubble in place.
+- Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим; для provider profiles `stream` по умолчанию включён и прокидывается в `provider_config.stream`. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. TUI клиент `agent-tui` дописывает text delta в последний assistant-bubble in place.
 - Approval transport подключён для CLI single-run, line REPL и app-server
   clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если
   запрос не доставлен, timed out или app-server shutdown, approval закрывается

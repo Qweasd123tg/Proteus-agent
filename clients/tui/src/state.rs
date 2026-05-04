@@ -725,9 +725,16 @@ impl AppState {
                 // Уже echo'нули в mark_user_sent, повторно не добавляем.
             }
             AppServerEvent::TurnOutput { output } => {
-                // Основной текст уже мог быть вставлен через TurnFinished.
-                // Если нет — добавляем.
-                if self.streaming_assistant_idx.is_none() {
+                // Основной текст уже мог прийти streaming-delta'ми. В финале
+                // заменяем его каноническим TurnOutput, чтобы не зависеть от
+                // точной сборки provider deltas.
+                if let Some(idx) = self.streaming_assistant_idx {
+                    if let Some(message) = self.messages.get_mut(idx) {
+                        message.text = output.text;
+                    } else {
+                        self.messages.push(VisualMessage::assistant(output.text));
+                    }
+                } else {
                     self.messages.push(VisualMessage::assistant(output.text));
                 }
                 self.streaming_assistant_idx = None;
@@ -1494,6 +1501,39 @@ mod tests {
             submission.paste_ranges[0].char_count,
             pasted.chars().count()
         );
+    }
+
+    #[test]
+    fn turn_output_replaces_streaming_assistant_text() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                1,
+                Event::AssistantTextDelta {
+                    text: "partial".to_owned(),
+                },
+            ),
+        });
+        assert!(state.visual_state().streaming);
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("canonical final"),
+        });
+
+        let assistant_messages = state
+            .visual_state()
+            .messages
+            .iter()
+            .filter(|message| matches!(message.role, VisualRole::Assistant))
+            .collect::<Vec<_>>();
+        assert_eq!(assistant_messages.len(), 1);
+        assert_eq!(assistant_messages[0].text, "canonical final");
+        assert!(!state.visual_state().streaming);
     }
 
     #[test]

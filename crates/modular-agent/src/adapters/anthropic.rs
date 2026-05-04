@@ -25,7 +25,8 @@ pub struct AnthropicMessagesClient {
     api_version: String,
     auth: AnthropicAuth,
     /// Включает SSE-стрим через `"stream": true` в body. Управляется
-    /// полем `stream: true` в provider config, default false.
+    /// полем `stream` в provider config; provider profiles включают его
+    /// по умолчанию, `stream = false` оставляет non-stream fallback.
     stream_enabled: bool,
 }
 

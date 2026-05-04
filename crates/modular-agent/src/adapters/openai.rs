@@ -21,8 +21,8 @@ pub struct OpenAiResponsesClient {
     api_key: String,
     base_url: String,
     /// Включает SSE-стрим на `/responses`. Управляется через поле
-    /// `stream: true` в provider config. По умолчанию выключено —
-    /// non-stream path существует дольше и остаётся fallback'ом.
+    /// `stream` в provider config. Provider profiles по умолчанию включают
+    /// streaming; `stream = false` оставляет non-stream fallback.
     stream_enabled: bool,
 }
 

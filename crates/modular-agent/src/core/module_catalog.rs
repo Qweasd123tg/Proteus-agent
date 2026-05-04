@@ -1142,14 +1142,23 @@ fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter
 
 fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
     Ok(Arc::new(OpenAiResponsesClient::from_provider_config(
-        config.provider_config.clone(),
+        provider_config_with_stream(config),
     )?))
 }
 
 fn build_anthropic_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
     Ok(Arc::new(AnthropicMessagesClient::from_provider_config(
-        config.provider_config.clone(),
+        provider_config_with_stream(config),
     )?))
+}
+
+fn provider_config_with_stream(config: &ModelConfig) -> serde_json::Value {
+    let mut provider_config = match &config.provider_config {
+        serde_json::Value::Object(map) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    provider_config.insert("stream".to_owned(), serde_json::Value::Bool(config.stream));
+    serde_json::Value::Object(provider_config)
 }
 
 fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {

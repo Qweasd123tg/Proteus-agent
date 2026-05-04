@@ -209,7 +209,7 @@ pub struct ProviderProfileConfig {
     pub provider: String,
     #[serde(default = "default_model_name")]
     pub model: String,
-    #[serde(default)]
+    #[serde(default = "default_model_stream")]
     pub stream: bool,
     #[serde(default)]
     pub provider_config: serde_json::Value,
@@ -228,6 +228,7 @@ impl ProviderProfileConfig {
         for (key, value) in &self.extra {
             provider_config.insert(key.clone(), value.clone());
         }
+        provider_config.insert("stream".to_owned(), serde_json::Value::Bool(self.stream));
 
         Ok(ModelConfig {
             provider: self.provider.clone(),
@@ -258,7 +259,7 @@ pub struct ModelConfig {
     pub provider: String,
     #[serde(default = "default_model_name")]
     pub model: String,
-    #[serde(default)]
+    #[serde(default = "default_model_stream")]
     pub stream: bool,
     #[serde(default)]
     pub provider_config: serde_json::Value,
@@ -275,7 +276,7 @@ impl Default for ModelConfig {
         Self {
             provider: default_model_provider(),
             model: default_model_name(),
-            stream: false,
+            stream: default_model_stream(),
             provider_config: serde_json::Value::Null,
         }
     }
@@ -469,6 +470,10 @@ fn default_model_provider() -> String {
 
 fn default_model_name() -> String {
     "fake-tool-model".to_owned()
+}
+
+fn default_model_stream() -> bool {
+    true
 }
 
 fn default_workflow() -> String {

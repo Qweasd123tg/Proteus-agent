@@ -4,7 +4,7 @@ name = "advanced-external-tools"
 [model]
 provider = "fake"
 model = "fake-tool-model"
-stream = false
+stream = true
 
 [modules]
 # Provided by the coding-workflow plugin installed by ./install.sh.

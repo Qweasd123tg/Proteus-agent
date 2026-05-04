@@ -335,7 +335,7 @@ mod tests {
     use crate::{
         contracts::ApprovalRequest,
         core::PendingApproval,
-        domain::{ToolCall, new_call_id},
+        domain::{Event, ToolCall, new_call_id},
     };
 
     fn test_catalog() -> BuiltinModuleCatalog {
@@ -554,6 +554,61 @@ mod tests {
             } if id == approval_id
         ));
 
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let mut config = AppConfig::default();
+        config.modules.workflow = "coding.plan_execute_review".to_owned();
+        config.modules.context = "simple".to_owned();
+        config.modules.policy = "ask_write".to_owned();
+        config.modules.renderer = "plain".to_owned();
+        config.modules.patch = "null".to_owned();
+
+        let handle = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
+        let mut event_rx = handle.subscribe();
+        let send_handle = handle.clone();
+        let turn = tokio::spawn(async move {
+            send_handle
+                .send_user_message("stream this".to_owned())
+                .await
+                .expect("turn output")
+        });
+
+        let mut saw_delta = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+                .await
+                .expect("event should arrive")
+                .expect("event stream should stay open");
+            match event {
+                AppServerEvent::Runtime { envelope } => {
+                    if matches!(envelope.event, Event::AssistantTextDelta { .. }) {
+                        saw_delta = true;
+                    }
+                }
+                AppServerEvent::TurnOutput { .. } => break,
+                AppServerEvent::Error { message } => {
+                    panic!("unexpected app-server error: {message}")
+                }
+                _ => {}
+            }
+        }
+
+        let output = turn.await.expect("turn task");
+        assert!(
+            saw_delta,
+            "expected at least one text delta before TurnOutput"
+        );
+        assert!(output.text.contains("Fake final answer"));
         handle.shutdown().await;
     }
 }
