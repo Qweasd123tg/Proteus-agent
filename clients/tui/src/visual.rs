@@ -93,12 +93,10 @@ impl VisualSurface {
         } else {
             0
         };
-        let live_height =
-            if state.pending_approval.is_none() && (state.streaming || state.pending_model) {
-                6u16.min(frame.area().height.saturating_sub(approval_height + 3))
-            } else {
-                0
-            };
+        let live_height = live_preview_height(
+            state,
+            frame.area().height.saturating_sub(approval_height + 3),
+        );
         let total_height = approval_height
             .saturating_add(live_height)
             .saturating_add(3)
@@ -128,7 +126,8 @@ impl VisualSurface {
         }
 
         if live_height > 0 {
-            let live_lines = live_status_lines(state, chunks[1].width as usize);
+            let live_lines =
+                live_status_lines(state, chunks[1].width as usize, live_height as usize);
             frame.render_widget(Paragraph::new(live_lines), chunks[1]);
         }
 
@@ -157,7 +156,11 @@ struct DisplaySegment {
     style: Style,
 }
 
-pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> InlinePanelLines {
+pub(crate) fn inline_panel_lines(
+    state: &VisualState<'_>,
+    width: usize,
+    max_live_lines: usize,
+) -> InlinePanelLines {
     let mut lines = Vec::new();
 
     if !matching_slash_commands(state.input).is_empty()
@@ -173,7 +176,7 @@ pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> Inlin
         append_approval_lines(&mut approval_lines, request, width);
         lines.extend(approval_lines);
     } else if state.streaming || state.pending_model {
-        lines.extend(live_status_lines(state, width));
+        lines.extend(live_status_lines(state, width, max_live_lines));
     }
 
     let composer_start = lines.len();
@@ -429,13 +432,30 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     }
 }
 
-fn live_status_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+fn live_preview_height(state: &VisualState<'_>, available: u16) -> u16 {
+    if available == 0 || state.pending_approval.is_some() {
+        return 0;
+    }
+    if state.streaming {
+        return available.max(1);
+    }
+    if state.pending_model {
+        return 1.min(available);
+    }
+    0
+}
+
+fn live_status_lines(
+    state: &VisualState<'_>,
+    width: usize,
+    max_lines: usize,
+) -> Vec<Line<'static>> {
     if state.streaming
         && let Some(message) = state.messages.last()
     {
         let mut lines = Vec::new();
         append_message_lines(&mut lines, message, width);
-        return tail_lines(lines, 6);
+        return tail_lines(lines, max_lines.max(1));
     }
 
     if state.pending_model {
@@ -1134,6 +1154,47 @@ mod tests {
         assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
         assert_eq!(lines[0].spans[2].content.as_ref(), "cargo test");
         assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn streaming_inline_preview_uses_available_height() {
+        let text = (1..=30)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let messages = vec![VisualMessage::assistant(text)];
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            messages: &messages,
+            input: "",
+            input_paste_ranges: &[],
+            footer: "",
+            status: "calling model...",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: true,
+            streaming: true,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80, 20);
+        let rendered = panel
+            .lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(rendered.contains("line 30"));
+        assert!(rendered.contains("line 11"));
+        assert!(!rendered.contains("line 10"));
     }
 
     #[test]

@@ -712,7 +712,8 @@ fn draw_inline_panel(
 ) -> Result<InlinePanelLayout> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
-    let panel = inline_panel_lines(&state.visual_state(), width);
+    let max_live_lines = size.height.saturating_sub(4).max(1) as usize;
+    let panel = inline_panel_lines(&state.visual_state(), width, max_live_lines);
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
     let cursor_col = panel.cursor_col;
