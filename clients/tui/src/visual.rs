@@ -22,7 +22,7 @@ const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
     pub cwd: &'a Path,
-    pub session_dir: Option<&'a Path>,
+    pub session_label: &'a str,
     pub messages: &'a [VisualMessage],
     pub input: &'a str,
     pub footer: &'a str,
@@ -527,17 +527,10 @@ pub(crate) enum ToolStatus {
 
 fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
     let cwd = display_path(state.cwd);
-    let session = state
-        .session_dir
-        .and_then(|path| path.file_name())
-        .and_then(|name| name.to_str())
-        .map(short_id)
-        .unwrap_or("not persisted")
-        .to_owned();
     let rows = [
         format!("model:     {}", state.model),
         format!("directory: {cwd}"),
-        format!("session:   {session}"),
+        format!("session:   {}", state.session_label),
     ];
     let content_width = rows
         .iter()
@@ -838,10 +831,6 @@ fn display_path(path: &Path) -> String {
     path.display().to_string()
 }
 
-fn short_id(id: &str) -> &str {
-    id.get(..8).unwrap_or(id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -858,7 +847,7 @@ mod tests {
         let state = VisualState {
             model: "anthropic/deepseek-v4-pro",
             cwd: Path::new("/tmp/workspace"),
-            session_dir: None,
+            session_label: "not persisted",
             messages: &[],
             input: "",
             footer: "",

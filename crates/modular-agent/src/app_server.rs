@@ -47,6 +47,10 @@ impl AppServerHandle {
         self.events.subscribe()
     }
 
+    pub async fn start_session(&self) -> Result<()> {
+        self.runtime.start_session().await
+    }
+
     pub async fn send_user_message(&self, text: String) -> Result<AgentOutput> {
         self.send_user_message_with_cancellation(text, CancellationToken::new())
             .await

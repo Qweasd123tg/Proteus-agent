@@ -96,7 +96,7 @@ timestamp_ms
 event
 ```
 
-`EventEmitter` создаёт envelope один раз перед fan-out, поэтому durable JSONL log и live sinks получают один и тот же `event_id`, `seq` и timestamp для одного logical event. `turn_id = null` используется для событий уровня session, например `SessionStarted`.
+`EventEmitter` создаёт envelope один раз перед fan-out, поэтому durable JSONL log и live sinks получают один и тот же `event_id`, `seq` и timestamp для одного logical event. `turn_id = null` используется для событий уровня session, например `SessionStarted`. Это событие несёт `session_id`, `cwd`, а также startup metadata для клиентов: активную `model` и `session_dir`, если session store подключён.
 
 Ключевые события текущего workflow:
 
@@ -242,7 +242,7 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 работает через host capabilities ядра:
 
 1. `AgentRuntime::run` берёт `run_lock`;
-2. при первом turn пишет `SessionStarted`;
+2. гарантирует `SessionStarted` один раз на session; stdio app-server вызывает это сразу после запуска, чтобы внешний клиент знал модель, cwd и session directory до первого turn;
 3. создаёт новый `TurnId` и пишет `TurnStarted`;
 4. принимает `AgentTask`;
 5. пишет `TaskReceived`;

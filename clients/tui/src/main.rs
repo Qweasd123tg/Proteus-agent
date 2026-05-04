@@ -165,7 +165,7 @@ fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // Основной чат живёт в normal screen: завершённые сообщения пишутся в
     // настоящий terminal scrollback, поэтому выделение мышью и wheel работают
     // так же, как в shell. Mouse capture и alternate scroll здесь не включаем.
-    execute!(out, TerminalClear(ClearType::FromCursorDown))?;
+    execute!(out, MoveTo(0, 0), TerminalClear(ClearType::All))?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
 }
@@ -253,7 +253,20 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
             output = driver.events.recv() => {
                 match output {
                     Some(StdioOutput::Event { event }) => {
+                        let header_before = state.header_identity();
                         state.ingest(*event);
+                        if state.header_identity() != header_before {
+                            if picker_alt_screen {
+                                terminal.clear()?;
+                            } else {
+                                reset_normal_screen(
+                                    terminal,
+                                    &mut state,
+                                    &mut scrollback_header_printed,
+                                    &mut inline_panel,
+                                )?;
+                            }
+                        }
                         dirty = true;
                     }
                     Some(StdioOutput::Response { id, ok, error, .. }) => {

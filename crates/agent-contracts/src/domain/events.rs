@@ -152,6 +152,10 @@ pub enum Event {
     SessionStarted {
         session_id: SessionId,
         cwd: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<ModelRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_dir: Option<PathBuf>,
     },
     TurnStarted {
         session_id: SessionId,

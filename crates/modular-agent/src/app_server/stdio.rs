@@ -63,6 +63,7 @@ pub async fn run_stdio_app_server(
             }
         }
     });
+    server.start_session().await?;
 
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());

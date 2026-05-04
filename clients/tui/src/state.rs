@@ -25,6 +25,7 @@ pub struct AppState {
     pub pending_model: bool,
     cwd: PathBuf,
     session_dir: Option<PathBuf>,
+    session_label: String,
     model_label: String,
     status: String,
     footer: String,
@@ -55,6 +56,7 @@ impl AppState {
             pending_model: false,
             cwd,
             session_dir: None,
+            session_label: "not persisted".to_owned(),
             model_label: "unknown".to_owned(),
             status: "ready".to_owned(),
             footer: footer_hint(),
@@ -85,7 +87,7 @@ impl AppState {
         VisualState {
             model: &self.model_label,
             cwd: &self.cwd,
-            session_dir: self.session_dir.as_deref(),
+            session_label: &self.session_label,
             messages: &self.messages,
             input: &self.input,
             footer: &self.footer,
@@ -128,6 +130,14 @@ impl AppState {
 
     pub fn session_dir(&self) -> Option<&Path> {
         self.session_dir.as_deref()
+    }
+
+    pub fn header_identity(&self) -> (String, PathBuf, String) {
+        (
+            self.model_label.clone(),
+            self.cwd.clone(),
+            self.session_label.clone(),
+        )
     }
 
     pub fn context_report(&self) -> String {
@@ -218,6 +228,7 @@ impl AppState {
     ) {
         self.messages.clear();
         self.session_dir = Some(session_dir.clone());
+        self.session_label = session_label_from_dir(&session_dir);
         self.pending_model = false;
         self.pending_approval = None;
         self.streaming_assistant_idx = None;
@@ -472,14 +483,25 @@ impl AppState {
 
     fn ingest_runtime(&mut self, event: Event, envelope_turn_id: Option<TurnId>) {
         match event {
-            Event::SessionStarted { session_id, cwd } => {
+            Event::SessionStarted {
+                session_id,
+                cwd,
+                model,
+                session_dir,
+            } => {
                 self.cwd = cwd;
+                if let Some(model) = model {
+                    self.model_label = format!("{}/{}", model.provider, model.model);
+                }
+                if let Some(session_dir) = session_dir {
+                    self.session_label = session_label_from_dir(&session_dir);
+                    self.session_dir = Some(session_dir);
+                } else {
+                    self.session_label = short_session_id(session_id);
+                }
                 self.usage_turn_id = None;
                 self.turn_usage = UsageTotals::default();
                 self.session_usage = UsageTotals::default();
-                // session_id пока не используем для session_dir — driver не
-                // даёт этого. TODO: добавить в wire protocol если нужно.
-                let _ = session_id;
             }
             Event::TaskReceived { .. } => {
                 self.status = "context...".to_owned();
@@ -854,8 +876,27 @@ fn footer_hint() -> String {
     "enter send · ctrl+c quit · ctrl+l clear".to_owned()
 }
 
-#[allow(dead_code)]
-fn _unused(_: &Path) {}
+fn session_label_from_dir(session_dir: &Path) -> String {
+    session_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(short_session_label)
+        .unwrap_or_else(|| "persisted".to_owned())
+}
+
+fn short_session_id(session_id: agent_contracts::domain::SessionId) -> String {
+    short_session_label(&session_id.to_string())
+}
+
+fn short_session_label(label: &str) -> String {
+    let mut chars = label.chars();
+    let short = chars.by_ref().take(10).collect::<String>();
+    if chars.next().is_some() {
+        format!("{short}...")
+    } else {
+        short
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -907,6 +948,34 @@ mod tests {
 
         assert_eq!(state.active_turn_id(), None);
         assert!(!state.pending_model);
+    }
+
+    #[test]
+    fn session_started_updates_header_metadata() {
+        let mut state = AppState::new(PathBuf::from("/tmp/old"), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, None),
+                1,
+                Event::SessionStarted {
+                    session_id,
+                    cwd: PathBuf::from("/tmp/work"),
+                    model: Some(agent_contracts::domain::ModelRef::new(
+                        "openrouter",
+                        "deepseek",
+                    )),
+                    session_dir: Some(PathBuf::from("/tmp/sessions/1234567890")),
+                },
+            ),
+        });
+
+        let visual = state.visual_state();
+        assert_eq!(visual.model, "openrouter/deepseek");
+        assert_eq!(visual.cwd, Path::new("/tmp/work"));
+        assert_eq!(visual.session_label, "1234567890");
     }
 
     #[test]

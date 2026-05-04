@@ -238,6 +238,10 @@ impl AgentRuntime {
         Ok(workflow_output.output)
     }
 
+    pub async fn start_session(&self) -> Result<()> {
+        self.ensure_session_started().await
+    }
+
     async fn ensure_session_started(&self) -> Result<()> {
         let mut started = self.session.session_started.lock().await;
         if *started {
@@ -251,6 +255,8 @@ impl AgentRuntime {
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
+                    model: Some(self.services.registry.model_config.model_ref()),
+                    session_dir: self.session_dir().map(|path| path.to_path_buf()),
                 },
             )
             .await?;
