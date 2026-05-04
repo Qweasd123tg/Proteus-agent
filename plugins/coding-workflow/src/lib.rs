@@ -17,8 +17,8 @@ use agent_contracts::{
     },
     contracts::{CompactionInput, ToolExposureRequest},
     domain::{
-        AgentOutput, ContextBundle, Event, TokenUsageCategory, TokenUsageSnapshot, ToolCall,
-        ToolChoice, ToolResult, ToolSpec,
+        AgentOutput, ContextBundle, Event, TokenUsageCategory, TokenUsageSnapshot,
+        TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSpec,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -606,10 +606,16 @@ fn request_token_usage_snapshot(
 ) -> TokenUsageSnapshot {
     let categories = estimate_request_categories(request);
     let estimated_input_tokens = categories.iter().map(|category| category.tokens).sum();
+    let source = if actual.is_some() {
+        TokenUsageSource::Mixed
+    } else {
+        TokenUsageSource::Estimated
+    };
     TokenUsageSnapshot::new(request.model.clone(), estimated_input_tokens, categories)
         .with_phase(phase)
         .with_max_input_tokens(request.limits.max_input_tokens)
         .with_actual(actual)
+        .with_source(source)
 }
 
 fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsageCategory> {

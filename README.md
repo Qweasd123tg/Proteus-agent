@@ -135,7 +135,9 @@ TUI показывает команды:
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`, `/context`,
 `/resume [session-dir]`, `/quit`. `/context` показывает последнюю оценку
-расхода input tokens по категориям и provider usage, если модель его вернула.
+расхода input tokens по категориям, source учёта и provider usage, если модель
+его вернула. Provider totals считаются фактическими, а breakdown по категориям
+остаётся локальной оценкой.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id; с аргументом
 принимает путь к session directory или к `messages.jsonl` внутри неё и

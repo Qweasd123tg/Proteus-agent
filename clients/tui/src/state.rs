@@ -10,7 +10,7 @@ use std::{
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
-    domain::{Event, TokenUsageSnapshot, ToolResult},
+    domain::{Event, TokenUsageSnapshot, TokenUsageSource, ToolResult},
 };
 
 use crate::{
@@ -128,20 +128,12 @@ impl AppState {
             return "Context usage: no model request stats yet.".to_owned();
         };
 
-        let actual = usage
-            .actual
-            .as_ref()
-            .map(|actual| {
-                let total = actual.input_tokens + actual.output_tokens;
-                format!(
-                    "{} input / {} output / {} total",
-                    format_tokens(actual.input_tokens),
-                    format_tokens(actual.output_tokens),
-                    format_tokens(total)
-                )
-            })
-            .unwrap_or_else(|| "not reported by provider".to_owned());
+        let actual = usage.actual.as_ref().map_or_else(
+            || "not reported by provider".to_owned(),
+            provider_usage_line,
+        );
         let phase = usage.phase.as_deref().unwrap_or("unknown");
+        let source = usage_source_label(usage.usage_source());
         let used = usage.estimated_input_tokens;
         let window_line = usage
             .max_input_tokens
@@ -167,8 +159,9 @@ impl AppState {
             "Context Usage".to_owned(),
             format!("model: {}/{}", usage.model.provider, usage.model.model),
             format!("phase: {phase}"),
+            format!("source: {source}"),
             format!("estimated input: {window_line}"),
-            format!("actual usage: {actual}"),
+            format!("provider usage: {actual}"),
         ];
 
         if let Some(bar) = bar {
@@ -585,6 +578,40 @@ impl AppState {
     }
 }
 
+fn provider_usage_line(actual: &agent_contracts::model_standard::TokenUsage) -> String {
+    let total = actual.input_tokens + actual.output_tokens;
+    let mut line = format!(
+        "{} input / {} output / {} total",
+        format_tokens(actual.input_tokens),
+        format_tokens(actual.output_tokens),
+        format_tokens(total)
+    );
+    let mut details = Vec::new();
+    if let Some(tokens) = actual.cached_input_tokens {
+        details.push(format!("cache read {}", format_tokens(tokens)));
+    }
+    if let Some(tokens) = actual.cache_creation_input_tokens {
+        details.push(format!("cache write {}", format_tokens(tokens)));
+    }
+    if let Some(tokens) = actual.reasoning_output_tokens {
+        details.push(format!("reasoning {}", format_tokens(tokens)));
+    }
+    if !details.is_empty() {
+        line.push_str(" · ");
+        line.push_str(&details.join(" · "));
+    }
+    line
+}
+
+fn usage_source_label(source: TokenUsageSource) -> &'static str {
+    match source {
+        TokenUsageSource::Estimated => "estimated only",
+        TokenUsageSource::Provider => "provider reported",
+        TokenUsageSource::Mixed => "provider totals + estimated categories",
+        _ => "unknown",
+    }
+}
+
 fn percent_of(value: u32, total: u32) -> f64 {
     if total == 0 {
         0.0
@@ -735,9 +762,11 @@ mod tests {
         )
         .with_phase("execute")
         .with_max_input_tokens(Some(200))
-        .with_actual(Some(agent_contracts::model_standard::TokenUsage::new(
-            110, 12,
-        )));
+        .with_actual(Some(
+            agent_contracts::model_standard::TokenUsage::new(110, 12)
+                .with_cached_input_tokens(Some(30))
+                .with_reasoning_output_tokens(Some(4)),
+        ));
 
         state.ingest(AppServerEvent::Runtime {
             envelope: agent_contracts::domain::EventEnvelope::new(
@@ -754,10 +783,13 @@ mod tests {
         let report = state.context_report();
         assert!(report.contains("model: test/model"));
         assert!(report.contains("phase: execute"));
+        assert!(report.contains("source: provider totals + estimated categories"));
         assert!(report.contains("estimated input: 100 / 200 tokens (50.0%) · free 100"));
         assert!(report.contains("window: [############............] used · 100 free"));
         assert!(report.contains("| Tool schemas | 60 | 60.0% |"));
         assert!(report.contains("110 input / 12 output / 122 total"));
+        assert!(report.contains("cache read 30"));
+        assert!(report.contains("reasoning 4"));
     }
 
     #[test]

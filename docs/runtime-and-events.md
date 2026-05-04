@@ -121,8 +121,13 @@ event
 `TokenUsageUpdated` испускается workflow-плагином после каждого model request.
 Событие содержит грубую оценку input tokens по категориям (`instructions`,
 `messages`, `context`, `tool_results`, `files`, `tool_schemas`) и фактический
-`TokenUsage`, если provider adapter вернул usage. Оценка нужна для UI и
-исследования context budget; она не является provider billing source of truth.
+`TokenUsage`, если provider adapter вернул usage. `TokenUsageSnapshot.source`
+явно различает `estimated`, `provider` и `mixed`; в штатном workflow это
+обычно `mixed`, то есть provider totals плюс локальная оценка категорий.
+Provider usage является source of truth для фактических input/output tokens и
+может включать детали вроде cache read/write и reasoning tokens. Category
+breakdown остаётся оценкой для UI и исследования context budget; он не является
+provider billing source of truth.
 
 ## App Server Boundary
 
@@ -240,7 +245,7 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
 9. вызывает `ModelClient::complete`, реализованный `ModelService`;
 10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
-11. пишет `TokenUsageUpdated` с оценкой request categories и provider usage, если он доступен;
+11. пишет `TokenUsageUpdated` с source, оценкой request categories и provider usage, если он доступен;
 12. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
 13. добавляет `ToolResult` в canonical messages;
 14. повторяет model call до финального ответа или лимита rounds;

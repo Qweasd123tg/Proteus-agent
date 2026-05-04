@@ -435,10 +435,24 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
     let usage = response.get("usage")?;
-    Some(TokenUsage::new(
-        usage.get("input_tokens")?.as_u64()? as u32,
-        usage.get("output_tokens")?.as_u64()? as u32,
-    ))
+    let input_tokens = usage.get("input_tokens")?.as_u64()? as u32;
+    let output_tokens = usage.get("output_tokens")?.as_u64()? as u32;
+    let cached_input_tokens = usage
+        .get("input_tokens_details")
+        .and_then(|details| details.get("cached_tokens"))
+        .and_then(Value::as_u64)
+        .map(|tokens| tokens as u32);
+    let reasoning_output_tokens = usage
+        .get("output_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .map(|tokens| tokens as u32);
+
+    Some(
+        TokenUsage::new(input_tokens, output_tokens)
+            .with_cached_input_tokens(cached_input_tokens)
+            .with_reasoning_output_tokens(reasoning_output_tokens),
+    )
 }
 
 fn is_length_limited_response(response: &Value) -> bool {
@@ -487,6 +501,36 @@ mod tests {
                 .iter()
                 .any(|part| matches!(part, ContentPart::ToolCall { .. }))
         );
+    }
+
+    #[test]
+    fn response_usage_includes_cache_and_reasoning_details() {
+        let response = json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "hello" }]
+                }
+            ],
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "input_tokens_details": { "cached_tokens": 30 },
+                "output_tokens_details": { "reasoning_tokens": 7 }
+            }
+        });
+
+        let canonical = from_openai_response(response).unwrap();
+        let usage = canonical.usage.expect("usage");
+
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 20);
+        assert_eq!(usage.cached_input_tokens, Some(30));
+        assert_eq!(usage.reasoning_output_tokens, Some(7));
     }
 
     #[test]

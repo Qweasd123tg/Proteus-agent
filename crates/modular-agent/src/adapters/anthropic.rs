@@ -326,7 +326,19 @@ impl AnthropicStreamState {
                         .get("output_tokens")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    self.usage = Some(TokenUsage::new(input as u32, output as u32));
+                    let cache_creation = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|tokens| tokens as u32);
+                    let cache_read = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|tokens| tokens as u32);
+                    self.usage = Some(
+                        TokenUsage::new(input as u32, output as u32)
+                            .with_cache_creation_input_tokens(cache_creation)
+                            .with_cached_input_tokens(cache_read),
+                    );
                 }
                 Vec::new()
             }
@@ -627,10 +639,21 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
     let usage = response.get("usage")?;
-    Some(TokenUsage::new(
-        usage.get("input_tokens")?.as_u64()? as u32,
-        usage.get("output_tokens")?.as_u64()? as u32,
-    ))
+    let input_tokens = usage.get("input_tokens")?.as_u64()? as u32;
+    let output_tokens = usage.get("output_tokens")?.as_u64()? as u32;
+    let cache_creation = usage
+        .get("cache_creation_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|tokens| tokens as u32);
+    let cache_read = usage
+        .get("cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|tokens| tokens as u32);
+    Some(
+        TokenUsage::new(input_tokens, output_tokens)
+            .with_cache_creation_input_tokens(cache_creation)
+            .with_cached_input_tokens(cache_read),
+    )
 }
 
 #[cfg(test)]
@@ -694,6 +717,32 @@ mod tests {
         assert_eq!(canonical.finish_reason, FinishReason::ToolCalls);
         assert_eq!(canonical.tool_calls.len(), 1);
         assert_eq!(canonical.tool_calls[0].args["path"], "site/index.html");
+    }
+
+    #[test]
+    fn response_usage_includes_cache_details() {
+        let response = json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "stop_reason": "end_turn",
+            "content": [{ "type": "text", "text": "hello" }],
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_creation_input_tokens": 12,
+                "cache_read_input_tokens": 34
+            }
+        });
+
+        let canonical = from_anthropic_response(response).unwrap();
+        let usage = canonical.usage.expect("usage");
+
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 20);
+        assert_eq!(usage.cache_creation_input_tokens, Some(12));
+        assert_eq!(usage.cached_input_tokens, Some(34));
     }
 
     // Хелпер: проигрывает SSE-трассу через стейт-парсер и возвращает

@@ -70,6 +70,18 @@ impl TokenUsageCategory {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum TokenUsageSource {
+    /// Local estimate only. Good for attribution, not billing truth.
+    Estimated,
+    /// Provider-reported totals only.
+    Provider,
+    /// Provider totals plus local category estimates.
+    Mixed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TokenUsageSnapshot {
@@ -80,6 +92,8 @@ pub struct TokenUsageSnapshot {
     pub max_input_tokens: Option<u32>,
     pub categories: Vec<TokenUsageCategory>,
     pub actual: Option<TokenUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<TokenUsageSource>,
 }
 
 impl TokenUsageSnapshot {
@@ -95,6 +109,7 @@ impl TokenUsageSnapshot {
             max_input_tokens: None,
             categories,
             actual: None,
+            source: None,
         }
     }
 
@@ -106,6 +121,23 @@ impl TokenUsageSnapshot {
     pub fn with_actual(mut self, actual: Option<TokenUsage>) -> Self {
         self.actual = actual;
         self
+    }
+
+    pub fn with_source(mut self, source: TokenUsageSource) -> Self {
+        self.source = Some(source);
+        self
+    }
+
+    pub fn usage_source(&self) -> TokenUsageSource {
+        self.source.unwrap_or_else(|| {
+            if self.actual.is_some() && !self.categories.is_empty() {
+                TokenUsageSource::Mixed
+            } else if self.actual.is_some() {
+                TokenUsageSource::Provider
+            } else {
+                TokenUsageSource::Estimated
+            }
+        })
     }
 
     pub fn with_max_input_tokens(mut self, max_input_tokens: Option<u32>) -> Self {
@@ -188,4 +220,31 @@ pub enum Event {
     Error {
         message: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_usage_snapshot_infers_source_for_legacy_events() {
+        let estimated = TokenUsageSnapshot::new(
+            ModelRef::new("test", "model"),
+            10,
+            vec![TokenUsageCategory::new("messages", 10)],
+        );
+        assert_eq!(estimated.usage_source(), TokenUsageSource::Estimated);
+
+        let mixed = TokenUsageSnapshot::new(
+            ModelRef::new("test", "model"),
+            10,
+            vec![TokenUsageCategory::new("messages", 10)],
+        )
+        .with_actual(Some(TokenUsage::new(11, 2)));
+        assert_eq!(mixed.usage_source(), TokenUsageSource::Mixed);
+
+        let provider = TokenUsageSnapshot::new(ModelRef::new("test", "model"), 0, Vec::new())
+            .with_actual(Some(TokenUsage::new(11, 2)));
+        assert_eq!(provider.usage_source(), TokenUsageSource::Provider);
+    }
 }
