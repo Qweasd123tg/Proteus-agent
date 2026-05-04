@@ -1019,20 +1019,14 @@ fn append_context_visual_summary(
     let total_cells = 200usize;
     let row_cells = 20usize;
     let used_cells = proportional_cells(used, window, total_cells).min(total_cells);
-    let cached_tokens = usage
-        .actual
-        .as_ref()
-        .and_then(|actual| actual.cached_input_tokens)
-        .unwrap_or_default()
-        .min(used);
-    let cached_cells = proportional_cells(cached_tokens, window, total_cells).min(used_cells);
-    let normal_cells = used_cells.saturating_sub(cached_cells);
     let free_cells = total_cells.saturating_sub(used_cells);
     let mut cells = Vec::with_capacity(total_cells);
-    cells.extend(std::iter::repeat('⛁').take(normal_cells));
-    cells.extend(std::iter::repeat('⛀').take(cached_cells));
-    cells.extend(std::iter::repeat('⛶').take(free_cells));
-    cells.resize(total_cells, '⛶');
+    let category_slices = context_category_slices(usage, used_cells);
+    for slice in &category_slices {
+        cells.extend(std::iter::repeat(slice.glyph).take(slice.cells));
+    }
+    cells.extend(std::iter::repeat('□').take(free_cells));
+    cells.resize(total_cells, '□');
 
     let window_label = if inferred_window {
         format!("{} inferred context", format_tokens(window))
@@ -1047,29 +1041,31 @@ fn append_context_visual_summary(
             format_tokens(used),
             format_tokens(window)
         ),
-        "⛁ input estimate · ⛀ cache read · ⛶ free".to_owned(),
         "Estimated usage by category".to_owned(),
     ];
-    for category in &usage.categories {
-        let share = if usage.estimated_input_tokens == 0 {
-            0.0
-        } else {
-            category.tokens as f64 * 100.0 / usage.estimated_input_tokens as f64
-        };
+    for slice in &category_slices {
         labels.push(format!(
-            "⛁ {}: {} tokens ({share:.1}%)",
-            category_label(&category.name),
-            format_tokens(category.tokens)
+            "{} {}: {} tokens ({:.1}%)",
+            slice.glyph,
+            slice.label,
+            format_tokens(slice.tokens),
+            percent_of(slice.tokens, usage.estimated_input_tokens)
         ));
     }
+    let cached_tokens = usage
+        .actual
+        .as_ref()
+        .and_then(|actual| actual.cached_input_tokens)
+        .unwrap_or_default()
+        .min(used);
     if cached_tokens > 0 {
         labels.push(format!(
-            "⛀ Cache read: {} tokens",
+            "◉ Cache read: {} tokens",
             format_tokens(cached_tokens)
         ));
     }
     labels.push(format!(
-        "⛶ Free space: {} ({:.1}%)",
+        "□ Free space: {} ({:.1}%)",
         format_tokens(free),
         percent_of(free, window)
     ));
@@ -1088,6 +1084,95 @@ fn append_context_visual_summary(
         } else {
             lines.push(graph);
         }
+    }
+}
+
+#[derive(Debug)]
+struct ContextCategorySlice {
+    label: String,
+    tokens: u32,
+    glyph: char,
+    cells: usize,
+}
+
+fn context_category_slices(
+    usage: &TokenUsageSnapshot,
+    used_cells: usize,
+) -> Vec<ContextCategorySlice> {
+    if used_cells == 0 {
+        return Vec::new();
+    }
+    let mut raw = usage
+        .categories
+        .iter()
+        .filter(|category| category.tokens > 0)
+        .map(|category| {
+            (
+                category_label(&category.name),
+                category.tokens,
+                context_category_glyph(&category.name),
+            )
+        })
+        .collect::<Vec<_>>();
+    if raw.is_empty() {
+        raw.push((
+            "Input estimate".to_owned(),
+            usage.estimated_input_tokens,
+            '◆',
+        ));
+    }
+    let total_tokens = raw
+        .iter()
+        .fold(0_u32, |total, (_, tokens, _)| total.saturating_add(*tokens))
+        .max(1);
+    let mut slices = raw
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, tokens, glyph))| {
+            let scaled = tokens as u128 * used_cells as u128;
+            let cells = (scaled / total_tokens as u128) as usize;
+            let remainder = (scaled % total_tokens as u128) as u128;
+            (
+                index,
+                remainder,
+                ContextCategorySlice {
+                    label,
+                    tokens,
+                    glyph,
+                    cells,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let assigned = slices
+        .iter()
+        .map(|(_, _, slice)| slice.cells)
+        .sum::<usize>();
+    let mut remaining = used_cells.saturating_sub(assigned);
+    slices.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    for (_, _, slice) in &mut slices {
+        if remaining == 0 {
+            break;
+        }
+        slice.cells += 1;
+        remaining -= 1;
+    }
+    slices.sort_by_key(|(index, _, _)| *index);
+    slices
+        .into_iter()
+        .map(|(_, _, slice)| slice)
+        .filter(|slice| slice.cells > 0)
+        .collect()
+}
+
+fn context_category_glyph(name: &str) -> char {
+    match name {
+        "instructions" | "system_prompt" => '◆',
+        "messages" => '●',
+        "context" | "skills" => '▲',
+        "tool_results" => '■',
+        "tool_schemas" | "system_tools" => '⬟',
+        _ => '◈',
     }
 }
 
@@ -1524,8 +1609,9 @@ mod tests {
         assert!(report.contains("estimated input: 100 / 200 tokens (50.0%) · free 100"));
         assert!(report.contains("window: [############............] used · 100 free"));
         assert!(report.contains("Карта контекста"));
-        assert!(report.contains("⛁ input estimate · ⛀ cache read · ⛶ free"));
-        assert!(report.contains("⛀"));
+        assert!(report.contains("● Messages: 40 tokens (40.0%)"));
+        assert!(report.contains("⬟ Tool schemas: 60 tokens (60.0%)"));
+        assert!(report.contains("◉ Cache read: 30 tokens"));
         assert!(report.contains("| Tool schemas | 60 | 60.0% |"));
         assert!(report.contains("110 input / 12 output / 122 total"));
         assert!(report.contains("cache read 30"));
@@ -1561,7 +1647,8 @@ mod tests {
         assert!(report.contains("37.5k / 1.0m tokens (3.8%)"));
         assert!(report.contains("Free space: 962.5k (96.2%)"));
         assert!(report.contains("Estimated usage by category"));
-        assert!(report.contains("⛁ Instructions: 8.6k tokens (22.9%)"));
+        assert!(report.contains("◆ Instructions: 8.6k tokens (22.9%)"));
+        assert!(report.contains("⬟ Tool schemas: 28.0k tokens (74.7%)"));
         assert!(report.contains("| Instructions | 8.6k | 22.9% |"));
         assert!(report.contains("| Tool schemas | 28.0k | 74.7% |"));
     }

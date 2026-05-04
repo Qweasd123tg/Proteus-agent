@@ -562,11 +562,43 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
         }
 
         let next = next_markup(rest).unwrap_or(rest.len());
-        spans.push(Span::styled(rest[..next].to_owned(), base));
+        push_plain_spans(&mut spans, &rest[..next], base);
         rest = &rest[next..];
     }
 
     spans
+}
+
+fn push_plain_spans(spans: &mut Vec<Span<'static>>, text: &str, base: Style) {
+    let mut plain = String::new();
+    for ch in text.chars() {
+        if let Some(style) = context_usage_glyph_style(ch, base) {
+            if !plain.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut plain), base));
+            }
+            spans.push(Span::styled(ch.to_string(), style));
+        } else {
+            plain.push(ch);
+        }
+    }
+    if !plain.is_empty() {
+        spans.push(Span::styled(plain, base));
+    }
+}
+
+fn context_usage_glyph_style(ch: char, base: Style) -> Option<Style> {
+    let color = match ch {
+        '◆' => Color::Cyan,
+        '●' => Color::Magenta,
+        '▲' => Color::Green,
+        '■' => Color::Yellow,
+        '⬟' => Color::Blue,
+        '◈' => Color::Red,
+        '◉' => Color::LightMagenta,
+        '□' => Color::DarkGray,
+        _ => return None,
+    };
+    Some(Style::default().fg(color).add_modifier(base.add_modifier))
 }
 
 fn next_markup(text: &str) -> Option<usize> {
@@ -782,6 +814,30 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
+    }
+
+    #[test]
+    fn colors_context_usage_glyphs() {
+        let lines = render_assistant_markdown(
+            "◆ Instructions\n● Messages\n▲ Context\n■ Tool results\n⬟ Tool schemas\n◉ Cache read\n□ Free",
+            "",
+            Style::default(),
+            80,
+        );
+        let glyphs = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .filter(|span| ["◆", "●", "▲", "■", "⬟", "◉", "□"].contains(&span.content.as_ref()))
+            .map(|span| (span.content.to_string(), span.style.fg))
+            .collect::<Vec<_>>();
+
+        assert!(glyphs.contains(&("◆".to_owned(), Some(Color::Cyan))));
+        assert!(glyphs.contains(&("●".to_owned(), Some(Color::Magenta))));
+        assert!(glyphs.contains(&("▲".to_owned(), Some(Color::Green))));
+        assert!(glyphs.contains(&("■".to_owned(), Some(Color::Yellow))));
+        assert!(glyphs.contains(&("⬟".to_owned(), Some(Color::Blue))));
+        assert!(glyphs.contains(&("◉".to_owned(), Some(Color::LightMagenta))));
+        assert!(glyphs.contains(&("□".to_owned(), Some(Color::DarkGray))));
     }
 
     #[test]
