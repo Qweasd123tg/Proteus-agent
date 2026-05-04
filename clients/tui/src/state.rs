@@ -227,76 +227,140 @@ impl AppState {
     }
 
     fn history_context_report(&self) -> String {
-        let mut user_tokens = 0u32;
-        let mut assistant_tokens = 0u32;
-        let mut system_tokens = 0u32;
-        let mut tool_tokens = 0u32;
-        let mut messages = 0usize;
+        #[derive(Default)]
+        struct Bucket {
+            tokens: u32,
+            chars: usize,
+            items: usize,
+        }
+
+        impl Bucket {
+            fn add_text(&mut self, text: &str) {
+                self.tokens = self.tokens.saturating_add(estimate_tokens(text));
+                self.chars = self.chars.saturating_add(text.chars().count());
+                self.items += 1;
+            }
+        }
+
+        let mut user = Bucket::default();
+        let mut assistant = Bucket::default();
+        let mut system = Bucket::default();
+        let mut tool = Bucket::default();
+        let mut errors = 0usize;
         for message in &self.messages {
-            let tokens = estimate_tokens(&message.text);
             match message.role {
                 crate::visual::VisualRole::User => {
-                    user_tokens = user_tokens.saturating_add(tokens);
-                    messages += 1;
+                    user.add_text(&message.text);
                 }
                 crate::visual::VisualRole::Assistant => {
-                    assistant_tokens = assistant_tokens.saturating_add(tokens);
-                    messages += 1;
+                    assistant.add_text(&message.text);
                 }
                 crate::visual::VisualRole::System => {
-                    system_tokens = system_tokens.saturating_add(tokens);
+                    system.add_text(&message.text);
                 }
                 crate::visual::VisualRole::Tool => {
-                    tool_tokens = tool_tokens.saturating_add(estimate_tokens(
+                    tool.add_text(
                         message
                             .tool
                             .as_ref()
                             .map_or("", |tool| tool.output_preview.as_str()),
-                    ));
+                    );
                 }
-                crate::visual::VisualRole::Error => {}
+                crate::visual::VisualRole::Error => errors += 1,
             }
         }
-        let total = user_tokens
-            .saturating_add(assistant_tokens)
-            .saturating_add(system_tokens)
-            .saturating_add(tool_tokens);
+        let total = user
+            .tokens
+            .saturating_add(assistant.tokens)
+            .saturating_add(system.tokens)
+            .saturating_add(tool.tokens);
+        let total_chars = user
+            .chars
+            .saturating_add(assistant.chars)
+            .saturating_add(system.chars)
+            .saturating_add(tool.chars);
+        let chat_messages = user.items.saturating_add(assistant.items);
+        let total_items = chat_messages
+            .saturating_add(system.items)
+            .saturating_add(tool.items)
+            .saturating_add(errors);
         if total == 0 {
-            return "Context Usage\nsource: history estimate\n\nNo model request stats yet and no loaded chat history to estimate.".to_owned();
+            return [
+                "## Сводка",
+                "source: history estimate",
+                "",
+                "Нет live-статистики model request и нет загруженной истории, по которой можно построить оценку.",
+                "",
+                "После первого запроса к модели здесь появятся provider input/output/cache и категории последнего request.",
+            ]
+            .join("\n");
         }
 
         let mut lines = vec![
-            "Context Usage".to_owned(),
+            "## Сводка".to_owned(),
             format!("model: {}", self.model_label),
             "source: history estimate".to_owned(),
-            format!("estimated history input: {}", format_tokens(total)),
-            format!("messages: {messages}"),
+            format!("session: {}", self.session_label),
+            format!("workspace: {}", self.cwd.display()),
+            format!("estimated history input: {} tokens", format_tokens(total)),
+            format!("loaded chat messages: {chat_messages}"),
+            format!("loaded visual items: {total_items}"),
+            format!("counted text: {} chars", format_tokens(total_chars as u32)),
             String::new(),
-            "Loaded history estimate".to_owned(),
-            "| Category | Tokens | Share |".to_owned(),
-            "| --- | ---: | ---: |".to_owned(),
+            "## Оценка загруженной истории".to_owned(),
+            "| Категория | Items | Chars | Tokens | Share |".to_owned(),
+            "| --- | ---: | ---: | ---: | ---: |".to_owned(),
         ];
-        for (name, tokens) in [
-            ("User messages", user_tokens),
-            ("Assistant messages", assistant_tokens),
-            ("System messages", system_tokens),
-            ("Tool results", tool_tokens),
+        for (name, bucket) in [
+            ("User messages", &user),
+            ("Assistant messages", &assistant),
+            ("System messages", &system),
+            ("Tool results preview", &tool),
         ] {
-            if tokens == 0 {
+            if bucket.tokens == 0 && bucket.items == 0 {
                 continue;
             }
-            let share = tokens as f64 * 100.0 / total as f64;
+            let share = bucket.tokens as f64 * 100.0 / total as f64;
             lines.push(format!(
-                "| {name} | {} | {:.1}% |",
-                format_tokens(tokens),
+                "| {name} | {} | {} | {} | {:.1}% |",
+                bucket.items,
+                format_tokens(bucket.chars as u32),
+                format_tokens(bucket.tokens),
                 share
             ));
         }
-        lines.push(String::new());
-        lines.push(
-            "Provider usage is not available until the next model request in this TUI session."
+        if errors > 0 {
+            lines.push(format!("| UI errors | {errors} | 0 | 0 | 0.0% |"));
+        }
+
+        lines.extend([
+            String::new(),
+            "## Live API usage".to_owned(),
+            "| Метрика | Статус |".to_owned(),
+            "| --- | --- |".to_owned(),
+            "| Latest request estimate | пока нет live `TokenUsageUpdated` в этой TUI-сессии |"
                 .to_owned(),
-        );
+            "| Current turn totals | появятся после следующего запроса к модели |".to_owned(),
+            "| Session totals | начнут копиться после следующего запроса в этом клиенте |"
+                .to_owned(),
+            "| Provider input/output | недоступно до ответа провайдера |".to_owned(),
+            "| Cache read/write | недоступно до ответа провайдера |".to_owned(),
+            "| Reasoning output | недоступно до ответа провайдера |".to_owned(),
+        ]);
+
+        lines.extend([
+            String::new(),
+            "## Что именно сейчас посчитано".to_owned(),
+            "- Это локальная оценка по `messages.jsonl`, загруженному через `/resume`.".to_owned(),
+            "- User/assistant/system считаются по текстовым частям истории.".to_owned(),
+            "- Tool results сейчас считаются по TUI preview, а не по полному stdout/stderr.".to_owned(),
+            "- Формула грубая: примерно 4 символа на токен. Реальный счёт API может отличаться.".to_owned(),
+            "- После первого нового сообщения агенту этот экран переключится на provider totals + estimated categories.".to_owned(),
+        ]);
+
+        lines.push(String::new());
+        lines.push("## Почему не видно старых provider totals".to_owned());
+        lines.push("Сейчас TUI восстанавливает сообщения чата, но не восстанавливает старые `TokenUsageUpdated` events из event log. Это можно добавить отдельно: читать durable event log/session metadata и поднимать последнюю token snapshot при resume.".to_owned());
         lines.join("\n")
     }
 
@@ -1178,8 +1242,10 @@ mod tests {
         let report = state.context_report();
 
         assert!(report.contains("source: history estimate"));
-        assert!(report.contains("Loaded history estimate"));
+        assert!(report.contains("## Оценка загруженной истории"));
+        assert!(report.contains("## Live API usage"));
         assert!(report.contains("| User messages |"));
+        assert!(report.contains("| Latest request estimate |"));
         assert!(!report.contains("no model request stats yet"));
     }
 
