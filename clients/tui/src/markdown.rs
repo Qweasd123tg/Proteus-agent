@@ -272,13 +272,9 @@ fn render_table_lines(
             table_border_style(),
         )],
     );
-    push_line(
-        lines,
-        first,
-        prefix,
-        prefix_style,
-        render_table_row(&table.header, &table.widths, true),
-    );
+    for row_line in render_table_row_lines(&table.header, &table.widths, true) {
+        push_line(lines, first, prefix, prefix_style, row_line);
+    }
     push_line(
         lines,
         first,
@@ -290,13 +286,9 @@ fn render_table_lines(
         )],
     );
     for row in &table.rows {
-        push_line(
-            lines,
-            first,
-            prefix,
-            prefix_style,
-            render_table_row(row, &table.widths, false),
-        );
+        for row_line in render_table_row_lines(row, &table.widths, false) {
+            push_line(lines, first, prefix, prefix_style, row_line);
+        }
     }
     push_line(
         lines,
@@ -323,24 +315,93 @@ fn table_border(left: char, middle: char, right: char, widths: &[usize]) -> Stri
     out
 }
 
-fn render_table_row(row: &[String], widths: &[usize], header: bool) -> Vec<Span<'static>> {
-    let mut spans = vec![Span::styled("│", table_border_style())];
-    for (idx, width) in widths.iter().enumerate() {
-        let cell = row.get(idx).map(String::as_str).unwrap_or_default();
-        let base_style = if header {
-            table_header_style()
-        } else {
-            Style::default()
-        };
-        let cell_spans = truncate_spans(inline_spans(cell, base_style), *width);
-        let cell_width = spans_width(&cell_spans);
-        let padding = width.saturating_sub(cell_width);
-        spans.push(Span::raw(" "));
-        spans.extend(cell_spans);
-        spans.push(Span::raw(" ".repeat(padding + 1)));
-        spans.push(Span::styled("│", table_border_style()));
+fn render_table_row_lines(
+    row: &[String],
+    widths: &[usize],
+    header: bool,
+) -> Vec<Vec<Span<'static>>> {
+    let wrapped_cells = widths
+        .iter()
+        .enumerate()
+        .map(|(idx, width)| {
+            let cell = row.get(idx).map(String::as_str).unwrap_or_default();
+            let base_style = if header {
+                table_header_style()
+            } else {
+                Style::default()
+            };
+            wrap_spans(inline_spans(cell, base_style), *width)
+        })
+        .collect::<Vec<_>>();
+    let height = wrapped_cells.iter().map(Vec::len).max().unwrap_or(1).max(1);
+    let mut lines = Vec::with_capacity(height);
+
+    for line_idx in 0..height {
+        let mut spans = vec![Span::styled("│", table_border_style())];
+        for (idx, width) in widths.iter().enumerate() {
+            let empty = Vec::new();
+            let cell_spans = wrapped_cells
+                .get(idx)
+                .and_then(|lines| lines.get(line_idx))
+                .unwrap_or(&empty);
+            let cell_width = spans_width(cell_spans);
+            let padding = width.saturating_sub(cell_width);
+            spans.push(Span::raw(" "));
+            spans.extend(cell_spans.clone());
+            spans.push(Span::raw(" ".repeat(padding + 1)));
+            spans.push(Span::styled("│", table_border_style()));
+        }
+        lines.push(spans);
     }
-    spans
+
+    lines
+}
+
+fn wrap_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
+    if spans.is_empty() {
+        return vec![Vec::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current = Vec::new();
+    let mut current_width = 0usize;
+
+    for span in spans {
+        for ch in span.content.chars() {
+            let ch_width = ch.width().unwrap_or(0);
+            if current_width > 0 && current_width + ch_width > width {
+                lines.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+            push_text_span(&mut current, ch.to_string(), span.style);
+            current_width += ch_width;
+            if current_width >= width {
+                lines.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(Vec::new());
+    }
+    lines
+}
+
+fn push_text_span(spans: &mut Vec<Span<'static>>, text: String, style: Style) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        last.content.to_mut().push_str(&text);
+        return;
+    }
+    spans.push(Span::styled(text, style));
 }
 
 fn push_line(
@@ -492,48 +553,6 @@ fn spans_width(spans: &[Span<'_>]) -> usize {
         .sum()
 }
 
-fn truncate_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
-    if spans_width(&spans) <= width {
-        return spans;
-    }
-    if width == 0 {
-        return Vec::new();
-    }
-    if width == 1 {
-        return vec![Span::raw("…")];
-    }
-
-    let mut out = Vec::new();
-    let mut remaining = width - 1;
-    for span in spans {
-        if remaining == 0 {
-            break;
-        }
-        let taken = take_display_width(span.content.as_ref(), remaining);
-        if taken.is_empty() {
-            continue;
-        }
-        remaining = remaining.saturating_sub(display_width(&taken));
-        out.push(Span::styled(taken, span.style));
-    }
-    out.push(Span::raw("…"));
-    out
-}
-
-fn take_display_width(text: &str, width: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0usize;
-    for ch in text.chars() {
-        let ch_width = ch.width().unwrap_or(0);
-        if used + ch_width > width {
-            break;
-        }
-        out.push(ch);
-        used += ch_width;
-    }
-    out
-}
-
 fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
 }
@@ -621,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn truncates_table_cells_to_available_width() {
+    fn wraps_table_cells_to_available_width() {
         let lines = render_assistant_markdown(
             "| Long | Also |\n| --- | --- |\n| abcdefghijk | 123456789 |",
             "• ",
@@ -633,7 +652,10 @@ mod tests {
             .flat_map(|line| line.spans.iter())
             .map(|span| span.content.as_ref())
             .collect::<String>();
-        assert!(rendered.contains('…'));
+        assert!(lines.iter().all(|line| line.width() <= 24));
+        for ch in "abcdefghijk123456789".chars() {
+            assert!(rendered.contains(ch));
+        }
     }
 
     #[test]

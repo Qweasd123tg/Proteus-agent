@@ -26,7 +26,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{MoveToColumn, MoveUp},
+    cursor::{MoveTo, MoveToColumn, MoveUp},
     event::{self, Event as CTerm, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     style::{Attribute, Color as CTermColor, Print, ResetColor, SetAttribute, SetForegroundColor},
@@ -294,6 +294,20 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
             term_event = input_rx.recv() => {
                 match term_event {
                     Some(ev) => {
+                        if matches!(ev, CTerm::Resize(_, _)) {
+                            if picker_alt_screen {
+                                terminal.clear()?;
+                            } else {
+                                reset_normal_screen(
+                                    terminal,
+                                    &mut state,
+                                    &mut scrollback_header_printed,
+                                    &mut inline_panel,
+                                )?;
+                            }
+                            dirty = true;
+                            continue;
+                        }
                         if handle_term_event(
                             &mut state,
                             &mut driver,
@@ -578,10 +592,26 @@ async fn handle_term_event(
                 _ => {}
             }
         }
-        CTerm::Resize(_, _) => return Ok(true),
         _ => {}
     }
     Ok(false)
+}
+
+fn reset_normal_screen(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    header_printed: &mut bool,
+    inline_panel: &mut InlinePanelLayout,
+) -> Result<()> {
+    execute!(
+        terminal.backend_mut(),
+        MoveTo(0, 0),
+        TerminalClear(ClearType::All)
+    )?;
+    state.rewind_scrollback();
+    *header_printed = false;
+    *inline_panel = InlinePanelLayout::default();
+    Ok(())
 }
 
 fn flush_scrollback_messages(
@@ -644,7 +674,8 @@ fn draw_inline_panel(
         terminal.backend_mut(),
         MoveUp(rows_from_after_panel),
         MoveToColumn(
-            (2 + state.visual_state().input.chars().count()).min(width.saturating_sub(1)) as u16
+            (2 + UnicodeWidthStr::width(state.visual_state().input)).min(width.saturating_sub(1))
+                as u16
         )
     )?;
     Ok(InlinePanelLayout {

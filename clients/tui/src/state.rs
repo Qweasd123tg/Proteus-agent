@@ -404,6 +404,10 @@ impl AppState {
         drained
     }
 
+    pub fn rewind_scrollback(&mut self) {
+        self.scrollback_cursor = 0;
+    }
+
     /// Главная точка обработки событий от ядра.
     pub fn ingest(&mut self, event: AppServerEvent) {
         match event {
