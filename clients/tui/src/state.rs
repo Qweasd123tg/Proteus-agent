@@ -221,6 +221,12 @@ impl AppState {
                 share
             ));
         }
+
+        lines.extend([
+            String::new(),
+            "Пояснение: `provider usage` - фактические числа от API; таблица выше - локальная оценка, как input разложился по категориям.".to_owned(),
+            "Cache/reasoning показываются только если провайдер вернул эти поля в usage.".to_owned(),
+        ]);
         append_usage_totals_section(&mut lines, "Current turn totals", &self.turn_usage);
         append_usage_totals_section(&mut lines, "Session totals", &self.session_usage);
         lines.join("\n")
@@ -358,9 +364,11 @@ impl AppState {
             "- После первого нового сообщения агенту этот экран переключится на provider totals + estimated categories.".to_owned(),
         ]);
 
-        lines.push(String::new());
-        lines.push("## Почему не видно старых provider totals".to_owned());
-        lines.push("Сейчас TUI восстанавливает сообщения чата, но не восстанавливает старые `TokenUsageUpdated` events из event log. Это можно добавить отдельно: читать durable event log/session metadata и поднимать последнюю token snapshot при resume.".to_owned());
+        lines.extend([
+            String::new(),
+            "## Почему это history estimate".to_owned(),
+            "TUI показывает этот режим, когда для текущей сессии ещё не найден live `TokenUsageUpdated` snapshot. При `/resume` клиент пытается восстановить usage из `.agent/events.jsonl`; если snapshot найден, экран сразу переключится на provider totals.".to_owned(),
+        ]);
         lines.join("\n")
     }
 
@@ -995,6 +1003,7 @@ fn append_usage_totals_section(lines: &mut Vec<String>, title: &str, totals: &Us
     lines.push(title.to_owned());
     if totals.requests == 0 {
         lines.push("no requests yet".to_owned());
+        append_usage_totals_note(lines, title);
         return;
     }
 
@@ -1006,6 +1015,7 @@ fn append_usage_totals_section(lines: &mut Vec<String>, title: &str, totals: &Us
     lines.push(format!("provider usage: {}", provider_totals_line(totals)));
 
     if totals.categories.is_empty() {
+        append_usage_totals_note(lines, title);
         return;
     }
     lines.extend([
@@ -1025,6 +1035,21 @@ fn append_usage_totals_section(lines: &mut Vec<String>, title: &str, totals: &Us
             share
         ));
     }
+    append_usage_totals_note(lines, title);
+}
+
+fn append_usage_totals_note(lines: &mut Vec<String>, title: &str) {
+    let note = match title {
+        "Current turn totals" => {
+            "Пояснение: это сумма model requests внутри текущего turn, включая повторные запросы после tool calls."
+        }
+        "Session totals" => {
+            "Пояснение: это сумма usage events сессии, включая восстановленные события после `/resume` и новые запросы в этом клиенте."
+        }
+        _ => return,
+    };
+    lines.push(String::new());
+    lines.push(note.to_owned());
 }
 
 fn provider_totals_line(totals: &UsageTotals) -> String {

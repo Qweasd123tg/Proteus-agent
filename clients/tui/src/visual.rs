@@ -664,20 +664,7 @@ impl ResumePickerComponent {
 impl ContextReportComponent {
     fn render(&self, frame: &mut Frame, full: Rect, report: &str, scroll: usize) {
         frame.render_widget(Clear, full);
-        let areas = if full.width >= 112 {
-            Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(72), Constraint::Length(38)])
-                .split(full)
-        } else {
-            Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(100), Constraint::Length(0)])
-                .split(full)
-        };
-        let report_area = areas[0];
-        let notes_area = areas[1];
-        let width = report_area.width as usize;
+        let width = full.width as usize;
         let mut body = Vec::<Line<'static>>::new();
         body.push(Line::from(vec![
             Span::styled("Context Usage", Style::default().fg(Color::Reset)),
@@ -687,68 +674,15 @@ impl ContextReportComponent {
         body.push(Line::raw(""));
 
         let content_width = width.saturating_sub(1).max(1);
-        let content_height = report_area.height.saturating_sub(2) as usize;
+        let content_height = full.height.saturating_sub(2) as usize;
         let rendered =
             crate::markdown::render_assistant_markdown(report, "", Style::default(), content_width);
         let max_scroll = rendered.len().saturating_sub(content_height);
         let start = scroll.min(max_scroll);
         body.extend(rendered.into_iter().skip(start).take(content_height));
 
-        frame.render_widget(Paragraph::new(body), report_area);
-
-        if notes_area.width > 0 {
-            let notes = context_notes(report, notes_area.width.saturating_sub(2) as usize);
-            let block = Block::default()
-                .borders(Borders::LEFT)
-                .border_style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(Paragraph::new(notes).block(block), notes_area);
-        }
+        frame.render_widget(Paragraph::new(body), full);
     }
-}
-
-fn context_notes(report: &str, width: usize) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled("Пояснения", Style::default().fg(Color::Cyan))),
-        Line::raw(""),
-    ];
-    let notes = if report.contains("source: history estimate") {
-        [
-            "history estimate - грубая оценка по messages.jsonl",
-            "provider usage появится, когда есть TokenUsageUpdated",
-            "tool preview считает только краткий вывод tool cards",
-            "реальный API billing может отличаться",
-            "после нового запроса экран переключится на live totals",
-        ]
-    } else {
-        [
-            "provider usage - фактический ответ API",
-            "estimated categories - локальная разбивка для понимания",
-            "Latest request - последний запрос к модели",
-            "Current turn - сумма в текущем turn",
-            "Session totals - сумма восстановленных и новых usage events",
-        ]
-    };
-    for note in notes {
-        lines.push(Line::from(vec![
-            Span::styled("• ", Style::default().fg(Color::DarkGray)),
-            Span::raw(truncate(note, width.saturating_sub(2).max(1))),
-        ]));
-        lines.push(Line::raw(""));
-    }
-    if report.contains("cache read") || report.contains("cache write") {
-        lines.push(Line::from(Span::styled(
-            "Cache",
-            Style::default().fg(Color::Cyan),
-        )));
-        lines.push(Line::from(vec![
-            Span::styled("• ", Style::default().fg(Color::DarkGray)),
-            Span::raw(truncate(
-                "cache read/write приходит только от provider usage",
-                width.saturating_sub(2).max(1),
-            )),
-        ]));
-    }
-    lines
 }
 
 #[derive(Clone)]
