@@ -1006,84 +1006,123 @@ fn append_context_visual_summary(
     source: &str,
 ) {
     lines.push(String::new());
-    lines.push("## Карта контекста".to_owned());
+    lines.push("Карта контекста".to_owned());
 
     let model = format!("{}/{}", usage.model.provider, usage.model.model);
-    if let Some(window) = usage.max_input_tokens {
-        let used = usage.estimated_input_tokens.min(window);
-        let free = window.saturating_sub(used);
-        let percent = percent_of(used, window);
-        let total_cells = 100usize;
-        let row_cells = 20usize;
-        let used_cells = proportional_cells(used, window, total_cells).min(total_cells);
-        let cached_tokens = usage
-            .actual
-            .as_ref()
-            .and_then(|actual| actual.cached_input_tokens)
-            .unwrap_or_default()
-            .min(used);
-        let cached_cells = proportional_cells(cached_tokens, window, total_cells).min(used_cells);
-        let normal_cells = used_cells.saturating_sub(cached_cells);
-        let free_cells = total_cells.saturating_sub(used_cells);
-        let mut cells = Vec::with_capacity(total_cells);
-        cells.extend(std::iter::repeat('⛁').take(normal_cells));
-        cells.extend(std::iter::repeat('⛀').take(cached_cells));
-        cells.extend(std::iter::repeat('⛶').take(free_cells));
-        cells.resize(total_cells, '⛶');
+    let (window, inferred_window) = usage
+        .max_input_tokens
+        .map(|window| (window, false))
+        .unwrap_or_else(|| (inferred_context_window(usage), true));
+    let used = usage.estimated_input_tokens.min(window);
+    let free = window.saturating_sub(used);
+    let percent = percent_of(used, window);
+    let total_cells = 200usize;
+    let row_cells = 20usize;
+    let used_cells = proportional_cells(used, window, total_cells).min(total_cells);
+    let cached_tokens = usage
+        .actual
+        .as_ref()
+        .and_then(|actual| actual.cached_input_tokens)
+        .unwrap_or_default()
+        .min(used);
+    let cached_cells = proportional_cells(cached_tokens, window, total_cells).min(used_cells);
+    let normal_cells = used_cells.saturating_sub(cached_cells);
+    let free_cells = total_cells.saturating_sub(used_cells);
+    let mut cells = Vec::with_capacity(total_cells);
+    cells.extend(std::iter::repeat('⛁').take(normal_cells));
+    cells.extend(std::iter::repeat('⛀').take(cached_cells));
+    cells.extend(std::iter::repeat('⛶').take(free_cells));
+    cells.resize(total_cells, '⛶');
 
-        let labels = [
-            format!("{model} context"),
-            format!("source: {source}"),
-            format!(
-                "{} / {} tokens ({percent:.1}%)",
-                format_tokens(used),
-                format_tokens(window)
-            ),
-            format!(
-                "free space: {} ({:.1}%)",
-                format_tokens(free),
-                percent_of(free, window)
-            ),
-            "⛁ input estimate · ⛀ cache read · ⛶ free".to_owned(),
-        ];
-
-        for (row, chunk) in cells.chunks(row_cells).enumerate() {
-            let graph = chunk
-                .iter()
-                .map(char::to_string)
-                .collect::<Vec<_>>()
-                .join(" ");
-            if let Some(label) = labels.get(row) {
-                lines.push(format!("{graph}   {label}"));
-            } else {
-                lines.push(graph);
-            }
-        }
+    let window_label = if inferred_window {
+        format!("{} inferred context", format_tokens(window))
     } else {
-        lines.push(format!(
-            "⛁ ⛁ ⛁ ⛁ ⛁   {} tokens estimated for {model}",
-            format_tokens(usage.estimated_input_tokens)
+        format!("{} context", format_tokens(window))
+    };
+    let mut labels = vec![
+        format!("{model} ({window_label})"),
+        format!("source: {source}"),
+        format!(
+            "{} / {} tokens ({percent:.1}%)",
+            format_tokens(used),
+            format_tokens(window)
+        ),
+        "⛁ input estimate · ⛀ cache read · ⛶ free".to_owned(),
+        "Estimated usage by category".to_owned(),
+    ];
+    for category in &usage.categories {
+        let share = if usage.estimated_input_tokens == 0 {
+            0.0
+        } else {
+            category.tokens as f64 * 100.0 / usage.estimated_input_tokens as f64
+        };
+        labels.push(format!(
+            "⛁ {}: {} tokens ({share:.1}%)",
+            category_label(&category.name),
+            format_tokens(category.tokens)
         ));
-        lines.push(
-            "context window не указан провайдером, поэтому free space посчитать нельзя".to_owned(),
-        );
+    }
+    if cached_tokens > 0 {
+        labels.push(format!(
+            "⛀ Cache read: {} tokens",
+            format_tokens(cached_tokens)
+        ));
+    }
+    labels.push(format!(
+        "⛶ Free space: {} ({:.1}%)",
+        format_tokens(free),
+        percent_of(free, window)
+    ));
+    if inferred_window {
+        labels.push("context window inferred locally".to_owned());
     }
 
-    if !usage.categories.is_empty() {
-        lines.push(String::new());
-        lines.push("Estimated usage by category".to_owned());
-        for category in &usage.categories {
-            let share = if usage.estimated_input_tokens == 0 {
-                0.0
-            } else {
-                category.tokens as f64 * 100.0 / usage.estimated_input_tokens as f64
-            };
-            lines.push(format!(
-                "⛁ {}: {} tokens ({share:.1}%)",
-                category_label(&category.name),
-                format_tokens(category.tokens)
-            ));
+    for (row, chunk) in cells.chunks(row_cells).enumerate() {
+        let graph = chunk
+            .iter()
+            .map(char::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if let Some(label) = labels.get(row) {
+            lines.push(format!("{graph}   {label}"));
+        } else {
+            lines.push(graph);
         }
+    }
+}
+
+fn inferred_context_window(usage: &TokenUsageSnapshot) -> u32 {
+    let model = usage.model.model.to_ascii_lowercase();
+    let provider = usage.model.provider.to_ascii_lowercase();
+    let known_window = if model.contains("1m")
+        || model.contains("1000k")
+        || model.contains("1000000")
+        || model.contains("opus-4-7")
+        || model.contains("opus-4.7")
+    {
+        1_000_000
+    } else if provider.contains("anthropic") || model.contains("claude") {
+        200_000
+    } else if model.contains("deepseek") {
+        128_000
+    } else {
+        200_000
+    };
+    known_window.max(next_visual_window(usage.estimated_input_tokens))
+}
+
+fn next_visual_window(tokens: u32) -> u32 {
+    if tokens <= 128_000 {
+        128_000
+    } else if tokens <= 200_000 {
+        200_000
+    } else if tokens <= 1_000_000 {
+        1_000_000
+    } else {
+        tokens
+            .saturating_add(999_999)
+            .saturating_div(1_000_000)
+            .saturating_mul(1_000_000)
     }
 }
 
@@ -1484,7 +1523,7 @@ mod tests {
         assert!(report.contains("source: provider totals + estimated categories"));
         assert!(report.contains("estimated input: 100 / 200 tokens (50.0%) · free 100"));
         assert!(report.contains("window: [############............] used · 100 free"));
-        assert!(report.contains("## Карта контекста"));
+        assert!(report.contains("Карта контекста"));
         assert!(report.contains("⛁ input estimate · ⛀ cache read · ⛶ free"));
         assert!(report.contains("⛀"));
         assert!(report.contains("| Tool schemas | 60 | 60.0% |"));
@@ -1520,11 +1559,41 @@ mod tests {
 
         let report = state.context_report();
         assert!(report.contains("37.5k / 1.0m tokens (3.8%)"));
-        assert!(report.contains("free space: 962.5k (96.2%)"));
+        assert!(report.contains("Free space: 962.5k (96.2%)"));
         assert!(report.contains("Estimated usage by category"));
         assert!(report.contains("⛁ Instructions: 8.6k tokens (22.9%)"));
         assert!(report.contains("| Instructions | 8.6k | 22.9% |"));
         assert!(report.contains("| Tool schemas | 28.0k | 74.7% |"));
+    }
+
+    #[test]
+    fn context_report_infers_window_for_visual_map_when_provider_omits_it() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let usage = TokenUsageSnapshot::new(
+            agent_contracts::domain::ModelRef::new("anthropic", "deepseek-v4-pro"),
+            12_700,
+            vec![agent_contracts::domain::TokenUsageCategory::new(
+                "messages", 3_800,
+            )],
+        );
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(
+                    agent_contracts::domain::new_session_id(),
+                    agent_contracts::domain::new_thread_id(),
+                    Some(agent_contracts::domain::new_turn_id()),
+                ),
+                1,
+                Event::TokenUsageUpdated { usage },
+            ),
+        });
+
+        let report = state.context_report();
+        assert!(report.contains("anthropic/deepseek-v4-pro (200.0k inferred context)"));
+        assert!(report.contains("12.7k / 200.0k tokens (6.3%)"));
+        assert!(report.contains("context window inferred locally"));
+        assert!(!report.contains("context window не указан"));
     }
 
     #[test]
