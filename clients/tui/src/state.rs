@@ -201,6 +201,8 @@ impl AppState {
             lines.push(format!("window: {bar}"));
         }
 
+        append_context_visual_summary(&mut lines, usage, source);
+
         lines.extend([
             String::new(),
             "Latest request estimate".to_owned(),
@@ -998,6 +1000,93 @@ fn provider_usage_line(actual: &agent_contracts::model_standard::TokenUsage) -> 
     line
 }
 
+fn append_context_visual_summary(
+    lines: &mut Vec<String>,
+    usage: &TokenUsageSnapshot,
+    source: &str,
+) {
+    lines.push(String::new());
+    lines.push("## Карта контекста".to_owned());
+
+    let model = format!("{}/{}", usage.model.provider, usage.model.model);
+    if let Some(window) = usage.max_input_tokens {
+        let used = usage.estimated_input_tokens.min(window);
+        let free = window.saturating_sub(used);
+        let percent = percent_of(used, window);
+        let total_cells = 100usize;
+        let row_cells = 20usize;
+        let used_cells = proportional_cells(used, window, total_cells).min(total_cells);
+        let cached_tokens = usage
+            .actual
+            .as_ref()
+            .and_then(|actual| actual.cached_input_tokens)
+            .unwrap_or_default()
+            .min(used);
+        let cached_cells = proportional_cells(cached_tokens, window, total_cells).min(used_cells);
+        let normal_cells = used_cells.saturating_sub(cached_cells);
+        let free_cells = total_cells.saturating_sub(used_cells);
+        let mut cells = Vec::with_capacity(total_cells);
+        cells.extend(std::iter::repeat('⛁').take(normal_cells));
+        cells.extend(std::iter::repeat('⛀').take(cached_cells));
+        cells.extend(std::iter::repeat('⛶').take(free_cells));
+        cells.resize(total_cells, '⛶');
+
+        let labels = [
+            format!("{model} context"),
+            format!("source: {source}"),
+            format!(
+                "{} / {} tokens ({percent:.1}%)",
+                format_tokens(used),
+                format_tokens(window)
+            ),
+            format!(
+                "free space: {} ({:.1}%)",
+                format_tokens(free),
+                percent_of(free, window)
+            ),
+            "⛁ input estimate · ⛀ cache read · ⛶ free".to_owned(),
+        ];
+
+        for (row, chunk) in cells.chunks(row_cells).enumerate() {
+            let graph = chunk
+                .iter()
+                .map(char::to_string)
+                .collect::<Vec<_>>()
+                .join(" ");
+            if let Some(label) = labels.get(row) {
+                lines.push(format!("{graph}   {label}"));
+            } else {
+                lines.push(graph);
+            }
+        }
+    } else {
+        lines.push(format!(
+            "⛁ ⛁ ⛁ ⛁ ⛁   {} tokens estimated for {model}",
+            format_tokens(usage.estimated_input_tokens)
+        ));
+        lines.push(
+            "context window не указан провайдером, поэтому free space посчитать нельзя".to_owned(),
+        );
+    }
+
+    if !usage.categories.is_empty() {
+        lines.push(String::new());
+        lines.push("Estimated usage by category".to_owned());
+        for category in &usage.categories {
+            let share = if usage.estimated_input_tokens == 0 {
+                0.0
+            } else {
+                category.tokens as f64 * 100.0 / usage.estimated_input_tokens as f64
+            };
+            lines.push(format!(
+                "⛁ {}: {} tokens ({share:.1}%)",
+                category_label(&category.name),
+                format_tokens(category.tokens)
+            ));
+        }
+    }
+}
+
 fn append_usage_totals_section(lines: &mut Vec<String>, title: &str, totals: &UsageTotals) {
     lines.push(String::new());
     lines.push(title.to_owned());
@@ -1107,6 +1196,14 @@ fn percent_of(value: u32, total: u32) -> f64 {
     } else {
         value as f64 * 100.0 / total as f64
     }
+}
+
+fn proportional_cells(value: u32, total: u32, width: usize) -> usize {
+    if value == 0 || total == 0 || width == 0 {
+        return 0;
+    }
+    let rounded = ((value.min(total) as u64 * width as u64) + (total as u64 / 2)) / total as u64;
+    (rounded as usize).clamp(1, width)
 }
 
 fn usage_bar(used: u32, total: u32, width: usize) -> String {
@@ -1387,6 +1484,9 @@ mod tests {
         assert!(report.contains("source: provider totals + estimated categories"));
         assert!(report.contains("estimated input: 100 / 200 tokens (50.0%) · free 100"));
         assert!(report.contains("window: [############............] used · 100 free"));
+        assert!(report.contains("## Карта контекста"));
+        assert!(report.contains("⛁ input estimate · ⛀ cache read · ⛶ free"));
+        assert!(report.contains("⛀"));
         assert!(report.contains("| Tool schemas | 60 | 60.0% |"));
         assert!(report.contains("110 input / 12 output / 122 total"));
         assert!(report.contains("cache read 30"));
@@ -1420,6 +1520,9 @@ mod tests {
 
         let report = state.context_report();
         assert!(report.contains("37.5k / 1.0m tokens (3.8%)"));
+        assert!(report.contains("free space: 962.5k (96.2%)"));
+        assert!(report.contains("Estimated usage by category"));
+        assert!(report.contains("⛁ Instructions: 8.6k tokens (22.9%)"));
         assert!(report.contains("| Instructions | 8.6k | 22.9% |"));
         assert!(report.contains("| Tool schemas | 28.0k | 74.7% |"));
     }
