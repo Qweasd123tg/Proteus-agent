@@ -155,7 +155,7 @@ pub(crate) fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> Inlin
         && state.pending_approval.is_none()
         && state.resume_picker.is_none()
     {
-        lines.extend(slash_plain_lines(state, width).into_iter().map(Line::raw));
+        lines.extend(slash_plain_lines(state, width));
         lines.push(Line::raw(""));
     }
 
@@ -406,7 +406,7 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     } else if state.resume_picker.is_some() {
         "type search · enter resume · esc close · up/down select".to_owned()
     } else if !matching_slash_commands(state.input).is_empty() {
-        "tab/right complete · up/down select · enter run".to_owned()
+        "enter/tab complete · up/down select · enter run exact".to_owned()
     } else if state.scroll_offset > 0 {
         "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
@@ -448,36 +448,57 @@ fn live_status_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>
     Vec::new()
 }
 
-fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<String> {
+fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
     let matches = matching_slash_commands(state.input);
     let visible_count = matches.len().min(7);
     let selected = state.slash_selection.min(matches.len().saturating_sub(1));
     let panel_width = width.clamp(36, 74);
     let mut out = Vec::new();
-    out.push(format!("┌{}┐", "─".repeat(panel_width.saturating_sub(2))));
+    out.push(Line::from(Span::styled(
+        format!("┌{}┐", "─".repeat(panel_width.saturating_sub(2))),
+        Style::default().fg(Color::DarkGray),
+    )));
     for (index, command) in visible_matches(&matches, selected, visible_count)
         .into_iter()
         .enumerate()
     {
         let absolute_index = slash_window_start(selected, visible_count) + index;
+        let selected_row = absolute_index == selected;
         let marker = if absolute_index == selected {
             "› "
         } else {
             "  "
         };
+        let primary = if selected_row {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::Reset)
+        };
+        let muted = if selected_row {
+            Style::default().fg(Color::Blue)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
         let usage_width = panel_width.saturating_div(2).saturating_sub(4);
         let description_width = panel_width.saturating_sub(usage_width).saturating_sub(7);
-        let row = format!(
-            "{marker}{}  {}",
-            truncate(command.usage, usage_width),
-            truncate(command.description, description_width)
-        );
-        out.push(format!(
-            "│{}│",
-            pad_right(&row, panel_width.saturating_sub(2))
-        ));
+        let usage = truncate(command.usage, usage_width);
+        let description = truncate(command.description, description_width);
+        let content_width = panel_width.saturating_sub(2);
+        let used = marker.chars().count() + usage.chars().count() + 2 + description.chars().count();
+        out.push(Line::from(vec![
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+            Span::styled(marker.to_owned(), primary),
+            Span::styled(usage, primary),
+            Span::styled("  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(description, muted),
+            Span::raw(" ".repeat(content_width.saturating_sub(used))),
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+        ]));
     }
-    out.push(format!("└{}┘", "─".repeat(panel_width.saturating_sub(2))));
+    out.push(Line::from(Span::styled(
+        format!("└{}┘", "─".repeat(panel_width.saturating_sub(2))),
+        Style::default().fg(Color::DarkGray),
+    )));
     out
 }
 

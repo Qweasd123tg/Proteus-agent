@@ -16,7 +16,7 @@ use agent_contracts::{
 
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
-    slash_commands::matching_slash_commands,
+    slash_commands::{is_exact_slash_command, matching_slash_commands},
     visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualState},
 };
 
@@ -436,6 +436,13 @@ impl AppState {
         self.quit_armed = false;
         self.slash_selection = 0;
         true
+    }
+
+    pub fn complete_partial_slash_suggestion(&mut self) -> bool {
+        if is_exact_slash_command(&self.input) {
+            return false;
+        }
+        self.complete_slash_suggestion()
     }
 
     pub fn next_turn_id(&mut self) -> String {

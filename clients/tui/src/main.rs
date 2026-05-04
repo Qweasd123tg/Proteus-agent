@@ -510,7 +510,9 @@ async fn handle_term_event(
 
             match key.code {
                 KeyCode::Enter => {
-                    if let Some(submission) = state.take_input_for_send() {
+                    if state.complete_partial_slash_suggestion() {
+                        return Ok(true);
+                    } else if let Some(submission) = state.take_input_for_send() {
                         if submission.text.starts_with('/') {
                             handle_slash_command(
                                 state,

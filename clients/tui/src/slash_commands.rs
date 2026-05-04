@@ -67,6 +67,11 @@ pub(crate) fn matching_slash_commands(input: &str) -> Vec<&'static SlashCommand>
         .collect()
 }
 
+pub(crate) fn is_exact_slash_command(input: &str) -> bool {
+    let trimmed = input.trim();
+    SLASH_COMMANDS.iter().any(|command| command.name == trimmed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +94,12 @@ mod tests {
     #[test]
     fn hides_matches_after_command_argument_starts() {
         assert!(matching_slash_commands("/resume /tmp/session").is_empty());
+    }
+
+    #[test]
+    fn detects_exact_command() {
+        assert!(is_exact_slash_command("/resume"));
+        assert!(!is_exact_slash_command("/re"));
+        assert!(!is_exact_slash_command("/resume /tmp/session"));
     }
 }
