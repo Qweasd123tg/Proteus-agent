@@ -769,8 +769,14 @@ fn apply_terminal_style(
     if style.add_modifier.contains(Modifier::ITALIC) {
         execute!(terminal.backend_mut(), SetAttribute(Attribute::Italic))?;
     }
+    if style.add_modifier.contains(Modifier::UNDERLINED) {
+        execute!(terminal.backend_mut(), SetAttribute(Attribute::Underlined))?;
+    }
     if style.add_modifier.contains(Modifier::DIM) {
         execute!(terminal.backend_mut(), SetAttribute(Attribute::Dim))?;
+    }
+    if style.add_modifier.contains(Modifier::CROSSED_OUT) {
+        execute!(terminal.backend_mut(), SetAttribute(Attribute::CrossedOut))?;
     }
     Ok(())
 }

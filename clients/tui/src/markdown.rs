@@ -125,19 +125,48 @@ pub(crate) fn render_assistant_markdown(
         }
 
         if let Some((marker, body)) = list_item(trimmed) {
-            let marker_width = display_width(marker) + 1;
+            let indent_width = source.len().saturating_sub(trimmed.len()).min(6);
+            let marker_width = indent_width + display_width(marker) + 1;
+            if let Some(quote) = body.trim_start().strip_prefix("> ") {
+                for (idx, segment) in
+                    wrap_text(quote, content_width.saturating_sub(marker_width + 2).max(1))
+                        .into_iter()
+                        .enumerate()
+                {
+                    let mut spans = Vec::new();
+                    if indent_width > 0 {
+                        spans.push(Span::raw(" ".repeat(indent_width)));
+                    }
+                    if idx == 0 {
+                        spans.push(Span::styled(marker.to_owned(), list_marker_style()));
+                        spans.push(Span::raw(" "));
+                    } else {
+                        spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
+                    }
+                    spans.push(Span::styled("│ ", table_border_style()));
+                    spans.extend(inline_spans(&segment, quote_style()));
+                    push_line(&mut lines, &mut first, prefix, prefix_style, spans);
+                }
+                index += 1;
+                continue;
+            }
+
             for (idx, segment) in wrap_text(body, content_width.saturating_sub(marker_width).max(1))
                 .into_iter()
                 .enumerate()
             {
-                let mut spans = if idx == 0 {
-                    vec![
+                let mut spans = Vec::new();
+                if indent_width > 0 {
+                    spans.push(Span::raw(" ".repeat(indent_width)));
+                }
+                if idx == 0 {
+                    spans.extend([
                         Span::styled(marker.to_owned(), list_marker_style()),
                         Span::raw(" "),
-                    ]
+                    ]);
                 } else {
-                    vec![Span::raw(" ".repeat(marker_width))]
-                };
+                    spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
+                }
                 spans.extend(inline_spans(&segment, Style::default()));
                 push_line(&mut lines, &mut first, prefix, prefix_style, spans);
             }
@@ -458,6 +487,14 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
     let mut rest = text;
 
     while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix('[')
+            && let Some((label, url, consumed)) = parse_link(after)
+        {
+            spans.extend(link_spans(label, url, base));
+            rest = &rest[consumed + 1..];
+            continue;
+        }
+
         if let Some(after) = rest.strip_prefix('`')
             && let Some(end) = after.find('`')
         {
@@ -466,6 +503,39 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
                 inline_code_style().add_modifier(base.add_modifier),
             ));
             rest = &after[end + 1..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix("~~")
+            && let Some(end) = after.find("~~")
+        {
+            spans.extend(inline_spans(
+                &after[..end],
+                base.add_modifier(Modifier::CROSSED_OUT),
+            ));
+            rest = &after[end + 2..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix("***")
+            && let Some(end) = after.find("***")
+        {
+            spans.extend(inline_spans(
+                &after[..end],
+                base.add_modifier(Modifier::BOLD | Modifier::ITALIC),
+            ));
+            rest = &after[end + 3..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix("___")
+            && let Some(end) = after.find("___")
+        {
+            spans.extend(inline_spans(
+                &after[..end],
+                base.add_modifier(Modifier::BOLD | Modifier::ITALIC),
+            ));
+            rest = &after[end + 3..];
             continue;
         }
 
@@ -500,11 +570,31 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
 }
 
 fn next_markup(text: &str) -> Option<usize> {
-    ["`", "**", "*"]
+    ["[", "`", "~~", "***", "___", "**", "*"]
         .into_iter()
         .filter_map(|needle| text.find(needle))
         .filter(|index| *index > 0)
         .min()
+}
+
+fn parse_link(text_after_open: &str) -> Option<(&str, &str, usize)> {
+    let label_end = text_after_open.find("](")?;
+    let url_start = label_end + 2;
+    let url_end = text_after_open[url_start..].find(')')? + url_start;
+    let label = &text_after_open[..label_end];
+    let url = &text_after_open[url_start..url_end];
+    if label.is_empty() || url.is_empty() {
+        return None;
+    }
+    Some((label, url, url_end + 1))
+}
+
+fn link_spans(label: &str, url: &str, base: Style) -> Vec<Span<'static>> {
+    let label_style = link_text_style().add_modifier(base.add_modifier);
+    vec![
+        Span::styled(label.to_owned(), label_style),
+        Span::styled(format!(" ({url})"), link_url_style()),
+    ]
 }
 
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
@@ -591,6 +681,16 @@ fn code_fence_style() -> Style {
 
 fn inline_code_style() -> Style {
     Style::default().fg(Color::Yellow)
+}
+
+fn link_text_style() -> Style {
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED)
+}
+
+fn link_url_style() -> Style {
+    Style::default().fg(Color::DarkGray)
 }
 
 fn table_border_style() -> Style {
@@ -681,6 +781,64 @@ mod tests {
                 .style
                 .add_modifier
                 .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn renders_extended_inline_markdown() {
+        let lines = render_assistant_markdown(
+            "***Жирный курсив*** ~~Зачёркнутый~~ [agent-contracts crate](https://github.com/example/agent-contracts)",
+            "• ",
+            Style::default(),
+            160,
+        );
+
+        let spans = &lines[0].spans;
+        let bold_italic = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "Жирный курсив")
+            .expect("bold italic span");
+        assert!(bold_italic.style.add_modifier.contains(Modifier::BOLD));
+        assert!(bold_italic.style.add_modifier.contains(Modifier::ITALIC));
+
+        let crossed = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "Зачёркнутый")
+            .expect("crossed span");
+        assert!(crossed.style.add_modifier.contains(Modifier::CROSSED_OUT));
+
+        let link = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "agent-contracts crate")
+            .expect("link label");
+        assert_eq!(link.style.fg, Some(Color::Cyan));
+        assert!(link.style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(spans.iter().any(|span| {
+            span.content
+                .contains("https://github.com/example/agent-contracts")
+        }));
+    }
+
+    #[test]
+    fn renders_quote_inside_list_item() {
+        let lines = render_assistant_markdown(
+            "- > Цитата: маленькое ядро важнее быстрого добавления фич",
+            "• ",
+            Style::default(),
+            80,
+        );
+
+        let rendered = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert!(rendered.contains("- │ Цитата"));
+        assert!(
+            lines[0]
+                .spans
+                .iter()
+                .any(|span| span.content.as_ref() == "│ ")
         );
     }
 
