@@ -21,7 +21,10 @@ use std::{
 
 use agent_contracts::{
     app_protocol::{StdioOutput, StdioRequest},
-    domain::{CallId, ToolCall, ToolResult},
+    domain::{
+        CallId, Event as DomainEvent, EventEnvelope, TokenUsageSnapshot, ToolCall, ToolResult,
+        TurnId,
+    },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 use anyhow::{Context, Result};
@@ -978,13 +981,72 @@ async fn resume_session_dir(
     session_dir: PathBuf,
 ) -> Result<()> {
     let history = load_session_history(&session_dir)?;
+    let context_usage = load_session_context_usage(&session_dir, state.cwd())?;
     let mut resumed_config = driver_config.clone();
     resumed_config.resume_session = Some(session_dir.clone());
 
     driver.shutdown().await?;
     *driver = AgentDriver::spawn(resumed_config).await?;
     state.reset_after_resume_with_history(session_dir, history);
+    state.restore_context_usage(context_usage);
     Ok(())
+}
+
+fn load_session_context_usage(
+    session_dir: &Path,
+    cwd: &Path,
+) -> Result<Vec<(TokenUsageSnapshot, Option<TurnId>)>> {
+    let Some(session_id) = read_session_id_string(session_dir)? else {
+        return Ok(Vec::new());
+    };
+    let mut snapshots = Vec::new();
+    for event_log_path in candidate_event_log_paths(cwd) {
+        let content = match std::fs::read_to_string(&event_log_path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read {}", event_log_path.display()));
+            }
+        };
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(envelope) = serde_json::from_str::<EventEnvelope>(line) else {
+                continue;
+            };
+            if envelope.session_id.to_string() != session_id {
+                continue;
+            }
+            if let DomainEvent::TokenUsageUpdated { usage } = envelope.event {
+                snapshots.push((usage, envelope.turn_id));
+            }
+        }
+    }
+    Ok(snapshots)
+}
+
+fn read_session_id_string(session_dir: &Path) -> Result<Option<String>> {
+    let metadata_path = session_dir.join("session.json");
+    let content = match std::fs::read_to_string(&metadata_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", metadata_path.display()));
+        }
+    };
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
+    Ok(value
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned))
+}
+
+fn candidate_event_log_paths(cwd: &Path) -> Vec<PathBuf> {
+    vec![cwd.join(".agent/events.jsonl")]
 }
 
 fn load_session_history(session_dir: &Path) -> Result<Vec<VisualMessage>> {
@@ -1486,6 +1548,61 @@ mod tests {
         assert_eq!(tool.output_preview, "file  a.md");
         assert!(matches!(history[2].role, VisualRole::Assistant));
         assert_eq!(history[2].text, "done");
+    }
+
+    #[test]
+    fn load_session_context_usage_reads_token_events_for_session() {
+        let session_dir = tempfile::tempdir().expect("session dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let session_id = agent_contracts::domain::new_session_id();
+        let other_session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+        std::fs::write(
+            session_dir.path().join("session.json"),
+            serde_json::json!({
+                "schema_version": 1,
+                "session_id": session_id,
+            })
+            .to_string(),
+        )
+        .expect("metadata");
+        let event_dir = cwd.path().join(".agent");
+        std::fs::create_dir(&event_dir).expect("event dir");
+        let wanted = EventEnvelope::new(
+            agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            1,
+            DomainEvent::TokenUsageUpdated {
+                usage: TokenUsageSnapshot::new(
+                    agent_contracts::domain::ModelRef::new("test", "model"),
+                    123,
+                    Vec::new(),
+                ),
+            },
+        );
+        let ignored = EventEnvelope::new(
+            agent_contracts::domain::EventContext::new(other_session_id, thread_id, Some(turn_id)),
+            2,
+            DomainEvent::TokenUsageUpdated {
+                usage: TokenUsageSnapshot::new(
+                    agent_contracts::domain::ModelRef::new("test", "other"),
+                    999,
+                    Vec::new(),
+                ),
+            },
+        );
+        let lines = [ignored, wanted]
+            .into_iter()
+            .map(|event| serde_json::to_string(&event).expect("event json"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(event_dir.join("events.jsonl"), lines).expect("event log");
+
+        let usage = load_session_context_usage(session_dir.path(), cwd.path()).expect("usage");
+
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].0.estimated_input_tokens, 123);
+        assert_eq!(usage[0].1, Some(turn_id));
     }
 
     #[test]

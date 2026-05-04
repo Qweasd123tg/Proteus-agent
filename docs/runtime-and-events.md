@@ -131,9 +131,12 @@ provider billing source of truth.
 
 TUI хранит последний `TokenUsageUpdated`, а также суммирует request-level usage
 по текущему turn и текущей TUI-session. При смене `turn_id` в `EventEnvelope`
-turn totals сбрасываются, session totals продолжают расти. На resume/clear TUI
-сбрасывает локальные totals; восстановление usage totals из event log остаётся
-отдельной задачей.
+turn totals сбрасываются, session totals продолжают расти. На `resume` TUI
+читает `session.json`, находит durable event log рабочего каталога
+(`.agent/events.jsonl`) и восстанавливает старые `TokenUsageUpdated` для этой
+session. Если event log недоступен, `/context` показывает fallback-оценку по
+загруженной `messages.jsonl` истории. На `/clear` локальные totals
+сбрасываются.
 
 ## App Server Boundary
 

@@ -376,6 +376,20 @@ impl AppState {
         self.status = "ready".to_owned();
     }
 
+    pub fn restore_context_usage(
+        &mut self,
+        snapshots: impl IntoIterator<Item = (TokenUsageSnapshot, Option<TurnId>)>,
+    ) {
+        self.token_usage = None;
+        self.usage_turn_id = None;
+        self.turn_usage = UsageTotals::default();
+        self.session_usage = UsageTotals::default();
+        for (usage, turn_id) in snapshots {
+            self.accumulate_token_usage(&usage, turn_id);
+            self.token_usage = Some(usage);
+        }
+    }
+
     pub fn has_context_report(&self) -> bool {
         self.context_report.is_some()
     }
@@ -753,15 +767,23 @@ impl AppState {
                 if let Some(model) = model {
                     self.model_label = format!("{}/{}", model.provider, model.model);
                 }
+                let same_session = match (&session_dir, self.session_dir.as_deref()) {
+                    (Some(next), Some(current)) => next == current,
+                    (None, None) => self.session_label == short_session_id(session_id),
+                    _ => false,
+                };
                 if let Some(session_dir) = session_dir {
                     self.session_label = session_label_from_dir(&session_dir);
                     self.session_dir = Some(session_dir);
                 } else {
                     self.session_label = short_session_id(session_id);
                 }
-                self.usage_turn_id = None;
-                self.turn_usage = UsageTotals::default();
-                self.session_usage = UsageTotals::default();
+                if !same_session {
+                    self.token_usage = None;
+                    self.usage_turn_id = None;
+                    self.turn_usage = UsageTotals::default();
+                    self.session_usage = UsageTotals::default();
+                }
             }
             Event::TaskReceived { .. } => {
                 self.status = "context...".to_owned();
