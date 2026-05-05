@@ -185,6 +185,73 @@ Scope:
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async model slot (`ModelAdapter`) через `FfiFuture` / `FfiStream`.
 
+## Backlog Идей
+
+Этот список фиксирует идеи из рабочих обсуждений. Он не означает, что под
+каждую идею нужен новый slot: сначала применяется `docs/slot-governance.md`,
+затем идея раскладывается на plugin/profile/protocol changes.
+
+### Практическое Качество Агента
+
+- Golden coding profile: один рекомендуемый профиль, который стабильно проходит
+  реальные coding tasks, а не только демонстрирует plugin architecture.
+- Eval harness поверх event log: repo understanding, focused edit, failing test
+  repair, approval/security refusal, long-turn cancel/resume. В отчёте
+  фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
+  changed files, diff size, tests и failure reason.
+- Усилить `coding.plan_execute_review`: phase settings, auto-verify,
+  configurable test runner, compact phase/debug report и настройку token budget
+  по фазам.
+
+### Token / Context Discipline
+
+- Довести `/context` до полноценного budget/debug инструмента: provider totals
+  как source of truth, локальный breakdown как estimate, restore token snapshots
+  после resume и визуальная карта context window.
+- Cursor-like dynamic context discovery держать как research/plugin pack:
+  context/tool descriptions/history/artifacts находятся на диске и читаются по
+  необходимости, а не всегда попадают в prompt.
+- Длинные tool/terminal outputs сохранять как artifacts и возвращать модели
+  краткий summary + path/tail. Черновик живёт в `plugins/tool-output-artifacts`;
+  публичный contract пока не стабилизирован.
+- Исследовать generic `BudgetTracker` / `UsageMeter`, `ArtifactStore` и
+  `ToolResultProcessor`, но добавлять contract только после второго use case.
+
+### Codex-Style Feature Pack
+
+- Сделать экспериментальный profile/pack вместо копирования чужого агента
+  целиком: `Workflow` + `ContextBuilder` + `SearchBackend` + `ToolExposure` +
+  `ApprovalPolicy` + `PatchApplier`.
+- Deferred tool exposure через `ToolExposure`: модель видит минимальный набор
+  tools и может получить дополнительные tools через searchable catalog.
+- Fuzzy file path search как `SearchBackend`/tool provider, без
+  `codex_tool_search` slot.
+- Verified apply_patch preview и diff-first approval через `PatchApplier`,
+  approval transport и events.
+- Exec approval с prefix-rule suggestions через policy/protocol DTO, не через
+  отдельный feature-specific slot.
+
+### TUI / Control Plane
+
+- Продолжать доводить `agent-tui` как внешний client: slash autocomplete,
+  fullscreen `/resume`, `/context` overlay, markdown renderer, paste UX,
+  stopwatch и smooth streaming остаются client concerns.
+- App-server protocol tests для submit, stream, tool call, approval
+  request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
+- Durable task/session metadata и event-log based debugging для UI/evals.
+- Persistent MCP host: reuse server process между calls, но execution всё равно
+  должен проходить через `ToolRegistry`, policy visibility и approval.
+
+### Memory / Skills
+
+- Agent Skills и plugin mentions сначала реализовывать через docs-on-disk,
+  `ContextBuilder`/`context_provider` и tools. `SkillCatalog` нужен только если
+  core должен сам discover/inject skills как stable lifecycle point.
+- Long-term memory consolidation jobs исследовать через `MemoryStore`,
+  `MemoryPolicy` и workflow. Если declarative `MemoryPolicyPlan` станет тесным,
+  вернуться к blueprint в `docs/memory-research.md`: per-call capability +
+  mailbox/background job boundary.
+
 ## Не Делать Сейчас
 
 - marketplace и signed plugins;
