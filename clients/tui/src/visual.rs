@@ -95,20 +95,25 @@ impl VisualSurface {
         } else {
             0
         };
+        let composer_gap_height = composer_gap_height(state);
         let active_status_height = active_status_height(
             state,
-            frame.area().height.saturating_sub(approval_height + 3),
+            frame
+                .area()
+                .height
+                .saturating_sub(approval_height + composer_gap_height + 3),
         );
         let live_height = live_preview_height(
             state,
             frame
                 .area()
                 .height
-                .saturating_sub(approval_height + active_status_height + 3),
+                .saturating_sub(approval_height + active_status_height + composer_gap_height + 3),
         );
         let total_height = approval_height
             .saturating_add(live_height)
             .saturating_add(active_status_height)
+            .saturating_add(composer_gap_height)
             .saturating_add(3)
             .min(frame.area().height);
         let bottom = Rect::new(
@@ -125,6 +130,7 @@ impl VisualSurface {
                 Constraint::Length(approval_height),
                 Constraint::Length(live_height),
                 Constraint::Length(active_status_height),
+                Constraint::Length(composer_gap_height),
                 Constraint::Length(2),
                 Constraint::Length(1),
             ])
@@ -149,14 +155,14 @@ impl VisualSurface {
             );
         }
 
-        self.composer.render(frame, chunks[3], state);
-        self.footer.render(frame, chunks[4], state);
-        self.slash.render(frame, chunks[3], state);
+        self.composer.render(frame, chunks[4], state);
+        self.footer.render(frame, chunks[5], state);
+        self.slash.render(frame, chunks[4], state);
 
-        let cursor_x = chunks[3].x + 2 + state.input.chars().count() as u16;
-        let cursor_y = chunks[3].y;
+        let cursor_x = chunks[4].x + 2 + state.input.chars().count() as u16;
+        let cursor_y = chunks[4].y;
         frame.set_cursor_position(Position::new(
-            cursor_x.min(chunks[3].right().saturating_sub(1)),
+            cursor_x.min(chunks[4].right().saturating_sub(1)),
             cursor_y,
         ));
     }
@@ -200,6 +206,10 @@ pub(crate) fn inline_panel_lines(
         if active_status_visible(state) {
             lines.push(active_status_line(state, true));
         }
+    }
+
+    if composer_gap_visible(state) {
+        lines.push(Line::raw(""));
     }
 
     let composer_start = lines.len();
@@ -459,6 +469,14 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
 
 fn active_status_visible(state: &VisualState<'_>) -> bool {
     state.pending_model && state.pending_approval.is_none()
+}
+
+fn composer_gap_visible(state: &VisualState<'_>) -> bool {
+    state.pending_approval.is_none()
+}
+
+fn composer_gap_height(state: &VisualState<'_>) -> u16 {
+    if composer_gap_visible(state) { 1 } else { 0 }
 }
 
 fn active_status_height(state: &VisualState<'_>, available: u16) -> u16 {
@@ -1351,13 +1369,56 @@ mod tests {
         assert!(rendered[1].contains("responding"));
         assert!(rendered[1].contains("00:12"));
         assert!(rendered[1].contains("↓ 7 tokens"));
-        assert!(rendered[2].starts_with("› "));
+        assert_eq!(rendered[2], "");
+        assert!(rendered[3].starts_with("› "));
         assert!(
             panel.lines[1]
                 .spans
                 .iter()
                 .any(|span| span.content == "00:12" && span.style.fg == Some(Color::Cyan))
         );
+    }
+
+    #[test]
+    fn idle_inline_panel_keeps_gap_above_input() {
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "ready",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            streaming_message: None,
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80, 20);
+        let rendered = panel
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(rendered[0], "");
+        assert!(rendered[1].starts_with("› "));
+        assert_eq!(panel.cursor_row, 1);
     }
 
     #[test]
