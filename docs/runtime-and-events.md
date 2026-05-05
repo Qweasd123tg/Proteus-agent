@@ -276,6 +276,11 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 
 Лимит tool rounds в `coding.single_loop`: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 
+`coding.plan_execute_review` - staged workflow для экспериментов и более
+сложных задач. Quickstart-профиль по умолчанию использует
+`coding.single_loop`, чтобы обычный чат и простые coding-запросы не проходили
+через лишние plan/execute/review model calls.
+
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в
 persistent history и `messages.jsonl`. В историю сохраняются пользовательское

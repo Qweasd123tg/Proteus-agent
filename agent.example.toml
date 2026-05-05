@@ -8,7 +8,7 @@ stream = true
 
 [modules]
 # Provided by the coding-workflow plugin installed by ./install.sh.
-workflow = "coding.plan_execute_review"
+workflow = "coding.single_loop"
 search = "null"
 memory = "none"
 memory_policy = "none"

@@ -64,13 +64,13 @@ agent init full
 directory-based TOML через `agent init`.
 
 `agent.coding.example.toml` - quickstart coding profile: real provider через
-env key, `modules.search = "rg"`, `modules.context = "repo_aware"` и
-полный coding toolset (`search`, `read_file`, `list_dir`, `grep`,
-`apply_patch`, `write_file`, `shell`, `remember_fact`). `rg` приходит из
-плагина `rg-search`, `modules.patch = "direct"` приходит из плагина
-`direct-patch`, `repo_aware` приходит из `context-pack`, файловые tools — из
-`file-tools`, а `shell` — из `shell-tool`, поэтому для этого profile нужен
-`./install.sh`.
+env key, baseline `modules.workflow = "coding.single_loop"`,
+`modules.search = "rg"`, `modules.context = "repo_aware"` и полный coding
+toolset (`search`, `read_file`, `list_dir`, `grep`, `apply_patch`,
+`write_file`, `shell`, `remember_fact`). `rg` приходит из плагина `rg-search`,
+`modules.patch = "direct"` приходит из плагина `direct-patch`, `repo_aware`
+приходит из `context-pack`, файловые tools — из `file-tools`, а `shell` — из
+`shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
 `agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
 `context = "simple"`, `module_config.*` payloads и core tools. `simple`
@@ -143,7 +143,7 @@ Default env vars:
 ```json
 {
   "modules": {
-    "workflow": "coding.plan_execute_review",
+    "workflow": "coding.single_loop",
     "search": "null",
     "memory": "none",
     "memory_policy": "none",
@@ -161,8 +161,9 @@ Default env vars:
 Production workflow больше не живёт в core. `modules.workflow = "none"` —
 только заглушка, поэтому для нормального запуска нужно установить
 workflow-плагин, обычно `coding-workflow`, и выбрать
-`modules.workflow = "coding.plan_execute_review"` или baseline
-`"coding.single_loop"`.
+baseline `modules.workflow = "coding.single_loop"`. Более тяжёлый staged
+workflow `coding.plan_execute_review` лучше включать явно для экспериментов с
+многофазным agent loop.
 
 ## Module Config
 

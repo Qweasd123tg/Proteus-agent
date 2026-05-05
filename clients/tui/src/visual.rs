@@ -95,8 +95,10 @@ impl VisualSurface {
         } else {
             0
         };
-        let active_status_height =
-            active_status_height(state, frame.area().height.saturating_sub(approval_height + 3));
+        let active_status_height = active_status_height(
+            state,
+            frame.area().height.saturating_sub(approval_height + 3),
+        );
         let live_height = live_preview_height(
             state,
             frame
@@ -523,7 +525,10 @@ fn active_status_line(state: &VisualState<'_>, include_spinner: bool) -> Line<'s
             Style::default().fg(Color::Blue),
         ));
     }
-    spans.push(Span::styled(" · esc cancel", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(
+        " · esc cancel",
+        Style::default().fg(Color::DarkGray),
+    ));
     Line::from(spans)
 }
 

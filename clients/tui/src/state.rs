@@ -49,7 +49,6 @@ pub struct AppState {
     model_started_at: Option<Instant>,
     active_turn_id: Option<String>,
     completed_turn_at: Option<Instant>,
-    last_streaming_elapsed_second: Option<u64>,
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
     context_report: Option<String>,
@@ -88,7 +87,6 @@ impl AppState {
             model_started_at: None,
             active_turn_id: None,
             completed_turn_at: None,
-            last_streaming_elapsed_second: None,
             next_turn_index: 0,
             resume_picker: None,
             context_report: None,
@@ -142,15 +140,10 @@ impl AppState {
         let completion_expired = self.clear_completed_status_if_expired();
         let streaming = self.pending_model && self.streaming_assistant_idx.is_some();
         if streaming {
-            let elapsed_second = self.thinking_elapsed().map(|elapsed| elapsed.as_secs());
-            if elapsed_second != self.last_streaming_elapsed_second {
-                self.last_streaming_elapsed_second = elapsed_second;
-                return true;
-            }
-            return completion_expired;
+            self.spinner_index = self.spinner_index.wrapping_add(1);
+            return true;
         }
 
-        self.last_streaming_elapsed_second = None;
         if self.pending_model || self.pending_approval.is_some() {
             self.spinner_index = self.spinner_index.wrapping_add(1);
             true
@@ -468,7 +461,6 @@ impl AppState {
         self.active_turn_id = None;
         self.turn_started_at = None;
         self.model_started_at = None;
-        self.last_streaming_elapsed_second = None;
         self.last_error = None;
         self.status = "resumed".to_owned();
         self.resume_picker = None;
@@ -705,7 +697,6 @@ impl AppState {
         self.model_started_at = None;
         self.active_turn_id = Some(turn_id);
         self.completed_turn_at = None;
-        self.last_streaming_elapsed_second = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.pending_model = true;
@@ -723,7 +714,6 @@ impl AppState {
         self.model_started_at = None;
         self.active_turn_id = None;
         self.completed_turn_at = None;
-        self.last_streaming_elapsed_second = None;
         self.usage_turn_id = None;
         self.status = "cancel requested".to_owned();
         self.messages
@@ -862,6 +852,7 @@ impl AppState {
                 self.status = format!("context ready: {chunks} chunks{tokens}");
             }
             Event::ModelRequestPrepared { model } => {
+                self.discard_streaming_draft();
                 self.model_label = format!("{}/{}", model.provider, model.model);
                 self.model_started_at = Some(Instant::now());
                 self.status = "calling model...".to_owned();
@@ -890,6 +881,7 @@ impl AppState {
                 // показывает стабильный user-facing activity label.
             }
             Event::ToolCallRequested { call } => {
+                self.discard_streaming_draft();
                 self.messages.push(VisualMessage::tool(ToolCard {
                     call_id: call.id.clone(),
                     name: call.name.clone(),
@@ -961,6 +953,20 @@ impl AppState {
         self.scroll_offset = 0;
     }
 
+    fn discard_streaming_draft(&mut self) {
+        let Some(idx) = self.streaming_assistant_idx.take() else {
+            return;
+        };
+        if idx >= self.messages.len() {
+            return;
+        }
+
+        self.messages.remove(idx);
+        if self.scrollback_cursor > idx {
+            self.scrollback_cursor -= 1;
+        }
+    }
+
     fn update_tool_card(&mut self, result: ToolResult) {
         for message in self.messages.iter_mut().rev() {
             if let Some(card) = message.tool.as_mut()
@@ -990,7 +996,6 @@ impl AppState {
             .unwrap_or_default();
         self.turn_started_at = None;
         self.completed_turn_at = Some(Instant::now());
-        self.last_streaming_elapsed_second = None;
         self.status = format!("done · {}", format_duration_short(elapsed));
     }
 
@@ -1618,9 +1623,7 @@ mod tests {
             state.type_char(ch);
         }
 
-        let slash = state
-            .take_input_for_slash_command()
-            .expect("slash command");
+        let slash = state.take_input_for_slash_command().expect("slash command");
         assert_eq!(slash.text, "/cancel");
         assert!(state.input_is_empty());
     }
@@ -1633,7 +1636,10 @@ mod tests {
         state.reject_send_while_busy();
 
         assert_eq!(state.input, "x");
-        assert_eq!(state.visual_state().status, "busy - esc cancels current turn");
+        assert_eq!(
+            state.visual_state().status,
+            "busy - esc cancels current turn"
+        );
     }
 
     #[test]
@@ -1693,6 +1699,56 @@ mod tests {
         assert!(state.visual_state().pending_model);
         assert!(state.visual_state().streaming);
         assert!(state.advance_spinner());
+    }
+
+    #[test]
+    fn next_model_request_discards_transient_streaming_draft() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+        state.mark_user_sent("write".to_owned(), Vec::new(), turn_id.to_string());
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                1,
+                Event::AssistantTextDelta {
+                    text: "draft that should not persist".to_owned(),
+                },
+            ),
+        });
+        assert!(state.visual_state().streaming);
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                2,
+                Event::ModelRequestPrepared {
+                    model: agent_contracts::domain::ModelRef::new("test", "model"),
+                },
+            ),
+        });
+
+        assert!(!state.visual_state().streaming);
+        assert!(
+            state
+                .messages
+                .iter()
+                .all(|message| message.text != "draft that should not persist")
+        );
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("final answer"),
+        });
+
+        let assistant_messages = state
+            .messages
+            .iter()
+            .filter(|message| matches!(message.role, VisualRole::Assistant))
+            .collect::<Vec<_>>();
+        assert_eq!(assistant_messages.len(), 1);
+        assert_eq!(assistant_messages[0].text, "final answer");
     }
 
     #[test]

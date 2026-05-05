@@ -2307,6 +2307,7 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
         model_config.provider_config["api_key_env"],
         "ANTHROPIC_API_KEY"
     );
+    assert_eq!(config.modules.workflow, "coding.single_loop");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.context, "repo_aware");
     assert_eq!(config.tools.enabled, coding_profile_tool_names());

@@ -202,7 +202,9 @@ agent doctor
 Примеры:
 - `agent.example.toml` — safe dev-basic (fake model, null search, без tools).
 - `agent.coding.example.toml` — quickstart для реальной работы
-  (anthropic/openai, repo_aware, rg, полный tool set, ask_write policy).
+  (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
+  tool set, ask_write policy). Более тяжёлый `coding.plan_execute_review`
+  оставлен в `agent.advanced.example.toml`.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
   предпочтительнее `agent init coding` и TOML config dir.
 
