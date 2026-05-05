@@ -603,6 +603,17 @@ impl AppState {
         Some(submission)
     }
 
+    pub fn take_input_for_slash_command(&mut self) -> Option<InputSubmission> {
+        if !self.input.trim_start().starts_with('/') {
+            return None;
+        }
+        self.take_input_for_send()
+    }
+
+    pub fn reject_send_while_busy(&mut self) {
+        self.status = "busy - esc cancels current turn".to_owned();
+    }
+
     pub fn has_slash_suggestions(&self) -> bool {
         !matching_slash_commands(&self.input).is_empty()
     }
@@ -666,7 +677,7 @@ impl AppState {
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.pending_model = true;
-        self.status = "thinking...".to_owned();
+        self.status = "sent".to_owned();
         self.scroll_offset = 0;
     }
 
@@ -805,7 +816,7 @@ impl AppState {
                 }
             }
             Event::TaskReceived { .. } => {
-                self.status = "context...".to_owned();
+                self.status = "request accepted".to_owned();
             }
             Event::ContextBuilt {
                 chunks,
@@ -1502,6 +1513,44 @@ mod tests {
             submission.paste_ranges[0].char_count,
             pasted.chars().count()
         );
+    }
+
+    #[test]
+    fn busy_turn_keeps_normal_input_available_but_allows_slash_take() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.mark_user_sent("first".to_owned(), Vec::new(), "turn-1".to_owned());
+
+        state.type_char('s');
+        state.type_char('e');
+        state.type_char('c');
+        state.type_char('o');
+        state.type_char('n');
+        state.type_char('d');
+
+        assert!(state.take_input_for_slash_command().is_none());
+        assert_eq!(state.input, "second");
+
+        state.clear_input();
+        for ch in "/cancel".chars() {
+            state.type_char(ch);
+        }
+
+        let slash = state
+            .take_input_for_slash_command()
+            .expect("slash command");
+        assert_eq!(slash.text, "/cancel");
+        assert!(state.input_is_empty());
+    }
+
+    #[test]
+    fn reject_send_while_busy_updates_status_without_clearing_input() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.type_char('x');
+
+        state.reject_send_while_busy();
+
+        assert_eq!(state.input, "x");
+        assert_eq!(state.visual_state().status, "busy - esc cancels current turn");
     }
 
     #[test]

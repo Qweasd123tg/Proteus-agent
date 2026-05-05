@@ -222,7 +222,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
         }
     });
 
-    let mut tick = tokio::time::interval(Duration::from_millis(120));
+    let mut tick = tokio::time::interval(Duration::from_millis(500));
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
@@ -544,6 +544,21 @@ async fn handle_term_event(
             match key.code {
                 KeyCode::Enter => {
                     if state.complete_partial_slash_suggestion() {
+                        return Ok(true);
+                    } else if state.pending_model {
+                        if let Some(submission) = state.take_input_for_slash_command() {
+                            handle_slash_command(
+                                state,
+                                driver,
+                                driver_config,
+                                canceled_turn_responses,
+                                cancel_request_responses,
+                                &submission.text,
+                            )
+                            .await?;
+                        } else if !state.input_is_empty() {
+                            state.reject_send_while_busy();
+                        }
                         return Ok(true);
                     } else if let Some(submission) = state.take_input_for_send() {
                         if submission.text.starts_with('/') {
