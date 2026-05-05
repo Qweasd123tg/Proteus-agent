@@ -7,7 +7,7 @@ use agent_contracts::app_protocol::AppApprovalRequest;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
@@ -19,6 +19,10 @@ use crate::{
 };
 
 const STATUS_MARKER: &str = "•";
+
+fn muted_style() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
 
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
@@ -232,7 +236,7 @@ pub(crate) fn inline_panel_lines(
     }
     lines.push(Line::from(Span::styled(
         footer_plain_line(state, width),
-        Style::default().fg(Color::DarkGray),
+        muted_style(),
     )));
 
     InlinePanelLines {
@@ -255,15 +259,12 @@ struct SlashComponent;
 impl VisualComponent for ComposerComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
         let input = if state.input.is_empty() && !state.pending_model {
-            Span::styled(
-                "Ask agent to do anything",
-                Style::default().fg(Color::DarkGray),
-            )
+            Span::styled("Ask agent to do anything", muted_style())
         } else {
             Span::raw(state.input.to_owned())
         };
         let prompt = if state.pending_approval.is_some() {
-            Span::styled("?", Style::default().fg(Color::DarkGray))
+            Span::styled("?", muted_style())
         } else {
             Span::styled("›", Style::default().fg(Color::Cyan))
         };
@@ -274,7 +275,7 @@ impl VisualComponent for ComposerComponent {
 
 fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>, usize, usize) {
     let prompt = if state.pending_approval.is_some() {
-        Span::styled("?", Style::default().fg(Color::DarkGray))
+        Span::styled("?", muted_style())
     } else {
         Span::styled("›", Style::default().fg(Color::Cyan))
     };
@@ -286,10 +287,7 @@ fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>,
             vec![Line::from(vec![
                 prompt,
                 Span::raw(" "),
-                Span::styled(
-                    "Ask agent to do anything",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled("Ask agent to do anything", muted_style()),
             ])],
             0,
             prompt_width,
@@ -442,10 +440,7 @@ impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
         let line = footer_plain_line(state, area.width as usize);
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                line,
-                Style::default().fg(Color::DarkGray),
-            ))),
+            Paragraph::new(Line::from(Span::styled(line, muted_style()))),
             area,
         );
     }
@@ -551,10 +546,10 @@ fn append_live_preview_message_lines(
     let (prefix, style) = match message.role {
         VisualRole::User => ("› ", Style::default().fg(Color::Cyan)),
         VisualRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
-        VisualRole::Draft => ("◦ draft ", Style::default().fg(Color::DarkGray)),
-        VisualRole::System => ("  ", Style::default().fg(Color::DarkGray)),
+        VisualRole::Draft => ("◦ draft ", muted_style()),
+        VisualRole::System => ("  ", muted_style()),
         VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
-        VisualRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
+        VisualRole::Tool => ("  ", muted_style()),
     };
     if message.text.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -628,39 +623,30 @@ fn append_plain_preview_text(
 fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
     let label = activity_label(state);
     let mut spans = Vec::new();
-    spans.push(Span::styled("+ ", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled("+ ", muted_style()));
     if include_marker {
-        spans.push(Span::styled(
-            STATUS_MARKER.to_owned(),
-            Style::default().fg(Color::DarkGray),
-        ));
+        spans.push(Span::styled(STATUS_MARKER.to_owned(), muted_style()));
         spans.push(Span::raw(" "));
     }
-    spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(label, muted_style()));
     if let Some(elapsed) = state.thinking_elapsed {
-        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled(
-            format_elapsed(elapsed),
-            Style::default().fg(Color::DarkGray),
-        ));
+        spans.push(Span::styled(" · ", muted_style()));
+        spans.push(Span::styled(format_elapsed(elapsed), muted_style()));
     }
     if let Some(tokens) = state.active_output_tokens.filter(|tokens| *tokens > 0) {
-        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(" · ", muted_style()));
         spans.push(Span::styled(
             format!("↓ {}", format_token_count(tokens)),
-            Style::default().fg(Color::DarkGray),
+            muted_style(),
         ));
     } else if let Some(tokens) = state.active_context_tokens.filter(|tokens| *tokens > 0) {
-        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(" · ", muted_style()));
         spans.push(Span::styled(
             format!("ctx {}", format_token_count(tokens)),
-            Style::default().fg(Color::DarkGray),
+            muted_style(),
         ));
     }
-    spans.push(Span::styled(
-        " · esc cancel",
-        Style::default().fg(Color::DarkGray),
-    ));
+    spans.push(Span::styled(" · esc cancel", muted_style()));
     Line::from(spans)
 }
 
@@ -1073,10 +1059,10 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
     let (prefix, style) = match message.role {
         VisualRole::User => ("› ", Style::default().fg(Color::Cyan)),
         VisualRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
-        VisualRole::Draft => ("◦ draft ", Style::default().fg(Color::DarkGray)),
-        VisualRole::System => ("  ", Style::default().fg(Color::DarkGray)),
+        VisualRole::Draft => ("◦ draft ", muted_style()),
+        VisualRole::System => ("  ", muted_style()),
         VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
-        VisualRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
+        VisualRole::Tool => ("  ", muted_style()),
     };
 
     let text_width = width.saturating_sub(prefix.chars().count()).max(1);
@@ -1151,18 +1137,8 @@ pub(crate) fn render_scrollback_header(
 
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
     let (marker, marker_style, label, label_style) = match card.status {
-        ToolStatus::Running => (
-            "•",
-            Style::default().fg(Color::DarkGray),
-            "Running",
-            Style::default().fg(Color::DarkGray),
-        ),
-        ToolStatus::Ok => (
-            "•",
-            Style::default().fg(Color::DarkGray),
-            "Ran",
-            Style::default().fg(Color::Reset),
-        ),
+        ToolStatus::Running => ("•", muted_style(), "Running", muted_style()),
+        ToolStatus::Ok => ("•", muted_style(), "Ran", Style::default().fg(Color::Reset)),
         ToolStatus::Err => (
             "✗",
             Style::default().fg(Color::Red),
@@ -1183,8 +1159,8 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
             for segment in wrap_text(raw, preview_width) {
                 let prefix = if first_output_line { "  └ " } else { "    " };
                 lines.push(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
-                    Span::styled(segment, Style::default().fg(Color::DarkGray)),
+                    Span::styled(prefix, muted_style()),
+                    Span::styled(segment, muted_style()),
                 ]));
                 first_output_line = false;
             }
@@ -1232,7 +1208,7 @@ fn append_approval_lines(
     let text_width = width.saturating_sub(4).max(1);
 
     lines.push(Line::from(vec![
-        Span::styled("? ", Style::default().fg(Color::DarkGray)),
+        Span::styled("? ", muted_style()),
         Span::styled(
             "Would you like to allow this tool call?",
             Style::default().fg(Color::Reset),
@@ -1241,25 +1217,25 @@ fn append_approval_lines(
     lines.push(Line::from(vec![
         Span::raw("  tool: "),
         Span::styled(request.call.name.clone(), Style::default().fg(Color::Reset)),
-        Span::styled(format!(" · {safety}"), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" · {safety}"), muted_style()),
     ]));
     lines.push(Line::from(vec![
         Span::raw("  cwd:  "),
         Span::styled(
             truncate(request.cwd.display().to_string(), text_width),
-            Style::default().fg(Color::DarkGray),
+            muted_style(),
         ),
     ]));
     for seg in wrap_text(&format!("reason: {}", request.reason), text_width) {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(seg, Style::default().fg(Color::DarkGray)),
+            Span::styled(seg, muted_style()),
         ]));
     }
     for seg in wrap_text(&format!("args: {args}"), text_width) {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(seg, Style::default().fg(Color::DarkGray)),
+            Span::styled(seg, muted_style()),
         ]));
     }
     lines.push(Line::from(vec![
@@ -1454,7 +1430,8 @@ mod tests {
         let lines = render_scrollback_message(&VisualMessage::draft("Internal `plan`."), 80);
 
         assert_eq!(lines[0].spans[0].content.as_ref(), "◦ draft ");
-        assert_eq!(lines[0].spans[0].style.fg, Some(Color::DarkGray));
+        assert_eq!(lines[0].spans[0].style.fg, None);
+        assert!(lines[0].spans[0].style.add_modifier.contains(Modifier::DIM));
         assert_eq!(lines[0].spans[2].content.as_ref(), "plan");
         assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
     }
@@ -1550,7 +1527,9 @@ mod tests {
             panel.lines[2]
                 .spans
                 .iter()
-                .any(|span| span.content == "00:12" && span.style.fg == Some(Color::DarkGray))
+                .any(|span| span.content == "00:12"
+                    && span.style.fg.is_none()
+                    && span.style.add_modifier.contains(Modifier::DIM))
         );
     }
 
@@ -1577,6 +1556,14 @@ mod tests {
         assert_eq!(lines[0], "• Ran uname -sr");
         assert_eq!(lines[1], "  └ Linux 6.19.9");
         assert_eq!(lines[2], "    extra");
+
+        let styled_lines = render_scrollback_message(&message, 80);
+        assert!(
+            styled_lines[1].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::DIM)
+        );
     }
 
     #[test]
