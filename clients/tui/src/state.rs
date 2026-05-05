@@ -17,7 +17,7 @@ use agent_contracts::{
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::{is_exact_slash_command, matching_slash_commands},
-    visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualState},
+    visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualRole, VisualState},
 };
 
 const TURN_COMPLETED_STATUS_TTL: Duration = Duration::from_secs(8);
@@ -280,7 +280,7 @@ impl AppState {
                 crate::visual::VisualRole::User => {
                     user.add_text(&message.text);
                 }
-                crate::visual::VisualRole::Assistant => {
+                crate::visual::VisualRole::Assistant | crate::visual::VisualRole::Draft => {
                     assistant.add_text(&message.text);
                 }
                 crate::visual::VisualRole::System => {
@@ -852,7 +852,7 @@ impl AppState {
                 self.status = format!("context ready: {chunks} chunks{tokens}");
             }
             Event::ModelRequestPrepared { model } => {
-                self.discard_streaming_draft();
+                self.mark_streaming_draft();
                 self.model_label = format!("{}/{}", model.provider, model.model);
                 self.model_started_at = Some(Instant::now());
                 self.status = "calling model...".to_owned();
@@ -953,17 +953,12 @@ impl AppState {
         self.scroll_offset = 0;
     }
 
-    fn discard_streaming_draft(&mut self) {
+    fn mark_streaming_draft(&mut self) {
         let Some(idx) = self.streaming_assistant_idx.take() else {
             return;
         };
-        if idx >= self.messages.len() {
-            return;
-        }
-
-        self.messages.remove(idx);
-        if self.scrollback_cursor > idx {
-            self.scrollback_cursor -= 1;
+        if let Some(message) = self.messages.get_mut(idx) {
+            message.role = VisualRole::Draft;
         }
     }
 
@@ -1706,7 +1701,7 @@ mod tests {
     }
 
     #[test]
-    fn next_model_request_discards_transient_streaming_draft() {
+    fn next_model_request_marks_transient_streaming_draft() {
         let mut state = AppState::new(PathBuf::from("."), None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
@@ -1718,7 +1713,7 @@ mod tests {
                 agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 1,
                 Event::AssistantTextDelta {
-                    text: "draft that should not persist".to_owned(),
+                    text: "internal draft".to_owned(),
                 },
             ),
         });
@@ -1735,12 +1730,13 @@ mod tests {
         });
 
         assert!(!state.visual_state().streaming);
-        assert!(
-            state
-                .messages
-                .iter()
-                .all(|message| message.text != "draft that should not persist")
-        );
+        let draft_messages = state
+            .messages
+            .iter()
+            .filter(|message| matches!(message.role, VisualRole::Draft))
+            .collect::<Vec<_>>();
+        assert_eq!(draft_messages.len(), 1);
+        assert_eq!(draft_messages[0].text, "internal draft");
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("final answer"),

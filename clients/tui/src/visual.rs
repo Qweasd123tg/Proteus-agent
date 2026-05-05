@@ -823,6 +823,16 @@ impl VisualMessage {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn draft(text: impl Into<String>) -> Self {
+        Self {
+            role: VisualRole::Draft,
+            text: text.into(),
+            paste_ranges: Vec::new(),
+            tool: None,
+        }
+    }
+
     pub(crate) fn system(text: impl Into<String>) -> Self {
         Self {
             role: VisualRole::System,
@@ -855,6 +865,7 @@ impl VisualMessage {
 pub(crate) enum VisualRole {
     User,
     Assistant,
+    Draft,
     System,
     Error,
     Tool,
@@ -930,6 +941,7 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
     let (prefix, style) = match message.role {
         VisualRole::User => ("› ", Style::default().fg(Color::Cyan)),
         VisualRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
+        VisualRole::Draft => ("◦ draft ", Style::default().fg(Color::DarkGray)),
         VisualRole::System => ("  ", Style::default().fg(Color::DarkGray)),
         VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
         VisualRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
@@ -944,7 +956,7 @@ fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage,
         return;
     }
 
-    if matches!(message.role, VisualRole::Assistant) {
+    if matches!(message.role, VisualRole::Assistant | VisualRole::Draft) {
         lines.extend(crate::markdown::render_assistant_markdown(
             &message.text,
             prefix,
@@ -1239,6 +1251,16 @@ mod tests {
 
         assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
         assert_eq!(lines[0].spans[2].content.as_ref(), "cargo test");
+        assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn draft_message_is_labeled_and_muted_but_keeps_markdown() {
+        let lines = render_scrollback_message(&VisualMessage::draft("Internal `plan`."), 80);
+
+        assert_eq!(lines[0].spans[0].content.as_ref(), "◦ draft ");
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::DarkGray));
+        assert_eq!(lines[0].spans[2].content.as_ref(), "plan");
         assert_eq!(lines[0].spans[2].style.fg, Some(Color::Yellow));
     }
 
