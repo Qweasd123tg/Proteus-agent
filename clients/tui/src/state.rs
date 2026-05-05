@@ -41,7 +41,6 @@ pub struct AppState {
     input_paste_ranges: Vec<InputPasteRange>,
     quit_armed: bool,
     spinner_index: usize,
-    scroll_offset: usize,
     pending_approval: Option<AppApprovalRequest>,
     streaming_assistant_idx: Option<usize>,
     last_error: Option<String>,
@@ -79,7 +78,6 @@ impl AppState {
             input_paste_ranges: Vec::new(),
             quit_armed: false,
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             streaming_assistant_idx: None,
             last_error: None,
@@ -110,7 +108,6 @@ impl AppState {
             footer: &self.footer,
             status: &self.status,
             spinner_index: self.spinner_index,
-            scroll_offset: self.scroll_offset,
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
             streaming: self.streaming_assistant_idx.is_some(),
@@ -429,11 +426,11 @@ impl AppState {
     }
 
     pub fn scroll_context_report_up(&mut self, by: usize) {
-        self.context_report_scroll = self.context_report_scroll.saturating_add(by);
+        self.context_report_scroll = self.context_report_scroll.saturating_sub(by);
     }
 
     pub fn scroll_context_report_down(&mut self, by: usize) {
-        self.context_report_scroll = self.context_report_scroll.saturating_sub(by);
+        self.context_report_scroll = self.context_report_scroll.saturating_add(by);
     }
 
     pub fn clear_transcript(&mut self) {
@@ -475,7 +472,6 @@ impl AppState {
             session_dir.display()
         )));
         self.messages.append(&mut history);
-        self.scroll_offset = 0;
         self.scrollback_cursor = 0;
     }
 
@@ -701,7 +697,6 @@ impl AppState {
         self.turn_usage = UsageTotals::default();
         self.pending_model = true;
         self.status = "sent".to_owned();
-        self.scroll_offset = 0;
     }
 
     pub fn active_turn_id(&self) -> Option<&str> {
@@ -718,18 +713,6 @@ impl AppState {
         self.status = "cancel requested".to_owned();
         self.messages
             .push(VisualMessage::system("Turn cancel requested."));
-    }
-
-    pub fn scroll_up(&mut self, by: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_add(by);
-    }
-
-    pub fn scroll_down(&mut self, by: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(by);
-    }
-
-    pub fn scroll_to_bottom(&mut self) {
-        self.scroll_offset = 0;
     }
 
     pub fn drain_scrollback_messages(&mut self) -> Vec<VisualMessage> {
@@ -950,7 +933,6 @@ impl AppState {
                 self.streaming_assistant_idx = Some(self.messages.len() - 1);
             }
         }
-        self.scroll_offset = 0;
     }
 
     fn mark_streaming_draft(&mut self) {
@@ -1862,6 +1844,20 @@ mod tests {
         state.close_context_report();
         assert!(!state.has_context_report());
         assert!(!state.has_fullscreen_overlay());
+    }
+
+    #[test]
+    fn context_report_scroll_down_increases_offset_and_up_decreases_it() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+
+        state.scroll_context_report_down(8);
+        assert_eq!(state.context_report_scroll, 8);
+
+        state.scroll_context_report_up(3);
+        assert_eq!(state.context_report_scroll, 5);
+
+        state.scroll_context_report_up(99);
+        assert_eq!(state.context_report_scroll, 0);
     }
 
     #[test]

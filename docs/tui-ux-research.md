@@ -7,6 +7,13 @@ TUI без протаскивания visual logic в core.
 
 ## Короткий Вывод
 
+Основной эталон для технической архитектуры TUI - Codex. Он ближе всего к
+нашему Rust/ratatui стеку и уже решает те же проблемы: retained frame diff,
+active streaming cell, bottom pane, paste-burst и approval views. Claude Code и
+OpenCode оставляем как UX-ориентиры для `/context`, permission flows, slash
+ranking, themes и dialog details, но они не должны размывать базовую TUI
+архитектуру.
+
 Проблема не в отдельных цветах или отступах. У зрелых TUI есть отдельные
 state machines для terminal frame, composer, streaming, paste, dialogs,
 footer/status и resize. У нас сейчас гибрид:
@@ -242,6 +249,9 @@ streaming лучше один из вариантов:
 ## Очередь Работ
 
 ### Phase 0 - Stop The Bleeding
+
+Первый заход уже должен идти строго в Codex-направлении: стабилизировать
+terminal surface и active streaming view, не меняя core protocol.
 
 - Убрать fake transcript scroll hints или реально применить `scroll_offset`.
 - Заменить relative inline diff на bottom-anchored full clear/redraw block.

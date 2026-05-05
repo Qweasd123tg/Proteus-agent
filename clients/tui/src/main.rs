@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{MoveDown, MoveTo, MoveToColumn, MoveUp},
+    cursor::{MoveTo, MoveToColumn},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -602,43 +602,29 @@ async fn handle_term_event(
                         state.move_slash_selection_prev();
                         return Ok(true);
                     }
-                    state.scroll_up(5);
-                    return Ok(true);
                 }
                 KeyCode::PageDown => {
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_next();
                         return Ok(true);
                     }
-                    state.scroll_down(5);
-                    return Ok(true);
                 }
-                // Wheel scroll через alternate-scroll mode приходит как
-                // Up/Down arrows. Ловим и скроллим транскрипт на 1 строку.
                 KeyCode::Up => {
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_prev();
                         return Ok(true);
                     }
-                    state.scroll_up(1);
-                    return Ok(true);
                 }
                 KeyCode::Down => {
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_next();
                         return Ok(true);
                     }
-                    state.scroll_down(1);
-                    return Ok(true);
                 }
                 KeyCode::Right => {
                     if state.complete_slash_suggestion() {
                         return Ok(true);
                     }
-                }
-                KeyCode::End => {
-                    state.scroll_to_bottom();
-                    return Ok(true);
                 }
                 KeyCode::Esc => {
                     if state.pending_model
@@ -756,9 +742,8 @@ fn flush_scrollback_messages(
 
 #[derive(Clone, Default)]
 struct InlinePanelLayout {
+    top: u16,
     height: u16,
-    cursor_row: u16,
-    lines: Vec<ratatui::text::Line<'static>>,
 }
 
 fn draw_inline_panel(
@@ -773,7 +758,7 @@ fn draw_inline_panel(
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
     let cursor_col = panel.cursor_col;
-    let max_lines = size.height.saturating_sub(1) as usize;
+    let max_lines = size.height.max(1) as usize;
     if lines.len() > max_lines {
         let drained = lines.len() - max_lines;
         lines.drain(0..drained);
@@ -781,47 +766,39 @@ fn draw_inline_panel(
     }
 
     let panel_height = lines.len() as u16;
-    if previous.height > 0 && previous.cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(previous.cursor_row))?;
+    let panel_top = size.height.saturating_sub(panel_height);
+    let previous_bottom = previous.top.saturating_add(previous.height).min(size.height);
+    let next_bottom = panel_top.saturating_add(panel_height).min(size.height);
+    let clear_top = if previous.height == 0 {
+        panel_top
+    } else {
+        previous.top.min(panel_top)
+    };
+    let clear_bottom = previous_bottom.max(next_bottom);
+
+    for y in clear_top..clear_bottom {
+        queue!(
+            terminal.backend_mut(),
+            MoveTo(0, y),
+            TerminalClear(ClearType::CurrentLine)
+        )?;
     }
 
-    let rows_to_touch = previous.height.max(panel_height) as usize;
-    for row in 0..rows_to_touch {
-        let next = lines.get(row);
-        let old = previous.lines.get(row);
-        if next != old {
-            queue!(
-                terminal.backend_mut(),
-                MoveToColumn(0),
-                TerminalClear(ClearType::CurrentLine)
-            )?;
-            if let Some(line) = next {
-                write_terminal_line_without_newline(terminal, line, width)?;
-            }
-        }
-        if row + 1 < rows_to_touch {
-            if row + 1 >= previous.height as usize {
-                queue!(terminal.backend_mut(), Print("\r\n"))?;
-            } else {
-                queue!(terminal.backend_mut(), MoveDown(1))?;
-            }
-        }
+    for (row, line) in lines.iter().enumerate() {
+        queue!(terminal.backend_mut(), MoveTo(0, panel_top + row as u16))?;
+        write_terminal_line_without_newline(terminal, line, width)?;
     }
 
     let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
-    let current_row = rows_to_touch.saturating_sub(1) as u16;
-    if current_row > cursor_row {
-        queue!(terminal.backend_mut(), MoveUp(current_row - cursor_row))?;
-    }
     queue!(
         terminal.backend_mut(),
+        MoveTo(0, panel_top + cursor_row),
         MoveToColumn(cursor_col.min(width.saturating_sub(1)) as u16)
     )?;
     terminal.backend_mut().flush()?;
     Ok(InlinePanelLayout {
+        top: panel_top,
         height: panel_height,
-        cursor_row,
-        lines,
     })
 }
 
@@ -829,12 +806,12 @@ fn clear_inline_panel(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     layout: &InlinePanelLayout,
 ) -> Result<()> {
-    if layout.cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
+    if layout.height == 0 {
+        return Ok(());
     }
     queue!(
         terminal.backend_mut(),
-        MoveToColumn(0),
+        MoveTo(0, layout.top),
         TerminalClear(ClearType::FromCursorDown)
     )?;
     Ok(())
@@ -1688,7 +1665,7 @@ mod tests {
     }
 
     #[test]
-    fn handled_key_events_include_repeat_for_wheel_scroll() {
+    fn handled_key_events_include_repeat_events() {
         assert!(is_handled_key_event(KeyEventKind::Press));
         assert!(is_handled_key_event(KeyEventKind::Repeat));
         assert!(!is_handled_key_event(KeyEventKind::Release));

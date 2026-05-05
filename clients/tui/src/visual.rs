@@ -29,7 +29,6 @@ pub(crate) struct VisualState<'a> {
     pub footer: &'a str,
     pub status: &'a str,
     pub spinner_index: usize,
-    pub scroll_offset: usize,
     pub pending_approval: Option<&'a AppApprovalRequest>,
     pub pending_model: bool,
     pub streaming: bool,
@@ -469,8 +468,6 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
         "type search · enter resume · esc close · up/down select".to_owned()
     } else if !matching_slash_commands(state.input).is_empty() {
         "enter/tab complete · up/down select · enter run exact".to_owned()
-    } else if state.scroll_offset > 0 {
-        "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
         "turn running · esc cancel".to_owned()
     } else if let Some(done) = state.status.strip_prefix("done") {
@@ -533,11 +530,60 @@ fn live_preview_lines(
 ) -> Vec<Line<'static>> {
     if let Some(message) = state.streaming_message {
         let mut body = Vec::new();
-        append_message_lines(&mut body, message, width);
+        append_live_preview_message_lines(&mut body, message, width);
         return tail_lines(body, max_lines.max(1));
     }
 
     Vec::new()
+}
+
+fn append_live_preview_message_lines(
+    lines: &mut Vec<Line<'static>>,
+    message: &VisualMessage,
+    width: usize,
+) {
+    if matches!(message.role, VisualRole::Tool) {
+        if let Some(card) = &message.tool {
+            append_tool_card_lines(lines, card, width);
+        }
+        return;
+    }
+
+    let (prefix, style) = match message.role {
+        VisualRole::User => ("› ", Style::default().fg(Color::Cyan)),
+        VisualRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
+        VisualRole::Draft => ("◦ draft ", Style::default().fg(Color::DarkGray)),
+        VisualRole::System => ("  ", Style::default().fg(Color::DarkGray)),
+        VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
+        VisualRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
+    };
+    let text_width = width.saturating_sub(prefix.chars().count()).max(1);
+
+    if message.text.is_empty() {
+        lines.push(Line::from(Span::styled(
+            prefix.trim_end().to_owned(),
+            style,
+        )));
+        return;
+    }
+
+    let mut first_segment = true;
+    for source_line in message.text.lines() {
+        let segments = wrap_text(source_line, text_width);
+        if segments.is_empty() {
+            lines.push(Line::raw(""));
+            continue;
+        }
+
+        for segment in segments {
+            let line_prefix = if first_segment { prefix } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(line_prefix.to_owned(), style),
+                Span::styled(segment, style),
+            ]));
+            first_segment = false;
+        }
+    }
 }
 
 fn active_status_line(state: &VisualState<'_>, include_spinner: bool) -> Line<'static> {
@@ -1271,7 +1317,6 @@ mod tests {
             footer: "",
             status: "ready",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,
@@ -1327,7 +1372,6 @@ mod tests {
             footer: "",
             status: "calling model...",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1368,7 +1412,6 @@ mod tests {
             footer: "enter send",
             status: "calling model...",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1421,7 +1464,6 @@ mod tests {
             footer: "enter send",
             status: "ready",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,
@@ -1467,7 +1509,6 @@ mod tests {
             footer: "",
             status: "calling model...",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1495,6 +1536,56 @@ mod tests {
     }
 
     #[test]
+    fn streaming_inline_preview_keeps_markdown_raw_until_final_message() {
+        let messages = vec![VisualMessage::assistant("Use `cargo test` and **ship**.")];
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "",
+            status: "calling model...",
+            spinner_index: 0,
+            pending_approval: None,
+            pending_model: true,
+            streaming: true,
+            streaming_message: messages.first(),
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80, 20);
+        let rendered = panel
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(rendered[0].contains("`cargo test`"));
+        assert!(rendered[0].contains("**ship**"));
+
+        let final_lines = render_scrollback_message(messages.first().unwrap(), 80);
+        assert!(
+            final_lines[0]
+                .spans
+                .iter()
+                .any(|span| span.content.as_ref() == "cargo test"
+                    && span.style.fg == Some(Color::Yellow))
+        );
+    }
+
+    #[test]
     fn idle_footer_makes_recent_completion_explicit() {
         let state = VisualState {
             model: "test/model",
@@ -1505,7 +1596,6 @@ mod tests {
             footer: "enter send",
             status: "done · 7s",
             spinner_index: 0,
-            scroll_offset: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,
