@@ -18,7 +18,7 @@ use crate::{
     slash_commands::{SlashCommand, matching_slash_commands},
 };
 
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const STATUS_MARKER: &str = "•";
 
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
@@ -28,7 +28,6 @@ pub(crate) struct VisualState<'a> {
     pub input_paste_ranges: &'a [InputPasteRange],
     pub footer: &'a str,
     pub status: &'a str,
-    pub spinner_index: usize,
     pub pending_approval: Option<&'a AppApprovalRequest>,
     pub pending_model: bool,
     pub streaming: bool,
@@ -626,13 +625,13 @@ fn append_plain_preview_text(
     }
 }
 
-fn active_status_line(state: &VisualState<'_>, include_spinner: bool) -> Line<'static> {
+fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
     let label = activity_label(state);
     let mut spans = Vec::new();
     spans.push(Span::styled("+ ", Style::default().fg(Color::Yellow)));
-    if include_spinner {
+    if include_marker {
         spans.push(Span::styled(
-            SPINNER[state.spinner_index % SPINNER.len()].to_owned(),
+            STATUS_MARKER.to_owned(),
             Style::default().fg(Color::Yellow),
         ));
         spans.push(Span::raw(" "));
@@ -1153,7 +1152,7 @@ pub(crate) fn render_scrollback_header(
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
     let (glyph, glyph_style, name_style) = match card.status {
         ToolStatus::Running => (
-            "⠋",
+            STATUS_MARKER,
             Style::default().fg(Color::Yellow),
             Style::default().fg(Color::Yellow),
         ),
@@ -1356,7 +1355,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "",
             status: "ready",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,
@@ -1411,7 +1409,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "",
             status: "calling model...",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1451,7 +1448,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "enter send",
             status: "calling model...",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1494,6 +1490,44 @@ mod tests {
     }
 
     #[test]
+    fn active_status_uses_stable_marker_instead_of_braille_animation() {
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "calling model...",
+            pending_approval: None,
+            pending_model: true,
+            streaming: false,
+            streaming_message: None,
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: Some(Duration::from_secs(12)),
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let line = active_status_line(&state, true);
+        let rendered = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(rendered.starts_with("+ • working"));
+        assert!(
+            !rendered
+                .chars()
+                .any(|ch| ('\u{2800}'..='\u{28ff}').contains(&ch))
+        );
+    }
+
+    #[test]
     fn idle_inline_panel_keeps_gap_above_input() {
         let state = VisualState {
             model: "test/model",
@@ -1503,7 +1537,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "enter send",
             status: "ready",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,
@@ -1545,7 +1578,6 @@ mod tests {
                 input_paste_ranges: &[],
                 footer: "enter send",
                 status: "ready",
-                spinner_index: 0,
                 pending_approval: None,
                 pending_model: false,
                 streaming: false,
@@ -1584,7 +1616,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "",
             status: "calling model...",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1624,7 +1655,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "",
             status: "calling model...",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: true,
             streaming: true,
@@ -1692,7 +1722,6 @@ mod tests {
             input_paste_ranges: &[],
             footer: "enter send",
             status: "done · 7s",
-            spinner_index: 0,
             pending_approval: None,
             pending_model: false,
             streaming: false,

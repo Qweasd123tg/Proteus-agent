@@ -1,4 +1,4 @@
-//! Состояние TUI: транскрипт, input, spinner, pending approval.
+//! Состояние TUI: транскрипт, input, activity status, pending approval.
 //!
 //! Не зависит от ratatui/crossterm — чистая бизнес-логика обработки
 //! `AppServerEvent`'ов.
@@ -40,7 +40,6 @@ pub struct AppState {
     input: String,
     input_paste_ranges: Vec<InputPasteRange>,
     quit_armed: bool,
-    spinner_index: usize,
     pending_approval: Option<AppApprovalRequest>,
     streaming_assistant_idx: Option<usize>,
     last_error: Option<String>,
@@ -77,7 +76,6 @@ impl AppState {
             input: String::new(),
             input_paste_ranges: Vec::new(),
             quit_armed: false,
-            spinner_index: 0,
             pending_approval: None,
             streaming_assistant_idx: None,
             last_error: None,
@@ -107,7 +105,6 @@ impl AppState {
             input_paste_ranges: &self.input_paste_ranges,
             footer: &self.footer,
             status: &self.status,
-            spinner_index: self.spinner_index,
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
             streaming: self.streaming_assistant_idx.is_some(),
@@ -133,16 +130,14 @@ impl AppState {
         &self.cwd
     }
 
-    pub fn advance_spinner(&mut self) -> bool {
+    pub fn advance_activity_status(&mut self) -> bool {
         let completion_expired = self.clear_completed_status_if_expired();
         let streaming = self.pending_model && self.streaming_assistant_idx.is_some();
         if streaming {
-            self.spinner_index = self.spinner_index.wrapping_add(1);
             return true;
         }
 
         if self.pending_model || self.pending_approval.is_some() {
-            self.spinner_index = self.spinner_index.wrapping_add(1);
             true
         } else {
             completion_expired
@@ -1673,7 +1668,7 @@ mod tests {
     }
 
     #[test]
-    fn spinner_tick_redraws_while_text_is_streaming() {
+    fn activity_tick_redraws_while_text_is_streaming() {
         let mut state = AppState::new(PathBuf::from("."), None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
@@ -1692,7 +1687,7 @@ mod tests {
 
         assert!(state.visual_state().pending_model);
         assert!(state.visual_state().streaming);
-        assert!(state.advance_spinner());
+        assert!(state.advance_activity_status());
     }
 
     #[test]

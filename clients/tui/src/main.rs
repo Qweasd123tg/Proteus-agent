@@ -60,7 +60,7 @@ use crate::{
 };
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
-const SPINNER_INTERVAL: Duration = Duration::from_millis(200);
+const ACTIVITY_STATUS_INTERVAL: Duration = Duration::from_millis(200);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -227,8 +227,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
 
     let mut frame_tick = tokio::time::interval(FRAME_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut spinner_tick = tokio::time::interval(SPINNER_INTERVAL);
-    spinner_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut activity_status_tick = tokio::time::interval(ACTIVITY_STATUS_INTERVAL);
+    activity_status_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
@@ -352,8 +352,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                 }
             }
 
-            _ = spinner_tick.tick() => {
-                if state.advance_spinner() {
+            _ = activity_status_tick.tick() => {
+                if state.advance_activity_status() {
                     dirty = true;
                 }
             }
