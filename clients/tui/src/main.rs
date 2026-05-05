@@ -176,7 +176,8 @@ fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
         out,
         EnableBracketedPaste,
         MoveTo(0, 0),
-        TerminalClear(ClearType::All)
+        TerminalClear(ClearType::All),
+        TerminalClear(ClearType::Purge)
     )?;
     let backend = CrosstermBackend::new(out);
     Ok(Terminal::new(backend)?)
@@ -665,7 +666,8 @@ fn reset_normal_screen(
     execute!(
         terminal.backend_mut(),
         MoveTo(0, 0),
-        TerminalClear(ClearType::All)
+        TerminalClear(ClearType::All),
+        TerminalClear(ClearType::Purge)
     )?;
     state.rewind_scrollback();
     *header_printed = false;

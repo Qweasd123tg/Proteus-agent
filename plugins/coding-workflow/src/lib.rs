@@ -315,9 +315,11 @@ fn run_plan_execute_review(
 
         let finish_reason = response.finish_reason.clone();
         model_messages.push(response.message.clone());
-        persistent_messages.push(response.message.clone());
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
+        if should_run_tools {
+            persistent_messages.push(response.message.clone());
+        }
         if !should_run_tools {
             draft_finish_reason = Some(finish_reason);
             tool_round_limit_reached = false;
@@ -1083,7 +1085,18 @@ mod tests {
             output.output.metadata["phases"],
             json!(["plan", "execute", "review"])
         );
-        assert_eq!(output.messages.len(), 3);
+        let persisted = output
+            .messages
+            .iter()
+            .map(|message| (message.role.clone(), message_text(message)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            persisted,
+            vec![
+                (MessageRole::User, "change code".to_owned()),
+                (MessageRole::Assistant, "final".to_owned()),
+            ]
+        );
         assert!(
             output
                 .messages
