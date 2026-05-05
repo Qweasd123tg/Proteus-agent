@@ -732,6 +732,18 @@ impl AppState {
         drained
     }
 
+    pub fn has_pending_scrollback_messages(&self) -> bool {
+        self.messages
+            .get(self.scrollback_cursor)
+            .is_some_and(|message| {
+                is_scrollback_stable_message(
+                    self.scrollback_cursor,
+                    message,
+                    self.streaming_assistant_idx,
+                )
+            })
+    }
+
     pub fn rewind_scrollback(&mut self) {
         self.scrollback_cursor = 0;
     }

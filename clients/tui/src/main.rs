@@ -696,12 +696,13 @@ fn redraw(
                 *picker_alt_screen = false;
                 *inline_panel = InlinePanelLayout::default();
             }
-            let flushed_scrollback =
-                flush_scrollback_messages(terminal, state, scrollback_header_printed)?;
-            if flushed_scrollback && inline_panel.height > 0 {
+            let will_flush_scrollback =
+                !*scrollback_header_printed || state.has_pending_scrollback_messages();
+            if will_flush_scrollback && inline_panel.height > 0 {
                 clear_inline_panel(terminal, inline_panel)?;
                 *inline_panel = InlinePanelLayout::default();
             }
+            flush_scrollback_messages(terminal, state, scrollback_header_printed)?;
             *inline_panel = draw_inline_panel(terminal, state, inline_panel)?;
         }
         Ok(())
