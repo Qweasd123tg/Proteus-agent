@@ -28,17 +28,17 @@ tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
-# Core-resident slot facade tools. File I/O (read_file/write_file/list_dir/grep) comes from the
-# file-tools plugin and shell from the shell-tool plugin — install those plugins into
-# ~/.agent/plugins/ and add their names here to enable them.
-enabled = ["apply_patch", "remember_fact", "search"]
+# Full local coding toolset. File I/O comes from file-tools, shell comes from
+# shell-tool, and search/apply_patch/remember_fact are core slot facade tools.
+# Run ./install.sh before using this profile so plugin tools are registered.
+enabled = ["search", "read_file", "list_dir", "grep", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-ask_before = ["apply_patch", "remember_fact"]
-allow = ["search"]
+allow = ["search", "read_file", "list_dir", "grep"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]

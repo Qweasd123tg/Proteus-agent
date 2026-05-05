@@ -106,6 +106,8 @@ cargo build --workspace
 cargo run --bin modular-agent
 # или single turn
 cargo run --bin modular-agent -- "describe the project layout"
+# создать пользовательский config profile в default config dir
+cargo run --bin modular-agent -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin modular-agent -- doctor
 ```
@@ -118,6 +120,9 @@ cargo run --bin modular-agent -- doctor
 ### TUI клиент
 
 ```bash
+./install.sh
+agent init coding
+agent doctor
 agent-tui \
   --agent-bin ~/.local/bin/agent \
   --config ~/.config/agent-qweasd123tg/configs \
@@ -176,7 +181,9 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 
 ```bash
 ./install.sh
-# добавляет ~/.local/bin/agent с cd + cargo run --bin modular-agent
+# добавляет ~/.local/bin/agent и ~/.local/bin/agent-tui wrapper'ы
+agent init coding
+agent doctor
 ```
 
 ## Конфигурация
@@ -196,7 +203,8 @@ cargo run --bin modular-agent -- --config agent.coding.example.toml tools list
 - `agent.example.toml` — safe dev-basic (fake model, null search, без tools).
 - `agent.coding.example.toml` — quickstart для реальной работы
   (anthropic/openai, repo_aware, rg, полный tool set, ask_write policy).
-- `config.example.json` — JSON-вариант.
+- `config.example.json` — JSON-вариант/schema surface; для обычной работы
+  предпочтительнее `agent init coding` и TOML config dir.
 
 Полная schema, provider profiles, secrets, tools и renderers в
 [docs/configuration.md](docs/configuration.md).

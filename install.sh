@@ -41,6 +41,7 @@ done
 echo "Installed: ${bin_path}"
 echo "Installed: ${tui_bin_path}"
 echo "Plugins:   ${plugins_dir}"
+echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":\${PATH}:" in
   *:"${bin_dir}":*) ;;
   *) echo "Add this to your shell config if needed: export PATH=\"${bin_dir}:\\\$PATH\"" ;;

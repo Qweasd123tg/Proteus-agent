@@ -27,8 +27,14 @@ cargo run --bin modular-agent -- --permission-mode normal summarize project
 Диагностика окружения без запуска turn'а:
 
 ```bash
+cargo run --bin modular-agent -- init coding
 cargo run --bin modular-agent -- doctor
 ```
+
+`init [coding|full|safe]` создаёт TOML profile в default config dir
+(`~/.config/agent-qweasd123tg/configs`) или в путь, переданный через
+`--config`. `coding` и `full` включают real-provider coding profile с
+plugin tools после `./install.sh`, `safe` использует fake model.
 
 `doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
 module ids, активный model provider, наличие секрета провайдера, внешние
@@ -97,6 +103,13 @@ event
 ```
 
 `EventEmitter` создаёт envelope один раз перед fan-out, поэтому durable JSONL log и live sinks получают один и тот же `event_id`, `seq` и timestamp для одного logical event. `turn_id = null` используется для событий уровня session, например `SessionStarted`. Это событие несёт `session_id`, `cwd`, а также startup metadata для клиентов: активную `model` и `session_dir`, если session store подключён.
+
+По умолчанию `event_log.persist_deltas = false`: streaming delta events
+(`AssistantTextDelta`, `AssistantToolArgsDelta`, `AssistantReasoningDelta`)
+не пишутся в durable JSONL, но продолжают идти в live broadcast sinks для UI.
+Envelope создаётся до фильтрации, поэтому durable log может иметь
+non-contiguous `seq`. `seq` относится к полному runtime event stream, а не
+только к persisted subset.
 
 Ключевые события текущего workflow:
 

@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::Command,
@@ -22,6 +23,9 @@ use modular_agent::{
 };
 use serde_json::Value;
 use tokio::time::sleep;
+
+const CODING_PROFILE_CONFIG: &str = include_str!("../../../agent.coding.example.toml");
+const SAFE_PROFILE_CONFIG: &str = include_str!("../../../agent.example.toml");
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "CLI-first modular agent skeleton")]
@@ -64,6 +68,9 @@ impl From<CliPermissionMode> for PermissionMode {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(profile) = parse_init_command(&cli.task)? {
+        return run_init(profile, cli.config.as_deref());
+    }
     if is_modules_list_command(&cli.task) {
         let mut catalog = BuiltinModuleCatalog::new();
         let plugin_reports = modular_agent::core::default_plugins_dir()
@@ -153,6 +160,89 @@ fn is_app_server_stdio_command(task: &[String]) -> bool {
 
 fn is_doctor_command(task: &[String]) -> bool {
     matches!(task, [command] if command == "doctor")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InitProfile {
+    Coding,
+    Full,
+    Safe,
+}
+
+impl InitProfile {
+    fn config_name(self) -> &'static str {
+        match self {
+            Self::Coding => "coding",
+            Self::Full => "full",
+            Self::Safe => "safe",
+        }
+    }
+
+    fn file_stem(self) -> &'static str {
+        match self {
+            Self::Coding => "coding",
+            Self::Full => "full",
+            Self::Safe => "safe",
+        }
+    }
+
+    fn config_body(self) -> &'static str {
+        match self {
+            Self::Coding | Self::Full => CODING_PROFILE_CONFIG,
+            Self::Safe => SAFE_PROFILE_CONFIG,
+        }
+    }
+}
+
+fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {
+    match task {
+        [command] if command == "init" => Ok(Some(InitProfile::Coding)),
+        [command, profile] if command == "init" => match profile.as_str() {
+            "coding" => Ok(Some(InitProfile::Coding)),
+            "full" => Ok(Some(InitProfile::Full)),
+            "safe" => Ok(Some(InitProfile::Safe)),
+            other => bail!("unknown init profile '{other}', expected coding, full, or safe"),
+        },
+        [command, ..] if command == "init" => {
+            bail!("usage: agent init [coding|full|safe]")
+        }
+        _ => Ok(None),
+    }
+}
+
+fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> {
+    let config_path = explicit_config
+        .map(Path::to_path_buf)
+        .or_else(AppConfig::default_user_config_path)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve default config path"))?;
+    let destination = init_destination_path(&config_path, profile);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&destination, profile.config_body())?;
+
+    println!(
+        "Initialized {} profile: {}",
+        profile.config_name(),
+        destination.display()
+    );
+    println!("Next: agent doctor");
+    Ok(())
+}
+
+fn init_destination_path(config_path: &Path, profile: InitProfile) -> PathBuf {
+    if is_config_file_path(config_path) {
+        config_path.to_path_buf()
+    } else {
+        config_path.join(format!("10-{}.toml", profile.file_stem()))
+    }
+}
+
+fn is_config_file_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("toml" | "json")
+    )
 }
 
 async fn run_doctor(
@@ -1293,6 +1383,32 @@ mod tests {
             "tools".to_owned(),
             "doctor".to_owned()
         ]));
+    }
+
+    #[test]
+    fn init_command_defaults_to_coding_profile() {
+        assert_eq!(
+            parse_init_command(&["init".to_owned()]).unwrap(),
+            Some(InitProfile::Coding)
+        );
+        assert_eq!(
+            parse_init_command(&["init".to_owned(), "safe".to_owned()]).unwrap(),
+            Some(InitProfile::Safe)
+        );
+        assert!(parse_init_command(&["init".to_owned(), "bad".to_owned()]).is_err());
+        assert_eq!(parse_init_command(&["doctor".to_owned()]).unwrap(), None);
+    }
+
+    #[test]
+    fn init_destination_uses_config_file_or_profile_file_in_dir() {
+        assert_eq!(
+            init_destination_path(Path::new("/tmp/config.toml"), InitProfile::Coding),
+            PathBuf::from("/tmp/config.toml")
+        );
+        assert_eq!(
+            init_destination_path(Path::new("/tmp/configs"), InitProfile::Safe),
+            PathBuf::from("/tmp/configs/10-safe.toml")
+        );
     }
 
     #[test]
