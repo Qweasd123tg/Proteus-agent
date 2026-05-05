@@ -283,6 +283,19 @@ fn standard_tool_names() -> Vec<&'static str> {
     names
 }
 
+fn coding_profile_tool_names() -> Vec<&'static str> {
+    vec![
+        "search",
+        "read_file",
+        "list_dir",
+        "grep",
+        "apply_patch",
+        "write_file",
+        "shell",
+        "remember_fact",
+    ]
+}
+
 #[test]
 fn builtin_module_catalog_lists_builtin_slots() {
     let catalog = BuiltinModuleCatalog::new();
@@ -2296,7 +2309,7 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
     );
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.context, "repo_aware");
-    assert_eq!(config.tools.enabled, standard_tool_names());
+    assert_eq!(config.tools.enabled, coding_profile_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 
     let repo_aware = config.module_config_value(ModuleKind::Context, "repo_aware");

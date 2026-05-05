@@ -424,6 +424,8 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
         "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
         active_turn_line(state, false)
+    } else if let Some(done) = state.status.strip_prefix("done") {
+        format!("✓ done{} · enter send", done)
     } else {
         state.status.to_owned()
     }
@@ -490,6 +492,8 @@ fn activity_label(state: &VisualState<'_>) -> String {
         status.to_owned()
     } else if status == "cancel requested" {
         "canceling".to_owned()
+    } else if status == "finishing" {
+        "finishing".to_owned()
     } else {
         "working".to_owned()
     }
@@ -1251,6 +1255,32 @@ mod tests {
 
         assert!(rendered.contains("streaming answer"));
         assert!(!rendered.contains("later status"));
+    }
+
+    #[test]
+    fn idle_footer_makes_recent_completion_explicit() {
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "done · 7s",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            streaming_message: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        assert_eq!(footer_left_text(&state), "✓ done · 7s · enter send");
     }
 
     #[test]

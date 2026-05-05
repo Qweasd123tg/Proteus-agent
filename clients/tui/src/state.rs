@@ -20,6 +20,8 @@ use crate::{
     visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualState},
 };
 
+const TURN_COMPLETED_STATUS_TTL: Duration = Duration::from_secs(8);
+
 pub(crate) struct InputSubmission {
     pub text: String,
     pub paste_ranges: Vec<InputPasteRange>,
@@ -46,6 +48,7 @@ pub struct AppState {
     turn_started_at: Option<Instant>,
     model_started_at: Option<Instant>,
     active_turn_id: Option<String>,
+    completed_turn_at: Option<Instant>,
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
     context_report: Option<String>,
@@ -83,6 +86,7 @@ impl AppState {
             turn_started_at: None,
             model_started_at: None,
             active_turn_id: None,
+            completed_turn_at: None,
             next_turn_index: 0,
             resume_picker: None,
             context_report: None,
@@ -126,13 +130,14 @@ impl AppState {
     }
 
     pub fn advance_spinner(&mut self) -> bool {
+        let completion_expired = self.clear_completed_status_if_expired();
         if (self.pending_model && self.streaming_assistant_idx.is_none())
             || self.pending_approval.is_some()
         {
             self.spinner_index = self.spinner_index.wrapping_add(1);
             true
         } else {
-            false
+            completion_expired
         }
     }
 
@@ -518,6 +523,7 @@ impl AppState {
 
     pub fn type_char(&mut self, ch: char) {
         self.input.push(ch);
+        self.clear_completed_status();
         self.quit_armed = false;
         self.clamp_slash_selection();
     }
@@ -526,6 +532,7 @@ impl AppState {
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         let start = self.input.len();
         self.input.push_str(&normalized);
+        self.clear_completed_status();
         if is_large_paste(&normalized) {
             self.input_paste_ranges.push(InputPasteRange {
                 start,
@@ -549,6 +556,7 @@ impl AppState {
         } else {
             self.input.pop();
         }
+        self.clear_completed_status();
         self.quit_armed = false;
         self.clamp_slash_selection();
     }
@@ -557,6 +565,7 @@ impl AppState {
         self.input.clear();
         self.input_paste_ranges.clear();
         self.slash_selection = 0;
+        self.clear_completed_status();
         self.quit_armed = false;
     }
 
@@ -676,6 +685,7 @@ impl AppState {
         self.turn_started_at = Some(now);
         self.model_started_at = None;
         self.active_turn_id = Some(turn_id);
+        self.completed_turn_at = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.pending_model = true;
@@ -692,6 +702,7 @@ impl AppState {
         self.turn_started_at = None;
         self.model_started_at = None;
         self.active_turn_id = None;
+        self.completed_turn_at = None;
         self.usage_turn_id = None;
         self.status = "cancel requested".to_owned();
         self.messages
@@ -754,11 +765,10 @@ impl AppState {
                 }
                 self.streaming_assistant_idx = None;
                 self.pending_model = false;
-                self.turn_started_at = None;
+                self.mark_turn_completed();
                 self.model_started_at = None;
                 self.active_turn_id = None;
                 self.usage_turn_id = None;
-                self.status = "ready".to_owned();
             }
             AppServerEvent::ApprovalRequested { request } => {
                 self.model_started_at = None;
@@ -775,6 +785,7 @@ impl AppState {
                 self.turn_started_at = None;
                 self.model_started_at = None;
                 self.active_turn_id = None;
+                self.completed_turn_at = None;
                 self.usage_turn_id = None;
                 self.status = "error".to_owned();
             }
@@ -873,7 +884,15 @@ impl AppState {
                 // AppServerEvent::TurnOutput, чтобы не дублировать (TurnFinished
                 // в runtime слое и TurnOutput в app-server слое несут один и
                 // тот же текст).
-                self.status = "ready".to_owned();
+                if self.pending_model && self.streaming_assistant_idx.is_none() {
+                    self.mark_turn_completed();
+                    self.pending_model = false;
+                    self.model_started_at = None;
+                    self.active_turn_id = None;
+                    self.usage_turn_id = None;
+                } else if self.pending_model {
+                    self.status = "finishing".to_owned();
+                }
             }
             Event::MemoryWritten { kind } => {
                 self.status = format!("memory: {kind}");
@@ -943,6 +962,37 @@ impl AppState {
             .map(|started_at| started_at.elapsed())
     }
 
+    fn mark_turn_completed(&mut self) {
+        let elapsed = self
+            .turn_started_at
+            .map(|started_at| started_at.elapsed())
+            .unwrap_or_default();
+        self.turn_started_at = None;
+        self.completed_turn_at = Some(Instant::now());
+        self.status = format!("done · {}", format_duration_short(elapsed));
+    }
+
+    fn clear_completed_status_if_expired(&mut self) -> bool {
+        let Some(completed_at) = self.completed_turn_at else {
+            return false;
+        };
+        if completed_at.elapsed() < TURN_COMPLETED_STATUS_TTL {
+            return false;
+        }
+        self.completed_turn_at = None;
+        if self.status.starts_with("done") {
+            self.status = "ready".to_owned();
+            return true;
+        }
+        false
+    }
+
+    fn clear_completed_status(&mut self) {
+        if self.completed_turn_at.take().is_some() && self.status.starts_with("done") {
+            self.status = "ready".to_owned();
+        }
+    }
+
     fn clamp_slash_selection(&mut self) {
         let count = matching_slash_commands(&self.input).len();
         if count == 0 {
@@ -950,6 +1000,15 @@ impl AppState {
         } else {
             self.slash_selection = self.slash_selection.min(count - 1);
         }
+    }
+}
+
+fn format_duration_short(duration: Duration) -> String {
+    let secs = duration.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m{}s", secs / 60, secs % 60)
     }
 }
 
@@ -1585,6 +1644,10 @@ mod tests {
         assert_eq!(assistant_messages.len(), 1);
         assert_eq!(assistant_messages[0].text, "canonical final");
         assert!(!state.visual_state().streaming);
+        assert!(state.visual_state().status.starts_with("done · "));
+
+        state.type_char('n');
+        assert_eq!(state.visual_state().status, "ready");
     }
 
     #[test]
