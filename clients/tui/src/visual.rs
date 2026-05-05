@@ -423,10 +423,7 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     } else if state.scroll_offset > 0 {
         "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
-        match state.thinking_elapsed {
-            Some(elapsed) => format!("{} · {}", state.status, format_elapsed(elapsed)),
-            None => state.status.to_owned(),
-        }
+        active_turn_line(state, false)
     } else {
         state.status.to_owned()
     }
@@ -458,22 +455,44 @@ fn live_status_lines(
 
     if state.pending_model {
         return vec![Line::from(vec![
-            Span::styled("• ", Style::default().fg(Color::Yellow)),
+            Span::styled("+ ", Style::default().fg(Color::Yellow)),
             Span::styled(
-                format!(
-                    "{} Working {}(esc to interrupt)",
-                    SPINNER[state.spinner_index % SPINNER.len()],
-                    state
-                        .thinking_elapsed
-                        .map(|elapsed| format!("{} ", format_elapsed(elapsed)))
-                        .unwrap_or_default()
-                ),
+                active_turn_line(state, true),
                 Style::default().fg(Color::Yellow),
             ),
         ])];
     }
 
     Vec::new()
+}
+
+fn active_turn_line(state: &VisualState<'_>, include_spinner: bool) -> String {
+    let label = activity_label(state);
+    let mut parts = Vec::new();
+    if include_spinner {
+        parts.push(SPINNER[state.spinner_index % SPINNER.len()].to_owned());
+    }
+    parts.push(label);
+    if let Some(elapsed) = state.thinking_elapsed {
+        parts.push(format_elapsed(elapsed));
+    }
+    parts.push("esc cancel".to_owned());
+    parts.join(" · ")
+}
+
+fn activity_label(state: &VisualState<'_>) -> String {
+    let status = state.status.trim();
+    if status == "sent" {
+        "sent".to_owned()
+    } else if status == "request accepted" || status.starts_with("context") {
+        "preparing".to_owned()
+    } else if status.starts_with("tool:") {
+        status.to_owned()
+    } else if status == "cancel requested" {
+        "canceling".to_owned()
+    } else {
+        "working".to_owned()
+    }
 }
 
 fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {

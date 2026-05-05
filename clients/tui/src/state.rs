@@ -852,8 +852,8 @@ impl AppState {
             }
             Event::AssistantReasoningDelta { .. } => {
                 // Reasoning пока не рендерим отдельным slot'ом — будет
-                // отдельной фичей. Дельты пока игнорируем, но сам статус
-                // показывает "calling model..." что информативно.
+                // отдельной фичей. Дельты пока игнорируем; нижний индикатор
+                // показывает стабильный user-facing activity label.
             }
             Event::ToolCallRequested { call } => {
                 self.messages.push(VisualMessage::tool(ToolCard {

@@ -222,7 +222,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
         }
     });
 
-    let mut tick = tokio::time::interval(Duration::from_millis(500));
+    let mut tick = tokio::time::interval(Duration::from_millis(200));
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
