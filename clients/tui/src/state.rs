@@ -978,8 +978,8 @@ impl AppState {
     }
 
     fn thinking_elapsed(&self) -> Option<Duration> {
-        self.model_started_at
-            .or(self.turn_started_at)
+        self.turn_started_at
+            .or(self.model_started_at)
             .map(|started_at| started_at.elapsed())
     }
 
@@ -1693,6 +1693,20 @@ mod tests {
         assert!(state.visual_state().pending_model);
         assert!(state.visual_state().streaming);
         assert!(state.advance_spinner());
+    }
+
+    #[test]
+    fn active_turn_elapsed_uses_whole_turn_not_current_model_phase() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.turn_started_at = Some(Instant::now() - Duration::from_secs(12));
+        state.model_started_at = Some(Instant::now());
+
+        let elapsed = state
+            .visual_state()
+            .thinking_elapsed
+            .expect("active elapsed");
+
+        assert!(elapsed >= Duration::from_secs(11));
     }
 
     #[test]

@@ -95,12 +95,18 @@ impl VisualSurface {
         } else {
             0
         };
+        let active_status_height =
+            active_status_height(state, frame.area().height.saturating_sub(approval_height + 3));
         let live_height = live_preview_height(
             state,
-            frame.area().height.saturating_sub(approval_height + 3),
+            frame
+                .area()
+                .height
+                .saturating_sub(approval_height + active_status_height + 3),
         );
         let total_height = approval_height
             .saturating_add(live_height)
+            .saturating_add(active_status_height)
             .saturating_add(3)
             .min(frame.area().height);
         let bottom = Rect::new(
@@ -116,6 +122,7 @@ impl VisualSurface {
             .constraints([
                 Constraint::Length(approval_height),
                 Constraint::Length(live_height),
+                Constraint::Length(active_status_height),
                 Constraint::Length(2),
                 Constraint::Length(1),
             ])
@@ -129,18 +136,25 @@ impl VisualSurface {
 
         if live_height > 0 {
             let live_lines =
-                live_status_lines(state, chunks[1].width as usize, live_height as usize);
+                live_preview_lines(state, chunks[1].width as usize, live_height as usize);
             frame.render_widget(Paragraph::new(live_lines), chunks[1]);
         }
 
-        self.composer.render(frame, chunks[2], state);
-        self.footer.render(frame, chunks[3], state);
-        self.slash.render(frame, chunks[2], state);
+        if active_status_height > 0 {
+            frame.render_widget(
+                Paragraph::new(vec![active_status_line(state, true)]),
+                chunks[2],
+            );
+        }
 
-        let cursor_x = chunks[2].x + 2 + state.input.chars().count() as u16;
-        let cursor_y = chunks[2].y;
+        self.composer.render(frame, chunks[3], state);
+        self.footer.render(frame, chunks[4], state);
+        self.slash.render(frame, chunks[3], state);
+
+        let cursor_x = chunks[3].x + 2 + state.input.chars().count() as u16;
+        let cursor_y = chunks[3].y;
         frame.set_cursor_position(Position::new(
-            cursor_x.min(chunks[2].right().saturating_sub(1)),
+            cursor_x.min(chunks[3].right().saturating_sub(1)),
             cursor_y,
         ));
     }
@@ -177,8 +191,13 @@ pub(crate) fn inline_panel_lines(
         let mut approval_lines = Vec::new();
         append_approval_lines(&mut approval_lines, request, width);
         lines.extend(approval_lines);
-    } else if state.streaming || state.pending_model {
-        lines.extend(live_status_lines(state, width, max_live_lines));
+    } else {
+        if state.streaming {
+            lines.extend(live_preview_lines(state, width, max_live_lines));
+        }
+        if active_status_visible(state) {
+            lines.push(active_status_line(state, true));
+        }
     }
 
     let composer_start = lines.len();
@@ -398,8 +417,7 @@ fn paste_marker_style() -> Style {
 
 impl VisualComponent for FooterComponent {
     fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
-        let left = footer_left_text(state);
-        let line = truncate(format!("  {left}    {}", state.footer), area.width as usize);
+        let line = footer_plain_line(state, area.width as usize);
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 line,
@@ -412,7 +430,11 @@ impl VisualComponent for FooterComponent {
 
 fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
     let left = footer_left_text(state);
-    truncate(format!("  {left}    {}", state.footer), width)
+    if state.pending_model || state.pending_approval.is_some() {
+        truncate(format!("  {left}"), width)
+    } else {
+        truncate(format!("  {left}    {}", state.footer), width)
+    }
 }
 
 fn footer_left_text(state: &VisualState<'_>) -> String {
@@ -425,11 +447,23 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     } else if state.scroll_offset > 0 {
         "end to bottom · page up/down scroll".to_owned()
     } else if state.pending_model {
-        active_turn_line(state, false)
+        "turn running · esc cancel".to_owned()
     } else if let Some(done) = state.status.strip_prefix("done") {
         format!("✓ done{} · enter send", done)
     } else {
         state.status.to_owned()
+    }
+}
+
+fn active_status_visible(state: &VisualState<'_>) -> bool {
+    state.pending_model && state.pending_approval.is_none()
+}
+
+fn active_status_height(state: &VisualState<'_>, available: u16) -> u16 {
+    if active_status_visible(state) {
+        1.min(available)
+    } else {
+        0
     }
 }
 
@@ -440,13 +474,10 @@ fn live_preview_height(state: &VisualState<'_>, available: u16) -> u16 {
     if state.streaming {
         return available.max(1);
     }
-    if state.pending_model {
-        return 1.min(available);
-    }
     0
 }
 
-fn live_status_lines(
+fn live_preview_lines(
     state: &VisualState<'_>,
     width: usize,
     max_lines: usize,
@@ -454,49 +485,46 @@ fn live_status_lines(
     if let Some(message) = state.streaming_message {
         let mut body = Vec::new();
         append_message_lines(&mut body, message, width);
-        let mut lines = vec![Line::from(vec![
-            Span::styled("+ ", Style::default().fg(Color::Yellow)),
-            Span::styled(
-                active_turn_line(state, false),
-                Style::default().fg(Color::Yellow),
-            ),
-        ])];
-        if max_lines > 1 {
-            lines.extend(tail_lines(body, max_lines.saturating_sub(1).max(1)));
-        }
-        return lines;
-    }
-
-    if state.pending_model {
-        return vec![Line::from(vec![
-            Span::styled("+ ", Style::default().fg(Color::Yellow)),
-            Span::styled(
-                active_turn_line(state, true),
-                Style::default().fg(Color::Yellow),
-            ),
-        ])];
+        return tail_lines(body, max_lines.max(1));
     }
 
     Vec::new()
 }
 
-fn active_turn_line(state: &VisualState<'_>, include_spinner: bool) -> String {
+fn active_status_line(state: &VisualState<'_>, include_spinner: bool) -> Line<'static> {
     let label = activity_label(state);
-    let mut parts = Vec::new();
+    let mut spans = Vec::new();
+    spans.push(Span::styled("+ ", Style::default().fg(Color::Yellow)));
     if include_spinner {
-        parts.push(SPINNER[state.spinner_index % SPINNER.len()].to_owned());
+        spans.push(Span::styled(
+            SPINNER[state.spinner_index % SPINNER.len()].to_owned(),
+            Style::default().fg(Color::Yellow),
+        ));
+        spans.push(Span::raw(" "));
     }
-    parts.push(label);
+    spans.push(Span::styled(label, Style::default().fg(Color::Yellow)));
     if let Some(elapsed) = state.thinking_elapsed {
-        parts.push(format_elapsed(elapsed));
+        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format_elapsed(elapsed),
+            Style::default().fg(Color::Cyan),
+        ));
     }
     if let Some(tokens) = state.active_output_tokens.filter(|tokens| *tokens > 0) {
-        parts.push(format!("↓ {}", format_token_count(tokens)));
+        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!("↓ {}", format_token_count(tokens)),
+            Style::default().fg(Color::Blue),
+        ));
     } else if let Some(tokens) = state.active_context_tokens.filter(|tokens| *tokens > 0) {
-        parts.push(format!("ctx {}", format_token_count(tokens)));
+        spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!("ctx {}", format_token_count(tokens)),
+            Style::default().fg(Color::Blue),
+        ));
     }
-    parts.push("esc cancel".to_owned());
-    parts.join(" · ")
+    spans.push(Span::styled(" · esc cancel", Style::default().fg(Color::DarkGray)));
+    Line::from(spans)
 }
 
 fn activity_label(state: &VisualState<'_>) -> String {
@@ -1250,8 +1278,59 @@ mod tests {
         assert!(rendered.contains("line 30"));
         assert!(rendered.contains("responding"));
         assert!(rendered.contains("↓ 42 tokens"));
-        assert!(rendered.contains("line 12"));
-        assert!(!rendered.contains("line 11"));
+        assert!(rendered.contains("line 11"));
+        assert!(!rendered.contains("line 10"));
+    }
+
+    #[test]
+    fn active_status_renders_between_streaming_preview_and_input() {
+        let messages = vec![VisualMessage::assistant("streaming answer")];
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "calling model...",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: true,
+            streaming: true,
+            streaming_message: messages.first(),
+            active_context_tokens: None,
+            active_output_tokens: Some(7),
+            thinking_elapsed: Some(Duration::from_secs(12)),
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80, 20);
+        let rendered = panel
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(rendered[0], "• streaming answer");
+        assert!(rendered[1].contains("responding"));
+        assert!(rendered[1].contains("00:12"));
+        assert!(rendered[1].contains("↓ 7 tokens"));
+        assert!(rendered[2].starts_with("› "));
+        assert!(
+            panel.lines[1]
+                .spans
+                .iter()
+                .any(|span| span.content == "00:12" && span.style.fg == Some(Color::Cyan))
+        );
     }
 
     #[test]
