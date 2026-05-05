@@ -557,8 +557,6 @@ fn append_live_preview_message_lines(
         VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
         VisualRole::Tool => ("  ", Style::default().fg(Color::DarkGray)),
     };
-    let text_width = width.saturating_sub(prefix.chars().count()).max(1);
-
     if message.text.is_empty() {
         lines.push(Line::from(Span::styled(
             prefix.trim_end().to_owned(),
@@ -567,8 +565,50 @@ fn append_live_preview_message_lines(
         return;
     }
 
+    if matches!(message.role, VisualRole::Assistant | VisualRole::Draft) {
+        let (stable_text, tail_text) = split_live_markdown_text(&message.text);
+        if !stable_text.is_empty() {
+            lines.extend(crate::markdown::render_assistant_markdown(
+                stable_text,
+                prefix,
+                style,
+                width,
+            ));
+        }
+        if !tail_text.is_empty() {
+            append_plain_preview_text(
+                lines,
+                tail_text,
+                if stable_text.is_empty() { prefix } else { "  " },
+                style,
+                width,
+            );
+        }
+        return;
+    }
+
+    append_plain_preview_text(lines, &message.text, prefix, style, width);
+}
+
+fn split_live_markdown_text(text: &str) -> (&str, &str) {
+    if text.ends_with('\n') {
+        return (text, "");
+    }
+    text.rfind('\n')
+        .map(|index| text.split_at(index + 1))
+        .unwrap_or(("", text))
+}
+
+fn append_plain_preview_text(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    prefix: &str,
+    style: Style,
+    width: usize,
+) {
     let mut first_segment = true;
-    for source_line in message.text.lines() {
+    let text_width = width.saturating_sub(prefix.chars().count()).max(1);
+    for source_line in text.lines() {
         let segments = wrap_text(source_line, text_width);
         if segments.is_empty() {
             lines.push(Line::raw(""));
@@ -1495,6 +1535,42 @@ mod tests {
     }
 
     #[test]
+    fn typing_keeps_idle_composer_row_stable() {
+        fn idle_state(input: &'static str) -> VisualState<'static> {
+            VisualState {
+                model: "test/model",
+                cwd: Path::new("/tmp/workspace"),
+                session_label: "1",
+                input,
+                input_paste_ranges: &[],
+                footer: "enter send",
+                status: "ready",
+                spinner_index: 0,
+                pending_approval: None,
+                pending_model: false,
+                streaming: false,
+                streaming_message: None,
+                active_context_tokens: None,
+                active_output_tokens: None,
+                thinking_elapsed: None,
+                resume_picker: None,
+                context_report: None,
+                context_report_scroll: 0,
+                slash_selection: 0,
+            }
+        }
+
+        let empty = idle_state("");
+        let typed = idle_state("a");
+
+        let empty_panel = inline_panel_lines(&empty, 80, 20);
+        let typed_panel = inline_panel_lines(&typed, 80, 20);
+
+        assert_eq!(typed_panel.cursor_row, empty_panel.cursor_row);
+        assert_eq!(typed_panel.lines.len(), empty_panel.lines.len());
+    }
+
+    #[test]
     fn streaming_inline_preview_uses_streaming_message_not_last_message() {
         let messages = vec![
             VisualMessage::assistant("streaming answer"),
@@ -1536,8 +1612,10 @@ mod tests {
     }
 
     #[test]
-    fn streaming_inline_preview_keeps_markdown_raw_until_final_message() {
-        let messages = vec![VisualMessage::assistant("Use `cargo test` and **ship**.")];
+    fn streaming_inline_preview_renders_completed_markdown_and_keeps_tail_raw() {
+        let messages = vec![VisualMessage::assistant(
+            "Use `cargo test`.\nStill **streaming",
+        )];
         let state = VisualState {
             model: "test/model",
             cwd: Path::new("/tmp/workspace"),
@@ -1564,6 +1642,21 @@ mod tests {
         let rendered = panel
             .lines
             .iter()
+            .flat_map(|line| line.spans.iter())
+            .collect::<Vec<_>>();
+
+        assert!(rendered.iter().any(|span| {
+            span.content.as_ref() == "cargo test" && span.style.fg == Some(Color::Yellow)
+        }));
+        assert!(
+            rendered
+                .iter()
+                .any(|span| span.content.as_ref().contains("Still **streaming"))
+        );
+
+        let rendered_text = panel
+            .lines
+            .iter()
             .map(|line| {
                 line.spans
                     .iter()
@@ -1572,8 +1665,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(rendered[0].contains("`cargo test`"));
-        assert!(rendered[0].contains("**ship**"));
+        assert!(rendered_text.iter().any(|line| line.contains("Use ")));
+        assert!(
+            rendered_text
+                .iter()
+                .any(|line| line.contains("Still **streaming"))
+        );
 
         let final_lines = render_scrollback_message(messages.first().unwrap(), 80);
         assert!(

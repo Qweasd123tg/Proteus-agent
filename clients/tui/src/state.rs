@@ -704,6 +704,7 @@ impl AppState {
     }
 
     pub fn mark_cancel_requested(&mut self) {
+        self.commit_streaming_draft();
         self.pending_model = false;
         self.turn_started_at = None;
         self.model_started_at = None;
@@ -1864,13 +1865,25 @@ mod tests {
     fn cancel_requested_clears_active_turn() {
         let mut state = AppState::new(PathBuf::from("."), None);
         state.mark_user_sent("long task".to_owned(), Vec::new(), "turn-1".to_owned());
+        state.append_streaming_text("partial answer");
         assert_eq!(state.active_turn_id(), Some("turn-1"));
         assert!(state.pending_model);
+        assert!(state.visual_state().streaming);
 
         state.mark_cancel_requested();
 
         assert_eq!(state.active_turn_id(), None);
         assert!(!state.pending_model);
+        assert!(!state.visual_state().streaming);
+
+        let drained = state.drain_scrollback_messages();
+        let drained_text = drained
+            .iter()
+            .map(|message| message.text.as_str())
+            .collect::<Vec<_>>();
+        assert!(drained_text.contains(&"long task"));
+        assert!(drained_text.contains(&"partial answer"));
+        assert!(drained_text.contains(&"Turn cancel requested."));
     }
 
     #[test]
