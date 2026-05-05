@@ -824,6 +824,7 @@ fn write_scrollback_line(
 ) -> Result<()> {
     queue!(
         terminal.backend_mut(),
+        MoveToColumn(0),
         TerminalClear(ClearType::CurrentLine)
     )?;
 
