@@ -193,6 +193,7 @@ struct AnthropicStreamState {
     blocks: Vec<AnthropicBlock>,
     usage: Option<TokenUsage>,
     stop_reason: Option<String>,
+    dsml_filter: DsmlStreamFilter,
     // Anthropic SSE референсит блоки по index, так что нужен index → block mapping.
 }
 
@@ -270,16 +271,15 @@ impl AnthropicStreamState {
                             .and_then(|d| d.get("text"))
                             .and_then(Value::as_str)
                             .unwrap_or("");
+                        let text = self.dsml_filter.filter(text);
                         if let Some(AnthropicBlock::Text { text: buf }) = self.blocks.get_mut(index)
                         {
-                            buf.push_str(text);
+                            buf.push_str(&text);
                         }
                         if text.is_empty() {
                             Vec::new()
                         } else {
-                            vec![ModelStreamEvent::TextDelta {
-                                text: text.to_owned(),
-                            }]
+                            vec![ModelStreamEvent::TextDelta { text }]
                         }
                     }
                     "input_json_delta" => {
@@ -360,14 +360,25 @@ impl AnthropicStreamState {
     }
 
     fn finalise(&mut self) -> ModelStreamEvent {
+        let pending_text = self.dsml_filter.finish();
+        if !pending_text.is_empty() {
+            match self.blocks.last_mut() {
+                Some(AnthropicBlock::Text { text }) => text.push_str(&pending_text),
+                _ => self.blocks.push(AnthropicBlock::Text { text: pending_text }),
+            }
+        }
+
         let mut parts = Vec::new();
         let mut tool_calls = Vec::new();
         for block in self.blocks.drain(..) {
             match block {
-                AnthropicBlock::Text { text } if !text.is_empty() => {
+                AnthropicBlock::Text { text } => {
+                    let text = sanitize_provider_text(&text);
+                    if text.is_empty() {
+                        continue;
+                    }
                     parts.push(ContentPart::Text { text });
                 }
-                AnthropicBlock::Text { .. } => {}
                 AnthropicBlock::ToolUse {
                     id,
                     name,
@@ -602,9 +613,10 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
         match item.get("type").and_then(Value::as_str) {
             Some("text") => {
                 if let Some(text) = item.get("text").and_then(Value::as_str) {
-                    parts.push(ContentPart::Text {
-                        text: text.to_owned(),
-                    });
+                    let text = sanitize_provider_text(text);
+                    if !text.is_empty() {
+                        parts.push(ContentPart::Text { text });
+                    }
                 }
             }
             Some("tool_use") if accept_tool_calls => {
@@ -655,6 +667,152 @@ fn parse_usage(response: &Value) -> Option<TokenUsage> {
             .with_cache_creation_input_tokens(cache_creation)
             .with_cached_input_tokens(cache_read),
     )
+}
+
+fn sanitize_provider_text(text: &str) -> String {
+    strip_dsml_tags(&strip_dsml_tool_blocks(text)).trim().to_owned()
+}
+
+#[derive(Default)]
+struct DsmlStreamFilter {
+    pending: String,
+    in_tool_block: bool,
+}
+
+impl DsmlStreamFilter {
+    fn filter(&mut self, text: &str) -> String {
+        let mut input = String::new();
+        input.push_str(&self.pending);
+        input.push_str(text);
+        self.pending.clear();
+
+        let (out, pending) = self.process(&input);
+        self.pending = pending;
+        out
+    }
+
+    fn finish(&mut self) -> String {
+        self.in_tool_block = false;
+        let pending = std::mem::take(&mut self.pending);
+        if pending.starts_with("<｜") || pending.starts_with("</｜") {
+            String::new()
+        } else {
+            pending
+        }
+    }
+
+    fn process(&mut self, mut rest: &str) -> (String, String) {
+        const OPEN_BLOCK: &str = "<｜｜DSML｜｜tool_calls>";
+        const CLOSE_BLOCK: &str = "</｜｜DSML｜｜tool_calls>";
+        const OPEN_TAG: &str = "<｜｜DSML｜｜";
+        const CLOSE_TAG: &str = "</｜｜DSML｜｜";
+        const MARKERS: &[&str] = &[OPEN_BLOCK, CLOSE_BLOCK, OPEN_TAG, CLOSE_TAG];
+
+        let mut out = String::new();
+        loop {
+            if self.in_tool_block {
+                if let Some(end) = rest.find(CLOSE_BLOCK) {
+                    rest = &rest[end + CLOSE_BLOCK.len()..];
+                    self.in_tool_block = false;
+                    continue;
+                }
+                let keep = longest_marker_suffix_len(rest, &[CLOSE_BLOCK]);
+                let emit_len = rest.len().saturating_sub(keep);
+                return (out, rest[emit_len..].to_owned());
+            }
+
+            let next = [
+                rest.find(OPEN_BLOCK).map(|idx| (idx, OPEN_BLOCK, true)),
+                rest.find(OPEN_TAG).map(|idx| (idx, OPEN_TAG, false)),
+                rest.find(CLOSE_TAG).map(|idx| (idx, CLOSE_TAG, false)),
+            ]
+            .into_iter()
+            .flatten()
+            .min_by_key(|(idx, _, _)| *idx);
+
+            let Some((start, marker, is_tool_block)) = next else {
+                let keep = longest_marker_suffix_len(rest, MARKERS);
+                let emit_len = rest.len().saturating_sub(keep);
+                out.push_str(&rest[..emit_len]);
+                return (out, rest[emit_len..].to_owned());
+            };
+
+            out.push_str(&rest[..start]);
+            let after_marker = &rest[start + marker.len()..];
+            if is_tool_block {
+                rest = after_marker;
+                self.in_tool_block = true;
+                continue;
+            }
+
+            let Some(end) = after_marker.find('>') else {
+                return (out, rest[start..].to_owned());
+            };
+            rest = &after_marker[end + 1..];
+        }
+    }
+}
+
+fn longest_marker_suffix_len(text: &str, markers: &[&str]) -> usize {
+    let mut longest = 0;
+    for marker in markers {
+        for end in marker
+            .char_indices()
+            .map(|(idx, _)| idx)
+            .chain(std::iter::once(marker.len()))
+            .skip(1)
+        {
+            if end < marker.len() && text.ends_with(&marker[..end]) {
+                longest = longest.max(end);
+            }
+        }
+    }
+    longest
+}
+
+fn strip_dsml_tool_blocks(text: &str) -> String {
+    const OPEN: &str = "<｜｜DSML｜｜tool_calls>";
+    const CLOSE: &str = "</｜｜DSML｜｜tool_calls>";
+
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after_open = &rest[start + OPEN.len()..];
+        if let Some(end) = after_open.find(CLOSE) {
+            rest = &after_open[end + CLOSE.len()..];
+        } else {
+            return out;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn strip_dsml_tags(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    loop {
+        let next_open = rest
+            .find("<｜｜DSML｜｜")
+            .map(|idx| (idx, "<｜｜DSML｜｜"))
+            .into_iter()
+            .chain(
+                rest.find("</｜｜DSML｜｜")
+                    .map(|idx| (idx, "</｜｜DSML｜｜")),
+            )
+            .min_by_key(|(idx, _)| *idx);
+        let Some((start, marker)) = next_open else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..start]);
+        let after_marker = &rest[start + marker.len()..];
+        let Some(end) = after_marker.find('>') else {
+            return out;
+        };
+        rest = &after_marker[end + 1..];
+    }
 }
 
 #[cfg(test)]
@@ -746,6 +904,36 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, Some(34));
     }
 
+    #[test]
+    fn sanitize_provider_text_removes_dsml_tool_call_blocks() {
+        let text = concat!(
+            "before\n",
+            "<｜｜DSML｜｜tool_calls>\n",
+            "<｜｜DSML｜｜invoke name=\"list_dir\">\n",
+            "<｜｜DSML｜｜parameter name=\"path\" string=\"true\">.",
+            "</｜｜DSML｜｜parameter>\n",
+            "</｜｜DSML｜｜invoke>\n",
+            "</｜｜DSML｜｜tool_calls>\n",
+            "after"
+        );
+
+        let sanitized = sanitize_provider_text(text);
+
+        assert_eq!(sanitized, "before\n\nafter");
+        assert!(!sanitized.contains("DSML"));
+        assert!(!sanitized.contains("invoke"));
+    }
+
+    #[test]
+    fn sanitize_provider_text_removes_loose_dsml_tags() {
+        let sanitized = sanitize_provider_text(
+            "hello <｜｜DSML｜｜invoke name=\"list_dir\">visible</｜｜DSML｜｜invoke> world",
+        );
+
+        assert_eq!(sanitized, "hello visible world");
+        assert!(!sanitized.contains("DSML"));
+    }
+
     // Хелпер: проигрывает SSE-трассу через стейт-парсер и возвращает
     // список всех эмитнутых ModelStreamEvent'ов.
     fn run_trace(trace: &[(&str, Value)]) -> Vec<ModelStreamEvent> {
@@ -755,6 +943,129 @@ mod tests {
             out.extend(state.translate(event_type, &data.to_string()));
         }
         out
+    }
+
+    #[test]
+    fn stream_trace_filters_split_dsml_tool_blocks() {
+        let trace = vec![
+            (
+                "content_block_start",
+                json!({
+                    "index": 0,
+                    "content_block": { "type": "text", "text": "" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "before " }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name=\"list_dir\">" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "<｜｜DSML｜｜parameter name=\"path\" string=\"true\">.</｜｜DSML｜｜parameter>" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜tool_calls> after" }
+                }),
+            ),
+            (
+                "message_delta",
+                json!({
+                    "delta": { "stop_reason": "end_turn" }
+                }),
+            ),
+            ("message_stop", json!({})),
+        ];
+
+        let events = run_trace(&trace);
+        let streamed = events
+            .iter()
+            .filter_map(|event| match event {
+                ModelStreamEvent::TextDelta { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(streamed, "before  after");
+        assert!(!streamed.contains("DSML"));
+        assert!(!streamed.contains("invoke"));
+
+        match events.last().unwrap() {
+            ModelStreamEvent::Response { response } => {
+                let final_text = response
+                    .message
+                    .parts
+                    .iter()
+                    .filter_map(|part| match part {
+                        ContentPart::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>();
+                assert_eq!(final_text, "before  after");
+            }
+            other => panic!("expected Response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_trace_filters_incomplete_dsml_closing_marker() {
+        let trace = vec![
+            (
+                "content_block_start",
+                json!({
+                    "index": 0,
+                    "content_block": { "type": "text", "text": "" }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "visible " }
+                }),
+            ),
+            (
+                "content_block_delta",
+                json!({
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "</｜｜DSML｜｜" }
+                }),
+            ),
+            (
+                "message_delta",
+                json!({
+                    "delta": { "stop_reason": "end_turn" }
+                }),
+            ),
+            ("message_stop", json!({})),
+        ];
+
+        let events = run_trace(&trace);
+        let streamed = events
+            .iter()
+            .filter_map(|event| match event {
+                ModelStreamEvent::TextDelta { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(streamed, "visible ");
+        assert!(!streamed.contains("DSML"));
     }
 
     #[test]
