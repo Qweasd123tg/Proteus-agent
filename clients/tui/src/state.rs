@@ -876,7 +876,7 @@ impl AppState {
                 self.messages.push(VisualMessage::tool(ToolCard {
                     call_id: call.id.clone(),
                     name: call.name.clone(),
-                    args_summary: crate::visual::compact_value(&call.args),
+                    args_summary: crate::visual::tool_invocation_summary(&call.name, &call.args),
                     status: ToolStatus::Running,
                     output_preview: String::new(),
                 }));

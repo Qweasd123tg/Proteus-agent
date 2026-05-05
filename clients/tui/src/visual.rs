@@ -263,7 +263,7 @@ impl VisualComponent for ComposerComponent {
             Span::raw(state.input.to_owned())
         };
         let prompt = if state.pending_approval.is_some() {
-            Span::styled("?", Style::default().fg(Color::Yellow))
+            Span::styled("?", Style::default().fg(Color::DarkGray))
         } else {
             Span::styled("›", Style::default().fg(Color::Cyan))
         };
@@ -274,7 +274,7 @@ impl VisualComponent for ComposerComponent {
 
 fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>, usize, usize) {
     let prompt = if state.pending_approval.is_some() {
-        Span::styled("?", Style::default().fg(Color::Yellow))
+        Span::styled("?", Style::default().fg(Color::DarkGray))
     } else {
         Span::styled("›", Style::default().fg(Color::Cyan))
     };
@@ -628,33 +628,33 @@ fn append_plain_preview_text(
 fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
     let label = activity_label(state);
     let mut spans = Vec::new();
-    spans.push(Span::styled("+ ", Style::default().fg(Color::Yellow)));
+    spans.push(Span::styled("+ ", Style::default().fg(Color::DarkGray)));
     if include_marker {
         spans.push(Span::styled(
             STATUS_MARKER.to_owned(),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(Color::DarkGray),
         ));
         spans.push(Span::raw(" "));
     }
-    spans.push(Span::styled(label, Style::default().fg(Color::Yellow)));
+    spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
     if let Some(elapsed) = state.thinking_elapsed {
         spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(
             format_elapsed(elapsed),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(Color::DarkGray),
         ));
     }
     if let Some(tokens) = state.active_output_tokens.filter(|tokens| *tokens > 0) {
         spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(
             format!("↓ {}", format_token_count(tokens)),
-            Style::default().fg(Color::Blue),
+            Style::default().fg(Color::DarkGray),
         ));
     } else if let Some(tokens) = state.active_context_tokens.filter(|tokens| *tokens > 0) {
         spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(
             format!("ctx {}", format_token_count(tokens)),
-            Style::default().fg(Color::Blue),
+            Style::default().fg(Color::DarkGray),
         ));
     }
     spans.push(Span::styled(
@@ -1150,43 +1150,69 @@ pub(crate) fn render_scrollback_header(
 }
 
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
-    let (glyph, glyph_style, name_style) = match card.status {
+    let (marker, marker_style, label, label_style) = match card.status {
         ToolStatus::Running => (
-            STATUS_MARKER,
-            Style::default().fg(Color::Yellow),
-            Style::default().fg(Color::Yellow),
+            "•",
+            Style::default().fg(Color::DarkGray),
+            "Running",
+            Style::default().fg(Color::DarkGray),
         ),
         ToolStatus::Ok => (
-            "✓",
-            Style::default().fg(Color::Green),
+            "•",
+            Style::default().fg(Color::DarkGray),
+            "Ran",
             Style::default().fg(Color::Reset),
         ),
         ToolStatus::Err => (
             "✗",
             Style::default().fg(Color::Red),
+            "Failed",
             Style::default().fg(Color::Red),
         ),
     };
-    let mut header: Vec<Span<'static>> = vec![
-        Span::styled(format!("{glyph} "), glyph_style),
-        Span::styled(card.name.clone(), name_style),
-    ];
-    if !card.args_summary.is_empty() {
-        header.push(Span::styled(
-            format!(" · {}", card.args_summary),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    lines.push(Line::from(header));
+    let action = tool_action_text(card, label);
+    lines.push(Line::from(vec![
+        Span::styled(format!("{marker} "), marker_style),
+        Span::styled(action, label_style),
+    ]));
 
     if !card.output_preview.is_empty() {
         let preview_width = width.saturating_sub(4).max(1);
+        let mut first_output_line = true;
         for raw in card.output_preview.lines() {
             for segment in wrap_text(raw, preview_width) {
+                let prefix = if first_output_line { "  └ " } else { "    " };
                 lines.push(Line::from(vec![
-                    Span::styled("  ↳ ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
                     Span::styled(segment, Style::default().fg(Color::DarkGray)),
                 ]));
+                first_output_line = false;
+            }
+        }
+    }
+}
+
+fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
+    match card.status {
+        ToolStatus::Running => {
+            if card.name == "shell" || card.name == "bash" {
+                format!("{status_label} {}", card.args_summary)
+            } else {
+                format!("{status_label} {}", card.name)
+            }
+        }
+        ToolStatus::Ok => {
+            if card.name == "shell" || card.name == "bash" {
+                format!("{status_label} {}", card.args_summary)
+            } else {
+                card.args_summary.clone()
+            }
+        }
+        ToolStatus::Err => {
+            if card.args_summary.is_empty() {
+                format!("{status_label} {}", card.name)
+            } else {
+                format!("{status_label} {}", card.args_summary)
             }
         }
     }
@@ -1206,18 +1232,15 @@ fn append_approval_lines(
     let text_width = width.saturating_sub(4).max(1);
 
     lines.push(Line::from(vec![
-        Span::styled("? ", Style::default().fg(Color::Yellow)),
+        Span::styled("? ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             "Would you like to allow this tool call?",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(Color::Reset),
         ),
     ]));
     lines.push(Line::from(vec![
         Span::raw("  tool: "),
-        Span::styled(
-            request.call.name.clone(),
-            Style::default().fg(Color::Yellow),
-        ),
+        Span::styled(request.call.name.clone(), Style::default().fg(Color::Reset)),
         Span::styled(format!(" · {safety}"), Style::default().fg(Color::DarkGray)),
     ]));
     lines.push(Line::from(vec![
@@ -1288,6 +1311,48 @@ pub(crate) fn compact_value(value: &serde_json::Value) -> String {
         .map(|ch| if ch == '\n' || ch == '\r' { ' ' } else { ch })
         .collect();
     truncate(collapsed, 80)
+}
+
+pub(crate) fn tool_invocation_summary(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "shell" | "bash" => string_arg(args, "command")
+            .or_else(|| string_arg(args, "cmd"))
+            .map(|command| truncate(command, 140))
+            .unwrap_or_else(|| compact_value(args)),
+        "read_file" => path_action("Read", args),
+        "write_file" => path_action("Wrote", args),
+        "list_dir" => path_action("Listed", args),
+        "grep" | "rg_search" => search_action(args),
+        _ => {
+            let args = compact_value(args);
+            if args.is_empty() || args == "{}" {
+                name.to_owned()
+            } else {
+                format!("{name} · {args}")
+            }
+        }
+    }
+}
+
+fn path_action(action: &str, args: &serde_json::Value) -> String {
+    string_arg(args, "path")
+        .map(|path| format!("{action} {path}"))
+        .unwrap_or_else(|| format!("{action} {}", compact_value(args)))
+}
+
+fn search_action(args: &serde_json::Value) -> String {
+    let query = string_arg(args, "query")
+        .or_else(|| string_arg(args, "pattern"))
+        .unwrap_or_else(|| compact_value(args));
+    if let Some(path) = string_arg(args, "path") {
+        format!("Searched {path} for {query}")
+    } else {
+        format!("Searched {query}")
+    }
+}
+
+fn string_arg(args: &serde_json::Value, key: &str) -> Option<String> {
+    args.get(key)?.as_str().map(str::to_owned)
 }
 
 pub(crate) fn truncate(input: impl Into<String>, width: usize) -> String {
@@ -1485,7 +1550,47 @@ mod tests {
             panel.lines[2]
                 .spans
                 .iter()
-                .any(|span| span.content == "00:12" && span.style.fg == Some(Color::Cyan))
+                .any(|span| span.content == "00:12" && span.style.fg == Some(Color::DarkGray))
+        );
+    }
+
+    #[test]
+    fn completed_shell_tool_renders_like_transcript_action() {
+        let message = VisualMessage::tool(ToolCard {
+            call_id: agent_contracts::domain::new_call_id(),
+            name: "shell".to_owned(),
+            args_summary: "uname -sr".to_owned(),
+            status: ToolStatus::Ok,
+            output_preview: "Linux 6.19.9\nextra".to_owned(),
+        });
+
+        let lines = render_scrollback_message(&message, 80)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(lines[0], "• Ran uname -sr");
+        assert_eq!(lines[1], "  └ Linux 6.19.9");
+        assert_eq!(lines[2], "    extra");
+    }
+
+    #[test]
+    fn tool_invocation_summary_uses_human_labels() {
+        assert_eq!(
+            tool_invocation_summary(
+                "shell",
+                &serde_json::json!({"command": "cargo check 2>&1 | head -100"})
+            ),
+            "cargo check 2>&1 | head -100"
+        );
+        assert_eq!(
+            tool_invocation_summary("read_file", &serde_json::json!({"path": "Cargo.toml"})),
+            "Read Cargo.toml"
         );
     }
 
