@@ -35,11 +35,18 @@ mod tests {
 
     #[tokio::test]
     async fn classifies_connect_error_as_retryable() {
-        let error = reqwest::Client::new()
-            .get("http://127.0.0.1:1")
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test port");
+        let addr = listener.local_addr().expect("local addr");
+        drop(listener);
+
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("client")
+            .get(format!("http://{addr}"))
             .send()
             .await
-            .expect_err("port 1 should reject connection in test env");
+            .expect_err("closed local listener should reject connection");
 
         assert!(should_retry_transport_error(&error));
     }
