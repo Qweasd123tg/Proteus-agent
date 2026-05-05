@@ -129,29 +129,31 @@ agent-tui \
   --cwd .
 ```
 
-Клавиши TUI: **Enter** отправить, **Ctrl+C** выйти, **Ctrl+L** очистить
-историю, **1/y/н** approve, **2/p/з** approve + exact-call cache,
-**3/n/т/Esc** deny. Основной transcript пишется в обычный terminal scrollback,
-поэтому выделение мышью и wheel работают нативно, как в shell. Approval
-показывается inline в нижней панели, без отдельного modal окна. При вводе `/`
-TUI показывает команды:
+Клавиши TUI: **Enter** отправить, **Ctrl+C** очистить текущий ввод; если ввод
+уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
+отменяет активный turn или отклоняет approval. **1/y/н** approve, **2/p/з**
+approve + exact-call cache, **3/n/т/Esc** deny. Основной transcript пишется в
+обычный terminal scrollback, поэтому выделение мышью и wheel работают нативно,
+как в shell. Approval показывается inline в нижней панели, без отдельного modal
+окна. При вводе `/` TUI показывает команды:
 **Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
 выполняет точную команду или подставляет неполную.
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`, `/context`,
-`/resume [session-dir]`, `/quit`. `/context` показывает последнюю оценку
-расхода input tokens по категориям, source учёта и provider usage, если модель
-его вернула, а также накопление по текущему turn и текущей TUI-session.
-Provider totals считаются фактическими, а breakdown по категориям остаётся
-локальной оценкой.
+`/resume [session-dir]`, `/quit`. `/context` открывает отдельный экран с картой
+контекста, последней оценкой input tokens по категориям, source учёта и
+provider usage, если модель его вернула. Там же видны накопления по текущему
+turn и текущей TUI-session; после `/resume` TUI пытается восстановить последний
+token snapshot из durable event log. Provider totals считаются фактическими, а
+breakdown по категориям остаётся локальной оценкой.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id; с аргументом
 принимает путь к session directory или к `messages.jsonl` внутри неё и
 перезапускает app-server stdio на этой истории.
 
 TUI рендерит assistant markdown на стороне клиента:
-headings, списки, tables, quotes, fenced code blocks и inline
-`code`/bold/italic.
+headings, списки, tables, quotes, fenced code blocks, horizontal rules, links,
+strikethrough и inline `code`/bold/italic.
 
 ### Плагины
 

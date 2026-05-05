@@ -108,13 +108,13 @@ impl VisualSurface {
             frame
                 .area()
                 .height
-                .saturating_sub(approval_height + active_status_height + composer_gap_height + 3),
+                .saturating_sub(approval_height + active_status_height + composer_gap_height + 2),
         );
         let total_height = approval_height
             .saturating_add(live_height)
             .saturating_add(active_status_height)
             .saturating_add(composer_gap_height)
-            .saturating_add(3)
+            .saturating_add(2)
             .min(frame.area().height);
         let bottom = Rect::new(
             frame.area().x,
@@ -131,7 +131,7 @@ impl VisualSurface {
                 Constraint::Length(live_height),
                 Constraint::Length(active_status_height),
                 Constraint::Length(composer_gap_height),
-                Constraint::Length(2),
+                Constraint::Length(1),
                 Constraint::Length(1),
             ])
             .split(bottom);
@@ -215,7 +215,6 @@ pub(crate) fn inline_panel_lines(
     let composer_start = lines.len();
     let (composer_lines, composer_cursor_row, cursor_col) = composer_lines(state, width);
     lines.extend(composer_lines);
-    lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         footer_plain_line(state, width),
         Style::default().fg(Color::DarkGray),
@@ -253,10 +252,7 @@ impl VisualComponent for ComposerComponent {
         } else {
             Span::styled("›", Style::default().fg(Color::Cyan))
         };
-        let lines = vec![
-            Line::from(vec![prompt, Span::raw(" "), input]),
-            Line::raw(""),
-        ];
+        let lines = vec![Line::from(vec![prompt, Span::raw(" "), input])];
         frame.render_widget(Paragraph::new(lines), area);
     }
 }
