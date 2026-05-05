@@ -95,25 +95,36 @@ impl VisualSurface {
         } else {
             0
         };
+        let active_status_top_gap_height = active_status_top_gap_height(state);
         let composer_gap_height = composer_gap_height(state);
+        let composer_bottom_gap_height = composer_bottom_gap_height(state);
         let active_status_height = active_status_height(
             state,
-            frame
-                .area()
-                .height
-                .saturating_sub(approval_height + composer_gap_height + 3),
+            frame.area().height.saturating_sub(
+                approval_height
+                    + active_status_top_gap_height
+                    + composer_gap_height
+                    + composer_bottom_gap_height
+                    + 2,
+            ),
         );
         let live_height = live_preview_height(
             state,
-            frame
-                .area()
-                .height
-                .saturating_sub(approval_height + active_status_height + composer_gap_height + 2),
+            frame.area().height.saturating_sub(
+                approval_height
+                    + active_status_top_gap_height
+                    + active_status_height
+                    + composer_gap_height
+                    + composer_bottom_gap_height
+                    + 2,
+            ),
         );
         let total_height = approval_height
             .saturating_add(live_height)
+            .saturating_add(active_status_top_gap_height)
             .saturating_add(active_status_height)
             .saturating_add(composer_gap_height)
+            .saturating_add(composer_bottom_gap_height)
             .saturating_add(2)
             .min(frame.area().height);
         let bottom = Rect::new(
@@ -129,9 +140,11 @@ impl VisualSurface {
             .constraints([
                 Constraint::Length(approval_height),
                 Constraint::Length(live_height),
+                Constraint::Length(active_status_top_gap_height),
                 Constraint::Length(active_status_height),
                 Constraint::Length(composer_gap_height),
                 Constraint::Length(1),
+                Constraint::Length(composer_bottom_gap_height),
                 Constraint::Length(1),
             ])
             .split(bottom);
@@ -151,18 +164,18 @@ impl VisualSurface {
         if active_status_height > 0 {
             frame.render_widget(
                 Paragraph::new(vec![active_status_line(state, true)]),
-                chunks[2],
+                chunks[3],
             );
         }
 
-        self.composer.render(frame, chunks[4], state);
-        self.footer.render(frame, chunks[5], state);
-        self.slash.render(frame, chunks[4], state);
+        self.composer.render(frame, chunks[5], state);
+        self.footer.render(frame, chunks[7], state);
+        self.slash.render(frame, chunks[5], state);
 
-        let cursor_x = chunks[4].x + 2 + state.input.chars().count() as u16;
-        let cursor_y = chunks[4].y;
+        let cursor_x = chunks[5].x + 2 + state.input.chars().count() as u16;
+        let cursor_y = chunks[5].y;
         frame.set_cursor_position(Position::new(
-            cursor_x.min(chunks[4].right().saturating_sub(1)),
+            cursor_x.min(chunks[5].right().saturating_sub(1)),
             cursor_y,
         ));
     }
@@ -204,6 +217,7 @@ pub(crate) fn inline_panel_lines(
             lines.extend(live_preview_lines(state, width, max_live_lines));
         }
         if active_status_visible(state) {
+            lines.push(Line::raw(""));
             lines.push(active_status_line(state, true));
         }
     }
@@ -215,6 +229,9 @@ pub(crate) fn inline_panel_lines(
     let composer_start = lines.len();
     let (composer_lines, composer_cursor_row, cursor_col) = composer_lines(state, width);
     lines.extend(composer_lines);
+    if composer_bottom_gap_visible(state) {
+        lines.push(Line::raw(""));
+    }
     lines.push(Line::from(Span::styled(
         footer_plain_line(state, width),
         Style::default().fg(Color::DarkGray),
@@ -467,12 +484,28 @@ fn active_status_visible(state: &VisualState<'_>) -> bool {
     state.pending_model && state.pending_approval.is_none()
 }
 
+fn active_status_top_gap_height(state: &VisualState<'_>) -> u16 {
+    if active_status_visible(state) { 1 } else { 0 }
+}
+
 fn composer_gap_visible(state: &VisualState<'_>) -> bool {
     state.pending_approval.is_none()
 }
 
 fn composer_gap_height(state: &VisualState<'_>) -> u16 {
     if composer_gap_visible(state) { 1 } else { 0 }
+}
+
+fn composer_bottom_gap_visible(_state: &VisualState<'_>) -> bool {
+    true
+}
+
+fn composer_bottom_gap_height(state: &VisualState<'_>) -> u16 {
+    if composer_bottom_gap_visible(state) {
+        1
+    } else {
+        0
+    }
 }
 
 fn active_status_height(state: &VisualState<'_>, available: u16) -> u16 {
@@ -1362,13 +1395,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(rendered[0], "• streaming answer");
-        assert!(rendered[1].contains("responding"));
-        assert!(rendered[1].contains("00:12"));
-        assert!(rendered[1].contains("↓ 7 tokens"));
-        assert_eq!(rendered[2], "");
-        assert!(rendered[3].starts_with("› "));
+        assert_eq!(rendered[1], "");
+        assert!(rendered[2].contains("responding"));
+        assert!(rendered[2].contains("00:12"));
+        assert!(rendered[2].contains("↓ 7 tokens"));
+        assert_eq!(rendered[3], "");
+        assert!(rendered[4].starts_with("› "));
+        assert_eq!(rendered[5], "");
         assert!(
-            panel.lines[1]
+            panel.lines[2]
                 .spans
                 .iter()
                 .any(|span| span.content == "00:12" && span.style.fg == Some(Color::Cyan))
