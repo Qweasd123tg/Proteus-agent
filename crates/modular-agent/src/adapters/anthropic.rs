@@ -8,7 +8,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
-    adapters::secrets::read_secret_from_config,
+    adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
@@ -118,19 +118,7 @@ impl AnthropicMessagesClient {
     ) -> Result<CanonicalModelResponse> {
         let body = to_anthropic_request(&request)?;
         let url = format!("{}/v1/messages", self.base_url);
-        let builder = self
-            .http
-            .post(url)
-            .header("anthropic-version", &self.api_version)
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body);
-        let builder = match self.auth {
-            AnthropicAuth::XApiKey => builder.header("x-api-key", &self.api_key),
-            AnthropicAuth::Bearer => {
-                builder.header(AUTHORIZATION, format!("Bearer {}", self.api_key))
-            }
-        };
-        let response = builder.send().await?;
+        let response = send_with_transport_retry(|| self.request_builder(&url, &body)).await?;
 
         let status = response.status();
         let response_text = response.text().await?;
@@ -146,19 +134,9 @@ impl AnthropicMessagesClient {
         let mut body = to_anthropic_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/v1/messages", self.base_url);
-        let builder = self
-            .http
-            .post(url)
-            .header("anthropic-version", &self.api_version)
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body);
-        let builder = match self.auth {
-            AnthropicAuth::XApiKey => builder.header("x-api-key", &self.api_key),
-            AnthropicAuth::Bearer => {
-                builder.header(AUTHORIZATION, format!("Bearer {}", self.api_key))
-            }
-        };
-        let response = builder.send().await?.error_for_status()?;
+        let response = send_with_transport_retry(|| self.request_builder(&url, &body))
+            .await?
+            .error_for_status()?;
 
         // Anthropic SSE stateful: content_block_start открывает блок,
         // множество content_block_delta расширяют его, content_block_stop
@@ -182,6 +160,21 @@ impl AnthropicMessagesClient {
                 stream::iter(mapped.into_iter().map(Ok).collect::<Vec<_>>())
             });
         Ok(Box::pin(events))
+    }
+
+    fn request_builder(&self, url: &str, body: &Value) -> reqwest::RequestBuilder {
+        let builder = self
+            .http
+            .post(url)
+            .header("anthropic-version", &self.api_version)
+            .header(CONTENT_TYPE, "application/json")
+            .json(body);
+        match self.auth {
+            AnthropicAuth::XApiKey => builder.header("x-api-key", &self.api_key),
+            AnthropicAuth::Bearer => {
+                builder.header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            }
+        }
     }
 }
 

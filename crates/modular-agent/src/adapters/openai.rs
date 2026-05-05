@@ -6,7 +6,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
-    adapters::secrets::read_secret_from_config,
+    adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
     model_standard::{
@@ -85,13 +85,7 @@ impl OpenAiResponsesClient {
     ) -> Result<CanonicalModelResponse> {
         let body = to_openai_request(&request)?;
         let url = format!("{}/responses", self.base_url);
-        let response: Value = self
-            .http
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
+        let response: Value = send_with_transport_retry(|| self.request_builder(&url, &body))
             .await?
             .error_for_status()?
             .json()
@@ -104,13 +98,7 @@ impl OpenAiResponsesClient {
         let mut body = to_openai_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/responses", self.base_url);
-        let response = self
-            .http
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
+        let response = send_with_transport_retry(|| self.request_builder(&url, &body))
             .await?
             .error_for_status()?;
 
@@ -129,6 +117,14 @@ impl OpenAiResponsesClient {
             })]),
         });
         Ok(Box::pin(events))
+    }
+
+    fn request_builder(&self, url: &str, body: &Value) -> reqwest::RequestBuilder {
+        self.http
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .header(CONTENT_TYPE, "application/json")
+            .json(body)
     }
 }
 
