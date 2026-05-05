@@ -881,7 +881,7 @@ impl AppState {
                 // показывает стабильный user-facing activity label.
             }
             Event::ToolCallRequested { call } => {
-                self.discard_streaming_draft();
+                self.commit_streaming_draft();
                 self.messages.push(VisualMessage::tool(ToolCard {
                     call_id: call.id.clone(),
                     name: call.name.clone(),
@@ -965,6 +965,10 @@ impl AppState {
         if self.scrollback_cursor > idx {
             self.scrollback_cursor -= 1;
         }
+    }
+
+    fn commit_streaming_draft(&mut self) {
+        self.streaming_assistant_idx = None;
     }
 
     fn update_tool_card(&mut self, result: ToolResult) {
@@ -1749,6 +1753,71 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(assistant_messages.len(), 1);
         assert_eq!(assistant_messages[0].text, "final answer");
+    }
+
+    #[test]
+    fn tool_call_commits_streaming_preamble_before_tool_card() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+        let call_id = agent_contracts::domain::new_call_id();
+        state.mark_user_sent("inspect".to_owned(), Vec::new(), turn_id.to_string());
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                1,
+                Event::AssistantTextDelta {
+                    text: "Сейчас посмотрю файл.".to_owned(),
+                },
+            ),
+        });
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                2,
+                Event::ToolCallRequested {
+                    call: agent_contracts::domain::ToolCall::new(
+                        call_id,
+                        "read_file",
+                        serde_json::json!({"path": "main.py"}),
+                    ),
+                },
+            ),
+        });
+
+        assert!(!state.visual_state().streaming);
+        assert_eq!(
+            state
+                .messages
+                .iter()
+                .filter(|message| matches!(message.role, VisualRole::Assistant))
+                .map(|message| message.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Сейчас посмотрю файл."]
+        );
+        assert!(state.messages.iter().any(|message| {
+            message
+                .tool
+                .as_ref()
+                .is_some_and(|tool| tool.name == "read_file")
+        }));
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("Итоговый ответ"),
+        });
+
+        let assistant_texts = state
+            .messages
+            .iter()
+            .filter(|message| matches!(message.role, VisualRole::Assistant))
+            .map(|message| message.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            assistant_texts,
+            vec!["Сейчас посмотрю файл.", "Итоговый ответ"]
+        );
     }
 
     #[test]
