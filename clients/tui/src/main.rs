@@ -14,7 +14,7 @@ mod visual;
 
 use std::{
     collections::{HashMap, HashSet},
-    io,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -34,7 +34,7 @@ use crossterm::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
     },
-    execute,
+    execute, queue,
     style::{Attribute, Color as CTermColor, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{
         Clear as TerminalClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
@@ -726,20 +726,21 @@ fn draw_inline_panel(
 
     let panel_height = lines.len() as u16;
     for line in &lines {
-        execute!(
+        queue!(
             terminal.backend_mut(),
             TerminalClear(ClearType::CurrentLine)
         )?;
         write_terminal_line_without_newline(terminal, line, width)?;
-        execute!(terminal.backend_mut(), Print("\r\n"))?;
+        queue!(terminal.backend_mut(), Print("\r\n"))?;
     }
     let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
     let rows_from_after_panel = panel_height.saturating_sub(cursor_row);
-    execute!(
+    queue!(
         terminal.backend_mut(),
         MoveUp(rows_from_after_panel),
         MoveToColumn(cursor_col.min(width.saturating_sub(1)) as u16)
     )?;
+    terminal.backend_mut().flush()?;
     Ok(InlinePanelLayout {
         height: panel_height,
         cursor_row,
@@ -751,9 +752,9 @@ fn clear_inline_panel(
     layout: InlinePanelLayout,
 ) -> Result<()> {
     if layout.cursor_row > 0 {
-        execute!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
+        queue!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
     }
-    execute!(
+    queue!(
         terminal.backend_mut(),
         MoveToColumn(0),
         TerminalClear(ClearType::FromCursorDown)
@@ -766,7 +767,7 @@ fn write_scrollback_line(
     line: &Line<'_>,
     width: usize,
 ) -> Result<()> {
-    execute!(
+    queue!(
         terminal.backend_mut(),
         TerminalClear(ClearType::CurrentLine)
     )?;
@@ -783,15 +784,16 @@ fn write_scrollback_line(
         }
         remaining = remaining.saturating_sub(UnicodeWidthStr::width(text.as_str()));
         apply_terminal_style(terminal, span.style)?;
-        execute!(terminal.backend_mut(), Print(text))?;
+        queue!(terminal.backend_mut(), Print(text))?;
     }
 
-    execute!(
+    queue!(
         terminal.backend_mut(),
         ResetColor,
         SetAttribute(Attribute::Reset),
         Print("\r\n")
     )?;
+    terminal.backend_mut().flush()?;
     Ok(())
 }
 
@@ -812,9 +814,9 @@ fn write_terminal_line_without_newline(
         }
         remaining = remaining.saturating_sub(UnicodeWidthStr::width(text.as_str()));
         apply_terminal_style(terminal, span.style)?;
-        execute!(terminal.backend_mut(), Print(text))?;
+        queue!(terminal.backend_mut(), Print(text))?;
     }
-    execute!(
+    queue!(
         terminal.backend_mut(),
         ResetColor,
         SetAttribute(Attribute::Reset)
@@ -840,28 +842,28 @@ fn apply_terminal_style(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     style: Style,
 ) -> Result<()> {
-    execute!(
+    queue!(
         terminal.backend_mut(),
         ResetColor,
         SetAttribute(Attribute::Reset)
     )?;
     if let Some(color) = style.fg.and_then(to_crossterm_color) {
-        execute!(terminal.backend_mut(), SetForegroundColor(color))?;
+        queue!(terminal.backend_mut(), SetForegroundColor(color))?;
     }
     if style.add_modifier.contains(Modifier::BOLD) {
-        execute!(terminal.backend_mut(), SetAttribute(Attribute::Bold))?;
+        queue!(terminal.backend_mut(), SetAttribute(Attribute::Bold))?;
     }
     if style.add_modifier.contains(Modifier::ITALIC) {
-        execute!(terminal.backend_mut(), SetAttribute(Attribute::Italic))?;
+        queue!(terminal.backend_mut(), SetAttribute(Attribute::Italic))?;
     }
     if style.add_modifier.contains(Modifier::UNDERLINED) {
-        execute!(terminal.backend_mut(), SetAttribute(Attribute::Underlined))?;
+        queue!(terminal.backend_mut(), SetAttribute(Attribute::Underlined))?;
     }
     if style.add_modifier.contains(Modifier::DIM) {
-        execute!(terminal.backend_mut(), SetAttribute(Attribute::Dim))?;
+        queue!(terminal.backend_mut(), SetAttribute(Attribute::Dim))?;
     }
     if style.add_modifier.contains(Modifier::CROSSED_OUT) {
-        execute!(terminal.backend_mut(), SetAttribute(Attribute::CrossedOut))?;
+        queue!(terminal.backend_mut(), SetAttribute(Attribute::CrossedOut))?;
     }
     Ok(())
 }
