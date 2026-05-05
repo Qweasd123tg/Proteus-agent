@@ -37,8 +37,8 @@ use crossterm::{
     execute, queue,
     style::{Attribute, Color as CTermColor, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{
-        Clear as TerminalClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
-        disable_raw_mode, enable_raw_mode,
+        BeginSynchronizedUpdate, Clear as TerminalClear, ClearType, EndSynchronizedUpdate,
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
     },
 };
 use ratatui::{
@@ -58,6 +58,9 @@ use crate::{
         render_scrollback_header, render_scrollback_message,
     },
 };
+
+const FRAME_INTERVAL: Duration = Duration::from_millis(33);
+const SPINNER_INTERVAL: Duration = Duration::from_millis(200);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -222,7 +225,10 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
         }
     });
 
-    let mut tick = tokio::time::interval(Duration::from_millis(200));
+    let mut frame_tick = tokio::time::interval(FRAME_INTERVAL);
+    frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut spinner_tick = tokio::time::interval(SPINNER_INTERVAL);
+    spinner_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut canceled_turn_responses = HashSet::<String>::new();
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
@@ -232,34 +238,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut dirty = false;
 
     loop {
-        if dirty && startup_ready {
-            if state.has_fullscreen_overlay() {
-                if !picker_alt_screen {
-                    if inline_panel.height > 0 {
-                        clear_inline_panel(terminal, inline_panel)?;
-                        inline_panel = InlinePanelLayout::default();
-                    }
-                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                    terminal.clear()?;
-                    picker_alt_screen = true;
-                }
-                terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
-            } else {
-                if picker_alt_screen {
-                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                    picker_alt_screen = false;
-                    inline_panel = InlinePanelLayout::default();
-                }
-                if inline_panel.height > 0 {
-                    clear_inline_panel(terminal, inline_panel)?;
-                }
-                flush_scrollback_messages(terminal, &mut state, &mut scrollback_header_printed)?;
-                inline_panel = draw_inline_panel(terminal, &state)?;
-            }
-            dirty = false;
-        }
-
-        if state.should_quit {
+        if state.should_quit && !dirty {
             break;
         }
 
@@ -359,7 +338,21 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                 }
             }
 
-            _ = tick.tick() => {
+            _ = frame_tick.tick() => {
+                if dirty && startup_ready {
+                    redraw(
+                        terminal,
+                        &surface,
+                        &mut state,
+                        &mut scrollback_header_printed,
+                        &mut inline_panel,
+                        &mut picker_alt_screen,
+                    )?;
+                    dirty = false;
+                }
+            }
+
+            _ = spinner_tick.tick() => {
                 if state.advance_spinner() {
                     dirty = true;
                 }
@@ -687,6 +680,48 @@ fn reset_normal_screen(
     state.rewind_scrollback();
     *header_printed = false;
     *inline_panel = InlinePanelLayout::default();
+    Ok(())
+}
+
+fn redraw(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    surface: &VisualSurface,
+    state: &mut AppState,
+    scrollback_header_printed: &mut bool,
+    inline_panel: &mut InlinePanelLayout,
+    picker_alt_screen: &mut bool,
+) -> Result<()> {
+    queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+    let result = (|| -> Result<()> {
+        if state.has_fullscreen_overlay() {
+            if !*picker_alt_screen {
+                if inline_panel.height > 0 {
+                    clear_inline_panel(terminal, *inline_panel)?;
+                    *inline_panel = InlinePanelLayout::default();
+                }
+                execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                terminal.clear()?;
+                *picker_alt_screen = true;
+            }
+            terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
+        } else {
+            if *picker_alt_screen {
+                execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                *picker_alt_screen = false;
+                *inline_panel = InlinePanelLayout::default();
+            }
+            if inline_panel.height > 0 {
+                clear_inline_panel(terminal, *inline_panel)?;
+            }
+            flush_scrollback_messages(terminal, state, scrollback_header_printed)?;
+            *inline_panel = draw_inline_panel(terminal, state)?;
+        }
+        Ok(())
+    })();
+    let finish_result = queue!(terminal.backend_mut(), EndSynchronizedUpdate)
+        .and_then(|_| terminal.backend_mut().flush());
+    result?;
+    finish_result?;
     Ok(())
 }
 

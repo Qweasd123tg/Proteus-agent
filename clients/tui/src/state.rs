@@ -126,7 +126,9 @@ impl AppState {
     }
 
     pub fn advance_spinner(&mut self) -> bool {
-        if self.pending_model || self.pending_approval.is_some() {
+        if (self.pending_model && self.streaming_assistant_idx.is_none())
+            || self.pending_approval.is_some()
+        {
             self.spinner_index = self.spinner_index.wrapping_add(1);
             true
         } else {
@@ -1583,6 +1585,29 @@ mod tests {
         assert_eq!(assistant_messages.len(), 1);
         assert_eq!(assistant_messages[0].text, "canonical final");
         assert!(!state.visual_state().streaming);
+    }
+
+    #[test]
+    fn spinner_tick_does_not_redraw_while_text_is_streaming() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+        state.mark_user_sent("write".to_owned(), Vec::new(), turn_id.to_string());
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                1,
+                Event::AssistantTextDelta {
+                    text: "partial".to_owned(),
+                },
+            ),
+        });
+
+        assert!(state.visual_state().pending_model);
+        assert!(state.visual_state().streaming);
+        assert!(!state.advance_spinner());
     }
 
     #[test]
