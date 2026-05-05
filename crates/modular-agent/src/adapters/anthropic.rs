@@ -357,7 +357,9 @@ impl AnthropicStreamState {
         if !pending_text.is_empty() {
             match self.blocks.last_mut() {
                 Some(AnthropicBlock::Text { text }) => text.push_str(&pending_text),
-                _ => self.blocks.push(AnthropicBlock::Text { text: pending_text }),
+                _ => self
+                    .blocks
+                    .push(AnthropicBlock::Text { text: pending_text }),
             }
         }
 
@@ -663,7 +665,9 @@ fn parse_usage(response: &Value) -> Option<TokenUsage> {
 }
 
 fn sanitize_provider_text(text: &str) -> String {
-    strip_dsml_tags(&strip_dsml_tool_blocks(text)).trim().to_owned()
+    strip_dsml_tags(&strip_dsml_tool_blocks(text))
+        .trim()
+        .to_owned()
 }
 
 #[derive(Default)]
