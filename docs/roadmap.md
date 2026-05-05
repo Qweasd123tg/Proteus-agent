@@ -236,6 +236,10 @@ Scope:
 - Продолжать доводить `agent-tui` как внешний client: slash autocomplete,
   fullscreen `/resume`, `/context` overlay, markdown renderer, paste UX,
   stopwatch и smooth streaming остаются client concerns.
+- Разбор Codex/Claude/OpenCode и план стабилизации TUI зафиксированы в
+  `docs/tui-ux-research.md`. Основной вывод: сначала нужен единый render model,
+  bottom-pane state machine, generic dialog/picker и paste-burst fallback, а не
+  очередные точечные правки отступов.
 - App-server protocol tests для submit, stream, tool call, approval
   request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
 - Durable task/session metadata и event-log based debugging для UI/evals.
