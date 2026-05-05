@@ -34,6 +34,8 @@ pub(crate) struct VisualState<'a> {
     pub pending_model: bool,
     pub streaming: bool,
     pub streaming_message: Option<&'a VisualMessage>,
+    pub active_context_tokens: Option<u32>,
+    pub active_output_tokens: Option<u32>,
     pub thinking_elapsed: Option<Duration>,
     pub resume_picker: Option<&'a ResumePicker>,
     pub context_report: Option<&'a str>,
@@ -450,9 +452,19 @@ fn live_status_lines(
     max_lines: usize,
 ) -> Vec<Line<'static>> {
     if let Some(message) = state.streaming_message {
-        let mut lines = Vec::new();
-        append_message_lines(&mut lines, message, width);
-        return tail_lines(lines, max_lines.max(1));
+        let mut body = Vec::new();
+        append_message_lines(&mut body, message, width);
+        let mut lines = vec![Line::from(vec![
+            Span::styled("+ ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                active_turn_line(state, false),
+                Style::default().fg(Color::Yellow),
+            ),
+        ])];
+        if max_lines > 1 {
+            lines.extend(tail_lines(body, max_lines.saturating_sub(1).max(1)));
+        }
+        return lines;
     }
 
     if state.pending_model {
@@ -478,13 +490,20 @@ fn active_turn_line(state: &VisualState<'_>, include_spinner: bool) -> String {
     if let Some(elapsed) = state.thinking_elapsed {
         parts.push(format_elapsed(elapsed));
     }
+    if let Some(tokens) = state.active_output_tokens.filter(|tokens| *tokens > 0) {
+        parts.push(format!("↓ {}", format_token_count(tokens)));
+    } else if let Some(tokens) = state.active_context_tokens.filter(|tokens| *tokens > 0) {
+        parts.push(format!("ctx {}", format_token_count(tokens)));
+    }
     parts.push("esc cancel".to_owned());
     parts.join(" · ")
 }
 
 fn activity_label(state: &VisualState<'_>) -> String {
     let status = state.status.trim();
-    if status == "sent" {
+    if state.streaming {
+        "responding".to_owned()
+    } else if status == "sent" {
         "sent".to_owned()
     } else if status == "request accepted" || status.starts_with("context") {
         "preparing".to_owned()
@@ -496,6 +515,17 @@ fn activity_label(state: &VisualState<'_>) -> String {
         "finishing".to_owned()
     } else {
         "working".to_owned()
+    }
+}
+
+fn format_token_count(tokens: u32) -> String {
+    if tokens >= 10_000 {
+        format!("{:.1}k tokens", tokens as f64 / 1_000.0)
+    } else if tokens >= 1_000 {
+        let tenths = (tokens + 50) / 100;
+        format!("{}.{}k tokens", tenths / 10, tenths % 10)
+    } else {
+        format!("{tokens} tokens")
     }
 }
 
@@ -1154,6 +1184,8 @@ mod tests {
             pending_model: false,
             streaming: false,
             streaming_message: None,
+            active_context_tokens: None,
+            active_output_tokens: None,
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,
@@ -1198,6 +1230,8 @@ mod tests {
             pending_model: true,
             streaming: true,
             streaming_message: messages.last(),
+            active_context_tokens: None,
+            active_output_tokens: Some(42),
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,
@@ -1214,8 +1248,10 @@ mod tests {
             .collect::<String>();
 
         assert!(rendered.contains("line 30"));
-        assert!(rendered.contains("line 11"));
-        assert!(!rendered.contains("line 10"));
+        assert!(rendered.contains("responding"));
+        assert!(rendered.contains("↓ 42 tokens"));
+        assert!(rendered.contains("line 12"));
+        assert!(!rendered.contains("line 11"));
     }
 
     #[test]
@@ -1238,6 +1274,8 @@ mod tests {
             pending_model: true,
             streaming: true,
             streaming_message: messages.first(),
+            active_context_tokens: None,
+            active_output_tokens: None,
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,
@@ -1254,6 +1292,7 @@ mod tests {
             .collect::<String>();
 
         assert!(rendered.contains("streaming answer"));
+        assert!(rendered.contains("responding"));
         assert!(!rendered.contains("later status"));
     }
 
@@ -1273,6 +1312,8 @@ mod tests {
             pending_model: false,
             streaming: false,
             streaming_message: None,
+            active_context_tokens: None,
+            active_output_tokens: None,
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,

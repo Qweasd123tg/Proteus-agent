@@ -49,6 +49,7 @@ pub struct AppState {
     model_started_at: Option<Instant>,
     active_turn_id: Option<String>,
     completed_turn_at: Option<Instant>,
+    last_streaming_elapsed_second: Option<u64>,
     next_turn_index: u64,
     resume_picker: Option<ResumePicker>,
     context_report: Option<String>,
@@ -87,6 +88,7 @@ impl AppState {
             model_started_at: None,
             active_turn_id: None,
             completed_turn_at: None,
+            last_streaming_elapsed_second: None,
             next_turn_index: 0,
             resume_picker: None,
             context_report: None,
@@ -117,6 +119,13 @@ impl AppState {
             streaming_message: self
                 .streaming_assistant_idx
                 .and_then(|idx| self.messages.get(idx)),
+            active_context_tokens: (self.turn_usage.estimated_input_tokens > 0)
+                .then_some(self.turn_usage.estimated_input_tokens),
+            active_output_tokens: self
+                .streaming_assistant_idx
+                .and_then(|idx| self.messages.get(idx))
+                .map(|message| estimate_tokens(&message.text))
+                .filter(|tokens| *tokens > 0),
             thinking_elapsed: self.thinking_elapsed(),
             resume_picker: self.resume_picker.as_ref(),
             context_report: self.context_report.as_deref(),
@@ -131,9 +140,18 @@ impl AppState {
 
     pub fn advance_spinner(&mut self) -> bool {
         let completion_expired = self.clear_completed_status_if_expired();
-        if (self.pending_model && self.streaming_assistant_idx.is_none())
-            || self.pending_approval.is_some()
-        {
+        let streaming = self.pending_model && self.streaming_assistant_idx.is_some();
+        if streaming {
+            let elapsed_second = self.thinking_elapsed().map(|elapsed| elapsed.as_secs());
+            if elapsed_second != self.last_streaming_elapsed_second {
+                self.last_streaming_elapsed_second = elapsed_second;
+                return true;
+            }
+            return completion_expired;
+        }
+
+        self.last_streaming_elapsed_second = None;
+        if self.pending_model || self.pending_approval.is_some() {
             self.spinner_index = self.spinner_index.wrapping_add(1);
             true
         } else {
@@ -450,6 +468,7 @@ impl AppState {
         self.active_turn_id = None;
         self.turn_started_at = None;
         self.model_started_at = None;
+        self.last_streaming_elapsed_second = None;
         self.last_error = None;
         self.status = "resumed".to_owned();
         self.resume_picker = None;
@@ -686,6 +705,7 @@ impl AppState {
         self.model_started_at = None;
         self.active_turn_id = Some(turn_id);
         self.completed_turn_at = None;
+        self.last_streaming_elapsed_second = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.pending_model = true;
@@ -703,6 +723,7 @@ impl AppState {
         self.model_started_at = None;
         self.active_turn_id = None;
         self.completed_turn_at = None;
+        self.last_streaming_elapsed_second = None;
         self.usage_turn_id = None;
         self.status = "cancel requested".to_owned();
         self.messages
@@ -969,6 +990,7 @@ impl AppState {
             .unwrap_or_default();
         self.turn_started_at = None;
         self.completed_turn_at = Some(Instant::now());
+        self.last_streaming_elapsed_second = None;
         self.status = format!("done · {}", format_duration_short(elapsed));
     }
 
@@ -1651,7 +1673,7 @@ mod tests {
     }
 
     #[test]
-    fn spinner_tick_does_not_redraw_while_text_is_streaming() {
+    fn spinner_tick_redraws_while_text_is_streaming() {
         let mut state = AppState::new(PathBuf::from("."), None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
@@ -1670,7 +1692,7 @@ mod tests {
 
         assert!(state.visual_state().pending_model);
         assert!(state.visual_state().streaming);
-        assert!(!state.advance_spinner());
+        assert!(state.advance_spinner());
     }
 
     #[test]
