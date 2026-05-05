@@ -101,7 +101,6 @@ impl AppState {
             model: &self.model_label,
             cwd: &self.cwd,
             session_label: &self.session_label,
-            messages: &self.messages,
             input: &self.input,
             input_paste_ranges: &self.input_paste_ranges,
             footer: &self.footer,
@@ -111,6 +110,9 @@ impl AppState {
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
             streaming: self.streaming_assistant_idx.is_some(),
+            streaming_message: self
+                .streaming_assistant_idx
+                .and_then(|idx| self.messages.get(idx)),
             thinking_elapsed: self.thinking_elapsed(),
             resume_picker: self.resume_picker.as_ref(),
             context_report: self.context_report.as_deref(),
@@ -1451,7 +1453,6 @@ mod tests {
 
     fn error_count(state: &AppState) -> usize {
         state
-            .visual_state()
             .messages
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Error))
@@ -1526,7 +1527,6 @@ mod tests {
         });
 
         let assistant_messages = state
-            .visual_state()
             .messages
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Assistant))

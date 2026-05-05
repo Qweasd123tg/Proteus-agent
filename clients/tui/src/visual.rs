@@ -24,7 +24,6 @@ pub(crate) struct VisualState<'a> {
     pub model: &'a str,
     pub cwd: &'a Path,
     pub session_label: &'a str,
-    pub messages: &'a [VisualMessage],
     pub input: &'a str,
     pub input_paste_ranges: &'a [InputPasteRange],
     pub footer: &'a str,
@@ -34,6 +33,7 @@ pub(crate) struct VisualState<'a> {
     pub pending_approval: Option<&'a AppApprovalRequest>,
     pub pending_model: bool,
     pub streaming: bool,
+    pub streaming_message: Option<&'a VisualMessage>,
     pub thinking_elapsed: Option<Duration>,
     pub resume_picker: Option<&'a ResumePicker>,
     pub context_report: Option<&'a str>,
@@ -450,9 +450,7 @@ fn live_status_lines(
     width: usize,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
-    if state.streaming
-        && let Some(message) = state.messages.last()
-    {
+    if let Some(message) = state.streaming_message {
         let mut lines = Vec::new();
         append_message_lines(&mut lines, message, width);
         return tail_lines(lines, max_lines.max(1));
@@ -1123,7 +1121,6 @@ mod tests {
             model: "anthropic/deepseek-v4-pro",
             cwd: Path::new("/tmp/workspace"),
             session_label: "not persisted",
-            messages: &[],
             input: "",
             input_paste_ranges: &[],
             footer: "",
@@ -1133,6 +1130,7 @@ mod tests {
             pending_approval: None,
             pending_model: false,
             streaming: false,
+            streaming_message: None,
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,
@@ -1167,7 +1165,6 @@ mod tests {
             model: "test/model",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
-            messages: &messages,
             input: "",
             input_paste_ranges: &[],
             footer: "",
@@ -1177,6 +1174,7 @@ mod tests {
             pending_approval: None,
             pending_model: true,
             streaming: true,
+            streaming_message: messages.last(),
             thinking_elapsed: None,
             resume_picker: None,
             context_report: None,
@@ -1195,6 +1193,45 @@ mod tests {
         assert!(rendered.contains("line 30"));
         assert!(rendered.contains("line 11"));
         assert!(!rendered.contains("line 10"));
+    }
+
+    #[test]
+    fn streaming_inline_preview_uses_streaming_message_not_last_message() {
+        let messages = vec![
+            VisualMessage::assistant("streaming answer"),
+            VisualMessage::system("later status"),
+        ];
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "",
+            status: "calling model...",
+            spinner_index: 0,
+            scroll_offset: 0,
+            pending_approval: None,
+            pending_model: true,
+            streaming: true,
+            streaming_message: messages.first(),
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80, 20);
+        let rendered = panel
+            .lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(rendered.contains("streaming answer"));
+        assert!(!rendered.contains("later status"));
     }
 
     #[test]
