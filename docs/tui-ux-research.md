@@ -148,9 +148,11 @@ app-server protocol.
 
 Есть два варианта:
 
-- Short-term: оставить normal scrollback, но сделать bottom pane абсолютным
-  bottom-anchored block. Не diff-ить его относительными движениями cursor,
-  а каждый frame очищать известный прямоугольник и рисовать заново.
+- Short-term: оставить normal scrollback, но сделать нижнюю panel честным
+  inline full-redraw блоком: не diff-ить отдельные строки, а каждый frame
+  возвращаться к началу предыдущей панели, чистить её хвост и рисовать заново.
+  Абсолютный bottom-anchor в normal screen нельзя использовать без retained
+  viewport: он конфликтует с настоящим terminal scrollback.
 - Long-term: перейти к Codex-like retained viewport: transcript, active cell и
   bottom pane живут в одном full-frame/diff renderer. Тогда scroll, resize,
   streaming и overlays становятся управляемыми приложением.
@@ -254,7 +256,7 @@ streaming лучше один из вариантов:
 terminal surface и active streaming view, не меняя core protocol.
 
 - Убрать fake transcript scroll hints или реально применить `scroll_offset`.
-- Заменить relative inline diff на bottom-anchored full clear/redraw block.
+- Заменить relative per-line diff на безопасный inline full-redraw block.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn},
+    cursor::{MoveTo, MoveToColumn, MoveUp},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -742,8 +742,8 @@ fn flush_scrollback_messages(
 
 #[derive(Clone, Default)]
 struct InlinePanelLayout {
-    top: u16,
     height: u16,
+    cursor_row: u16,
 }
 
 fn draw_inline_panel(
@@ -758,7 +758,7 @@ fn draw_inline_panel(
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
     let cursor_col = panel.cursor_col;
-    let max_lines = size.height.max(1) as usize;
+    let max_lines = size.height.saturating_sub(1).max(1) as usize;
     if lines.len() > max_lines {
         let drained = lines.len() - max_lines;
         lines.drain(0..drained);
@@ -766,39 +766,36 @@ fn draw_inline_panel(
     }
 
     let panel_height = lines.len() as u16;
-    let panel_top = size.height.saturating_sub(panel_height);
-    let previous_bottom = previous.top.saturating_add(previous.height).min(size.height);
-    let next_bottom = panel_top.saturating_add(panel_height).min(size.height);
-    let clear_top = if previous.height == 0 {
-        panel_top
-    } else {
-        previous.top.min(panel_top)
-    };
-    let clear_bottom = previous_bottom.max(next_bottom);
-
-    for y in clear_top..clear_bottom {
-        queue!(
-            terminal.backend_mut(),
-            MoveTo(0, y),
-            TerminalClear(ClearType::CurrentLine)
-        )?;
+    if previous.height > 0 && previous.cursor_row > 0 {
+        queue!(terminal.backend_mut(), MoveUp(previous.cursor_row))?;
     }
 
+    queue!(
+        terminal.backend_mut(),
+        MoveToColumn(0),
+        TerminalClear(ClearType::FromCursorDown)
+    )?;
+
     for (row, line) in lines.iter().enumerate() {
-        queue!(terminal.backend_mut(), MoveTo(0, panel_top + row as u16))?;
         write_terminal_line_without_newline(terminal, line, width)?;
+        if row + 1 < lines.len() {
+            queue!(terminal.backend_mut(), Print("\r\n"))?;
+        }
     }
 
     let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
+    let current_row = lines.len().saturating_sub(1) as u16;
+    if current_row > cursor_row {
+        queue!(terminal.backend_mut(), MoveUp(current_row - cursor_row))?;
+    }
     queue!(
         terminal.backend_mut(),
-        MoveTo(0, panel_top + cursor_row),
         MoveToColumn(cursor_col.min(width.saturating_sub(1)) as u16)
     )?;
     terminal.backend_mut().flush()?;
     Ok(InlinePanelLayout {
-        top: panel_top,
         height: panel_height,
+        cursor_row,
     })
 }
 
@@ -809,9 +806,12 @@ fn clear_inline_panel(
     if layout.height == 0 {
         return Ok(());
     }
+    if layout.cursor_row > 0 {
+        queue!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
+    }
     queue!(
         terminal.backend_mut(),
-        MoveTo(0, layout.top),
+        MoveToColumn(0),
         TerminalClear(ClearType::FromCursorDown)
     )?;
     Ok(())
