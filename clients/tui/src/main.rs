@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{MoveDown, MoveTo, MoveToColumn, MoveUp},
+    cursor::{MoveTo, MoveToColumn, MoveUp},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -745,8 +745,6 @@ fn flush_scrollback_messages(
 struct InlinePanelLayout {
     height: u16,
     cursor_row: u16,
-    width: usize,
-    lines: Vec<ratatui::text::Line<'static>>,
 }
 
 fn draw_inline_panel(
@@ -773,30 +771,21 @@ fn draw_inline_panel(
         queue!(terminal.backend_mut(), MoveUp(previous.cursor_row))?;
     }
 
-    let diff_redraw = previous.height > 0 && previous.width == width;
-    if diff_redraw {
-        draw_inline_panel_diff(terminal, &lines, previous, width)?;
-    } else {
-        queue!(
-            terminal.backend_mut(),
-            MoveToColumn(0),
-            TerminalClear(ClearType::FromCursorDown)
-        )?;
+    queue!(
+        terminal.backend_mut(),
+        MoveToColumn(0),
+        TerminalClear(ClearType::FromCursorDown)
+    )?;
 
-        for (row, line) in lines.iter().enumerate() {
-            write_terminal_line_without_newline(terminal, line, width)?;
-            if row + 1 < lines.len() {
-                queue!(terminal.backend_mut(), Print("\r\n"))?;
-            }
+    for (row, line) in lines.iter().enumerate() {
+        write_terminal_line_without_newline(terminal, line, width)?;
+        if row + 1 < lines.len() {
+            queue!(terminal.backend_mut(), Print("\r\n"))?;
         }
     }
 
     let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
-    let touched_rows = if diff_redraw {
-        previous.height.max(panel_height)
-    } else {
-        panel_height
-    };
+    let touched_rows = panel_height;
     let current_row = touched_rows.saturating_sub(1);
     if current_row > cursor_row {
         queue!(terminal.backend_mut(), MoveUp(current_row - cursor_row))?;
@@ -809,40 +798,7 @@ fn draw_inline_panel(
     Ok(InlinePanelLayout {
         height: panel_height,
         cursor_row,
-        width,
-        lines,
     })
-}
-
-fn draw_inline_panel_diff(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    lines: &[ratatui::text::Line<'static>],
-    previous: &InlinePanelLayout,
-    width: usize,
-) -> Result<()> {
-    let rows_to_touch = previous.height.max(lines.len() as u16) as usize;
-    for row in 0..rows_to_touch {
-        let next = lines.get(row);
-        let old = previous.lines.get(row);
-        if next != old {
-            queue!(
-                terminal.backend_mut(),
-                MoveToColumn(0),
-                TerminalClear(ClearType::CurrentLine)
-            )?;
-            if let Some(line) = next {
-                write_terminal_line_without_newline(terminal, line, width)?;
-            }
-        }
-        if row + 1 < rows_to_touch {
-            if row + 1 >= previous.height as usize {
-                queue!(terminal.backend_mut(), Print("\r\n"))?;
-            } else {
-                queue!(terminal.backend_mut(), MoveDown(1))?;
-            }
-        }
-    }
-    Ok(())
 }
 
 fn clear_inline_panel(
