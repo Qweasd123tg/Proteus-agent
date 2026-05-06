@@ -255,8 +255,12 @@ streaming лучше один из вариантов:
 Первый заход уже должен идти строго в Codex-направлении: стабилизировать
 terminal surface и active streaming view, не меняя core protocol.
 
-- Убрать fake transcript scroll hints или реально применить `scroll_offset`.
+- Fake transcript scroll hints уже убраны: `PageUp`/`PageDown` больше не
+  обещают app-managed transcript scroll в normal screen.
 - Заменить relative per-line diff на безопасный inline full-redraw block.
+  Первый short-term вариант сделан: нижняя inline panel теперь каждый redraw
+  очищает блок от начала предыдущей панели до низа и рисует актуальные строки
+  заново, без сравнения отдельных строк.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
