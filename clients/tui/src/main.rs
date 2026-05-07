@@ -766,9 +766,14 @@ fn draw_inline_panel(
         cursor_row = cursor_row.saturating_sub(drained);
     }
 
-    let panel_height = lines.len() as u16;
-    if previous.height > 0 && previous.cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(previous.cursor_row))?;
+    let panel_cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
+    let clear_cursor_row = if previous.height > 0 {
+        previous.cursor_row.max(panel_cursor_row)
+    } else {
+        0
+    };
+    if clear_cursor_row > 0 {
+        queue!(terminal.backend_mut(), MoveUp(clear_cursor_row))?;
     }
 
     queue!(
@@ -777,6 +782,16 @@ fn draw_inline_panel(
         TerminalClear(ClearType::FromCursorDown)
     )?;
 
+    let leading_blank_rows = clear_cursor_row.saturating_sub(panel_cursor_row);
+    for _ in 0..leading_blank_rows {
+        queue!(
+            terminal.backend_mut(),
+            MoveToColumn(0),
+            TerminalClear(ClearType::CurrentLine),
+            Print("\r\n")
+        )?;
+    }
+
     for (row, line) in lines.iter().enumerate() {
         write_terminal_line_without_newline(terminal, line, width)?;
         if row + 1 < lines.len() {
@@ -784,11 +799,13 @@ fn draw_inline_panel(
         }
     }
 
-    let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
-    let touched_rows = panel_height;
+    let touched_rows = leading_blank_rows.saturating_add(lines.len() as u16);
     let current_row = touched_rows.saturating_sub(1);
-    if current_row > cursor_row {
-        queue!(terminal.backend_mut(), MoveUp(current_row - cursor_row))?;
+    if current_row > clear_cursor_row {
+        queue!(
+            terminal.backend_mut(),
+            MoveUp(current_row - clear_cursor_row)
+        )?;
     }
     queue!(
         terminal.backend_mut(),
@@ -796,8 +813,8 @@ fn draw_inline_panel(
     )?;
     terminal.backend_mut().flush()?;
     Ok(InlinePanelLayout {
-        height: panel_height,
-        cursor_row,
+        height: touched_rows,
+        cursor_row: clear_cursor_row,
     })
 }
 
