@@ -218,6 +218,10 @@ Scope:
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
   changed files, diff size, tests и failure reason.
+- Dogfood sanity tasks должны проверять не только "может ли вызвать tool", но и
+  tool judgement: не лезть в проект без запроса, не писать transient test notes
+  в long-term memory, не выдумывать даты, корректно показывать approval и
+  понятно объяснять недоступный dependency вроде `rg`.
 - Первый eval suite пока не выбран; `terminal-bench` является кандидатом для
   исследования, но нужен маленький локальный набор real-world задач для первых
   прогонов.

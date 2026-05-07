@@ -35,8 +35,24 @@ use serde_json::{Value, json};
 const SINGLE_LOOP_MODULE_ID: &str = "coding.single_loop";
 const PLAN_EXECUTE_REVIEW_MODULE_ID: &str = "coding.plan_execute_review";
 const MAX_TOOL_ROUNDS: usize = 8;
-const SYSTEM_INSTRUCTIONS: &str = "You are running inside a modular v0 agent skeleton. Answer normal conversational questions directly. Use tools only when they are necessary and only if they are included in the current tool list.";
-const PLAN_SYSTEM_INSTRUCTIONS: &str = "You are running inside a modular coding workflow. First form a concise internal plan, then use tools only when they are necessary, then produce a final answer after reviewing the result.";
+const SYSTEM_INSTRUCTIONS: &str = "\
+You are running inside a modular v0 agent skeleton. Answer normal conversational \
+questions directly. Use tools only when they are necessary and only if they are \
+included in the current tool list. If the user says they are testing the agent \
+or tools, focus on the requested test and do not inspect the project unless \
+asked. Do not call remember_fact for temporary test notes; use it only when the \
+user explicitly asks you to remember a stable preference or durable project fact. \
+Do not invent dates or times; omit them unless the user supplied them or you \
+verified them with a tool.";
+const PLAN_SYSTEM_INSTRUCTIONS: &str = "\
+You are running inside a modular coding workflow. First form a concise internal \
+plan, then use tools only when they are necessary, then produce a final answer \
+after reviewing the result. If the user says they are testing the agent or tools, \
+focus on the requested test and do not inspect the project unless asked. Do not \
+call remember_fact for temporary test notes; use it only when the user explicitly \
+asks you to remember a stable preference or durable project fact. Do not invent \
+dates or times; omit them unless the user supplied them or you verified them with \
+a tool.";
 const PLAN_DEVELOPER_INSTRUCTIONS: &str = "Planning phase: write a short actionable plan for the user's task. Do not call tools in this phase. Keep it concrete and adjust it later if tool results contradict it.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
