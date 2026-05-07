@@ -133,8 +133,9 @@ agent-tui \
 уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
 отменяет активный turn или отклоняет approval. **1/y/н** approve, **2/p/з**
 approve + exact-call cache, **3/n/т/Esc** deny. Основной transcript вставляется
-в область над закреплённой нижней панелью через terminal scroll-region; нижняя
-панель рисуется по абсолютным координатам, без cursor-relative `MoveUp`.
+в область над закреплённой нижней панелью через terminal scroll-region и
+обычный перевод строки у границы history-region; нижняя панель рисуется по
+абсолютным координатам, без cursor-relative `MoveUp`.
 Approval показывается inline в нижней панели, без отдельного modal окна. При
 вводе `/` TUI показывает команды:
 **Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
