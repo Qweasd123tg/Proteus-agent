@@ -38,9 +38,11 @@ module implementations без переписывания core или форка 
 `Quality-first harness`. `agent-tui` нужен как dogfood/test client, но не должен
 съесть весь roadmap. Сначала нужно добиться качества coding-agent на уровне
 существующих агентов, затем оптимизировать token/context usage. Для сравнения
-делаем `codex-like baseline` pack, чтобы проверить, не является ли наша
-архитектура узким местом, а затем собираем `best-of` packs из лучших идей
-Codex/Claude/OpenCode/forgecode.
+делаем `claude-code-like workflow baseline` pack на DeepSeek через
+Anthropic-compatible API, чтобы проверить, не является ли наша архитектура
+узким местом, а затем собираем `best-of` packs из лучших идей
+Codex/Claude/OpenCode/forgecode. Codex остаётся главным reference для Rust TUI
+и ряда subsystem patterns.
 
 ## Этапы
 
@@ -208,13 +210,17 @@ Scope:
 
 - Golden coding profile: один рекомендуемый профиль, который стабильно проходит
   реальные coding tasks, а не только демонстрирует plugin architecture.
-- Codex-like baseline pack: контрольный профиль, который повторяет близкий
-  workflow/tool/search/approval/editing shape, чтобы проверить архитектурный
-  потолок проекта. Это не обещание копии Codex и не новый slot.
+- Claude-Code-like workflow baseline pack: контрольный профиль, который
+  повторяет близкий workflow/prompt/tool/search/approval/editing shape, чтобы
+  проверить архитектурный потолок проекта. Это не обещание копии Claude Code и
+  не новый slot.
 - Eval harness поверх event log: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
   changed files, diff size, tests и failure reason.
+- Первый eval suite пока не выбран; `terminal-bench` является кандидатом для
+  исследования, но нужен маленький локальный набор real-world задач для первых
+  прогонов.
 - Усилить `coding.plan_execute_review`: phase settings, auto-verify,
   configurable test runner, compact phase/debug report и настройку token budget
   по фазам.
@@ -233,15 +239,18 @@ Scope:
 - Исследовать generic `BudgetTracker` / `UsageMeter`, `ArtifactStore` и
   `ToolResultProcessor`, но добавлять contract только после второго use case.
 
-### Codex-Style Feature Pack
+### Claude-Code-Like Baseline И Best-Of Packs
 
 - Сделать экспериментальный profile/pack вместо копирования чужого агента
   целиком: `Workflow` + `ContextBuilder` + `SearchBackend` + `ToolExposure` +
   `ApprovalPolicy` + `PatchApplier`.
-- Первый смысл pack-а - baseline для сравнения. Если Codex-like composition
-  плохо работает при похожих подсистемах, искать узкое место в core/protocol/
-  contracts; если работает приемлемо, дальше улучшать отдельные plugin
-  implementations и собирать best-of profile.
+- Первый смысл pack-а - baseline для сравнения. Если Claude-Code-like
+  composition плохо работает при похожих подсистемах, искать узкое место в
+  core/protocol/contracts; если работает приемлемо, дальше улучшать отдельные
+  plugin implementations и собирать best-of profile.
+- Копировать нужно operational shape, а не бренд: planning style, prompts/tool
+  assumptions, read/edit/check loop, approval behavior, context discipline и
+  history/compaction assumptions.
 - Deferred tool exposure через `ToolExposure`: модель видит минимальный набор
   tools и может получить дополнительные tools через searchable catalog.
 - Fuzzy file path search как `SearchBackend`/tool provider, без
