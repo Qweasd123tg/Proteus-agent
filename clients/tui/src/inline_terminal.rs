@@ -24,6 +24,7 @@ use crate::{
 pub(crate) struct InlineTerminalState {
     panel: InlinePanelLayout,
     history: HistoryViewportState,
+    was_streaming: bool,
 }
 
 impl InlineTerminalState {
@@ -47,16 +48,27 @@ impl InlineTerminalState {
         header_printed: &mut bool,
     ) -> Result<()> {
         let prepared_panel = prepare_inline_panel(terminal, state)?;
+        let streaming = state.visual_state().streaming;
+        if streaming {
+            draw_streaming_history_repaint(terminal, state, prepared_panel.height())?;
+            self.was_streaming = true;
+            self.panel =
+                draw_inline_panel(terminal, prepared_panel, &InlinePanelLayout::default())?;
+            return Ok(());
+        }
+
         let previous_panel = self.panel.clone();
         let next_height = prepared_panel.height();
-        let draw_previous_panel = if panel_is_shrinking(previous_panel.height, next_height) {
-            repaint_normal_screen_before_history_flush(terminal, state, header_printed)?;
-            self.history = HistoryViewportState::default();
-            InlinePanelLayout::default()
-        } else {
-            resize_inline_viewport_for_panel(terminal, previous_panel.height, next_height)?;
-            previous_panel
-        };
+        let draw_previous_panel =
+            if self.was_streaming || panel_is_shrinking(previous_panel.height, next_height) {
+                repaint_normal_screen_before_history_flush(terminal, state, header_printed)?;
+                self.history = HistoryViewportState::default();
+                self.was_streaming = false;
+                InlinePanelLayout::default()
+            } else {
+                resize_inline_viewport_for_panel(terminal, previous_panel.height, next_height)?;
+                previous_panel
+            };
         flush_scrollback_messages(
             terminal,
             state,
@@ -102,6 +114,43 @@ fn flush_scrollback_messages(
         }
     }
     Ok(true)
+}
+
+fn draw_streaming_history_repaint(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &AppState,
+    reserved_bottom_height: u16,
+) -> Result<()> {
+    let size = terminal.size()?;
+    let history_height = size.height.saturating_sub(reserved_bottom_height);
+    if history_height == 0 {
+        return Ok(());
+    }
+
+    let width = size.width.max(1) as usize;
+    let render_width = width.saturating_sub(1).max(1);
+    let mut lines = render_scrollback_header(&state.visual_state(), render_width);
+    for message in state.scrollback_messages_snapshot() {
+        lines.extend(render_scrollback_message(&message, render_width));
+    }
+    let visible_start = lines.len().saturating_sub(history_height as usize);
+
+    queue!(
+        terminal.backend_mut(),
+        MoveTo(0, 0),
+        TerminalClear(ClearType::All),
+        TerminalClear(ClearType::Purge)
+    )?;
+    for (row, line) in lines
+        .iter()
+        .skip(visible_start)
+        .take(history_height as usize)
+        .enumerate()
+    {
+        queue!(terminal.backend_mut(), MoveTo(0, row as u16))?;
+        write_terminal_line_without_newline(terminal, line, width)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Default)]

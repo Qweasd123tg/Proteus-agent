@@ -727,6 +727,10 @@ impl AppState {
         drained
     }
 
+    pub fn scrollback_messages_snapshot(&self) -> Vec<VisualMessage> {
+        self.messages.clone()
+    }
+
     pub fn rewind_scrollback(&mut self) {
         self.scrollback_cursor = 0;
     }
