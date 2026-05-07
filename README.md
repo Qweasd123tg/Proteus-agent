@@ -132,10 +132,11 @@ agent-tui \
 Клавиши TUI: **Enter** отправить, **Ctrl+C** очистить текущий ввод; если ввод
 уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
 отменяет активный turn или отклоняет approval. **1/y/н** approve, **2/p/з**
-approve + exact-call cache, **3/n/т/Esc** deny. Основной transcript пишется в
-обычный terminal scrollback, поэтому выделение мышью и wheel работают нативно,
-как в shell. Approval показывается inline в нижней панели, без отдельного modal
-окна. При вводе `/` TUI показывает команды:
+approve + exact-call cache, **3/n/т/Esc** deny. Основной transcript вставляется
+в область над закреплённой нижней панелью через terminal scroll-region; нижняя
+панель рисуется по абсолютным координатам, без cursor-relative `MoveUp`.
+Approval показывается inline в нижней панели, без отдельного modal окна. При
+вводе `/` TUI показывает команды:
 **Tab**/**Shift+Tab** или **Up/Down** выбирают, **Right** подставляет, **Enter**
 выполняет точную команду или подставляет неполную.
 

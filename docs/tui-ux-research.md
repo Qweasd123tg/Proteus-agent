@@ -290,8 +290,10 @@ terminal surface и active streaming view, не меняя core protocol.
   заново, без сравнения отдельных строк.
 - После dogfood стало видно, что full-redraw block всё ещё недостаточен:
   артефакты исчезают при terminal zoom/full repaint, но возвращаются во время
-  normal redraw. Следующий реальный fix - не ещё один `ClearType`, а перенос
-  нижней панели на retained inline viewport по мотивам Codex.
+  normal redraw. Первый Codex-like шаг сделан: нижняя панель закреплена внизу
+  viewport и рисуется по абсолютным координатам, а новые строки transcript
+  вставляются в область над ней через `scroll_region_up`. Это убирает главный
+  cursor-relative путь `MoveUp/Clear/Print`, не меняя core protocol.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

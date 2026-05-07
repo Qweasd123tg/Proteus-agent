@@ -14,7 +14,7 @@ mod visual;
 
 use std::{
     collections::{HashMap, HashSet},
-    io::{self, Write},
+    io,
     path::{Component, Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{Hide, MoveDown, MoveTo, MoveToColumn, MoveUp, Show},
+    cursor::{Hide, MoveTo, MoveToColumn, Show},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -43,7 +43,7 @@ use crossterm::{
 };
 use ratatui::{
     Terminal,
-    backend::CrosstermBackend,
+    backend::{Backend, CrosstermBackend},
     style::{Color as RColor, Modifier, Style},
     text::Line,
 };
@@ -696,19 +696,19 @@ fn redraw(
                 *picker_alt_screen = false;
                 *inline_panel = InlinePanelLayout::default();
             }
-            let will_flush_scrollback =
-                !*scrollback_header_printed || state.has_pending_scrollback_messages();
-            if will_flush_scrollback && inline_panel.height > 0 {
-                clear_inline_panel(terminal, inline_panel)?;
-                *inline_panel = InlinePanelLayout::default();
-            }
-            flush_scrollback_messages(terminal, state, scrollback_header_printed)?;
-            *inline_panel = draw_inline_panel(terminal, state, inline_panel)?;
+            let prepared_panel = prepare_inline_panel(terminal, state)?;
+            flush_scrollback_messages(
+                terminal,
+                state,
+                scrollback_header_printed,
+                prepared_panel.height(),
+            )?;
+            *inline_panel = draw_inline_panel(terminal, prepared_panel, inline_panel)?;
         }
         Ok(())
     })();
     let finish_result = queue!(terminal.backend_mut(), EndSynchronizedUpdate, Show)
-        .and_then(|_| terminal.backend_mut().flush());
+        .and_then(|_| std::io::Write::flush(terminal.backend_mut()));
     result?;
     finish_result?;
     Ok(())
@@ -718,24 +718,30 @@ fn flush_scrollback_messages(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState,
     header_printed: &mut bool,
+    reserved_bottom_height: u16,
 ) -> Result<bool> {
+    let size = terminal.size()?;
+    let history_height = size.height.saturating_sub(reserved_bottom_height);
+    if history_height == 0 {
+        return Ok(false);
+    }
+
     let messages = state.drain_scrollback_messages();
     if messages.is_empty() && *header_printed {
         return Ok(false);
     }
 
-    let size = terminal.size()?;
     let width = size.width.max(1) as usize;
     let render_width = width.saturating_sub(1).max(1);
     if !*header_printed {
         for line in render_scrollback_header(&state.visual_state(), render_width) {
-            write_scrollback_line(terminal, &line, width)?;
+            insert_scrollback_line(terminal, &line, width, history_height)?;
         }
         *header_printed = true;
     }
     for message in messages {
         for line in render_scrollback_message(&message, render_width) {
-            write_scrollback_line(terminal, &line, width)?;
+            insert_scrollback_line(terminal, &line, width, history_height)?;
         }
     }
     Ok(true)
@@ -744,14 +750,24 @@ fn flush_scrollback_messages(
 #[derive(Clone, Default)]
 struct InlinePanelLayout {
     height: u16,
-    cursor_row: u16,
 }
 
-fn draw_inline_panel(
+struct PreparedInlinePanel {
+    lines: Vec<Line<'static>>,
+    cursor_row: u16,
+    cursor_col: u16,
+}
+
+impl PreparedInlinePanel {
+    fn height(&self) -> u16 {
+        self.lines.len() as u16
+    }
+}
+
+fn prepare_inline_panel(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &AppState,
-    previous: &InlinePanelLayout,
-) -> Result<InlinePanelLayout> {
+) -> Result<PreparedInlinePanel> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
     let max_live_lines = size.height.saturating_sub(4).max(1) as usize;
@@ -766,45 +782,47 @@ fn draw_inline_panel(
         cursor_row = cursor_row.saturating_sub(drained);
     }
 
-    let panel_height = lines.len() as u16;
     let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
-    let clear_cursor_row = previous.cursor_row.max(cursor_row);
-    if clear_cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(clear_cursor_row))?;
-    }
+    Ok(PreparedInlinePanel {
+        lines,
+        cursor_row,
+        cursor_col: cursor_col.min(width.saturating_sub(1)) as u16,
+    })
+}
 
-    queue!(
-        terminal.backend_mut(),
-        MoveToColumn(0),
-        TerminalClear(ClearType::FromCursorDown)
-    )?;
-    if clear_cursor_row > cursor_row {
+fn draw_inline_panel(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    panel: PreparedInlinePanel,
+    previous: &InlinePanelLayout,
+) -> Result<InlinePanelLayout> {
+    let size = terminal.size()?;
+    let width = size.width.max(1) as usize;
+    let panel_height = panel.height().min(size.height);
+    let clear_height = previous.height.max(panel_height).min(size.height);
+    let clear_top = size.height.saturating_sub(clear_height);
+    for row in clear_top..size.height {
         queue!(
             terminal.backend_mut(),
-            MoveDown(clear_cursor_row - cursor_row)
+            MoveTo(0, row),
+            TerminalClear(ClearType::CurrentLine)
         )?;
     }
 
-    for (row, line) in lines.iter().enumerate() {
+    let panel_top = size.height.saturating_sub(panel_height);
+    for (row, line) in panel.lines.iter().take(panel_height as usize).enumerate() {
+        let row = panel_top.saturating_add(row as u16);
+        queue!(terminal.backend_mut(), MoveTo(0, row))?;
         write_terminal_line_without_newline(terminal, line, width)?;
-        if row + 1 < lines.len() {
-            queue!(terminal.backend_mut(), Print("\r\n"))?;
-        }
     }
+    let cursor_row = panel.cursor_row.min(panel_height.saturating_sub(1));
 
-    let touched_rows = panel_height;
-    let current_row = touched_rows.saturating_sub(1);
-    if current_row > cursor_row {
-        queue!(terminal.backend_mut(), MoveUp(current_row - cursor_row))?;
-    }
     queue!(
         terminal.backend_mut(),
-        MoveToColumn(cursor_col.min(width.saturating_sub(1)) as u16)
+        MoveTo(panel.cursor_col, panel_top.saturating_add(cursor_row))
     )?;
-    terminal.backend_mut().flush()?;
+    std::io::Write::flush(terminal.backend_mut())?;
     Ok(InlinePanelLayout {
         height: panel_height,
-        cursor_row,
     })
 }
 
@@ -815,50 +833,33 @@ fn clear_inline_panel(
     if layout.height == 0 {
         return Ok(());
     }
-    if layout.cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(layout.cursor_row))?;
+    let size = terminal.size()?;
+    let clear_height = layout.height.min(size.height);
+    let clear_top = size.height.saturating_sub(clear_height);
+    for row in clear_top..size.height {
+        queue!(
+            terminal.backend_mut(),
+            MoveTo(0, row),
+            TerminalClear(ClearType::CurrentLine)
+        )?;
     }
-    queue!(
-        terminal.backend_mut(),
-        MoveToColumn(0),
-        TerminalClear(ClearType::FromCursorDown)
-    )?;
     Ok(())
 }
 
-fn write_scrollback_line(
+fn insert_scrollback_line(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     line: &Line<'_>,
     width: usize,
+    history_height: u16,
 ) -> Result<()> {
-    queue!(
-        terminal.backend_mut(),
-        MoveToColumn(0),
-        TerminalClear(ClearType::CurrentLine)
-    )?;
-
-    let mut remaining = width.saturating_sub(1);
-    for span in &line.spans {
-        if remaining == 0 {
-            break;
-        }
-
-        let text = take_terminal_chars(span.content.as_ref(), remaining);
-        if text.is_empty() {
-            continue;
-        }
-        remaining = remaining.saturating_sub(UnicodeWidthStr::width(text.as_str()));
-        apply_terminal_style(terminal, span.style)?;
-        queue!(terminal.backend_mut(), Print(text))?;
+    if history_height == 0 {
+        return Ok(());
     }
-
-    queue!(
-        terminal.backend_mut(),
-        ResetColor,
-        SetAttribute(Attribute::Reset),
-        Print("\r\n")
-    )?;
-    terminal.backend_mut().flush()?;
+    terminal
+        .backend_mut()
+        .scroll_region_up(0..history_height, 1)?;
+    queue!(terminal.backend_mut(), MoveTo(0, history_height - 1))?;
+    write_terminal_line_without_newline(terminal, line, width)?;
     Ok(())
 }
 
