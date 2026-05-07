@@ -333,6 +333,11 @@ terminal surface и active streaming view, не меняя core protocol.
   когда пользователь ушёл вверх, новые delta-строки не двигают окно обратно к
   live tail. Renderer держит anchored visible end, а `AppState` компенсирует
   рост rendered transcript rows, пока scroll offset активен.
+- Отдельный source clipping во время streaming был в markdown code block:
+  строки заворачивались на всю ширину контента, а потом получали внутренний
+  префикс `│ `. Теперь code block учитывает этот префикс при wrap. Следующий
+  правильный шаг по Codex - line-batched streaming controller, где UI
+  публикует завершённые строки, а не каждый provider delta по слогам.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
