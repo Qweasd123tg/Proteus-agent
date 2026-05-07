@@ -29,6 +29,18 @@ module implementations без переписывания core или форка 
 5. Tests before platform claims: каждый новый slot/module behavior получает
    focused tests на boundary.
 
+## Direction Checkpoint
+
+Текущая развилка зафиксирована в
+`docs/direction-checkpoint-20260507.md`.
+
+Короткая позиция на 2026-05-07: не превращать ближайший этап в бесконечную
+полировку TUI, пока не решено, является ли `agent-tui` главным продуктом или
+reference client. Рекомендуемое направление - `Kernel/Harness First` +
+`Feature-Pack Experiments`: стабилизировать TUI до usable уровня, а основной
+фокус перенести на golden coding profile, token/context discipline, evals,
+verified editing, approval rules и deferred tool exposure.
+
 ## Этапы
 
 ### v0: Healthy Core
