@@ -47,15 +47,23 @@ impl InlineTerminalState {
         header_printed: &mut bool,
     ) -> Result<()> {
         let prepared_panel = prepare_inline_panel(terminal, state)?;
-        resize_inline_viewport_for_panel(terminal, self.panel.height, prepared_panel.height())?;
+        let previous_panel = self.panel.clone();
+        let next_height = prepared_panel.height();
+        let draw_previous_panel = if panel_is_shrinking(previous_panel.height, next_height) {
+            clear_inline_panel(terminal, &previous_panel)?;
+            InlinePanelLayout::default()
+        } else {
+            resize_inline_viewport_for_panel(terminal, previous_panel.height, next_height)?;
+            previous_panel
+        };
         flush_scrollback_messages(
             terminal,
             state,
             header_printed,
             &mut self.history,
-            prepared_panel.height(),
+            next_height,
         )?;
-        self.panel = draw_inline_panel(terminal, prepared_panel, &self.panel)?;
+        self.panel = draw_inline_panel(terminal, prepared_panel, &draw_previous_panel)?;
         Ok(())
     }
 }
@@ -173,6 +181,10 @@ fn prepare_inline_panel(
 
 fn max_inline_live_preview_lines(screen_height: u16) -> usize {
     screen_height.saturating_div(3).clamp(1, 12) as usize
+}
+
+fn panel_is_shrinking(previous_height: u16, next_height: u16) -> bool {
+    next_height < previous_height
 }
 
 fn draw_inline_panel(
@@ -526,5 +538,12 @@ mod tests {
         assert_eq!(max_inline_live_preview_lines(24), 8);
         assert_eq!(max_inline_live_preview_lines(60), 12);
         assert_eq!(max_inline_live_preview_lines(2), 1);
+    }
+
+    #[test]
+    fn panel_shrink_is_detected_before_history_flush() {
+        assert!(panel_is_shrinking(12, 3));
+        assert!(!panel_is_shrinking(3, 12));
+        assert!(!panel_is_shrinking(4, 4));
     }
 }
