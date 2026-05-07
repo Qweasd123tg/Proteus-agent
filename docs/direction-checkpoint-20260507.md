@@ -136,6 +136,83 @@ token-saver pack
 Так мы не бросаем TUI, но перестаём лечить terminal renderer как главный смысл
 проекта.
 
+## Решение После Ответов Владельца
+
+Принятое направление на ближайший этап:
+
+```text
+Quality-first harness
++ usable dogfood TUI
++ Codex-like baseline pack
++ best-of feature packs
++ evals before optimization claims
+```
+
+`agent-tui` нужен не как декоративный клиент, а как способ реально тестировать
+агента, видеть его ответы, tool calls, token usage, approvals, resume и
+streaming. Поэтому TUI нельзя бросать. Но TUI не должен съесть весь roadmap:
+его нужно довести до уровня, где им можно спокойно dogfood-ить агента и
+запускать eval/manual scenarios.
+
+Главная цель перед token optimization - добиться качества работы на уровне
+существующих coding agents. Экономия токенов остаётся важной причиной проекта,
+но оптимизировать слабого агента бессмысленно: сначала нужно понять, насколько
+текущая архитектура вообще способна повторить качество чужого рабочего agent-а.
+
+Практический способ проверки:
+
+1. Сделать один `codex-like baseline` profile/pack. Он не должен быть копией
+   Codex целиком, но должен взять близкие подсистемы: workflow, search,
+   approval policy, patch path, tool exposure и TUI assumptions. Это нужно как
+   контрольная группа: если похожий pack работает плохо, значит узкое место
+   может быть в core/protocol/contracts, а не в конкретной реализации plugin-а.
+2. После baseline собирать `best-of` packs: брать лучшие идеи из Codex, Claude,
+   OpenCode, forgecode и собственных experiments, но раскладывать их по
+   существующим slots.
+3. Сравнивать packs через eval harness и dogfooding, а не по ощущениям.
+   Минимальные метрики: success/fail, changed files, diff size, tests,
+   tool calls, approvals, wall time, provider token usage, estimated local
+   breakdown и failure reason.
+
+Что значит `pack` в этом проекте:
+
+```text
+pack = config/profile + набор plugin implementations + docs/evals
+```
+
+Pack не является новым slot-ом. Это способ собрать уже существующие slots в
+один режим поведения:
+
+```text
+codex-like baseline pack
+  workflow       = "coding.plan_execute_review" или будущий codex-like workflow
+  context        = "repo_aware"
+  search         = "path_fuzzy" / "rg"
+  policy         = "exec_rules" / "ask_write"
+  patch          = "verified" / "direct"
+  tool_exposure  = "deferred" / "all_visible"
+```
+
+Subagents, cheap-model delegation и multi-agent control plane отложены. Они
+важны, но не должны входить в ближайший milestone: без качества single-agent
+coding loop, evals и понятной token accounting мы не справимся с этим слоем.
+
+Plugin ABI пока можно ломать без compatibility fallback-ов. Проект ещё не
+публичная plugin platform; при изменении форматов сейчас дешевле поправить
+плагины и docs, чем держать костыли совместимости. При этом core invariants уже
+нельзя ломать без тестов и явного архитектурного решения.
+
+Из этого следует практический порядок:
+
+1. Сначала `eval harness` + реальные manual/eval задачи.
+2. Затем `codex-like baseline pack`, чтобы проверить архитектурный потолок.
+3. Затем усиление качества: verified editing, better context/search, approval
+   rules, workflow settings.
+4. Затем token optimization packs: artifacts, compaction, deferred context/tool
+   descriptions, usage accounting.
+5. TUI retained rewrite делать только если текущий client мешает тестировать
+   агента или если принято решение делать TUI главным daily-driver продуктом.
+
 ## Что Не Делать До Решения
 
 - Не начинать большой retained TUI rewrite без ответа, является ли TUI главным
@@ -144,29 +221,18 @@ token-saver pack
 - Не переносить slash, markdown, context overlay или approval UI в core.
 - Не стабилизировать публичную plugin compatibility, пока формат активно
   меняется.
-- Не обещать "копию Codex/Claude" без eval harness и измерений.
+- Не обещать "качество Codex/Claude" без eval harness и измерений.
 
-## Вопросы Для Владельца Проекта
+## Оставшиеся Открытые Вопросы
 
-1. Что важнее на ближайший месяц: daily-driver TUI или доказать, что plugin
-   system реально ускоряет эксперименты над agent behavior?
-2. `agent-tui` должен стать основным продуктом или достаточно reference client,
-   который показывает app-server capabilities?
-3. Главная метрика успеха сейчас: меньше tokens/cost, выше coding quality,
-   меньше ручных approvals, стабильнее UX или проще добавлять новые packs?
-4. Ты хочешь имитировать Codex как baseline или собрать best-of packs и мерить,
-   какой работает лучше?
-5. Какой первый практический pack делаем: `codex-style`, `token-saver`,
-   `repo-aware`, `verified-editing` или `approval-exec-rules`?
-6. Сколько времени можно вложить в TUI rewrite, если станет ясно, что текущий
-   hybrid renderer не дотягивается точечными фиксами?
-7. Нужны ли subagents/cheap-model delegation в ближайшем milestone, или это
-   research после token/context и editing quality?
-8. Plugin ABI пока можно ломать без миграций и fallback-ов?
-9. Какой provider/model считать primary для shaping, usage accounting и
-   dogfooding?
-10. Какие реальные задачи берём как первые evals, чтобы перестать спорить по
-    ощущениям?
+1. Какой набор реальных задач берём для первого eval suite?
+2. Какой provider/model считаем primary для dogfooding и usage accounting?
+3. Где проходит минимальная планка TUI: какие баги блокируют тестирование
+   агента, а какие можно оставить до retained rewrite?
+4. Насколько близко `codex-like baseline` должен повторять Codex: только UX и
+   tool flow или также prompt/workflow assumptions?
+5. Какие plugin ABI изменения уже назрели для baseline pack, а какие можно
+   оставить internal/draft?
 
 ## Критерий Следующего Решения
 
