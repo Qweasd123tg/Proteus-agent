@@ -32,8 +32,8 @@ use anyhow::{Context, Result};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{
-        self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
-        KeyModifiers,
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event as CTerm, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
     },
     execute, queue,
     terminal::{
@@ -183,6 +183,7 @@ fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resu
     execute!(
         terminal.backend_mut(),
         DisableBracketedPaste,
+        DisableMouseCapture,
         TerminalClear(ClearType::FromCursorDown)
     )?;
     terminal.show_cursor()?;
@@ -226,6 +227,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut scrollback_header_printed = false;
     let mut inline_terminal = InlineTerminalState::default();
     let mut picker_alt_screen = false;
+    let mut streaming_mouse_capture = false;
     let mut startup_ready = false;
     let mut dirty = false;
 
@@ -339,6 +341,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         &mut scrollback_header_printed,
                         &mut inline_terminal,
                         &mut picker_alt_screen,
+                        &mut streaming_mouse_capture,
                     )?;
                     dirty = false;
                 }
@@ -355,6 +358,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let _ = driver.shutdown().await;
     if picker_alt_screen {
         let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    }
+    if streaming_mouse_capture {
+        let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
     }
     Ok(())
 }
@@ -650,6 +656,17 @@ async fn handle_term_event(
             state.paste_text(&text);
             return Ok(true);
         }
+        CTerm::Mouse(mouse) if state.visual_state().streaming => match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                state.scroll_transcript_up(3);
+                return Ok(true);
+            }
+            MouseEventKind::ScrollDown => {
+                state.scroll_transcript_down(3);
+                return Ok(true);
+            }
+            _ => {}
+        },
         _ => {}
     }
     Ok(false)
@@ -680,7 +697,13 @@ fn redraw(
     scrollback_header_printed: &mut bool,
     inline_terminal: &mut InlineTerminalState,
     picker_alt_screen: &mut bool,
+    streaming_mouse_capture: &mut bool,
 ) -> Result<()> {
+    sync_streaming_mouse_capture(
+        terminal,
+        state.visual_state().streaming && !state.has_fullscreen_overlay(),
+        streaming_mouse_capture,
+    )?;
     queue!(terminal.backend_mut(), Hide, BeginSynchronizedUpdate)?;
     let result = (|| -> Result<()> {
         if state.has_fullscreen_overlay() {
@@ -705,6 +728,24 @@ fn redraw(
         .and_then(|_| std::io::Write::flush(terminal.backend_mut()));
     result?;
     finish_result?;
+    Ok(())
+}
+
+fn sync_streaming_mouse_capture(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    should_enable: bool,
+    enabled: &mut bool,
+) -> Result<()> {
+    if *enabled == should_enable {
+        return Ok(());
+    }
+
+    if should_enable {
+        execute!(terminal.backend_mut(), EnableMouseCapture)?;
+    } else {
+        execute!(terminal.backend_mut(), DisableMouseCapture)?;
+    }
+    *enabled = should_enable;
     Ok(())
 }
 
