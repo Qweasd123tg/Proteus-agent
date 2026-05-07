@@ -295,6 +295,11 @@ terminal surface и active streaming view, не меняя core protocol.
   терминале прямой `Backend::scroll_region_up` заменён на более близкую к
   Codex вставку history через `SetScrollRegion` + `\r\n` у нижней границы
   history-region, чтобы не ломать обычный terminal scrollback.
+- Dogfood большого streaming output выявил ещё одну проблему промежуточного
+  слоя: когда live-preview увеличивал нижнюю панель вверх, новые строки панели
+  просто очищали уже нарисованный transcript. Исправлено в Codex-направлении:
+  рост bottom viewport сначала прокручивает history-region на delta высоты, а
+  live-preview ограничен частью экрана до полноценного retained active cell.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
