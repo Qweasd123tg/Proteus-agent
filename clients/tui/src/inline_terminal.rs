@@ -17,7 +17,10 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     state::AppState,
-    visual::{inline_panel_lines, render_scrollback_header, render_scrollback_message},
+    visual::{
+        inline_panel_lines, render_scrollback_header, render_scrollback_message,
+        render_streaming_scrollback_message,
+    },
 };
 
 #[derive(Default)]
@@ -96,34 +99,48 @@ impl InlineTerminalState {
 
         let width = size.width.max(1) as usize;
         let render_width = width.saturating_sub(1).max(1);
-        let mut lines = render_scrollback_header(&state.visual_state(), render_width);
-        for message in state.scrollback_messages_snapshot() {
-            lines.extend(render_scrollback_message(&message, render_width));
-        }
+        let lines = render_streaming_scrollback_lines(state, render_width);
         let history_height = history_height as usize;
         let scroll_offset = state.sync_transcript_scroll_rendered_lines(lines.len());
         let (visible_start, visible_end) =
             self.streaming_viewport
                 .visible_window(lines.len(), history_height, scroll_offset);
-
-        for row in 0..history_height {
-            queue!(
-                terminal.backend_mut(),
-                MoveTo(0, row as u16),
-                TerminalClear(ClearType::CurrentLine)
-            )?;
-        }
-        for (row, line) in lines
+        let visible_lines = lines
             .iter()
             .skip(visible_start)
             .take(visible_end.saturating_sub(visible_start))
-            .enumerate()
-        {
+            .collect::<Vec<_>>();
+        let changed_rows = self.streaming_viewport.changed_visible_rows(
+            render_width,
+            history_height,
+            &visible_lines,
+        );
+
+        for row in changed_rows {
             queue!(terminal.backend_mut(), MoveTo(0, row as u16))?;
-            write_terminal_line_without_newline(terminal, line, width)?;
+            if let Some(line) = visible_lines.get(row) {
+                write_terminal_line_without_newline(terminal, line, width)?;
+            } else {
+                queue!(
+                    terminal.backend_mut(),
+                    TerminalClear(ClearType::CurrentLine)
+                )?;
+            }
         }
         Ok(())
     }
+}
+
+fn render_streaming_scrollback_lines(state: &AppState, render_width: usize) -> Vec<Line<'static>> {
+    let mut lines = render_scrollback_header(&state.visual_state(), render_width);
+    for (message, active_streaming) in state.streaming_scrollback_messages_snapshot() {
+        if active_streaming {
+            lines.extend(render_streaming_scrollback_message(&message, render_width));
+        } else {
+            lines.extend(render_scrollback_message(&message, render_width));
+        }
+    }
+    lines
 }
 
 fn flush_scrollback_messages(
@@ -170,6 +187,9 @@ struct HistoryViewportState {
 struct StreamingViewportState {
     requested_offset: usize,
     anchored_visible_end: Option<usize>,
+    buffer_width: Option<usize>,
+    buffer_height: usize,
+    visible_rows: Vec<Option<RenderedLineKey>>,
 }
 
 impl StreamingViewportState {
@@ -186,7 +206,8 @@ impl StreamingViewportState {
         let max_offset = total_lines.saturating_sub(height);
         let requested_offset = requested_offset.min(max_offset);
         if requested_offset == 0 {
-            self.reset();
+            self.requested_offset = 0;
+            self.anchored_visible_end = None;
             let end = total_lines;
             return (end.saturating_sub(height), end);
         }
@@ -205,6 +226,65 @@ impl StreamingViewportState {
         let end = end.clamp(min_end, total_lines);
         self.anchored_visible_end = Some(end);
         (end.saturating_sub(height), end)
+    }
+
+    fn changed_visible_rows(
+        &mut self,
+        render_width: usize,
+        height: usize,
+        visible_lines: &[&Line<'_>],
+    ) -> Vec<usize> {
+        let force_repaint = self.prepare_buffer(render_width, height);
+        let mut changed = Vec::new();
+        let mut next_rows = Vec::with_capacity(height);
+
+        for row in 0..height {
+            let next = visible_lines.get(row).map(|line| rendered_line_key(line));
+            let previous = self.visible_rows.get(row).cloned().unwrap_or(None);
+            if force_repaint || previous != next {
+                changed.push(row);
+            }
+            next_rows.push(next);
+        }
+
+        self.visible_rows = next_rows;
+        changed
+    }
+
+    fn prepare_buffer(&mut self, render_width: usize, height: usize) -> bool {
+        let changed = self.buffer_width != Some(render_width)
+            || self.buffer_height != height
+            || self.visible_rows.len() != height;
+        if changed {
+            self.buffer_width = Some(render_width);
+            self.buffer_height = height;
+            self.visible_rows.clear();
+        }
+        changed
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct RenderedLineKey {
+    spans: Vec<RenderedSpanKey>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct RenderedSpanKey {
+    content: String,
+    style: Style,
+}
+
+fn rendered_line_key(line: &Line<'_>) -> RenderedLineKey {
+    RenderedLineKey {
+        spans: line
+            .spans
+            .iter()
+            .map(|span| RenderedSpanKey {
+                content: span.content.as_ref().to_owned(),
+                style: span.style,
+            })
+            .collect(),
     }
 }
 
@@ -580,6 +660,14 @@ fn to_crossterm_color(color: RColor) -> Option<CTermColor> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    use agent_contracts::{
+        app_protocol::AppServerEvent,
+        domain::{Event, EventContext, EventEnvelope},
+    };
+
+    use crate::state::AppState;
 
     #[test]
     fn history_viewport_fills_from_top_before_scrolling() {
@@ -678,5 +766,53 @@ mod tests {
         assert_eq!(viewport.visible_window(30, 10, 8), (12, 22));
         assert_eq!(viewport.visible_window(40, 10, 3), (27, 37));
         assert_eq!(viewport.visible_window(45, 10, 0), (35, 45));
+    }
+
+    #[test]
+    fn streaming_viewport_buffers_unchanged_rows() {
+        let mut viewport = StreamingViewportState::default();
+        let first = Line::raw("first");
+        let second = Line::raw("second");
+        let changed = viewport.changed_visible_rows(80, 3, &[&first, &second]);
+        assert_eq!(changed, vec![0, 1, 2]);
+
+        let unchanged = viewport.changed_visible_rows(80, 3, &[&first, &second]);
+        assert!(unchanged.is_empty());
+
+        let updated = Line::raw("updated");
+        let changed = viewport.changed_visible_rows(80, 3, &[&first, &updated]);
+        assert_eq!(changed, vec![1]);
+    }
+
+    #[test]
+    fn first_turn_streaming_lines_fit_narrow_width() {
+        let mut state = AppState::new(PathBuf::from("/tmp/workspace"), None);
+        let session_id = agent_contracts::domain::new_session_id();
+        let thread_id = agent_contracts::domain::new_thread_id();
+        let turn_id = agent_contracts::domain::new_turn_id();
+        state.mark_user_sent(
+            "распиши длинный стих на 60 строк".to_owned(),
+            Vec::new(),
+            turn_id.to_string(),
+        );
+        state.ingest(AppServerEvent::Runtime {
+            envelope: EventEnvelope::new(
+                EventContext::new(session_id, thread_id, Some(turn_id)),
+                1,
+                Event::AssistantTextDelta {
+                    text: "Привет! Держи длинный стих:\n\n```\n│ В час, когда гаснет закат за холмами,\n│ В час, когда звезды выходят на свет,\n│ Тихо бреду я лесными тропами,\n│ Словно ищу я на вопросы ответ.\n```\n\nStill **streaming".to_owned(),
+                },
+            ),
+        });
+
+        let lines = render_streaming_scrollback_lines(&state, 58);
+
+        assert!(state.visual_state().streaming);
+        assert!(lines.iter().all(|line| line.width() <= 58));
+        assert!(lines.iter().any(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.content.as_ref() == "Still **streaming")
+        }));
     }
 }
