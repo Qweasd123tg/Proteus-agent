@@ -161,7 +161,7 @@ fn build_simple_context(
         );
     }
 
-    chunks.extend(search(
+    chunks.extend(search_best_effort(
         host,
         SearchQuery::new(
             input.task.text.clone(),
@@ -169,6 +169,7 @@ fn build_simple_context(
             config.max_search_results,
         )
         .with_use_case("simple_context"),
+        "simple_context",
     )?);
 
     let token_estimate = token_estimate(&chunks);
@@ -352,10 +353,11 @@ fn search_chunks(
     let mut chunks = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for query in queries {
-        let results = search(
+        let results = search_best_effort(
             host,
             SearchQuery::new(query.clone(), input.task.cwd.clone(), per_query_limit)
                 .with_use_case("repo_aware_context"),
+            "repo_aware_context",
         )?;
         for mut chunk in results {
             let dedupe_key = format!(
@@ -412,6 +414,28 @@ fn search(
     match host.search_json(RString::from(query_json)) {
         RResult::ROk(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
         RResult::RErr(error) => Err(anyhow::anyhow!("{}", error.message)),
+    }
+}
+
+fn search_best_effort(
+    host: &mut PluginContextBuilderHostMut<'_>,
+    query: SearchQuery,
+    provider: &str,
+) -> anyhow::Result<Vec<ContextChunk>> {
+    match search(host, query) {
+        Ok(chunks) => Ok(chunks),
+        Err(error) => Ok(vec![
+            ContextChunk::new(
+                format!("{provider}:search_error"),
+                format!("Workspace search was skipped: {error}"),
+            )
+            .with_score(0.05)
+            .with_metadata(metadata(
+                "search",
+                "search backend error; turn should continue without search context",
+                json!({ "error": error.to_string() }),
+            )),
+        ]),
     }
 }
 

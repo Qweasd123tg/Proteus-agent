@@ -74,7 +74,9 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         .current_dir(&query.cwd);
     let lines = match run_rg_limited(command, query.max_results, RG_TIMEOUT) {
         Ok(lines) => lines,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err("ripgrep executable 'rg' was not found in PATH".to_owned());
+        }
         Err(error) => return Err(format!("failed to run ripgrep: {error}")),
     };
 
