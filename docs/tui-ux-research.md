@@ -324,6 +324,11 @@ terminal surface и active streaming view, не меняя core protocol.
   перерисовывает transcript/active answer сверху вниз, а bottom panel оставляет
   только status, composer и footer. Это временный repaint-path до полноценного
   Codex-style active cell, но он возвращает правильное направление роста текста.
+- Для streaming repaint добавлен минимальный app-managed scroll: `PageUp`/
+  `PageDown` и `Up`/`Down` двигают окно transcript, пока агент отвечает.
+  Чтобы уменьшить flicker, streaming path больше не делает `Clear(All)` и
+  `Purge` каждый frame, а очищает только строки history viewport перед
+  перерисовкой.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

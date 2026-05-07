@@ -133,18 +133,23 @@ fn draw_streaming_history_repaint(
     for message in state.scrollback_messages_snapshot() {
         lines.extend(render_scrollback_message(&message, render_width));
     }
-    let visible_start = lines.len().saturating_sub(history_height as usize);
+    let history_height = history_height as usize;
+    let max_scroll_offset = lines.len().saturating_sub(history_height);
+    let scroll_offset = state.transcript_scroll_offset().min(max_scroll_offset);
+    let visible_end = lines.len().saturating_sub(scroll_offset);
+    let visible_start = visible_end.saturating_sub(history_height);
 
-    queue!(
-        terminal.backend_mut(),
-        MoveTo(0, 0),
-        TerminalClear(ClearType::All),
-        TerminalClear(ClearType::Purge)
-    )?;
+    for row in 0..history_height {
+        queue!(
+            terminal.backend_mut(),
+            MoveTo(0, row as u16),
+            TerminalClear(ClearType::CurrentLine)
+        )?;
+    }
     for (row, line) in lines
         .iter()
         .skip(visible_start)
-        .take(history_height as usize)
+        .take(visible_end.saturating_sub(visible_start))
         .enumerate()
     {
         queue!(terminal.backend_mut(), MoveTo(0, row as u16))?;
