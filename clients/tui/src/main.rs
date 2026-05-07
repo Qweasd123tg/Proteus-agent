@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn, MoveUp},
+    cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -677,7 +677,7 @@ fn redraw(
     inline_panel: &mut InlinePanelLayout,
     picker_alt_screen: &mut bool,
 ) -> Result<()> {
-    queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+    queue!(terminal.backend_mut(), Hide, BeginSynchronizedUpdate)?;
     let result = (|| -> Result<()> {
         if state.has_fullscreen_overlay() {
             if !*picker_alt_screen {
@@ -707,7 +707,7 @@ fn redraw(
         }
         Ok(())
     })();
-    let finish_result = queue!(terminal.backend_mut(), EndSynchronizedUpdate)
+    let finish_result = queue!(terminal.backend_mut(), EndSynchronizedUpdate, Show)
         .and_then(|_| terminal.backend_mut().flush());
     result?;
     finish_result?;
@@ -860,6 +860,12 @@ fn write_terminal_line_without_newline(
     line: &Line<'_>,
     width: usize,
 ) -> Result<()> {
+    queue!(
+        terminal.backend_mut(),
+        MoveToColumn(0),
+        TerminalClear(ClearType::CurrentLine)
+    )?;
+
     let mut remaining = width.saturating_sub(1);
     for span in &line.spans {
         if remaining == 0 {
