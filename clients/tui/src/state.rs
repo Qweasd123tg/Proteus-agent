@@ -54,6 +54,7 @@ pub struct AppState {
     slash_selection: usize,
     scrollback_cursor: usize,
     transcript_scroll_offset: usize,
+    transcript_rendered_lines: usize,
     token_usage: Option<TokenUsageSnapshot>,
     usage_turn_id: Option<TurnId>,
     turn_usage: UsageTotals,
@@ -91,6 +92,7 @@ impl AppState {
             slash_selection: 0,
             scrollback_cursor: 0,
             transcript_scroll_offset: 0,
+            transcript_rendered_lines: 0,
             token_usage: None,
             usage_turn_id: None,
             turn_usage: UsageTotals::default(),
@@ -436,6 +438,7 @@ impl AppState {
             .push(VisualMessage::system("History cleared."));
         self.scrollback_cursor = 0;
         self.transcript_scroll_offset = 0;
+        self.transcript_rendered_lines = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -462,6 +465,7 @@ impl AppState {
         self.context_report = None;
         self.context_report_scroll = 0;
         self.transcript_scroll_offset = 0;
+        self.transcript_rendered_lines = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -695,6 +699,7 @@ impl AppState {
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.transcript_scroll_offset = 0;
+        self.transcript_rendered_lines = 0;
         self.pending_model = true;
         self.status = "sent".to_owned();
     }
@@ -712,6 +717,7 @@ impl AppState {
         self.completed_turn_at = None;
         self.usage_turn_id = None;
         self.transcript_scroll_offset = 0;
+        self.transcript_rendered_lines = 0;
         self.status = "cancel requested".to_owned();
         self.messages
             .push(VisualMessage::system("Turn cancel requested."));
@@ -737,7 +743,22 @@ impl AppState {
         self.messages.clone()
     }
 
+    #[cfg(test)]
     pub fn transcript_scroll_offset(&self) -> usize {
+        self.transcript_scroll_offset
+    }
+
+    pub fn sync_transcript_scroll_rendered_lines(&mut self, rendered_lines: usize) -> usize {
+        if self.streaming_assistant_idx.is_some()
+            && self.transcript_scroll_offset > 0
+            && self.transcript_rendered_lines > 0
+            && rendered_lines > self.transcript_rendered_lines
+        {
+            self.transcript_scroll_offset = self
+                .transcript_scroll_offset
+                .saturating_add(rendered_lines - self.transcript_rendered_lines);
+        }
+        self.transcript_rendered_lines = rendered_lines;
         self.transcript_scroll_offset
     }
 
@@ -779,6 +800,7 @@ impl AppState {
                 }
                 self.streaming_assistant_idx = None;
                 self.transcript_scroll_offset = 0;
+                self.transcript_rendered_lines = 0;
                 self.pending_model = false;
                 self.mark_turn_completed();
                 self.model_started_at = None;
@@ -1919,6 +1941,8 @@ mod tests {
         state.scroll_transcript_down(3);
 
         assert_eq!(state.transcript_scroll_offset(), 5);
+        assert_eq!(state.sync_transcript_scroll_rendered_lines(100), 5);
+        assert_eq!(state.sync_transcript_scroll_rendered_lines(112), 17);
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("done"),
