@@ -88,7 +88,8 @@ impl PluginTool for GrepTool {
             .arg("1M")
             .arg("--")
             .arg(&pattern)
-            .arg(&search_path);
+            .arg(&search_path)
+            .stdin(Stdio::null());
 
         let lines = match run_rg_limited(command, max_results, RG_TIMEOUT) {
             Ok(lines) => lines,

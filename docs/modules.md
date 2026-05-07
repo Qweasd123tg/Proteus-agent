@@ -105,6 +105,11 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
   chunks при сборке контекста;
 - tool `search` вызывает тот же backend.
 
+`rg-search` всегда передаёт ripgrep явный workspace path и закрывает stdin
+для child process. Это важно для `agent server stdio`: без явного path `rg`
+может читать открытый JSON stdin вместо файлов workspace и зависнуть до
+timeout.
+
 `SearchQuery` остаётся единым DTO для lexical, path-aware и будущих semantic
 backends. Помимо `text`, `cwd` и `max_results`, в нём есть optional поля
 `use_case`, `starts_with` и `ends_with`. `use_case` нужен backend-ам, которые

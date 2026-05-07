@@ -44,7 +44,7 @@ impl Tool for SearchTool {
             }),
             ToolSafety::ReadOnly,
         )
-        .with_timeout(10_000)
+        .with_timeout(20_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -93,4 +93,25 @@ fn string_array_arg(args: &serde_json::Value, name: &str) -> Result<Vec<String>>
                 .ok_or_else(|| anyhow!("search arg '{name}' must be an array of strings"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct EmptySearch;
+
+    #[async_trait]
+    impl SearchBackend for EmptySearch {
+        async fn search(&self, _query: SearchQuery) -> Result<Vec<crate::domain::ContextChunk>> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn search_tool_timeout_exceeds_rg_backend_timeout() {
+        let tool = SearchTool::new(Arc::new(EmptySearch));
+
+        assert_eq!(tool.spec().timeout_ms, Some(20_000));
+    }
 }
