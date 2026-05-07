@@ -233,6 +233,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
     let mut cancel_request_responses = HashSet::<String>::new();
     let mut scrollback_header_printed = false;
     let mut inline_panel = InlinePanelLayout::default();
+    let mut history_viewport = HistoryViewportState::default();
     let mut picker_alt_screen = false;
     let mut startup_ready = false;
     let mut dirty = false;
@@ -260,6 +261,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                                     &mut state,
                                     &mut scrollback_header_printed,
                                     &mut inline_panel,
+                                    &mut history_viewport,
                                 )?;
                             }
                         }
@@ -314,6 +316,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                                     &mut state,
                                     &mut scrollback_header_printed,
                                     &mut inline_panel,
+                                    &mut history_viewport,
                                 )?;
                             }
                             dirty = true;
@@ -346,6 +349,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                         &mut state,
                         &mut scrollback_header_printed,
                         &mut inline_panel,
+                        &mut history_viewport,
                         &mut picker_alt_screen,
                     )?;
                     dirty = false;
@@ -656,6 +660,7 @@ fn reset_normal_screen(
     state: &mut AppState,
     header_printed: &mut bool,
     inline_panel: &mut InlinePanelLayout,
+    history_viewport: &mut HistoryViewportState,
 ) -> Result<()> {
     execute!(
         terminal.backend_mut(),
@@ -666,6 +671,7 @@ fn reset_normal_screen(
     state.rewind_scrollback();
     *header_printed = false;
     *inline_panel = InlinePanelLayout::default();
+    *history_viewport = HistoryViewportState::default();
     Ok(())
 }
 
@@ -675,6 +681,7 @@ fn redraw(
     state: &mut AppState,
     scrollback_header_printed: &mut bool,
     inline_panel: &mut InlinePanelLayout,
+    history_viewport: &mut HistoryViewportState,
     picker_alt_screen: &mut bool,
 ) -> Result<()> {
     queue!(terminal.backend_mut(), Hide, BeginSynchronizedUpdate)?;
@@ -701,6 +708,7 @@ fn redraw(
                 terminal,
                 state,
                 scrollback_header_printed,
+                history_viewport,
                 prepared_panel.height(),
             )?;
             *inline_panel = draw_inline_panel(terminal, prepared_panel, inline_panel)?;
@@ -718,6 +726,7 @@ fn flush_scrollback_messages(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState,
     header_printed: &mut bool,
+    history_viewport: &mut HistoryViewportState,
     reserved_bottom_height: u16,
 ) -> Result<bool> {
     let size = terminal.size()?;
@@ -725,6 +734,7 @@ fn flush_scrollback_messages(
     if history_height == 0 {
         return Ok(false);
     }
+    history_viewport.clamp_to_height(history_height);
 
     let messages = state.drain_scrollback_messages();
     if messages.is_empty() && *header_printed {
@@ -735,16 +745,49 @@ fn flush_scrollback_messages(
     let render_width = width.saturating_sub(1).max(1);
     if !*header_printed {
         for line in render_scrollback_header(&state.visual_state(), render_width) {
-            insert_scrollback_line(terminal, &line, width, history_height)?;
+            insert_scrollback_line(terminal, &line, width, history_viewport, history_height)?;
         }
         *header_printed = true;
     }
     for message in messages {
         for line in render_scrollback_message(&message, render_width) {
-            insert_scrollback_line(terminal, &line, width, history_height)?;
+            insert_scrollback_line(terminal, &line, width, history_viewport, history_height)?;
         }
     }
     Ok(true)
+}
+
+#[derive(Clone, Default)]
+struct HistoryViewportState {
+    occupied_rows: u16,
+}
+
+impl HistoryViewportState {
+    fn clamp_to_height(&mut self, height: u16) {
+        self.occupied_rows = self.occupied_rows.min(height);
+    }
+
+    fn next_insert(&mut self, height: u16) -> Option<HistoryInsert> {
+        if height == 0 {
+            return None;
+        }
+        if self.occupied_rows < height {
+            let row = self.occupied_rows;
+            self.occupied_rows += 1;
+            Some(HistoryInsert { row, scroll: false })
+        } else {
+            Some(HistoryInsert {
+                row: height - 1,
+                scroll: true,
+            })
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HistoryInsert {
+    row: u16,
+    scroll: bool,
 }
 
 #[derive(Clone, Default)]
@@ -850,15 +893,18 @@ fn insert_scrollback_line(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     line: &Line<'_>,
     width: usize,
+    history_viewport: &mut HistoryViewportState,
     history_height: u16,
 ) -> Result<()> {
-    if history_height == 0 {
+    let Some(insert) = history_viewport.next_insert(history_height) else {
         return Ok(());
+    };
+    if insert.scroll {
+        terminal
+            .backend_mut()
+            .scroll_region_up(0..history_height, 1)?;
     }
-    terminal
-        .backend_mut()
-        .scroll_region_up(0..history_height, 1)?;
-    queue!(terminal.backend_mut(), MoveTo(0, history_height - 1))?;
+    queue!(terminal.backend_mut(), MoveTo(0, insert.row))?;
     write_terminal_line_without_newline(terminal, line, width)?;
     Ok(())
 }
@@ -1542,6 +1588,58 @@ async fn request_cancel(
 mod tests {
     use super::*;
     use crate::visual::VisualRole;
+
+    #[test]
+    fn history_viewport_fills_from_top_before_scrolling() {
+        let mut viewport = HistoryViewportState::default();
+
+        assert_eq!(
+            viewport.next_insert(3),
+            Some(HistoryInsert {
+                row: 0,
+                scroll: false
+            })
+        );
+        assert_eq!(
+            viewport.next_insert(3),
+            Some(HistoryInsert {
+                row: 1,
+                scroll: false
+            })
+        );
+        assert_eq!(
+            viewport.next_insert(3),
+            Some(HistoryInsert {
+                row: 2,
+                scroll: false
+            })
+        );
+        assert_eq!(
+            viewport.next_insert(3),
+            Some(HistoryInsert {
+                row: 2,
+                scroll: true
+            })
+        );
+    }
+
+    #[test]
+    fn history_viewport_clamps_after_resize() {
+        let mut viewport = HistoryViewportState::default();
+        for _ in 0..5 {
+            viewport.next_insert(5);
+        }
+
+        viewport.clamp_to_height(2);
+
+        assert_eq!(
+            viewport.next_insert(2),
+            Some(HistoryInsert {
+                row: 1,
+                scroll: true
+            })
+        );
+    }
 
     #[test]
     fn resolve_session_dir_accepts_directory() {
