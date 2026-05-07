@@ -329,6 +329,10 @@ terminal surface и active streaming view, не меняя core protocol.
   Чтобы уменьшить flicker, streaming path больше не делает `Clear(All)` и
   `Purge` каждый frame, а очищает только строки history viewport перед
   перерисовкой.
+- Scroll во время streaming должен быть anchored, а не offset-from-tail:
+  когда пользователь ушёл вверх, новые delta-строки не двигают окно обратно к
+  live tail. Renderer держит anchored visible end, а `AppState` компенсирует
+  рост rendered transcript rows, пока scroll offset активен.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
