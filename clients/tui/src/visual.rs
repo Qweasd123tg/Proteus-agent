@@ -633,7 +633,6 @@ fn append_plain_preview_text(
 fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
     let label = activity_label(state);
     let mut spans = Vec::new();
-    spans.push(Span::styled("+ ", muted_style()));
     if include_marker {
         spans.push(Span::styled(STATUS_MARKER.to_owned(), muted_style()));
         spans.push(Span::raw(" "));
@@ -1625,7 +1624,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert!(rendered.starts_with("+ • working"));
+        assert!(rendered.starts_with("• working"));
         assert!(
             !rendered
                 .chars()

@@ -312,6 +312,12 @@ terminal surface и active streaming view, не меняя core protocol.
   затем стираться очисткой старой высокой bottom panel. Исправлено: при
   уменьшении панели старая область очищается до вставки новых history lines, а
   последующий draw чистит только актуальную нижнюю панель.
+- Следующий dogfood показал, что во время длинного streaming ответа
+  промежуточный renderer всё ещё оставлял большую пустую history-область и
+  показывал только короткий tail внизу. Для текущего слоя live-preview расширен
+  почти на весь доступный экран, а shrink теперь делает полный repaint normal
+  screen из `AppState`, чтобы пустые строки, созданные ростом bottom pane, не
+  оставались после commit финального transcript.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
