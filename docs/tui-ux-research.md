@@ -300,6 +300,13 @@ terminal surface и active streaming view, не меняя core protocol.
   просто очищали уже нарисованный transcript. Исправлено в Codex-направлении:
   рост bottom viewport сначала прокручивает history-region на delta высоты, а
   live-preview ограничен частью экрана до полноценного retained active cell.
+- Следующий промежуточный шаг сделан: inline renderer вынесен из `main.rs` в
+  `clients/tui/src/inline_terminal.rs`, чтобы event loop больше не владел
+  деталями viewport/history insertion. На время streaming live-preview
+  резервирует стабильную высоту, поэтому длинный ответ не должен каждый frame
+  поднимать bottom pane и повторно двигать transcript. Это всё ещё не полный
+  `custom_terminal` Codex с front/back buffer, но теперь есть отдельная точка
+  для его переноса.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
