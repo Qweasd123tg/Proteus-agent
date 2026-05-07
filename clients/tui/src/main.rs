@@ -593,11 +593,17 @@ async fn handle_term_event(
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_prev();
                         return Ok(true);
+                    } else if state.visual_state().streaming {
+                        state.scroll_transcript_up(8);
+                        return Ok(true);
                     }
                 }
                 KeyCode::PageDown => {
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_next();
+                        return Ok(true);
+                    } else if state.visual_state().streaming {
+                        state.scroll_transcript_down(8);
                         return Ok(true);
                     }
                 }
@@ -605,11 +611,17 @@ async fn handle_term_event(
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_prev();
                         return Ok(true);
+                    } else if state.visual_state().streaming {
+                        state.scroll_transcript_up(1);
+                        return Ok(true);
                     }
                 }
                 KeyCode::Down => {
                     if state.has_slash_suggestions() {
                         state.move_slash_selection_next();
+                        return Ok(true);
+                    } else if state.visual_state().streaming {
+                        state.scroll_transcript_down(1);
                         return Ok(true);
                     }
                 }
