@@ -216,10 +216,20 @@ pub(crate) fn inline_panel_lines(
         lines.extend(approval_lines);
     } else {
         if state.streaming {
-            lines.extend(live_preview_lines(state, width, max_live_lines));
+            let live_lines = live_preview_lines(state, width, max_live_lines);
+            let reserved_live_lines = if live_lines.is_empty() {
+                0
+            } else {
+                max_live_lines.max(1)
+            };
+            let live_padding = reserved_live_lines.saturating_sub(live_lines.len());
+            lines.extend(live_lines);
+            lines.extend(std::iter::repeat_with(|| Line::raw("")).take(live_padding));
         }
         if active_status_visible(state) {
-            lines.push(Line::raw(""));
+            if lines.last().is_some_and(|line| line.width() > 0) {
+                lines.push(Line::raw(""));
+            }
             lines.push(active_status_line(state, true));
         }
     }
@@ -1515,16 +1525,20 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
+        let status_index = rendered
+            .iter()
+            .position(|line| line.contains("responding"))
+            .expect("status line");
+
         assert_eq!(rendered[0], "• streaming answer");
-        assert_eq!(rendered[1], "");
-        assert!(rendered[2].contains("responding"));
-        assert!(rendered[2].contains("00:12"));
-        assert!(rendered[2].contains("↓ 7 tokens"));
-        assert_eq!(rendered[3], "");
-        assert!(rendered[4].starts_with("› "));
-        assert_eq!(rendered[5], "");
+        assert_eq!(status_index, 20);
+        assert!(rendered[status_index].contains("00:12"));
+        assert!(rendered[status_index].contains("↓ 7 tokens"));
+        assert_eq!(rendered[status_index + 1], "");
+        assert!(rendered[status_index + 2].starts_with("› "));
+        assert_eq!(rendered[status_index + 3], "");
         assert!(
-            panel.lines[2]
+            panel.lines[status_index]
                 .spans
                 .iter()
                 .any(|span| span.content == "00:12"
