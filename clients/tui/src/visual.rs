@@ -1126,16 +1126,6 @@ pub(crate) fn render_scrollback_message(
     lines
 }
 
-pub(crate) fn render_streaming_scrollback_message(
-    message: &VisualMessage,
-    width: usize,
-) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    append_live_preview_message_lines(&mut lines, message, width);
-    lines.push(Line::raw(""));
-    lines
-}
-
 pub(crate) fn render_scrollback_header(
     state: &VisualState<'_>,
     width: usize,
@@ -1271,21 +1261,12 @@ pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
         return Vec::new();
     }
 
-    let width = width.max(1);
     let mut segments = Vec::new();
     let mut segment = String::new();
-    let mut used = 0usize;
     for ch in text.chars() {
-        let ch_width = ch.width().unwrap_or(0);
-        if used > 0 && used + ch_width > width {
-            segments.push(std::mem::take(&mut segment));
-            used = 0;
-        }
         segment.push(ch);
-        used += ch_width;
-        if used >= width {
+        if segment.chars().count() >= width {
             segments.push(std::mem::take(&mut segment));
-            used = 0;
         }
     }
     if !segment.is_empty() {
@@ -1785,34 +1766,6 @@ mod tests {
 
         assert!(rendered_text.iter().any(|line| line.contains("Use ")));
         assert!(rendered_text.iter().any(|line| line.contains("Still")));
-    }
-
-    #[test]
-    fn streaming_scrollback_message_keeps_partial_tail_plain() {
-        let lines = render_streaming_scrollback_message(
-            &VisualMessage::assistant("Use `cargo test`.\nStill **streaming"),
-            80,
-        );
-        let spans = lines
-            .iter()
-            .flat_map(|line| line.spans.iter())
-            .collect::<Vec<_>>();
-
-        assert!(spans.iter().any(|span| {
-            span.content.as_ref() == "cargo test" && span.style.fg == Some(Color::Yellow)
-        }));
-        assert!(spans.iter().any(|span| {
-            span.content.as_ref() == "Still **streaming"
-                && !span.style.add_modifier.contains(Modifier::BOLD)
-        }));
-    }
-
-    #[test]
-    fn plain_wrap_uses_terminal_columns() {
-        let lines =
-            render_streaming_scrollback_message(&VisualMessage::assistant("готово\n🙂🙂🙂🙂🙂"), 8);
-
-        assert!(lines.iter().all(|line| line.width() <= 8));
     }
 
     #[test]

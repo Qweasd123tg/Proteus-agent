@@ -338,12 +338,6 @@ terminal surface и active streaming view, не меняя core protocol.
   префикс `│ `. Теперь code block учитывает этот префикс при wrap. Следующий
   правильный шаг по Codex - line-batched streaming controller, где UI
   публикует завершённые строки, а не каждый provider delta по слогам.
-- Первый шаг этого controller сделан в `agent-tui`: active assistant во время
-  streaming рендерится отдельным transcript-path, где завершённая часть до
-  последнего `\n` идёт через markdown, а текущий partial tail остаётся plain
-  text. Streaming viewport получил front/back buffer для видимых строк, чтобы
-  не очищать весь history block каждый frame. Wheel-scroll включается только
-  на время streaming и двигает app-managed transcript window.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
