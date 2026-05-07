@@ -52,7 +52,7 @@ pub(crate) fn render_assistant_markdown(
             let segments = if source.is_empty() {
                 vec![String::new()]
             } else {
-                wrap_text(source, content_width)
+                wrap_text(source, content_width.saturating_sub(2).max(1))
             };
             for segment in segments {
                 push_line(
@@ -939,5 +939,22 @@ mod tests {
         assert_eq!(lines[3].spans[2].content.as_ref(), "");
         assert_eq!(lines[4].spans[1].content.as_ref(), "│ ");
         assert_eq!(lines[5].spans[1].content.as_ref(), "```");
+    }
+
+    #[test]
+    fn code_block_lines_fit_terminal_width_with_prefixes() {
+        let lines = render_assistant_markdown(
+            "```\nabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n```",
+            "• ",
+            Style::default(),
+            24,
+        );
+
+        assert!(lines.iter().all(|line| line.width() <= 24));
+        assert!(lines.iter().any(|line| {
+            line.spans
+                .get(2)
+                .is_some_and(|span| span.content.as_ref() == "abcdefghijklmnopqrst")
+        }));
     }
 }
