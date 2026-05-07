@@ -88,6 +88,15 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 Если чужая архитектура состоит из нескольких идей, она должна оформляться как
 feature pack/profile, а не как один большой slot.
 
+В этом репозитории `pack` означает:
+
+```text
+pack = config/profile + набор plugin implementations + docs/evals
+```
+
+Pack нужен, чтобы проверить композицию уже существующих slots. Он не получает
+особых прав в core и не является стабильным ABI сам по себе.
+
 Пример:
 
 ```text

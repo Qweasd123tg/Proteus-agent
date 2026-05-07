@@ -34,12 +34,13 @@ module implementations без переписывания core или форка 
 Текущая развилка зафиксирована в
 `docs/direction-checkpoint-20260507.md`.
 
-Короткая позиция на 2026-05-07: не превращать ближайший этап в бесконечную
-полировку TUI, пока не решено, является ли `agent-tui` главным продуктом или
-reference client. Рекомендуемое направление - `Kernel/Harness First` +
-`Feature-Pack Experiments`: стабилизировать TUI до usable уровня, а основной
-фокус перенести на golden coding profile, token/context discipline, evals,
-verified editing, approval rules и deferred tool exposure.
+Короткая позиция на 2026-05-07 после ответов владельца: ближайший этап -
+`Quality-first harness`. `agent-tui` нужен как dogfood/test client, но не должен
+съесть весь roadmap. Сначала нужно добиться качества coding-agent на уровне
+существующих агентов, затем оптимизировать token/context usage. Для сравнения
+делаем `codex-like baseline` pack, чтобы проверить, не является ли наша
+архитектура узким местом, а затем собираем `best-of` packs из лучших идей
+Codex/Claude/OpenCode/forgecode.
 
 ## Этапы
 
@@ -207,6 +208,9 @@ Scope:
 
 - Golden coding profile: один рекомендуемый профиль, который стабильно проходит
   реальные coding tasks, а не только демонстрирует plugin architecture.
+- Codex-like baseline pack: контрольный профиль, который повторяет близкий
+  workflow/tool/search/approval/editing shape, чтобы проверить архитектурный
+  потолок проекта. Это не обещание копии Codex и не новый slot.
 - Eval harness поверх event log: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
@@ -234,6 +238,10 @@ Scope:
 - Сделать экспериментальный profile/pack вместо копирования чужого агента
   целиком: `Workflow` + `ContextBuilder` + `SearchBackend` + `ToolExposure` +
   `ApprovalPolicy` + `PatchApplier`.
+- Первый смысл pack-а - baseline для сравнения. Если Codex-like composition
+  плохо работает при похожих подсистемах, искать узкое место в core/protocol/
+  contracts; если работает приемлемо, дальше улучшать отдельные plugin
+  implementations и собирать best-of profile.
 - Deferred tool exposure через `ToolExposure`: модель видит минимальный набор
   tools и может получить дополнительные tools через searchable catalog.
 - Fuzzy file path search как `SearchBackend`/tool provider, без
