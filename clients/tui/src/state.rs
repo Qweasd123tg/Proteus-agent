@@ -739,12 +739,8 @@ impl AppState {
         drained
     }
 
-    pub fn streaming_scrollback_messages_snapshot(&self) -> Vec<(VisualMessage, bool)> {
-        self.messages
-            .iter()
-            .enumerate()
-            .map(|(index, message)| (message.clone(), self.streaming_assistant_idx == Some(index)))
-            .collect()
+    pub fn scrollback_messages_snapshot(&self) -> Vec<VisualMessage> {
+        self.messages.clone()
     }
 
     #[cfg(test)]
