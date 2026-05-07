@@ -60,18 +60,7 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         return Ok(Vec::new());
     }
 
-    let mut command = Command::new("rg");
-    command
-        .arg("--line-number")
-        .arg("--no-heading")
-        .arg("--color=never")
-        .arg("--max-columns")
-        .arg("2000")
-        .arg("--max-filesize")
-        .arg("1M")
-        .arg("--")
-        .arg(&query.text)
-        .current_dir(&query.cwd);
+    let command = build_rg_command(&query);
     let lines = match run_rg_limited(command, query.max_results, RG_TIMEOUT) {
         Ok(lines) => lines,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -93,6 +82,24 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         })
         .take(query.max_results)
         .collect())
+}
+
+fn build_rg_command(query: &SearchQuery) -> Command {
+    let mut command = Command::new("rg");
+    command
+        .arg("--line-number")
+        .arg("--no-heading")
+        .arg("--color=never")
+        .arg("--max-columns")
+        .arg("2000")
+        .arg("--max-filesize")
+        .arg("1M")
+        .arg("--")
+        .arg(&query.text)
+        .arg(".")
+        .current_dir(&query.cwd)
+        .stdin(Stdio::null());
+    command
 }
 
 fn run_rg_limited(
@@ -158,7 +165,7 @@ fn run_rg_limited(
 
 fn parse_rg_line(line: &str) -> Option<ContextChunk> {
     let mut parts = line.splitn(3, ':');
-    let path = parts.next()?;
+    let path = normalize_rg_path(parts.next()?);
     let line_number = parts.next()?.parse::<usize>().ok()?;
     let content = parts.next()?.to_owned();
     Some(
@@ -166,6 +173,10 @@ fn parse_rg_line(line: &str) -> Option<ContextChunk> {
             .with_path(path.into())
             .with_metadata(json!({ "line": line_number })),
     )
+}
+
+fn normalize_rg_path(path: &str) -> &str {
+    path.strip_prefix("./").unwrap_or(path)
 }
 
 extern "C" fn register_modules(
@@ -189,6 +200,10 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn parse_rg_line_extracts_path_line_and_content() {
@@ -198,5 +213,60 @@ mod tests {
         assert_eq!(chunk.path.unwrap().display().to_string(), "src/main.rs");
         assert_eq!(chunk.content, "let value = 1;");
         assert_eq!(chunk.metadata["line"], 42);
+    }
+
+    #[test]
+    fn parse_rg_line_normalizes_current_dir_prefix() {
+        let chunk = parse_rg_line("./src/main.rs:42:let value = 1;").unwrap();
+
+        assert_eq!(chunk.path.unwrap().display().to_string(), "src/main.rs");
+    }
+
+    #[test]
+    fn rg_command_searches_workspace_path_explicitly() {
+        let query = SearchQuery::new("needle", std::path::PathBuf::from("/tmp/workspace"), 10);
+        let command = build_rg_command(&query);
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(args.last().map(String::as_str), Some("."));
+        assert_eq!(
+            command.get_current_dir(),
+            Some(std::path::Path::new("/tmp/workspace"))
+        );
+    }
+
+    #[test]
+    fn run_rg_returns_matches_from_tiny_workspace() {
+        let dir = temp_workspace();
+        fs::write(dir.join("a.txt"), "hello needle\n").expect("write a.txt");
+        fs::write(dir.join("b.txt"), "other\nneedle two\n").expect("write b.txt");
+
+        let chunks = run_rg(SearchQuery::new("needle", dir.clone(), 10)).expect("rg search");
+        let paths = chunks
+            .iter()
+            .map(|chunk| chunk.path.as_ref().unwrap().display().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(chunks.len(), 2);
+        assert!(paths.contains(&"a.txt".to_owned()));
+        assert!(paths.contains(&"b.txt".to_owned()));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn temp_workspace() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "agent-rg-search-test-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("create temp workspace");
+        dir
     }
 }
