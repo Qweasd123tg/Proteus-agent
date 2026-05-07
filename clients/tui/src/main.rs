@@ -29,7 +29,7 @@ use agent_contracts::{
 };
 use anyhow::{Context, Result};
 use crossterm::{
-    cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show},
+    cursor::{Hide, MoveDown, MoveTo, MoveToColumn, MoveUp, Show},
     event::{
         self, DisableBracketedPaste, EnableBracketedPaste, Event as CTerm, KeyCode, KeyEventKind,
         KeyModifiers,
@@ -767,8 +767,10 @@ fn draw_inline_panel(
     }
 
     let panel_height = lines.len() as u16;
-    if previous.height > 0 && previous.cursor_row > 0 {
-        queue!(terminal.backend_mut(), MoveUp(previous.cursor_row))?;
+    let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
+    let clear_cursor_row = previous.cursor_row.max(cursor_row);
+    if clear_cursor_row > 0 {
+        queue!(terminal.backend_mut(), MoveUp(clear_cursor_row))?;
     }
 
     queue!(
@@ -776,6 +778,12 @@ fn draw_inline_panel(
         MoveToColumn(0),
         TerminalClear(ClearType::FromCursorDown)
     )?;
+    if clear_cursor_row > cursor_row {
+        queue!(
+            terminal.backend_mut(),
+            MoveDown(clear_cursor_row - cursor_row)
+        )?;
+    }
 
     for (row, line) in lines.iter().enumerate() {
         write_terminal_line_without_newline(terminal, line, width)?;
@@ -784,7 +792,6 @@ fn draw_inline_panel(
         }
     }
 
-    let cursor_row = cursor_row.min(lines.len().saturating_sub(1)) as u16;
     let touched_rows = panel_height;
     let current_row = touched_rows.saturating_sub(1);
     if current_row > cursor_row {
