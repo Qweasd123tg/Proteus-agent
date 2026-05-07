@@ -14,7 +14,7 @@ mod visual;
 
 use std::{
     collections::{HashMap, HashSet},
-    io,
+    fmt, io,
     path::{Component, Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -43,7 +43,7 @@ use crossterm::{
 };
 use ratatui::{
     Terminal,
-    backend::{Backend, CrosstermBackend},
+    backend::CrosstermBackend,
     style::{Color as RColor, Modifier, Style},
     text::Line,
 };
@@ -900,13 +900,63 @@ fn insert_scrollback_line(
         return Ok(());
     };
     if insert.scroll {
-        terminal
-            .backend_mut()
-            .scroll_region_up(0..history_height, 1)?;
+        queue!(
+            terminal.backend_mut(),
+            SetScrollRegion(1..history_height),
+            MoveTo(0, history_height - 1),
+            Print("\r\n")
+        )?;
+        write_terminal_line_without_newline(terminal, line, width)?;
+        queue!(terminal.backend_mut(), ResetScrollRegion)?;
+        return Ok(());
     }
     queue!(terminal.backend_mut(), MoveTo(0, insert.row))?;
     write_terminal_line_without_newline(terminal, line, width)?;
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetScrollRegion(std::ops::Range<u16>);
+
+impl crossterm::Command for SetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "SetScrollRegion is ANSI-only",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResetScrollRegion;
+
+impl crossterm::Command for ResetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "ResetScrollRegion is ANSI-only",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
 }
 
 fn write_terminal_line_without_newline(
