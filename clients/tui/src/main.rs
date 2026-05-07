@@ -704,6 +704,11 @@ fn redraw(
                 *inline_panel = InlinePanelLayout::default();
             }
             let prepared_panel = prepare_inline_panel(terminal, state)?;
+            resize_inline_viewport_for_panel(
+                terminal,
+                inline_panel.height,
+                prepared_panel.height(),
+            )?;
             flush_scrollback_messages(
                 terminal,
                 state,
@@ -813,7 +818,7 @@ fn prepare_inline_panel(
 ) -> Result<PreparedInlinePanel> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
-    let max_live_lines = size.height.saturating_sub(4).max(1) as usize;
+    let max_live_lines = max_inline_live_preview_lines(size.height);
     let panel = inline_panel_lines(&state.visual_state(), width, max_live_lines);
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
@@ -831,6 +836,10 @@ fn prepare_inline_panel(
         cursor_row,
         cursor_col: cursor_col.min(width.saturating_sub(1)) as u16,
     })
+}
+
+fn max_inline_live_preview_lines(screen_height: u16) -> usize {
+    screen_height.saturating_div(3).clamp(1, 12) as usize
 }
 
 fn draw_inline_panel(
@@ -866,6 +875,53 @@ fn draw_inline_panel(
     std::io::Write::flush(terminal.backend_mut())?;
     Ok(InlinePanelLayout {
         height: panel_height,
+    })
+}
+
+fn resize_inline_viewport_for_panel(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    previous_height: u16,
+    next_height: u16,
+) -> Result<()> {
+    let size = terminal.size()?;
+    let Some(growth) = viewport_growth_scroll(size.height, previous_height, next_height) else {
+        return Ok(());
+    };
+
+    queue!(
+        terminal.backend_mut(),
+        SetScrollRegion(1..growth.previous_top),
+        MoveTo(0, growth.previous_top - 1)
+    )?;
+    for _ in 0..growth.scroll_by {
+        queue!(terminal.backend_mut(), Print("\r\n"))?;
+    }
+    queue!(terminal.backend_mut(), ResetScrollRegion)?;
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ViewportGrowth {
+    previous_top: u16,
+    scroll_by: u16,
+}
+
+fn viewport_growth_scroll(
+    screen_height: u16,
+    previous_height: u16,
+    next_height: u16,
+) -> Option<ViewportGrowth> {
+    let previous_height = previous_height.min(screen_height);
+    let next_height = next_height.min(screen_height);
+    if next_height <= previous_height {
+        return None;
+    }
+
+    let previous_top = screen_height.saturating_sub(previous_height);
+    let scroll_by = (next_height - previous_height).min(previous_top);
+    (scroll_by > 0).then_some(ViewportGrowth {
+        previous_top,
+        scroll_by,
     })
 }
 
@@ -1689,6 +1745,29 @@ mod tests {
                 scroll: true
             })
         );
+    }
+
+    #[test]
+    fn viewport_growth_scrolls_history_before_panel_expands() {
+        assert_eq!(
+            viewport_growth_scroll(24, 3, 9),
+            Some(ViewportGrowth {
+                previous_top: 21,
+                scroll_by: 6
+            })
+        );
+    }
+
+    #[test]
+    fn viewport_growth_does_not_scroll_when_panel_shrinks() {
+        assert_eq!(viewport_growth_scroll(24, 9, 3), None);
+    }
+
+    #[test]
+    fn live_preview_height_is_capped_to_keep_history_visible() {
+        assert_eq!(max_inline_live_preview_lines(24), 8);
+        assert_eq!(max_inline_live_preview_lines(60), 12);
+        assert_eq!(max_inline_live_preview_lines(2), 1);
     }
 
     #[test]
