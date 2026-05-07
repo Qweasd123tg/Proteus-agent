@@ -318,6 +318,12 @@ terminal surface и active streaming view, не меняя core protocol.
   почти на весь доступный экран, а shrink теперь делает полный repaint normal
   screen из `AppState`, чтобы пустые строки, созданные ростом bottom pane, не
   оставались после commit финального transcript.
+- После проверки UX стало ясно, что сама идея держать live answer в нижней
+  panel неверна: текст растёт снизу вверх и ломает ожидания. Live assistant
+  убран из bottom panel. Во время streaming normal screen теперь полностью
+  перерисовывает transcript/active answer сверху вниз, а bottom panel оставляет
+  только status, composer и footer. Это временный repaint-path до полноценного
+  Codex-style active cell, но он возвращает правильное направление роста текста.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

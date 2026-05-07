@@ -198,7 +198,7 @@ struct DisplaySegment {
 pub(crate) fn inline_panel_lines(
     state: &VisualState<'_>,
     width: usize,
-    max_live_lines: usize,
+    _max_live_lines: usize,
 ) -> InlinePanelLines {
     let mut lines = Vec::new();
 
@@ -215,17 +215,6 @@ pub(crate) fn inline_panel_lines(
         append_approval_lines(&mut approval_lines, request, width);
         lines.extend(approval_lines);
     } else {
-        if state.streaming {
-            let live_lines = live_preview_lines(state, width, max_live_lines);
-            let reserved_live_lines = if live_lines.is_empty() {
-                0
-            } else {
-                max_live_lines.max(1)
-            };
-            let live_padding = reserved_live_lines.saturating_sub(live_lines.len());
-            lines.extend(live_lines);
-            lines.extend(std::iter::repeat_with(|| Line::raw("")).take(live_padding));
-        }
         if active_status_visible(state) {
             if lines.last().is_some_and(|line| line.width() > 0) {
                 lines.push(Line::raw(""));
@@ -1446,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_inline_preview_uses_available_height() {
+    fn streaming_inline_panel_omits_active_answer_body() {
         let text = (1..=30)
             .map(|line| format!("line {line}"))
             .collect::<Vec<_>>()
@@ -1481,15 +1470,14 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert!(rendered.contains("line 30"));
         assert!(rendered.contains("responding"));
         assert!(rendered.contains("↓ 42 tokens"));
-        assert!(rendered.contains("line 11"));
-        assert!(!rendered.contains("line 10"));
+        assert!(!rendered.contains("line 30"));
+        assert!(!rendered.contains("line 11"));
     }
 
     #[test]
-    fn active_status_renders_between_streaming_preview_and_input() {
+    fn active_status_renders_above_input_while_streaming() {
         let messages = vec![VisualMessage::assistant("streaming answer")];
         let state = VisualState {
             model: "test/model",
@@ -1529,8 +1517,7 @@ mod tests {
             .position(|line| line.contains("responding"))
             .expect("status line");
 
-        assert_eq!(rendered[0], "• streaming answer");
-        assert_eq!(status_index, 20);
+        assert_eq!(status_index, 0);
         assert!(rendered[status_index].contains("00:12"));
         assert!(rendered[status_index].contains("↓ 7 tokens"));
         assert_eq!(rendered[status_index + 1], "");
@@ -1708,7 +1695,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_inline_preview_uses_streaming_message_not_last_message() {
+    fn streaming_inline_panel_does_not_render_transcript_messages() {
         let messages = vec![
             VisualMessage::assistant("streaming answer"),
             VisualMessage::system("later status"),
@@ -1742,40 +1729,18 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert!(rendered.contains("streaming answer"));
         assert!(rendered.contains("responding"));
+        assert!(!rendered.contains("streaming answer"));
         assert!(!rendered.contains("later status"));
     }
 
     #[test]
-    fn streaming_inline_preview_renders_completed_markdown_and_keeps_tail_raw() {
+    fn scrollback_message_renders_completed_markdown_and_keeps_tail_raw() {
         let messages = vec![VisualMessage::assistant(
             "Use `cargo test`.\nStill **streaming",
         )];
-        let state = VisualState {
-            model: "test/model",
-            cwd: Path::new("/tmp/workspace"),
-            session_label: "1",
-            input: "",
-            input_paste_ranges: &[],
-            footer: "",
-            status: "calling model...",
-            pending_approval: None,
-            pending_model: true,
-            streaming: true,
-            streaming_message: messages.first(),
-            active_context_tokens: None,
-            active_output_tokens: None,
-            thinking_elapsed: None,
-            resume_picker: None,
-            context_report: None,
-            context_report_scroll: 0,
-            slash_selection: 0,
-        };
-
-        let panel = inline_panel_lines(&state, 80, 20);
-        let rendered = panel
-            .lines
+        let final_lines = render_scrollback_message(messages.first().unwrap(), 80);
+        let rendered = final_lines
             .iter()
             .flat_map(|line| line.spans.iter())
             .collect::<Vec<_>>();
@@ -1786,11 +1751,10 @@ mod tests {
         assert!(
             rendered
                 .iter()
-                .any(|span| span.content.as_ref().contains("Still **streaming"))
+                .any(|span| span.content.as_ref().contains("Still"))
         );
 
-        let rendered_text = panel
-            .lines
+        let rendered_text = final_lines
             .iter()
             .map(|line| {
                 line.spans
@@ -1801,20 +1765,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(rendered_text.iter().any(|line| line.contains("Use ")));
-        assert!(
-            rendered_text
-                .iter()
-                .any(|line| line.contains("Still **streaming"))
-        );
-
-        let final_lines = render_scrollback_message(messages.first().unwrap(), 80);
-        assert!(
-            final_lines[0]
-                .spans
-                .iter()
-                .any(|span| span.content.as_ref() == "cargo test"
-                    && span.style.fg == Some(Color::Yellow))
-        );
+        assert!(rendered_text.iter().any(|line| line.contains("Still")));
     }
 
     #[test]
