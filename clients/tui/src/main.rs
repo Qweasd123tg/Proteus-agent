@@ -6,11 +6,13 @@
 //! самом ядре — границa client/core проведена через wire protocol.
 
 mod driver;
+mod history_insert;
 mod inline_terminal;
 mod markdown;
 mod session_picker;
 mod slash_commands;
 mod state;
+mod terminal_surface;
 mod visual;
 
 use std::{
@@ -48,6 +50,7 @@ use crate::{
     inline_terminal::InlineTerminalState,
     session_picker::ResumePickerItem,
     state::AppState,
+    terminal_surface::TerminalSurface,
     visual::{
         ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value,
     },
@@ -663,12 +666,7 @@ fn reset_normal_screen(
     header_printed: &mut bool,
     inline_terminal: &mut InlineTerminalState,
 ) -> Result<()> {
-    execute!(
-        terminal.backend_mut(),
-        MoveTo(0, 0),
-        TerminalClear(ClearType::All),
-        TerminalClear(ClearType::Purge)
-    )?;
+    TerminalSurface::new(terminal).clear_normal_screen(true)?;
     state.rewind_scrollback();
     *header_printed = false;
     inline_terminal.reset();
