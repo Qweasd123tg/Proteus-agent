@@ -105,17 +105,38 @@ impl OpenAiResponsesClient {
         // reqwest bytes_stream → eventsource-stream Event → наши ModelStreamEvent.
         // State-parser хранит накопленные text parts / tool_calls / usage и
         // выплёвывает финальный `Response` на event `response.completed`.
-        let bytes = response.bytes_stream();
-        let sse = bytes.eventsource();
-        let events = sse.flat_map(|chunk| match chunk {
-            Ok(event) => {
-                let mapped = translate_sse_event(&event.event, &event.data);
-                stream::iter(mapped.into_iter().map(Ok).collect::<Vec<_>>())
+        let client = self.clone();
+        let fallback_request = request.clone();
+        let mut sse = response.bytes_stream().eventsource();
+        let events = async_stream::stream! {
+            while let Some(chunk) = sse.next().await {
+                match chunk {
+                    Ok(event) => {
+                        let mut saw_response = false;
+                        for mapped in translate_sse_event(&event.event, &event.data) {
+                            if matches!(mapped, ModelStreamEvent::Response { .. }) {
+                                saw_response = true;
+                            }
+                            yield Ok(mapped);
+                        }
+                        if saw_response {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        match client.complete_response(fallback_request).await {
+                            Ok(response) => yield Ok(ModelStreamEvent::Response { response }),
+                            Err(fallback_error) => yield Ok(ModelStreamEvent::Error {
+                                message: format!(
+                                    "sse transport error: {error}; non-stream fallback failed: {fallback_error}"
+                                ),
+                            }),
+                        }
+                        break;
+                    }
+                }
             }
-            Err(error) => stream::iter(vec![Ok(ModelStreamEvent::Error {
-                message: format!("sse transport error: {error}"),
-            })]),
-        });
+        };
         Ok(Box::pin(events))
     }
 
