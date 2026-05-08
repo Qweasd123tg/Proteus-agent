@@ -754,7 +754,6 @@ impl AppState {
         self.transcript.drain_new_stable_messages()
     }
 
-    #[cfg(test)]
     pub fn transcript_scroll_offset(&self) -> usize {
         self.transcript_scroll_offset
     }

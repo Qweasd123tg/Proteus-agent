@@ -349,6 +349,12 @@ terminal surface и active streaming view, не меняя core protocol.
   Старый streaming full-history repaint-path удалён: во время ответа
   перерисовывается bottom/status pane, а стабильная история остаётся
   append-only.
+- Третий шаг migration: active assistant снова виден во время streaming, но
+  теперь как transient live-tail над bottom pane. Это не committed scrollback:
+  tail рисуется внутри `TerminalSurface`, учитывается в reserved bottom height,
+  поддерживает scroll offset через `PageUp`/`PageDown`/`Up`/`Down` и исчезает
+  при finalization, после чего final assistant вставляется как обычный
+  committed history batch.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
@@ -360,8 +366,8 @@ terminal surface и active streaming view, не меняя core protocol.
 - `TranscriptStore` владеет source of truth: committed cells отдельно,
   active cell отдельно, emitted cursor отдельно.
 - Active streaming cell не пишется в terminal scrollback. Она может быть
-  показана только через retained viewport/live-tail слой; до появления этого
-  слоя scrollback остаётся стабильным и получает только finalized batches.
+  показана только через retained viewport/live-tail слой; scrollback остаётся
+  стабильным и получает только finalized batches.
 - Bottom pane должен стать Ratatui component stack: composer, status, slash,
   approval, footer без знания о scroll regions.
 - Overlay/alt-screen должен defer'ить history insertion и flush'ить её после

@@ -11,6 +11,13 @@ use crate::history_insert::{
 #[derive(Clone, Default)]
 pub(crate) struct InlinePanelLayout {
     pub(crate) height: u16,
+    pub(crate) live_tail_height: u16,
+}
+
+impl InlinePanelLayout {
+    pub(crate) fn total_height(&self) -> u16 {
+        self.height.saturating_add(self.live_tail_height)
+    }
 }
 
 pub(crate) struct PreparedInlinePanel {
@@ -20,6 +27,16 @@ pub(crate) struct PreparedInlinePanel {
 }
 
 impl PreparedInlinePanel {
+    pub(crate) fn height(&self) -> u16 {
+        self.lines.len() as u16
+    }
+}
+
+pub(crate) struct PreparedLiveTail {
+    pub(crate) lines: Vec<Line<'static>>,
+}
+
+impl PreparedLiveTail {
     pub(crate) fn height(&self) -> u16 {
         self.lines.len() as u16
     }
@@ -39,26 +56,45 @@ impl<'a> TerminalSurface<'a> {
     }
 
     pub(crate) fn clear_inline_panel(&mut self, layout: &InlinePanelLayout) -> Result<()> {
-        if layout.height == 0 {
+        if layout.total_height() == 0 {
             return Ok(());
         }
         let size = self.terminal.size()?;
-        let clear_height = layout.height.min(size.height);
+        let clear_height = layout.total_height().min(size.height);
         let clear_top = size.height.saturating_sub(clear_height);
         clear_rows(self.terminal, clear_top, size.height)
     }
 
-    pub(crate) fn draw_inline_panel(
+    pub(crate) fn draw_inline_areas(
         &mut self,
         panel: PreparedInlinePanel,
+        live_tail: PreparedLiveTail,
         previous: &InlinePanelLayout,
     ) -> Result<InlinePanelLayout> {
         let size = self.terminal.size()?;
         let width = size.width.max(1) as usize;
-        let panel_height = panel.height().min(size.height);
-        let clear_height = previous.height.max(panel_height).min(size.height);
+        let live_tail_height = live_tail.height().min(size.height);
+        let panel_height = panel
+            .height()
+            .min(size.height.saturating_sub(live_tail_height));
+        let total_height = panel_height
+            .saturating_add(live_tail_height)
+            .min(size.height);
+        let clear_height = previous.total_height().max(total_height).min(size.height);
         let clear_top = size.height.saturating_sub(clear_height);
         clear_rows(self.terminal, clear_top, size.height)?;
+
+        let tail_top = size.height.saturating_sub(total_height);
+        for (row, line) in live_tail
+            .lines
+            .iter()
+            .take(live_tail_height as usize)
+            .enumerate()
+        {
+            let row = tail_top.saturating_add(row as u16);
+            move_to(self.terminal, 0, row)?;
+            write_terminal_line_without_newline(self.terminal, line, width)?;
+        }
 
         let panel_top = size.height.saturating_sub(panel_height);
         for (row, line) in panel.lines.iter().take(panel_height as usize).enumerate() {
@@ -76,6 +112,7 @@ impl<'a> TerminalSurface<'a> {
         std::io::Write::flush(self.terminal.backend_mut())?;
         Ok(InlinePanelLayout {
             height: panel_height,
+            live_tail_height,
         })
     }
 
