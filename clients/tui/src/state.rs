@@ -17,9 +17,9 @@ use agent_contracts::{
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::{is_exact_slash_command, matching_slash_commands},
+    transcript::TranscriptStore,
     visual::{
-        InputPasteRange, ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualRole,
-        VisualState,
+        InputPasteRange, ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualState,
     },
 };
 
@@ -39,12 +39,11 @@ pub struct AppState {
     model_label: String,
     status: String,
     footer: String,
-    messages: Vec<VisualMessage>,
+    transcript: TranscriptStore,
     input: String,
     input_paste_ranges: Vec<InputPasteRange>,
     quit_armed: bool,
     pending_approval: Option<AppApprovalRequest>,
-    streaming_assistant_idx: Option<usize>,
     last_error: Option<String>,
     turn_started_at: Option<Instant>,
     model_started_at: Option<Instant>,
@@ -55,9 +54,7 @@ pub struct AppState {
     context_report: Option<String>,
     context_report_scroll: usize,
     slash_selection: usize,
-    scrollback_cursor: usize,
     transcript_scroll_offset: usize,
-    transcript_rendered_lines: usize,
     token_usage: Option<TokenUsageSnapshot>,
     usage_turn_id: Option<TurnId>,
     turn_usage: UsageTotals,
@@ -77,14 +74,13 @@ impl AppState {
             model_label: "unknown".to_owned(),
             status: "ready".to_owned(),
             footer: footer_hint(),
-            messages: vec![VisualMessage::system(
+            transcript: TranscriptStore::new(vec![VisualMessage::system(
                 "Connected to modular-agent. Type and press Enter.",
-            )],
+            )]),
             input: String::new(),
             input_paste_ranges: Vec::new(),
             quit_armed: false,
             pending_approval: None,
-            streaming_assistant_idx: None,
             last_error: None,
             turn_started_at: None,
             model_started_at: None,
@@ -95,9 +91,7 @@ impl AppState {
             context_report: None,
             context_report_scroll: 0,
             slash_selection: 0,
-            scrollback_cursor: 0,
             transcript_scroll_offset: 0,
-            transcript_rendered_lines: 0,
             token_usage: None,
             usage_turn_id: None,
             turn_usage: UsageTotals::default(),
@@ -118,17 +112,15 @@ impl AppState {
             status: &self.status,
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
-            streaming: self.streaming_assistant_idx.is_some(),
-            streaming_message: self
-                .streaming_assistant_idx
-                .and_then(|idx| self.messages.get(idx)),
+            streaming: self.transcript.is_streaming(),
+            streaming_message: self.transcript.active_message(),
             reasoning_mode: self.reasoning_mode,
             reasoning_summary: &self.reasoning_summary,
             active_context_tokens: (self.turn_usage.estimated_input_tokens > 0)
                 .then_some(self.turn_usage.estimated_input_tokens),
             active_output_tokens: self
-                .streaming_assistant_idx
-                .and_then(|idx| self.messages.get(idx))
+                .transcript
+                .active_message()
                 .map(|message| estimate_tokens(&message.text))
                 .filter(|tokens| *tokens > 0),
             thinking_elapsed: self.thinking_elapsed(),
@@ -145,7 +137,7 @@ impl AppState {
 
     pub fn advance_activity_status(&mut self) -> bool {
         let completion_expired = self.clear_completed_status_if_expired();
-        let streaming = self.pending_model && self.streaming_assistant_idx.is_some();
+        let streaming = self.pending_model && self.transcript.is_streaming();
         if streaming {
             return true;
         }
@@ -162,11 +154,11 @@ impl AppState {
             return;
         }
         self.last_error = Some(text.clone());
-        self.messages.push(VisualMessage::error(text));
+        self.transcript.push_committed(VisualMessage::error(text));
     }
 
     pub fn push_system(&mut self, text: impl Into<String>) {
-        self.messages.push(VisualMessage::system(text));
+        self.transcript.push_committed(VisualMessage::system(text));
     }
 
     pub fn session_dir(&self) -> Option<&Path> {
@@ -295,7 +287,7 @@ impl AppState {
         let mut system = Bucket::default();
         let mut tool = Bucket::default();
         let mut errors = 0usize;
-        for message in &self.messages {
+        for message in self.transcript.committed() {
             match message.role {
                 crate::visual::VisualRole::User => {
                     user.add_text(&message.text);
@@ -468,12 +460,11 @@ impl AppState {
     }
 
     pub fn clear_transcript(&mut self) {
-        self.messages.clear();
-        self.messages
-            .push(VisualMessage::system("History cleared."));
-        self.scrollback_cursor = 0;
+        self.transcript.clear_committed();
+        self.transcript.clear_active();
+        self.transcript
+            .push_committed(VisualMessage::system("History cleared."));
         self.transcript_scroll_offset = 0;
-        self.transcript_rendered_lines = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -486,12 +477,12 @@ impl AppState {
         session_dir: PathBuf,
         mut history: Vec<VisualMessage>,
     ) {
-        self.messages.clear();
+        self.transcript.clear_committed();
         self.session_dir = Some(session_dir.clone());
         self.session_label = session_label_from_dir(&session_dir);
         self.pending_model = false;
         self.pending_approval = None;
-        self.streaming_assistant_idx = None;
+        self.transcript.clear_active();
         self.active_turn_id = None;
         self.turn_started_at = None;
         self.model_started_at = None;
@@ -501,18 +492,18 @@ impl AppState {
         self.context_report = None;
         self.context_report_scroll = 0;
         self.transcript_scroll_offset = 0;
-        self.transcript_rendered_lines = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.session_usage = UsageTotals::default();
         self.reasoning_summary.clear();
-        self.messages.push(VisualMessage::system(format!(
-            "Resumed session: {}",
-            session_dir.display()
-        )));
-        self.messages.append(&mut history);
-        self.scrollback_cursor = 0;
+        self.transcript
+            .push_committed(VisualMessage::system(format!(
+                "Resumed session: {}",
+                session_dir.display()
+            )));
+        self.transcript.append_committed(&mut history);
+        self.transcript.reset_emitted();
     }
 
     pub fn has_pending_approval(&self) -> bool {
@@ -725,8 +716,8 @@ impl AppState {
         paste_ranges: Vec<InputPasteRange>,
         turn_id: String,
     ) {
-        self.messages
-            .push(VisualMessage::user_with_paste_ranges(text, paste_ranges));
+        self.transcript
+            .push_committed(VisualMessage::user_with_paste_ranges(text, paste_ranges));
         self.last_error = None;
         let now = Instant::now();
         self.turn_started_at = Some(now);
@@ -736,7 +727,6 @@ impl AppState {
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.transcript_scroll_offset = 0;
-        self.transcript_rendered_lines = 0;
         self.reasoning_summary.clear();
         self.pending_model = true;
         self.status = "sent".to_owned();
@@ -755,30 +745,13 @@ impl AppState {
         self.completed_turn_at = None;
         self.usage_turn_id = None;
         self.transcript_scroll_offset = 0;
-        self.transcript_rendered_lines = 0;
         self.status = "cancel requested".to_owned();
-        self.messages
-            .push(VisualMessage::system("Turn cancel requested."));
+        self.transcript
+            .push_committed(VisualMessage::system("Turn cancel requested."));
     }
 
     pub fn drain_scrollback_messages(&mut self) -> Vec<VisualMessage> {
-        let mut drained = Vec::new();
-        while let Some(message) = self.messages.get(self.scrollback_cursor) {
-            if !is_scrollback_stable_message(
-                self.scrollback_cursor,
-                message,
-                self.streaming_assistant_idx,
-            ) {
-                break;
-            }
-            drained.push(message.clone());
-            self.scrollback_cursor += 1;
-        }
-        drained
-    }
-
-    pub fn scrollback_messages_snapshot(&self) -> Vec<VisualMessage> {
-        self.messages.clone()
+        self.transcript.drain_new_stable_messages()
     }
 
     #[cfg(test)]
@@ -786,22 +759,8 @@ impl AppState {
         self.transcript_scroll_offset
     }
 
-    pub fn sync_transcript_scroll_rendered_lines(&mut self, rendered_lines: usize) -> usize {
-        if self.streaming_assistant_idx.is_some()
-            && self.transcript_scroll_offset > 0
-            && self.transcript_rendered_lines > 0
-            && rendered_lines > self.transcript_rendered_lines
-        {
-            self.transcript_scroll_offset = self
-                .transcript_scroll_offset
-                .saturating_add(rendered_lines - self.transcript_rendered_lines);
-        }
-        self.transcript_rendered_lines = rendered_lines;
-        self.transcript_scroll_offset
-    }
-
     pub fn scroll_transcript_up(&mut self, by: usize) {
-        if self.streaming_assistant_idx.is_some() {
+        if self.transcript.is_streaming() {
             self.transcript_scroll_offset = self.transcript_scroll_offset.saturating_add(by);
         }
     }
@@ -811,7 +770,22 @@ impl AppState {
     }
 
     pub fn rewind_scrollback(&mut self) {
-        self.scrollback_cursor = 0;
+        self.transcript.reset_emitted();
+    }
+
+    #[cfg(test)]
+    fn committed_messages(&self) -> &[VisualMessage] {
+        self.transcript.committed()
+    }
+
+    #[cfg(test)]
+    fn replace_committed_messages_for_test(&mut self, messages: Vec<VisualMessage>) {
+        self.transcript.clear_committed();
+        self.transcript.clear_active();
+        for message in messages {
+            self.transcript.push_committed(message);
+        }
+        self.transcript.reset_emitted();
     }
 
     /// Главная точка обработки событий от ядра.
@@ -827,18 +801,8 @@ impl AppState {
                 // Основной текст уже мог прийти streaming-delta'ми. В финале
                 // заменяем его каноническим TurnOutput, чтобы не зависеть от
                 // точной сборки provider deltas.
-                if let Some(idx) = self.streaming_assistant_idx {
-                    if let Some(message) = self.messages.get_mut(idx) {
-                        message.text = output.text;
-                    } else {
-                        self.messages.push(VisualMessage::assistant(output.text));
-                    }
-                } else {
-                    self.messages.push(VisualMessage::assistant(output.text));
-                }
-                self.streaming_assistant_idx = None;
+                self.transcript.finalize_active_assistant(output.text);
                 self.transcript_scroll_offset = 0;
-                self.transcript_rendered_lines = 0;
                 self.pending_model = false;
                 self.mark_turn_completed();
                 self.model_started_at = None;
@@ -865,8 +829,8 @@ impl AppState {
                 self.status = "error".to_owned();
             }
             AppServerEvent::Shutdown => {
-                self.messages
-                    .push(VisualMessage::system("Agent shut down."));
+                self.transcript
+                    .push_committed(VisualMessage::system("Agent shut down."));
                 self.should_quit = true;
             }
             _ => {}
@@ -947,13 +911,16 @@ impl AppState {
             }
             Event::ToolCallRequested { call } => {
                 self.commit_streaming_draft();
-                self.messages.push(VisualMessage::tool(ToolCard {
-                    call_id: call.id.clone(),
-                    name: call.name.clone(),
-                    args_summary: crate::visual::tool_invocation_summary(&call.name, &call.args),
-                    status: ToolStatus::Running,
-                    output_preview: String::new(),
-                }));
+                self.transcript
+                    .push_committed(VisualMessage::tool(ToolCard {
+                        call_id: call.id.clone(),
+                        name: call.name.clone(),
+                        args_summary: crate::visual::tool_invocation_summary(
+                            &call.name, &call.args,
+                        ),
+                        status: ToolStatus::Running,
+                        output_preview: String::new(),
+                    }));
                 self.status = format!("tool: {}", call.name);
             }
             Event::ToolFinished { result } => self.update_tool_card(result),
@@ -962,7 +929,7 @@ impl AppState {
                 // AppServerEvent::TurnOutput, чтобы не дублировать (TurnFinished
                 // в runtime слое и TurnOutput в app-server слое несут один и
                 // тот же текст).
-                if self.pending_model && self.streaming_assistant_idx.is_none() {
+                if self.pending_model && !self.transcript.is_streaming() {
                     self.mark_turn_completed();
                     self.pending_model = false;
                     self.model_started_at = None;
@@ -1003,36 +970,19 @@ impl AppState {
     }
 
     fn append_streaming_text(&mut self, chunk: &str) {
-        match self.streaming_assistant_idx {
-            Some(idx) if idx < self.messages.len() => {
-                // Рост уже активного streaming-сообщения in place.
-                self.messages[idx].text.push_str(chunk);
-            }
-            _ => {
-                // Первый delta turn'а: создаём новое assistant-сообщение.
-                // TurnOutput очистит индекс в финале и НЕ продублирует
-                // текст (см. ветку ingest -> TurnOutput).
-                self.messages.push(VisualMessage::assistant(chunk));
-                self.streaming_assistant_idx = Some(self.messages.len() - 1);
-            }
-        }
+        self.transcript.append_active_assistant(chunk);
     }
 
     fn mark_streaming_draft(&mut self) {
-        let Some(idx) = self.streaming_assistant_idx.take() else {
-            return;
-        };
-        if let Some(message) = self.messages.get_mut(idx) {
-            message.role = VisualRole::Draft;
-        }
+        self.transcript.draft_active_assistant();
     }
 
     fn commit_streaming_draft(&mut self) {
-        self.streaming_assistant_idx = None;
+        self.transcript.commit_active_assistant();
     }
 
     fn update_tool_card(&mut self, result: ToolResult) {
-        for message in self.messages.iter_mut().rev() {
+        for message in self.transcript.committed_mut().iter_mut().rev() {
             if let Some(card) = message.tool.as_mut()
                 && card.call_id == result.call_id
             {
@@ -1543,21 +1493,6 @@ fn category_label(name: &str) -> String {
     .to_owned()
 }
 
-fn is_scrollback_stable_message(
-    index: usize,
-    message: &VisualMessage,
-    streaming_idx: Option<usize>,
-) -> bool {
-    if streaming_idx == Some(index) {
-        return false;
-    }
-
-    message
-        .tool
-        .as_ref()
-        .is_none_or(|tool| !matches!(tool.status, ToolStatus::Running))
-}
-
 fn preview(result: &ToolResult) -> String {
     if let Some(error) = &result.error {
         return error.clone();
@@ -1616,7 +1551,7 @@ mod tests {
 
     fn error_count(state: &AppState) -> usize {
         state
-            .messages
+            .committed_messages()
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Error))
             .count()
@@ -1729,7 +1664,7 @@ mod tests {
         });
 
         let assistant_messages = state
-            .messages
+            .committed_messages()
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Assistant))
             .collect::<Vec<_>>();
@@ -1796,7 +1731,7 @@ mod tests {
 
         assert!(!state.visual_state().streaming);
         let draft_messages = state
-            .messages
+            .committed_messages()
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Draft))
             .collect::<Vec<_>>();
@@ -1808,7 +1743,7 @@ mod tests {
         });
 
         let assistant_messages = state
-            .messages
+            .committed_messages()
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Assistant))
             .collect::<Vec<_>>();
@@ -1851,14 +1786,14 @@ mod tests {
         assert!(!state.visual_state().streaming);
         assert_eq!(
             state
-                .messages
+                .committed_messages()
                 .iter()
                 .filter(|message| matches!(message.role, VisualRole::Assistant))
                 .map(|message| message.text.as_str())
                 .collect::<Vec<_>>(),
             vec!["Сейчас посмотрю файл."]
         );
-        assert!(state.messages.iter().any(|message| {
+        assert!(state.committed_messages().iter().any(|message| {
             message
                 .tool
                 .as_ref()
@@ -1870,7 +1805,7 @@ mod tests {
         });
 
         let assistant_texts = state
-            .messages
+            .committed_messages()
             .iter()
             .filter(|message| matches!(message.role, VisualRole::Assistant))
             .map(|message| message.text.as_str())
@@ -1898,13 +1833,10 @@ mod tests {
     #[test]
     fn context_report_estimates_loaded_history_without_live_usage() {
         let mut state = AppState::new(PathBuf::from("."), None);
-        state.messages.clear();
-        state
-            .messages
-            .push(VisualMessage::user("hello from previous session"));
-        state
-            .messages
-            .push(VisualMessage::assistant("previous answer"));
+        state.replace_committed_messages_for_test(vec![
+            VisualMessage::user("hello from previous session"),
+            VisualMessage::assistant("previous answer"),
+        ]);
 
         let report = state.context_report();
 
@@ -2013,8 +1945,6 @@ mod tests {
         state.scroll_transcript_down(3);
 
         assert_eq!(state.transcript_scroll_offset(), 5);
-        assert_eq!(state.sync_transcript_scroll_rendered_lines(100), 5);
-        assert_eq!(state.sync_transcript_scroll_rendered_lines(112), 17);
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("done"),

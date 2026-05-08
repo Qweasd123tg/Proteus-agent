@@ -96,18 +96,4 @@ impl<'a> TerminalSurface<'a> {
     ) -> Result<()> {
         insert_scrollback_line(self.terminal, line, width, history_viewport, history_height)
     }
-
-    pub(crate) fn clear_history_rows(&mut self, history_height: usize) -> Result<()> {
-        clear_rows(self.terminal, 0, history_height as u16)
-    }
-
-    pub(crate) fn draw_history_line(
-        &mut self,
-        row: usize,
-        line: &Line<'_>,
-        width: usize,
-    ) -> Result<()> {
-        move_to(self.terminal, 0, row as u16)?;
-        write_terminal_line_without_newline(self.terminal, line, width)
-    }
 }

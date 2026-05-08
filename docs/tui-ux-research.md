@@ -343,9 +343,30 @@ terminal surface и active streaming view, не меняя core protocol.
   и panel draw/clear вынесены в `history_insert.rs` и `terminal_surface.rs`.
   Поведение пока намеренно сохранено, цель шага - запретить дальнейшее
   размазывание terminal tricks по UI-layer.
+- Второй шаг migration: введён `TranscriptStore` с разделением committed
+  transcript и active streaming cell. Active assistant больше не является
+  уже emitted history и не вставляется в scrollback до final/tool/cancel.
+  Старый streaming full-history repaint-path удалён: во время ответа
+  перерисовывается bottom/status pane, а стабильная история остаётся
+  append-only.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
+
+### TUI Migration Checklist
+
+- `TerminalSurface` владеет raw terminal operations. UI-компоненты не должны
+  напрямую использовать `MoveTo`, `Clear`, `Print`, `SetScrollRegion`.
+- `TranscriptStore` владеет source of truth: committed cells отдельно,
+  active cell отдельно, emitted cursor отдельно.
+- Active streaming cell не пишется в terminal scrollback. Она может быть
+  показана только через retained viewport/live-tail слой; до появления этого
+  слоя scrollback остаётся стабильным и получает только finalized batches.
+- Bottom pane должен стать Ratatui component stack: composer, status, slash,
+  approval, footer без знания о scroll regions.
+- Overlay/alt-screen должен defer'ить history insertion и flush'ить её после
+  возврата в normal screen.
+- Resize reflow должен идти из `TranscriptStore`, а не из terminal contents.
 
 ### Phase 1 - BottomPane
 

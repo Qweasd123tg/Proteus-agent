@@ -13,6 +13,7 @@ mod session_picker;
 mod slash_commands;
 mod state;
 mod terminal_surface;
+mod transcript;
 mod visual;
 
 use std::{
