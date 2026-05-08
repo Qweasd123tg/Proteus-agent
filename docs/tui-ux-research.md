@@ -338,6 +338,11 @@ terminal surface и active streaming view, не меняя core protocol.
   префикс `│ `. Теперь code block учитывает этот префикс при wrap. Следующий
   правильный шаг по Codex - line-batched streaming controller, где UI
   публикует завершённые строки, а не каждый provider delta по слогам.
+- Начат разворот от `inline_terminal.rs` как mini-compositor к отдельному
+  terminal layer: raw history insertion, scroll regions, terminal line writer
+  и panel draw/clear вынесены в `history_insert.rs` и `terminal_surface.rs`.
+  Поведение пока намеренно сохранено, цель шага - запретить дальнейшее
+  размазывание terminal tricks по UI-layer.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
