@@ -218,6 +218,11 @@ Scope:
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
   changed files, diff size, tests и failure reason.
+- Первый слой отчёта реализован командой `agent eval report <event-log-path>`:
+  она читает durable JSONL event log и считает turns, model/tool calls,
+  approvals, token usage, duration, changed files и failure reason. Следующий
+  шаг — runner для фиксированных eval cases и добавление tests/diff/cost
+  метрик.
 - Dogfood sanity tasks должны проверять не только "может ли вызвать tool", но и
   tool judgement: не лезть в проект без запроса, не писать transient test notes
   в long-term memory, не выдумывать даты, корректно показывать approval и

@@ -134,9 +134,20 @@ canonical DTO не ломаются.
 - debugging: failing test, сломанный approval, неверная context persistence;
 - UX: external UI interrupt, tools list, doctor output, diff approval.
 
-Отчёт должен фиксировать success/fail, tests passed, model calls, tool calls,
-approval count, duration, tokens/cost, changed files, diff size, unnecessary
-edits и failure reason. Главная первая сравнительная пара:
+Первый слой уже доступен как:
+
+```bash
+cargo run --bin modular-agent -- eval report .agent/events.jsonl
+```
+
+Команда читает durable JSONL event log и фиксирует success/fail, turn count,
+model calls, tool calls, tool failures, approval count, duration, provider
+tokens, estimated input tokens, changed files и failure reason. Changed files
+пока выводятся по успешным `write_file` и `apply_patch` events; tests passed,
+diff size, unnecessary edits и стоимость остаются следующим расширением
+отчёта/runner-а.
+
+Главная первая сравнительная пара:
 `coding.single_loop/simple_context/direct_patch` против
 `coding.plan_execute_review/repo_aware/direct_patch`.
 

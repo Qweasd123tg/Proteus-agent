@@ -85,6 +85,11 @@ async fn main() -> Result<()> {
         }
         return Ok(());
     }
+    if let Some(path) = parse_eval_report_command(&cli.task)? {
+        let report = modular_agent::core::read_eval_report(path)?;
+        println!("{}", render_eval_report(&report));
+        return Ok(());
+    }
 
     let config_path = cli
         .config
@@ -148,6 +153,19 @@ fn build_cli_runtime(
 
 fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")
+}
+
+fn parse_eval_report_command(task: &[String]) -> Result<Option<&str>> {
+    match task {
+        [namespace, command, path] if namespace == "eval" && command == "report" => Ok(Some(path)),
+        [namespace, command, ..] if namespace == "eval" && command == "report" => {
+            bail!("usage: agent eval report <event-log-path>")
+        }
+        [namespace, ..] if namespace == "eval" => {
+            bail!("usage: agent eval report <event-log-path>")
+        }
+        _ => Ok(None),
+    }
 }
 
 fn is_tools_list_command(task: &[String]) -> bool {
@@ -848,6 +866,54 @@ fn render_tool_list(registry: &modular_agent::contracts::ToolRegistry) -> String
     )
 }
 
+fn render_eval_report(report: &modular_agent::core::EvalReport) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("Eval report: {}", report.event_log_path.display()));
+    lines.push(format!(
+        "Status: {}",
+        if report.succeeded() {
+            "success"
+        } else {
+            "failed"
+        }
+    ));
+    lines.push(format!("Events: {}", report.events));
+    lines.push(format!(
+        "Turns: started={}, finished={}, failed={}",
+        report.turns_started, report.turns_finished, report.turns_failed
+    ));
+    lines.push(format!(
+        "Model calls: {}, tool calls: {} (failures={})",
+        report.model_calls, report.tool_calls, report.tool_failures
+    ));
+    lines.push(format!(
+        "Approvals: requested={}, resolved={}, approved={}, denied={}",
+        report.approvals_requested,
+        report.approvals_resolved,
+        report.approvals_approved,
+        report.approvals_denied
+    ));
+    lines.push(format!(
+        "Tokens: estimated_input={}, provider_input={}, provider_output={}",
+        report.estimated_input_tokens, report.provider_input_tokens, report.provider_output_tokens
+    ));
+    if let Some(duration_ms) = report.duration_ms {
+        lines.push(format!("Duration: {duration_ms} ms"));
+    }
+    if report.changed_files.is_empty() {
+        lines.push("Changed files: none".to_owned());
+    } else {
+        lines.push(format!(
+            "Changed files: {}",
+            report.changed_files.join(", ")
+        ));
+    }
+    if let Some(reason) = &report.failure_reason {
+        lines.push(format!("Failure reason: {reason}"));
+    }
+    lines.join("\n")
+}
+
 fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
     let mut widths = headers
         .iter()
@@ -1386,6 +1452,25 @@ mod tests {
     }
 
     #[test]
+    fn eval_report_command_requires_path() {
+        assert_eq!(
+            parse_eval_report_command(&[
+                "eval".to_owned(),
+                "report".to_owned(),
+                ".agent/events.jsonl".to_owned()
+            ])
+            .unwrap(),
+            Some(".agent/events.jsonl")
+        );
+        assert!(parse_eval_report_command(&["eval".to_owned()]).is_err());
+        assert!(parse_eval_report_command(&["eval".to_owned(), "report".to_owned()]).is_err());
+        assert_eq!(
+            parse_eval_report_command(&["doctor".to_owned()]).unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn init_command_defaults_to_coding_profile() {
         assert_eq!(
             parse_init_command(&["init".to_owned()]).unwrap(),
@@ -1541,5 +1626,37 @@ mod tests {
         assert!(rendered.contains("WritesFiles"));
         assert!(rendered.contains("search"));
         assert!(rendered.contains("ReadOnly"));
+    }
+
+    #[test]
+    fn eval_report_output_contains_core_metrics() {
+        let report = modular_agent::core::EvalReport {
+            event_log_path: PathBuf::from(".agent/events.jsonl"),
+            events: 9,
+            turns_started: 1,
+            turns_finished: 1,
+            turns_failed: 0,
+            model_calls: 2,
+            tool_calls: 3,
+            tool_failures: 1,
+            approvals_requested: 1,
+            approvals_resolved: 1,
+            approvals_approved: 0,
+            approvals_denied: 1,
+            estimated_input_tokens: 100,
+            provider_input_tokens: 90,
+            provider_output_tokens: 30,
+            changed_files: vec!["src/lib.rs".to_owned()],
+            duration_ms: Some(42),
+            failure_reason: None,
+        };
+
+        let rendered = render_eval_report(&report);
+
+        assert!(rendered.contains("Status: success"));
+        assert!(rendered.contains("Turns: started=1, finished=1, failed=0"));
+        assert!(rendered.contains("tool calls: 3 (failures=1)"));
+        assert!(rendered.contains("provider_output=30"));
+        assert!(rendered.contains("Changed files: src/lib.rs"));
     }
 }

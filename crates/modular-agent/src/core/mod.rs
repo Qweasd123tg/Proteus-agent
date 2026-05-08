@@ -1,6 +1,7 @@
 pub mod approval;
 pub mod config;
 pub mod context_provider;
+pub mod eval_report;
 pub mod event_store;
 pub mod model_service;
 pub mod module_catalog;
@@ -15,6 +16,7 @@ pub mod tool_orchestrator;
 pub use approval::*;
 pub use config::*;
 pub use context_provider::*;
+pub use eval_report::*;
 pub use event_store::*;
 pub use model_service::*;
 pub use module_catalog::*;
