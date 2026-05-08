@@ -36,6 +36,8 @@ pub(crate) struct VisualState<'a> {
     pub pending_model: bool,
     pub streaming: bool,
     pub streaming_message: Option<&'a VisualMessage>,
+    pub reasoning_mode: ReasoningDisplayMode,
+    pub reasoning_summary: &'a str,
     pub active_context_tokens: Option<u32>,
     pub active_output_tokens: Option<u32>,
     pub thinking_elapsed: Option<Duration>,
@@ -43,6 +45,23 @@ pub(crate) struct VisualState<'a> {
     pub context_report: Option<&'a str>,
     pub context_report_scroll: usize,
     pub slash_selection: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReasoningDisplayMode {
+    Hidden,
+    Summary,
+    Expanded,
+}
+
+impl ReasoningDisplayMode {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Hidden => "hidden",
+            Self::Summary => "summary",
+            Self::Expanded => "expanded",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,6 +234,10 @@ pub(crate) fn inline_panel_lines(
         append_approval_lines(&mut approval_lines, request, width);
         lines.extend(approval_lines);
     } else {
+        append_reasoning_preview_lines(&mut lines, state, width);
+        if reasoning_preview_visible(state) && active_status_visible(state) {
+            lines.push(Line::raw(""));
+        }
         if active_status_visible(state) {
             if lines.last().is_some_and(|line| line.width() > 0) {
                 lines.push(Line::raw(""));
@@ -510,7 +533,7 @@ fn live_preview_height(state: &VisualState<'_>, available: u16) -> u16 {
     if available == 0 || state.pending_approval.is_some() {
         return 0;
     }
-    if state.streaming {
+    if state.streaming || reasoning_preview_visible(state) {
         return available.max(1);
     }
     0
@@ -521,13 +544,53 @@ fn live_preview_lines(
     width: usize,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
+    let mut body = Vec::new();
+    append_reasoning_preview_lines(&mut body, state, width);
     if let Some(message) = state.streaming_message {
-        let mut body = Vec::new();
+        if !body.is_empty() {
+            body.push(Line::raw(""));
+        }
         append_live_preview_message_lines(&mut body, message, width);
         return tail_lines(body, max_lines.max(1));
     }
 
-    Vec::new()
+    tail_lines(body, max_lines.max(1))
+}
+
+fn reasoning_preview_visible(state: &VisualState<'_>) -> bool {
+    !matches!(state.reasoning_mode, ReasoningDisplayMode::Hidden)
+        && !state.reasoning_summary.trim().is_empty()
+}
+
+fn append_reasoning_preview_lines(
+    lines: &mut Vec<Line<'static>>,
+    state: &VisualState<'_>,
+    width: usize,
+) {
+    if !reasoning_preview_visible(state) {
+        return;
+    }
+
+    let style = muted_style();
+    lines.push(Line::from(Span::styled("◌ reasoning summary", style)));
+    match state.reasoning_mode {
+        ReasoningDisplayMode::Hidden => {}
+        ReasoningDisplayMode::Summary => {
+            let first_line = state
+                .reasoning_summary
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or_default();
+            append_plain_preview_text(lines, first_line, "  ", style, width);
+            lines.push(Line::from(Span::styled(
+                "  /reasoning opens full summary",
+                style,
+            )));
+        }
+        ReasoningDisplayMode::Expanded => {
+            append_plain_preview_text(lines, state.reasoning_summary, "  ", style, width);
+        }
+    }
 }
 
 fn append_live_preview_message_lines(
@@ -1398,6 +1461,8 @@ mod tests {
             pending_model: false,
             streaming: false,
             streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: None,
             thinking_elapsed: None,
@@ -1453,6 +1518,8 @@ mod tests {
             pending_model: true,
             streaming: true,
             streaming_message: messages.last(),
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: Some(42),
             thinking_elapsed: None,
@@ -1491,6 +1558,8 @@ mod tests {
             pending_model: true,
             streaming: true,
             streaming_message: messages.first(),
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: Some(7),
             thinking_elapsed: Some(Duration::from_secs(12)),
@@ -1530,6 +1599,56 @@ mod tests {
                 .any(|span| span.content == "00:12"
                     && span.style.fg.is_none()
                     && span.style.add_modifier.contains(Modifier::DIM))
+        );
+    }
+
+    #[test]
+    fn reasoning_summary_mode_renders_compact_preview() {
+        let state = VisualState {
+            model: "test/model",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "reasoning...",
+            pending_approval: None,
+            pending_model: true,
+            streaming: false,
+            streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Summary,
+            reasoning_summary: "Checked files.\nThen planned the edit.",
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: Some(Duration::from_secs(2)),
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            slash_selection: 0,
+        };
+
+        let rendered = inline_panel_lines(&state, 80, 20)
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("reasoning summary"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("Checked files.")));
+        assert!(!rendered.iter().any(|line| line.contains("Then planned")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("/reasoning opens full summary"))
         );
     }
 
@@ -1595,6 +1714,8 @@ mod tests {
             pending_model: true,
             streaming: false,
             streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: None,
             thinking_elapsed: Some(Duration::from_secs(12)),
@@ -1633,6 +1754,8 @@ mod tests {
             pending_model: false,
             streaming: false,
             streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: None,
             thinking_elapsed: None,
@@ -1674,6 +1797,8 @@ mod tests {
                 pending_model: false,
                 streaming: false,
                 streaming_message: None,
+                reasoning_mode: ReasoningDisplayMode::Hidden,
+                reasoning_summary: "",
                 active_context_tokens: None,
                 active_output_tokens: None,
                 thinking_elapsed: None,
@@ -1712,6 +1837,8 @@ mod tests {
             pending_model: true,
             streaming: true,
             streaming_message: messages.first(),
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: None,
             thinking_elapsed: None,
@@ -1782,6 +1909,8 @@ mod tests {
             pending_model: false,
             streaming: false,
             streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
             active_context_tokens: None,
             active_output_tokens: None,
             thinking_elapsed: None,

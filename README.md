@@ -150,12 +150,17 @@ Approval показывается inline в нижней панели, без о
 выполняет точную команду или подставляет неполную.
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`, `/context`,
-`/resume [session-dir]`, `/quit`. `/context` открывает отдельный экран с картой
+`/reasoning [hidden|summary|expanded]`, `/resume [session-dir]`, `/quit`.
+`/context` открывает отдельный экран с картой
 контекста, последней оценкой input tokens по категориям, source учёта и
 provider usage, если модель его вернула. Там же видны накопления по текущему
 turn и текущей TUI-session; после `/resume` TUI пытается восстановить последний
 token snapshot из durable event log. Provider totals считаются фактическими, а
 breakdown по категориям остаётся локальной оценкой.
+`/reasoning` открывает последний provider-supplied reasoning summary в текущей
+TUI-сессии. `/reasoning summary` показывает компактный live-preview,
+`/reasoning expanded` показывает summary в live panel полностью,
+`/reasoning hidden` возвращает поведение по умолчанию.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id; с аргументом
 принимает путь к session directory или к `messages.jsonl` внутри неё и
