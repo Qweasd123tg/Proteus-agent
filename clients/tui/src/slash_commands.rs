@@ -37,6 +37,11 @@ pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
         description: "show token usage",
     },
     SlashCommand {
+        name: "/reasoning",
+        usage: "/reasoning [hidden|summary|expanded]",
+        description: "show or configure reasoning summary",
+    },
+    SlashCommand {
         name: "/quit",
         usage: "/quit",
         description: "quit TUI",

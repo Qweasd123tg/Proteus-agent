@@ -48,7 +48,9 @@ use crate::{
     inline_terminal::InlineTerminalState,
     session_picker::ResumePickerItem,
     state::AppState,
-    visual::{ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value},
+    visual::{
+        ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualSurface, compact_value,
+    },
 };
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
@@ -728,7 +730,7 @@ async fn handle_slash_command(
     match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /quit",
+                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /reasoning [hidden|summary|expanded], /quit",
             );
         }
         "/clear" => {
@@ -760,6 +762,7 @@ async fn handle_slash_command(
             state.push_system(message);
         }
         "/context" => state.open_context_report(),
+        "/reasoning" => handle_reasoning_command(state, rest),
         "/resume" => {
             if state.pending_model {
                 state.push_error("cancel active turn before resume".to_owned());
@@ -782,6 +785,16 @@ async fn handle_slash_command(
         }
     }
     Ok(())
+}
+
+fn handle_reasoning_command(state: &mut AppState, rest: &str) {
+    match rest {
+        "" => state.open_reasoning_report(),
+        "hidden" => state.set_reasoning_mode(ReasoningDisplayMode::Hidden),
+        "summary" => state.set_reasoning_mode(ReasoningDisplayMode::Summary),
+        "expanded" => state.set_reasoning_mode(ReasoningDisplayMode::Expanded),
+        _ => state.push_error("usage: /reasoning [hidden|summary|expanded]".to_owned()),
+    }
 }
 
 async fn resume_session(

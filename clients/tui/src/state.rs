@@ -17,7 +17,10 @@ use agent_contracts::{
 use crate::{
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::{is_exact_slash_command, matching_slash_commands},
-    visual::{InputPasteRange, ToolCard, ToolStatus, VisualMessage, VisualRole, VisualState},
+    visual::{
+        InputPasteRange, ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualRole,
+        VisualState,
+    },
 };
 
 const TURN_COMPLETED_STATUS_TTL: Duration = Duration::from_secs(8);
@@ -59,6 +62,8 @@ pub struct AppState {
     usage_turn_id: Option<TurnId>,
     turn_usage: UsageTotals,
     session_usage: UsageTotals,
+    reasoning_mode: ReasoningDisplayMode,
+    reasoning_summary: String,
 }
 
 impl AppState {
@@ -97,6 +102,8 @@ impl AppState {
             usage_turn_id: None,
             turn_usage: UsageTotals::default(),
             session_usage: UsageTotals::default(),
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: String::new(),
         }
     }
 
@@ -115,6 +122,8 @@ impl AppState {
             streaming_message: self
                 .streaming_assistant_idx
                 .and_then(|idx| self.messages.get(idx)),
+            reasoning_mode: self.reasoning_mode,
+            reasoning_summary: &self.reasoning_summary,
             active_context_tokens: (self.turn_usage.estimated_input_tokens > 0)
                 .then_some(self.turn_usage.estimated_input_tokens),
             active_output_tokens: self
@@ -247,6 +256,21 @@ impl AppState {
         ]);
         append_usage_totals_section(&mut lines, "Current turn totals", &self.turn_usage);
         append_usage_totals_section(&mut lines, "Session totals", &self.session_usage);
+        lines.join("\n")
+    }
+
+    pub fn reasoning_report(&self) -> String {
+        let mut lines = vec![
+            "Reasoning Summary".to_owned(),
+            format!("display mode: {}", self.reasoning_mode.label()),
+            String::new(),
+        ];
+        if self.reasoning_summary.trim().is_empty() {
+            lines.push("No reasoning summary has been received in this TUI session.".to_owned());
+            lines.push("Only provider-supplied reasoning summary deltas are shown here; raw hidden chain-of-thought is not available.".to_owned());
+        } else {
+            lines.push(self.reasoning_summary.clone());
+        }
         lines.join("\n")
     }
 
@@ -396,6 +420,17 @@ impl AppState {
         self.status = "context".to_owned();
     }
 
+    pub fn open_reasoning_report(&mut self) {
+        self.context_report = Some(self.reasoning_report());
+        self.context_report_scroll = 0;
+        self.status = "reasoning".to_owned();
+    }
+
+    pub fn set_reasoning_mode(&mut self, mode: ReasoningDisplayMode) {
+        self.reasoning_mode = mode;
+        self.status = format!("reasoning: {}", mode.label());
+    }
+
     pub fn close_context_report(&mut self) {
         self.context_report = None;
         self.context_report_scroll = 0;
@@ -443,6 +478,7 @@ impl AppState {
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.session_usage = UsageTotals::default();
+        self.reasoning_summary.clear();
     }
 
     pub fn reset_after_resume_with_history(
@@ -470,6 +506,7 @@ impl AppState {
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
         self.session_usage = UsageTotals::default();
+        self.reasoning_summary.clear();
         self.messages.push(VisualMessage::system(format!(
             "Resumed session: {}",
             session_dir.display()
@@ -700,6 +737,7 @@ impl AppState {
         self.turn_usage = UsageTotals::default();
         self.transcript_scroll_offset = 0;
         self.transcript_rendered_lines = 0;
+        self.reasoning_summary.clear();
         self.pending_model = true;
         self.status = "sent".to_owned();
     }
@@ -901,10 +939,11 @@ impl AppState {
                 // аргументами. Специально хранить partial args не нужно
                 // пока UI не поддерживает "строящийся tool card".
             }
-            Event::AssistantReasoningDelta { .. } => {
-                // Reasoning пока не рендерим отдельным slot'ом — будет
-                // отдельной фичей. Дельты пока игнорируем; нижний индикатор
-                // показывает стабильный user-facing activity label.
+            Event::AssistantReasoningDelta { text } => {
+                self.reasoning_summary.push_str(&text);
+                if !matches!(self.reasoning_mode, ReasoningDisplayMode::Hidden) {
+                    self.status = "reasoning...".to_owned();
+                }
             }
             Event::ToolCallRequested { call } => {
                 self.commit_streaming_draft();
@@ -945,6 +984,7 @@ impl AppState {
             Event::TurnStarted { turn_id, .. } => {
                 self.usage_turn_id = Some(turn_id);
                 self.turn_usage = UsageTotals::default();
+                self.reasoning_summary.clear();
             }
             Event::Error { message } => {
                 self.push_error(message);
@@ -1887,6 +1927,38 @@ mod tests {
         state.close_context_report();
         assert!(!state.has_context_report());
         assert!(!state.has_fullscreen_overlay());
+    }
+
+    #[test]
+    fn reasoning_delta_is_stored_for_report_and_visual_state() {
+        let mut state = AppState::new(PathBuf::from("."), None);
+        state.set_reasoning_mode(ReasoningDisplayMode::Summary);
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(
+                    agent_contracts::domain::new_session_id(),
+                    agent_contracts::domain::new_thread_id(),
+                    Some(agent_contracts::domain::new_turn_id()),
+                ),
+                1,
+                Event::AssistantReasoningDelta {
+                    text: "Checked the likely files.".to_owned(),
+                },
+            ),
+        });
+
+        assert_eq!(
+            state.visual_state().reasoning_summary,
+            "Checked the likely files."
+        );
+        assert_eq!(
+            state.visual_state().reasoning_mode,
+            ReasoningDisplayMode::Summary
+        );
+        let report = state.reasoning_report();
+        assert!(report.contains("display mode: summary"));
+        assert!(report.contains("Checked the likely files."));
     }
 
     #[test]

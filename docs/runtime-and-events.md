@@ -111,6 +111,12 @@ Envelope создаётся до фильтрации, поэтому durable lo
 non-contiguous `seq`. `seq` относится к полному runtime event stream, а не
 только к persisted subset.
 
+`agent-tui` по умолчанию скрывает `AssistantReasoningDelta`. Команда
+`/reasoning` открывает последний reasoning summary, полученный в текущей
+TUI-сессии; `/reasoning summary` и `/reasoning expanded` включают live-preview
+режимы для provider-supplied summary. Это не raw chain-of-thought и без
+`event_log.persist_deltas = true` не восстанавливается после restart/resume.
+
 Ключевые события текущего workflow:
 
 - `SessionStarted`;
