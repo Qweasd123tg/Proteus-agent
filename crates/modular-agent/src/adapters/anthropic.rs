@@ -142,23 +142,43 @@ impl AnthropicMessagesClient {
         // множество content_block_delta расширяют его, content_block_stop
         // закрывает. Для tool_use input_json_delta приходит инкрементально;
         // собираем всё в state и на message_stop отдаём Response.
+        let client = self.clone();
+        let fallback_request = request.clone();
         let state = Arc::new(Mutex::new(AnthropicStreamState::default()));
-        let events = response
-            .bytes_stream()
-            .eventsource()
-            .flat_map(move |chunk| {
-                let state = state.clone();
-                let mapped = match chunk {
+        let mut sse = response.bytes_stream().eventsource();
+        let events = async_stream::stream! {
+            while let Some(chunk) = sse.next().await {
+                match chunk {
                     Ok(event) => {
-                        let mut guard = state.lock().unwrap();
-                        guard.translate(&event.event, &event.data)
+                        let mapped = {
+                            let mut guard = state.lock().unwrap();
+                            guard.translate(&event.event, &event.data)
+                        };
+                        let mut saw_response = false;
+                        for mapped in mapped {
+                            if matches!(mapped, ModelStreamEvent::Response { .. }) {
+                                saw_response = true;
+                            }
+                            yield Ok(mapped);
+                        }
+                        if saw_response {
+                            break;
+                        }
                     }
-                    Err(error) => vec![ModelStreamEvent::Error {
-                        message: format!("sse transport error: {error}"),
-                    }],
-                };
-                stream::iter(mapped.into_iter().map(Ok).collect::<Vec<_>>())
-            });
+                    Err(error) => {
+                        match client.complete_response(fallback_request).await {
+                            Ok(response) => yield Ok(ModelStreamEvent::Response { response }),
+                            Err(fallback_error) => yield Ok(ModelStreamEvent::Error {
+                                message: format!(
+                                    "sse transport error: {error}; non-stream fallback failed: {fallback_error}"
+                                ),
+                            }),
+                        }
+                        break;
+                    }
+                }
+            }
+        };
         Ok(Box::pin(events))
     }
 
