@@ -110,12 +110,20 @@ cargo run --bin modular-agent -- "describe the project layout"
 cargo run --bin modular-agent -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin modular-agent -- doctor
+# собрать первичный eval-отчёт по durable event log
+cargo run --bin modular-agent -- eval report .agent/events.jsonl
 ```
 
 `doctor` не делает model request. Он проверяет config source, загрузку
 плагинов, выбранные module ids, активный model provider, наличие секрета
 провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
 собираемость tool registry.
+
+`eval report <event-log-path>` читает существующий JSONL event log и выводит
+первичные метрики coding loop: success/fail, turns, model/tool calls,
+approvals, usage tokens, duration, changed files и failure reason. Это первый
+слой eval harness поверх runtime events; он не запускает модель и не меняет
+рабочее дерево.
 
 ### TUI клиент
 
