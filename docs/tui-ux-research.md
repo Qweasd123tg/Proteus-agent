@@ -407,6 +407,11 @@ terminal surface и active streaming view, не меняя core protocol.
   history по мере появления, а финальный `TurnOutput` пропускает уже
   вставленные строки и дописывает только остаток. Это переводит длинный вывод
   с нижнего preview-path на retained/history-path.
+- Пятнадцатый шаг migration: line-batched streaming не должен вставлять в
+  scrollback открытые markdown table blocks. Таблица рендерится только когда
+  block закрыт пустой строкой/следующим нетабличным block или финальным
+  `TurnOutput`; иначе нижняя рамка уже вставленной таблицы остаётся в history
+  и следующие rows выглядят как "обрезанные".
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
