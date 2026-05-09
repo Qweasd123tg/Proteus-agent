@@ -201,7 +201,7 @@ fn active_stream_history_lines(state: &AppState, render_width: usize) -> Vec<Lin
     let Some(message) = visual.streaming_message else {
         return Vec::new();
     };
-    let stable_text = stable_stream_text(&message.text);
+    let stable_text = emittable_stable_stream_text(&message.text);
     if stable_text.is_empty() {
         return Vec::new();
     }
@@ -219,6 +219,84 @@ fn stable_stream_text(text: &str) -> &str {
     text.rfind('\n')
         .map(|index| &text[..index + 1])
         .unwrap_or("")
+}
+
+fn emittable_stable_stream_text(text: &str) -> &str {
+    let stable = stable_stream_text(text);
+    let Some(table_start) = open_table_suffix_start(stable) else {
+        return stable;
+    };
+    &stable[..table_start]
+}
+
+fn open_table_suffix_start(text: &str) -> Option<usize> {
+    let lines = indexed_lines(text);
+    let last = lines.last()?;
+
+    for index in 0..lines.len().saturating_sub(1) {
+        if pipe_cell_count(lines[index].text) < 2 || !table_separator_line(lines[index + 1].text) {
+            continue;
+        }
+
+        let mut cursor = index + 2;
+        while cursor < lines.len() && pipe_cell_count(lines[cursor].text) >= 2 {
+            cursor += 1;
+        }
+
+        if cursor == lines.len() {
+            return Some(lines[index].start);
+        }
+    }
+
+    if pipe_cell_count(last.text) >= 2 && !table_separator_line(last.text) {
+        return Some(last.start);
+    }
+
+    None
+}
+
+#[derive(Clone, Copy)]
+struct IndexedLine<'a> {
+    start: usize,
+    text: &'a str,
+}
+
+fn indexed_lines(text: &str) -> Vec<IndexedLine<'_>> {
+    let mut lines = Vec::new();
+    let mut start = 0usize;
+    for raw in text.split_inclusive('\n') {
+        let line = raw.trim_end_matches(['\r', '\n']);
+        lines.push(IndexedLine { start, text: line });
+        start += raw.len();
+    }
+    lines
+}
+
+fn pipe_cell_count(line: &str) -> usize {
+    if !line.contains('|') {
+        return 0;
+    }
+    let trimmed = line.trim();
+    let inner = trimmed
+        .strip_prefix('|')
+        .unwrap_or(trimmed)
+        .strip_suffix('|')
+        .unwrap_or(trimmed.strip_prefix('|').unwrap_or(trimmed));
+    inner.split('|').count()
+}
+
+fn table_separator_line(line: &str) -> bool {
+    let cells = line
+        .trim()
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    cells.len() >= 2
+        && cells.iter().all(|cell| {
+            let core = cell.trim_matches(':');
+            !core.is_empty() && core.chars().all(|ch| ch == '-')
+        })
 }
 
 fn rendered_message_lines_with_live_skip(
@@ -280,6 +358,24 @@ mod tests {
         assert_eq!(stable_stream_text("1\n2\n3"), "1\n2\n");
         assert_eq!(stable_stream_text("1\n2\n3\n"), "1\n2\n3\n");
         assert_eq!(stable_stream_text("partial"), "");
+    }
+
+    #[test]
+    fn emittable_stream_text_holds_open_tables() {
+        let open_table = "Intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+        assert_eq!(emittable_stable_stream_text(open_table), "Intro\n\n");
+
+        let closed_table = "Intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n";
+        assert_eq!(emittable_stable_stream_text(closed_table), closed_table);
+    }
+
+    #[test]
+    fn emittable_stream_text_holds_possible_table_header() {
+        let text = "Intro\n| maybe | table |\n";
+        assert_eq!(emittable_stable_stream_text(text), "Intro\n");
+
+        let not_table = "Intro\n| maybe | table |\nplain text\n";
+        assert_eq!(emittable_stable_stream_text(not_table), not_table);
     }
 
     #[test]
