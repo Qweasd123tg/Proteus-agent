@@ -20,7 +20,7 @@ use crate::{
 
 const STATUS_MARKER: &str = "•";
 
-fn muted_style() -> Style {
+pub(crate) fn muted_style() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
@@ -202,70 +202,10 @@ impl VisualSurface {
     }
 }
 
-pub(crate) struct InlinePanelLines {
-    pub lines: Vec<Line<'static>>,
-    pub cursor_row: usize,
-    pub cursor_col: usize,
-}
-
 #[derive(Clone)]
 struct DisplaySegment {
     text: String,
     style: Style,
-}
-
-pub(crate) fn inline_panel_lines(
-    state: &VisualState<'_>,
-    width: usize,
-    _max_live_lines: usize,
-) -> InlinePanelLines {
-    let mut lines = Vec::new();
-
-    if !matching_slash_commands(state.input).is_empty()
-        && state.pending_approval.is_none()
-        && state.resume_picker.is_none()
-    {
-        lines.extend(slash_plain_lines(state, width));
-        lines.push(Line::raw(""));
-    }
-
-    if let Some(request) = state.pending_approval {
-        let mut approval_lines = Vec::new();
-        append_approval_lines(&mut approval_lines, request, width);
-        lines.extend(approval_lines);
-    } else {
-        append_reasoning_preview_lines(&mut lines, state, width);
-        if reasoning_preview_visible(state) && active_status_visible(state) {
-            lines.push(Line::raw(""));
-        }
-        if active_status_visible(state) {
-            if lines.last().is_some_and(|line| line.width() > 0) {
-                lines.push(Line::raw(""));
-            }
-            lines.push(active_status_line(state, true));
-        }
-    }
-
-    if composer_gap_visible(state) {
-        lines.push(Line::raw(""));
-    }
-
-    let composer_start = lines.len();
-    let (composer_lines, composer_cursor_row, cursor_col) = composer_lines(state, width);
-    lines.extend(composer_lines);
-    if composer_bottom_gap_visible(state) {
-        lines.push(Line::raw(""));
-    }
-    lines.push(Line::from(Span::styled(
-        footer_plain_line(state, width),
-        muted_style(),
-    )));
-
-    InlinePanelLines {
-        lines,
-        cursor_row: composer_start + composer_cursor_row,
-        cursor_col,
-    }
 }
 
 trait VisualComponent {
@@ -295,7 +235,10 @@ impl VisualComponent for ComposerComponent {
     }
 }
 
-fn composer_lines(state: &VisualState<'_>, width: usize) -> (Vec<Line<'static>>, usize, usize) {
+pub(crate) fn composer_lines(
+    state: &VisualState<'_>,
+    width: usize,
+) -> (Vec<Line<'static>>, usize, usize) {
     let prompt = if state.pending_approval.is_some() {
         Span::styled("?", muted_style())
     } else {
@@ -468,7 +411,7 @@ impl VisualComponent for FooterComponent {
     }
 }
 
-fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
+pub(crate) fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
     let left = footer_left_text(state);
     if state.pending_model || state.pending_approval.is_some() {
         truncate(format!("  {left}"), width)
@@ -493,7 +436,7 @@ fn footer_left_text(state: &VisualState<'_>) -> String {
     }
 }
 
-fn active_status_visible(state: &VisualState<'_>) -> bool {
+pub(crate) fn active_status_visible(state: &VisualState<'_>) -> bool {
     state.pending_model && state.pending_approval.is_none()
 }
 
@@ -557,12 +500,12 @@ fn live_preview_lines(
     tail_lines(body, max_lines.max(1))
 }
 
-fn reasoning_preview_visible(state: &VisualState<'_>) -> bool {
+pub(crate) fn reasoning_preview_visible(state: &VisualState<'_>) -> bool {
     !matches!(state.reasoning_mode, ReasoningDisplayMode::Hidden)
         && !state.reasoning_summary.trim().is_empty()
 }
 
-fn append_reasoning_preview_lines(
+pub(crate) fn append_reasoning_preview_lines(
     lines: &mut Vec<Line<'static>>,
     state: &VisualState<'_>,
     width: usize,
@@ -682,7 +625,7 @@ fn append_plain_preview_text(
     }
 }
 
-fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
+pub(crate) fn active_status_line(state: &VisualState<'_>, include_marker: bool) -> Line<'static> {
     let label = activity_label(state);
     let mut spans = Vec::new();
     if include_marker {
@@ -741,7 +684,7 @@ fn format_token_count(tokens: u32) -> String {
     }
 }
 
-fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+pub(crate) fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
     let matches = matching_slash_commands(state.input);
     let visible_count = matches.len().min(7);
     let selected = state.slash_selection.min(matches.len().saturating_sub(1));
@@ -1255,7 +1198,7 @@ fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
     }
 }
 
-fn append_approval_lines(
+pub(crate) fn append_approval_lines(
     lines: &mut Vec<Line<'static>>,
     request: &AppApprovalRequest,
     width: usize,
@@ -1439,6 +1382,15 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bottom_pane::{BottomPane, BottomPaneLines};
+
+    fn inline_panel_lines(
+        state: &VisualState<'_>,
+        width: usize,
+        max_live_lines: usize,
+    ) -> BottomPaneLines {
+        BottomPane.lines(state, width, max_live_lines)
+    }
 
     #[test]
     fn formats_elapsed_for_footer_stopwatch() {
