@@ -7,10 +7,7 @@ use ratatui::text::Line;
 
 use crate::{
     cards::append_approval_lines,
-    visual::{
-        VisualState, active_status_line, append_reasoning_preview_lines, composer_lines,
-        slash_plain_lines,
-    },
+    visual::{VisualState, append_reasoning_preview_lines, composer_lines, slash_plain_lines},
 };
 
 pub(crate) struct BottomPane;
@@ -54,7 +51,7 @@ impl BottomPane {
                 if lines.last().is_some_and(|line| line.width() > 0) {
                     lines.push(Line::raw(""));
                 }
-                lines.push(active_status_line(state, true));
+                lines.push(status::active_status_line(state, true));
             }
         }
 

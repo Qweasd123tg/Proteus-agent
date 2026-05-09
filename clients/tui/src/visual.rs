@@ -20,7 +20,7 @@ use crate::{
     slash_commands::{SlashCommand, matching_slash_commands},
 };
 
-const STATUS_MARKER: &str = "•";
+pub(crate) const STATUS_MARKER: &str = "•";
 
 pub(crate) fn muted_style() -> Style {
     Style::default().add_modifier(Modifier::DIM)
@@ -536,7 +536,7 @@ fn activity_label(state: &VisualState<'_>) -> String {
     }
 }
 
-fn format_token_count(tokens: u32) -> String {
+pub(crate) fn format_token_count(tokens: u32) -> String {
     if tokens >= 10_000 {
         format!("{:.1}k tokens", tokens as f64 / 1_000.0)
     } else if tokens >= 1_000 {
@@ -1094,7 +1094,7 @@ fn pad_right(input: &str, width: usize) -> String {
     format!("{truncated}{}", " ".repeat(padding))
 }
 
-fn format_elapsed(elapsed: Duration) -> String {
+pub(crate) fn format_elapsed(elapsed: Duration) -> String {
     let seconds = elapsed.as_secs();
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
