@@ -74,9 +74,11 @@ dependencies = [
  "anyhow",
  "crossterm",
  "ratatui",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
  "unicode-width 0.2.0",
 ]
 

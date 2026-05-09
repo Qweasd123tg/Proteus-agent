@@ -32,14 +32,13 @@ mkdir -p ~/.config/agent-claude-pack/configs
 cp /home/qweasd123tg/Code/Agent/agent.claude-pack.example.toml \
   ~/.config/agent-claude-pack/configs/10-claude-pack.toml
 
-agent-tui \
-  --agent-bin ~/.local/bin/agent \
-  --config ~/.config/agent-claude-pack/configs \
-  --cwd "$PWD"
+agent-tui --profile claude
 ```
 
-API key/provider можно заменить в скопированном config-файле, не меняя
-репозиторий.
+Для profile launcher нужен файл
+`~/.config/agent-qweasd123tg/profiles/claude.toml`, который указывает на нужный
+agent config. API key/provider можно держать в общем included config-файле, не
+меняя репозиторий.
 
 ## Поведенческая Модель
 
