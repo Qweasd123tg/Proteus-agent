@@ -115,7 +115,11 @@ backends. Помимо `text`, `cwd` и `max_results`, в нём есть option
 `use_case`, `starts_with` и `ends_with`. `use_case` нужен backend-ам, которые
 различают поиск для простого context fill, repo-aware context или user-facing
 tool call. `starts_with`/`ends_with` дают path filters без side-channel через
-metadata. Старые plugin JSON payloads без этих полей продолжают читаться через
+metadata. User-facing tool `search` дополнительно принимает `path` как alias к
+одному `starts_with` prefix. Backend `rg-search` применяет безопасные
+`starts_with` уже на уровне ripgrep roots, а не только после получения
+результатов, и переводит `ends_with` в `--glob`. Старые plugin JSON payloads без
+этих полей продолжают читаться через
 serde defaults.
 
 ## Memory
