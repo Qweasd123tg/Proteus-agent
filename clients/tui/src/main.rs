@@ -686,7 +686,7 @@ fn redraw(
     let result = (|| -> Result<()> {
         if state.has_fullscreen_overlay() {
             if !*picker_alt_screen {
-                inline_terminal.clear_panel(terminal)?;
+                inline_terminal.enter_overlay(terminal)?;
                 execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                 terminal.clear()?;
                 *picker_alt_screen = true;
@@ -696,7 +696,7 @@ fn redraw(
             if *picker_alt_screen {
                 execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                 *picker_alt_screen = false;
-                inline_terminal.reset();
+                inline_terminal.leave_overlay();
             }
             inline_terminal.draw_normal(terminal, state, scrollback_header_printed)?;
         }
