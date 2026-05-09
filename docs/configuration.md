@@ -73,6 +73,9 @@ config = "~/.config/agent-qweasd123tg/claude/configs"
 относительного event log. Поэтому разные launcher profiles должны указывать на
 разные config roots, если их истории нужно держать отдельно.
 
+Пошаговый bootstrap для новой машины описан в
+[second-pc-bootstrap.md](second-pc-bootstrap.md).
+
 ## JSON И TOML
 
 Рекомендуемый пользовательский формат - directory-based TOML:
