@@ -584,4 +584,12 @@ record не ломал весь memory lookup.
 }
 ```
 
-Event log пишется относительно `cwd`, а session history хранится рядом с пользовательским config home. Для default layout это `$HOME/.config/agent-qweasd123tg/sessions`, то есть рядом с директорией `configs`.
+Event log пишется относительно config store root, если agent знает путь config-а,
+а session history хранится рядом в `sessions`. Для default layout это:
+
+```text
+$HOME/.config/agent-qweasd123tg/.agent/events.jsonl
+$HOME/.config/agent-qweasd123tg/sessions/...
+```
+
+Если config path неизвестен, fallback остаётся относительно `cwd`.

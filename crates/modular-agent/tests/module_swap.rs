@@ -2006,6 +2006,25 @@ async fn context_chunks_are_not_written_to_session_store() {
 }
 
 #[tokio::test]
+async fn runtime_writes_relative_event_log_under_config_root() {
+    let dir = temp_workspace();
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("configs").join("config.toml");
+    std::fs::create_dir_all(config_path.parent().unwrap()).expect("config parent");
+    std::fs::write(&config_path, "").expect("config file");
+    let runtime = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
+        .with_config_path(Some(&config_path))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
+
+    runtime.run("hello".to_owned()).await.unwrap();
+
+    assert!(config_dir.path().join(".agent/events.jsonl").exists());
+    assert!(!dir.path().join(".agent/events.jsonl").exists());
+}
+
+#[tokio::test]
 async fn runtime_can_resume_history_from_existing_session_dir() {
     let dir = temp_workspace();
     let config_dir = tempfile::tempdir().expect("config dir");

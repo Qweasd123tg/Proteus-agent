@@ -161,8 +161,9 @@ impl AgentAppServer {
         resume_session_dir: Option<PathBuf>,
     ) -> Result<AppServerHandle> {
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
-        let jsonl_raw: Arc<dyn EventSink> =
-            Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+        let event_log_path =
+            crate::core::runtime::event_log_path(&config.event_log.path, config_path, &cwd);
+        let jsonl_raw: Arc<dyn EventSink> = Arc::new(JsonlEventStore::new(event_log_path));
         // Дельты по умолчанию не пишем в durable log — они нужны UI (broadcast)
         // но засоряют файл на длинных ответах. `persist_deltas = true` в конфиге
         // включает полную запись.

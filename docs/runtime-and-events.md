@@ -73,7 +73,7 @@ cargo run -- server stdio
 
 ## Event Log
 
-По умолчанию:
+По умолчанию config задаёт относительный путь:
 
 ```text
 .agent/events.jsonl
@@ -88,6 +88,17 @@ cargo run -- server stdio
   }
 }
 ```
+
+Если runtime знает путь config-а, относительный `event_log.path` считается от
+config store root, то есть рядом с `sessions`. Для default layout
+`~/.config/agent-qweasd123tg/configs` путь `.agent/events.jsonl` превращается в:
+
+```text
+~/.config/agent-qweasd123tg/.agent/events.jsonl
+```
+
+Если config path неизвестен, fallback остаётся старым: путь считается от
+рабочей директории (`cwd`).
 
 Event log является трассой runtime-событий. Каждая JSONL-строка содержит `EventEnvelope`, а не голый `Event`:
 
@@ -151,10 +162,11 @@ provider billing source of truth.
 TUI хранит последний `TokenUsageUpdated`, а также суммирует request-level usage
 по текущему turn и текущей TUI-session. При смене `turn_id` в `EventEnvelope`
 turn totals сбрасываются, session totals продолжают расти. На `resume` TUI
-читает `session.json`, находит durable event log рабочего каталога
-(`.agent/events.jsonl`) и восстанавливает старые `TokenUsageUpdated` для этой
-session. Если event log недоступен, `/context` показывает fallback-оценку по
-загруженной `messages.jsonl` истории. На `/clear` локальные totals
+читает `session.json`, ищет durable event log рядом с config root
+(`.agent-claude-pack/events.jsonl`, затем `.agent/events.jsonl`) и затем в
+legacy workspace paths. Найденные `TokenUsageUpdated` восстанавливают usage для
+этой session. Если event log недоступен, `/context` показывает fallback-оценку
+по загруженной `messages.jsonl` истории. На `/clear` локальные totals
 сбрасываются.
 
 ## App Server Boundary
