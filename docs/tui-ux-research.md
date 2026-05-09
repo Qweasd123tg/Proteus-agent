@@ -379,6 +379,10 @@ terminal surface и active streaming view, не меняя core protocol.
   но больше не владеет итоговой композицией composer/status/slash/approval/footer
   для normal inline path. Следующий шаг - перенести сами helper'ы и tests в
   bottom-pane submodules.
+- Девятый шаг migration: `bottom_pane` превращён в модуль-папку с отдельными
+  `composer.rs` и `footer.rs`. Сейчас это ещё тонкие boundary-модули, но
+  раскладка уже отделена от `visual.rs`; следующий шаг - вынести remaining
+  visibility/layout helpers для slash/approval/status из общего файла.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

@@ -1,21 +1,29 @@
-use ratatui::text::{Line, Span};
+mod composer;
+mod footer;
+
+use ratatui::text::Line;
 
 use crate::{
     slash_commands::matching_slash_commands,
     visual::{
         VisualState, active_status_line, active_status_visible, append_approval_lines,
-        append_reasoning_preview_lines, composer_lines, footer_plain_line, muted_style,
-        reasoning_preview_visible, slash_plain_lines,
+        append_reasoning_preview_lines, composer_lines, reasoning_preview_visible,
+        slash_plain_lines,
     },
 };
 
-#[derive(Default)]
 pub(crate) struct BottomPane;
 
 pub(crate) struct BottomPaneLines {
     pub lines: Vec<Line<'static>>,
     pub cursor_row: usize,
     pub cursor_col: usize,
+}
+
+impl Default for BottomPane {
+    fn default() -> Self {
+        Self
+    }
 }
 
 impl BottomPane {
@@ -49,20 +57,17 @@ impl BottomPane {
             }
         }
 
-        if composer_gap_visible(state) {
+        if composer::composer_gap_visible(state) {
             lines.push(Line::raw(""));
         }
 
         let composer_start = lines.len();
         let (composer_lines, composer_cursor_row, cursor_col) = composer_lines(state, width);
         lines.extend(composer_lines);
-        if composer_bottom_gap_visible(state) {
+        if composer::composer_bottom_gap_visible(state) {
             lines.push(Line::raw(""));
         }
-        lines.push(Line::from(Span::styled(
-            footer_plain_line(state, width),
-            muted_style(),
-        )));
+        lines.push(footer::footer_line(state, width));
 
         BottomPaneLines {
             lines,
@@ -76,12 +81,4 @@ fn slash_visible(state: &VisualState<'_>) -> bool {
     !matching_slash_commands(state.input).is_empty()
         && state.pending_approval.is_none()
         && state.resume_picker.is_none()
-}
-
-fn composer_gap_visible(state: &VisualState<'_>) -> bool {
-    state.pending_approval.is_none()
-}
-
-fn composer_bottom_gap_visible(_state: &VisualState<'_>) -> bool {
-    true
 }
