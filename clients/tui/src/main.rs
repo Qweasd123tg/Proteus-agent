@@ -6,6 +6,7 @@
 //! самом ядре — границa client/core проведена через wire protocol.
 
 mod bottom_pane;
+mod cards;
 mod driver;
 mod history_insert;
 mod inline_terminal;

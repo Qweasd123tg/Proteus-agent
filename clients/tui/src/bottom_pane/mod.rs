@@ -5,9 +5,12 @@ mod status;
 
 use ratatui::text::Line;
 
-use crate::visual::{
-    VisualState, active_status_line, append_approval_lines, append_reasoning_preview_lines,
-    composer_lines, slash_plain_lines,
+use crate::{
+    cards::append_approval_lines,
+    visual::{
+        VisualState, active_status_line, append_reasoning_preview_lines, composer_lines,
+        slash_plain_lines,
+    },
 };
 
 pub(crate) struct BottomPane;
