@@ -9,7 +9,7 @@ use crate::{
     history_insert::HistoryViewportState,
     state::AppState,
     terminal_surface::{InlinePanelLayout, PreparedInlinePanel, PreparedLiveTail, TerminalSurface},
-    visual::render_scrollback_message,
+    visual::{VisualMessage, VisualRole, render_scrollback_message},
 };
 
 #[derive(Default)]
@@ -17,7 +17,13 @@ pub(crate) struct InlineTerminalState {
     bottom_pane: BottomPane,
     panel: InlinePanelLayout,
     history: HistoryViewportState,
+    live_stream: LiveStreamHistoryState,
     resize_reflow_pending: bool,
+}
+
+#[derive(Default)]
+struct LiveStreamHistoryState {
+    emitted_lines: usize,
 }
 
 impl InlineTerminalState {
@@ -56,7 +62,7 @@ impl InlineTerminalState {
         header_printed: &mut bool,
     ) -> Result<()> {
         let prepared_panel = prepare_inline_panel(terminal, state, &self.bottom_pane)?;
-        let prepared_live_tail = prepare_live_tail(terminal, state, prepared_panel.height())?;
+        let prepared_live_tail = PreparedLiveTail { lines: Vec::new() };
         let previous_panel = self.panel.clone();
         let next_layout = InlinePanelLayout {
             height: prepared_panel.height(),
@@ -68,6 +74,7 @@ impl InlineTerminalState {
         {
             repaint_normal_screen_before_history_flush(terminal, state, header_printed)?;
             self.history = HistoryViewportState::default();
+            self.live_stream = LiveStreamHistoryState::default();
             self.resize_reflow_pending = false;
             InlinePanelLayout::default()
         } else {
@@ -80,6 +87,7 @@ impl InlineTerminalState {
             state,
             header_printed,
             &mut self.history,
+            &mut self.live_stream,
             next_height,
         )?;
         self.panel = TerminalSurface::new(terminal).draw_inline_areas(
@@ -96,6 +104,7 @@ fn flush_scrollback_messages(
     state: &mut AppState,
     header_printed: &mut bool,
     history_viewport: &mut HistoryViewportState,
+    live_stream: &mut LiveStreamHistoryState,
     reserved_bottom_height: u16,
 ) -> Result<bool> {
     let size = terminal.size()?;
@@ -105,13 +114,14 @@ fn flush_scrollback_messages(
     }
     history_viewport.clamp_to_height(history_height);
 
+    let width = size.width.max(1) as usize;
+    let render_width = width.saturating_sub(1).max(1);
     let messages = state.drain_scrollback_messages();
-    if messages.is_empty() && *header_printed {
+    let active_lines = active_stream_history_lines(state, render_width);
+    if messages.is_empty() && active_lines.is_empty() && *header_printed {
         return Ok(false);
     }
 
-    let width = size.width.max(1) as usize;
-    let render_width = width.saturating_sub(1).max(1);
     if !*header_printed {
         for line in render_scrollback_header(&state.visual_state(), render_width) {
             TerminalSurface::new(terminal).insert_scrollback_line(
@@ -124,7 +134,8 @@ fn flush_scrollback_messages(
         *header_printed = true;
     }
     for message in messages {
-        for line in render_scrollback_message(&message, render_width) {
+        let lines = rendered_message_lines_with_live_skip(&message, render_width, live_stream);
+        for line in lines {
             TerminalSurface::new(terminal).insert_scrollback_line(
                 &line,
                 width,
@@ -133,6 +144,18 @@ fn flush_scrollback_messages(
             )?;
         }
     }
+    if active_lines.len() < live_stream.emitted_lines {
+        live_stream.emitted_lines = 0;
+    }
+    for line in active_lines.iter().skip(live_stream.emitted_lines) {
+        TerminalSurface::new(terminal).insert_scrollback_line(
+            line,
+            width,
+            history_viewport,
+            history_height,
+        )?;
+    }
+    live_stream.emitted_lines = active_lines.len();
     Ok(true)
 }
 
@@ -163,56 +186,60 @@ fn prepare_inline_panel(
     })
 }
 
-fn prepare_live_tail(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    state: &AppState,
-    panel_height: u16,
-) -> Result<PreparedLiveTail> {
-    let visual = state.visual_state();
-    let Some(message) = visual.streaming_message else {
-        return Ok(PreparedLiveTail { lines: Vec::new() });
-    };
-
-    let size = terminal.size()?;
-    let width = size.width.max(1) as usize;
-    let render_width = width.saturating_sub(1).max(1);
-    let max_height = max_live_tail_lines(size.height, panel_height);
-    if max_height == 0 {
-        return Ok(PreparedLiveTail { lines: Vec::new() });
-    }
-
-    let mut lines = render_scrollback_message(message, render_width);
-    trim_trailing_blank_lines(&mut lines);
-    let height = max_height.min(lines.len());
-    let start = live_tail_visible_start(lines.len(), height, state.transcript_scroll_offset());
-
-    Ok(PreparedLiveTail {
-        lines: lines.into_iter().skip(start).take(height).collect(),
-    })
-}
-
 fn max_inline_live_preview_lines(screen_height: u16) -> usize {
     screen_height.saturating_sub(10).max(1).min(48) as usize
-}
-
-fn max_live_tail_lines(screen_height: u16, panel_height: u16) -> usize {
-    screen_height
-        .saturating_sub(panel_height)
-        .saturating_sub(4)
-        .min(18) as usize
-}
-
-fn live_tail_visible_start(total_lines: usize, height: usize, scroll_offset: usize) -> usize {
-    if total_lines <= height {
-        return 0;
-    }
-    scroll_offset.min(total_lines.saturating_sub(height))
 }
 
 fn trim_trailing_blank_lines(lines: &mut Vec<Line<'static>>) {
     while lines.last().is_some_and(|line| line.width() == 0) {
         lines.pop();
     }
+}
+
+fn active_stream_history_lines(state: &AppState, render_width: usize) -> Vec<Line<'static>> {
+    let visual = state.visual_state();
+    let Some(message) = visual.streaming_message else {
+        return Vec::new();
+    };
+    let stable_text = stable_stream_text(&message.text);
+    if stable_text.is_empty() {
+        return Vec::new();
+    }
+    let mut stable = message.clone();
+    stable.text = stable_text.to_owned();
+    let mut lines = render_scrollback_message(&stable, render_width);
+    trim_trailing_blank_lines(&mut lines);
+    lines
+}
+
+fn stable_stream_text(text: &str) -> &str {
+    if text.ends_with('\n') {
+        return text;
+    }
+    text.rfind('\n')
+        .map(|index| &text[..index + 1])
+        .unwrap_or("")
+}
+
+fn rendered_message_lines_with_live_skip(
+    message: &VisualMessage,
+    render_width: usize,
+    live_stream: &mut LiveStreamHistoryState,
+) -> Vec<Line<'static>> {
+    let lines = render_scrollback_message(message, render_width);
+    if live_stream.emitted_lines == 0
+        || !matches!(message.role, VisualRole::Assistant | VisualRole::Draft)
+    {
+        return lines;
+    }
+
+    let content_len = lines
+        .iter()
+        .rposition(|line| line.width() > 0)
+        .map_or(0, |index| index + 1);
+    let skip = live_stream.emitted_lines.min(content_len);
+    live_stream.emitted_lines = 0;
+    lines.into_iter().skip(skip).collect()
 }
 
 fn panel_is_shrinking(previous_height: u16, next_height: u16) -> bool {
@@ -249,18 +276,30 @@ mod tests {
     }
 
     #[test]
-    fn live_tail_height_leaves_room_for_history_and_panel() {
-        assert_eq!(max_live_tail_lines(24, 4), 16);
-        assert_eq!(max_live_tail_lines(80, 4), 18);
-        assert_eq!(max_live_tail_lines(7, 4), 0);
+    fn stable_stream_text_keeps_only_completed_lines() {
+        assert_eq!(stable_stream_text("1\n2\n3"), "1\n2\n");
+        assert_eq!(stable_stream_text("1\n2\n3\n"), "1\n2\n3\n");
+        assert_eq!(stable_stream_text("partial"), "");
     }
 
     #[test]
-    fn live_tail_visible_start_scrolls_from_top() {
-        assert_eq!(live_tail_visible_start(30, 10, 0), 0);
-        assert_eq!(live_tail_visible_start(30, 10, 5), 5);
-        assert_eq!(live_tail_visible_start(30, 10, 99), 20);
-        assert_eq!(live_tail_visible_start(8, 10, 99), 0);
+    fn finalized_stream_skips_already_emitted_lines() {
+        let mut live = LiveStreamHistoryState { emitted_lines: 2 };
+        let lines = rendered_message_lines_with_live_skip(
+            &VisualMessage::assistant("1\n2\n3\n"),
+            80,
+            &mut live,
+        );
+        let rendered = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(!rendered.contains('1'));
+        assert!(!rendered.contains('2'));
+        assert!(rendered.contains('3'));
+        assert_eq!(live.emitted_lines, 0);
     }
 
     #[test]

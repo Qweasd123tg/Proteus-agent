@@ -401,6 +401,12 @@ terminal surface и active streaming view, не меняя core protocol.
   на top-anchored render, чтобы первые строки streaming-ответа не исчезали при
   росте вывода. Это убирает ощущение, что ответы "едят" начало текста; дальше
   можно отдельно вернуть follow-tail режим как опцию, если он понадобится.
+- Четырнадцатый шаг migration: top-anchored live tail оказался тупиком для
+  длинных ответов. Active assistant больше не рисуется отдельным bottom
+  live-preview: завершённые строки streaming-ответа вставляются в normal
+  history по мере появления, а финальный `TurnOutput` пропускает уже
+  вставленные строки и дописывает только остаток. Это переводит длинный вывод
+  с нижнего preview-path на retained/history-path.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
@@ -411,9 +417,9 @@ terminal surface и active streaming view, не меняя core protocol.
   напрямую использовать `MoveTo`, `Clear`, `Print`, `SetScrollRegion`.
 - `TranscriptStore` владеет source of truth: committed cells отдельно,
   active cell отдельно, emitted cursor отдельно.
-- Active streaming cell не пишется в terminal scrollback. Она может быть
-  показана только через retained viewport/live-tail слой; scrollback остаётся
-  стабильным и получает только finalized batches.
+- Active streaming cell не пишет partial chunks в terminal scrollback.
+  Разрешены только line-batched stable rows: завершённые строки active
+  assistant вставляются в history, финал дописывает остаток без дублей.
 - Bottom pane должен стать Ratatui component stack: composer, status, slash,
   approval, footer без знания о scroll regions.
 - Overlay/alt-screen должен defer'ить history insertion и flush'ить её после
