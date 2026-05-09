@@ -421,6 +421,9 @@ terminal surface и active streaming view, не меняя core protocol.
   foreground-only для тёмных terminal themes; raw ``` fences заменены на
   компактный `code · lang` label без closing fence; добавлен terminal render
   для autolinks `<https://...>`, bare URLs и footnote refs.
+- Восемнадцатый шаг migration: normal markdown links теперь показывают только
+  label без URL шума, autolinks/bare URLs продолжают показывать URL, а images
+  рендерятся как компактный alt text без длинного source URL.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.
