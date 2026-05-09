@@ -12,7 +12,7 @@ pub(crate) fn render_assistant_markdown(
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut first = true;
-    let mut in_code_block = false;
+    let mut code_language: Option<String> = None;
     let content_width = width.saturating_sub(display_width(prefix)).max(1);
 
     if text.is_empty() {
@@ -30,8 +30,12 @@ pub(crate) fn render_assistant_markdown(
         let trimmed = source.trim_start();
 
         if trimmed.starts_with("```") {
-            in_code_block = !in_code_block;
             let label = trimmed.trim_start_matches("```").trim();
+            if code_language.is_some() {
+                code_language = None;
+            } else {
+                code_language = Some(label.to_owned());
+            }
             let display = if label.is_empty() {
                 "```".to_owned()
             } else {
@@ -48,23 +52,16 @@ pub(crate) fn render_assistant_markdown(
             continue;
         }
 
-        if in_code_block {
+        if let Some(language) = code_language.as_deref() {
             let segments = if source.is_empty() {
                 vec![String::new()]
             } else {
                 wrap_text(source, content_width.saturating_sub(2).max(1))
             };
             for segment in segments {
-                push_line(
-                    &mut lines,
-                    &mut first,
-                    prefix,
-                    prefix_style,
-                    vec![
-                        Span::styled("│ ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(segment, code_style()),
-                    ],
-                );
+                let mut code_spans = vec![Span::styled("│ ", code_block_bar_style())];
+                code_spans.extend(highlight_code_spans(&segment, language));
+                push_line(&mut lines, &mut first, prefix, prefix_style, code_spans);
             }
             index += 1;
             continue;
@@ -114,9 +111,16 @@ pub(crate) fn render_assistant_markdown(
             continue;
         }
 
-        if let Some(quote) = trimmed.strip_prefix("> ") {
-            for segment in wrap_text(quote, content_width.saturating_sub(2).max(1)) {
-                let mut spans = vec![Span::styled("│ ", Style::default().fg(Color::DarkGray))];
+        if let Some((quote_level, quote)) = blockquote(source) {
+            let markers = quote_markers(quote_level);
+            let quote_width = content_width.saturating_sub(display_width(&markers)).max(1);
+            let segments = if quote.is_empty() {
+                vec![String::new()]
+            } else {
+                wrap_text(quote, quote_width)
+            };
+            for segment in segments {
+                let mut spans = vec![Span::styled(markers.clone(), quote_bar_style())];
                 spans.extend(inline_spans(&segment, quote_style()));
                 push_line(&mut lines, &mut first, prefix, prefix_style, spans);
             }
@@ -127,12 +131,12 @@ pub(crate) fn render_assistant_markdown(
         if let Some((marker, body)) = list_item(trimmed) {
             let indent_width = source.len().saturating_sub(trimmed.len()).min(6);
             let marker_width = indent_width + display_width(marker) + 1;
-            if let Some(quote) = body.trim_start().strip_prefix("> ") {
-                for (idx, segment) in
-                    wrap_text(quote, content_width.saturating_sub(marker_width + 2).max(1))
-                        .into_iter()
-                        .enumerate()
-                {
+            if let Some((quote_level, quote)) = blockquote(body.trim_start()) {
+                let markers = quote_markers(quote_level);
+                let quote_width = content_width
+                    .saturating_sub(marker_width + display_width(&markers))
+                    .max(1);
+                for (idx, segment) in wrap_text(quote, quote_width).into_iter().enumerate() {
                     let mut spans = Vec::new();
                     if indent_width > 0 {
                         spans.push(Span::raw(" ".repeat(indent_width)));
@@ -143,7 +147,7 @@ pub(crate) fn render_assistant_markdown(
                     } else {
                         spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
                     }
-                    spans.push(Span::styled("│ ", table_border_style()));
+                    spans.push(Span::styled(markers.clone(), quote_bar_style()));
                     spans.extend(inline_spans(&segment, quote_style()));
                     push_line(&mut lines, &mut first, prefix, prefix_style, spans);
                 }
@@ -433,6 +437,188 @@ fn push_text_span(spans: &mut Vec<Span<'static>>, text: String, style: Style) {
     spans.push(Span::styled(text, style));
 }
 
+fn highlight_code_spans(text: &str, language: &str) -> Vec<Span<'static>> {
+    if text.is_empty() {
+        return vec![Span::styled(String::new(), code_style())];
+    }
+
+    let language = normalize_language(language);
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < text.len() {
+        let rest = &text[index..];
+        if comment_start(rest, language).is_some() {
+            push_text_span(&mut spans, rest.to_owned(), comment_style());
+            break;
+        }
+
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+
+        if ch == '"' || ch == '\'' || ch == '`' {
+            let consumed = quoted_len(rest, ch);
+            push_text_span(&mut spans, rest[..consumed].to_owned(), string_style());
+            index += consumed;
+            continue;
+        }
+
+        if ch.is_ascii_digit() {
+            let consumed = take_while_len(rest, |next| {
+                next.is_ascii_digit()
+                    || matches!(next, '.' | '_' | 'x' | 'X' | 'a'..='f' | 'A'..='F')
+            });
+            push_text_span(&mut spans, rest[..consumed].to_owned(), number_style());
+            index += consumed;
+            continue;
+        }
+
+        if is_code_ident_start(ch) {
+            let consumed = take_while_len(rest, is_code_ident_continue);
+            let token = &rest[..consumed];
+            let style = if is_keyword(language, token) {
+                keyword_style()
+            } else if language == "html" && token.starts_with('/') {
+                tag_style()
+            } else {
+                code_style()
+            };
+            push_text_span(&mut spans, token.to_owned(), style);
+            index += consumed;
+            continue;
+        }
+
+        let style = if is_code_punctuation(ch) {
+            punctuation_style()
+        } else {
+            code_style()
+        };
+        push_text_span(&mut spans, ch.to_string(), style);
+        index += ch.len_utf8();
+    }
+
+    spans
+}
+
+fn normalize_language(language: &str) -> &str {
+    match language.trim().to_ascii_lowercase().as_str() {
+        "py" | "python" => "python",
+        "js" | "jsx" | "ts" | "tsx" | "javascript" | "typescript" => "javascript",
+        "sh" | "shell" | "bash" | "zsh" => "bash",
+        "html" | "xml" => "html",
+        "css" | "scss" => "css",
+        _ => "",
+    }
+}
+
+fn comment_start(rest: &str, language: &str) -> Option<()> {
+    match language {
+        "python" | "bash" if rest.starts_with('#') => Some(()),
+        "javascript" | "css" if rest.starts_with("//") || rest.starts_with("/*") => Some(()),
+        "html" if rest.starts_with("<!--") => Some(()),
+        _ => None,
+    }
+}
+
+fn quoted_len(text: &str, quote: char) -> usize {
+    let mut escaped = false;
+    for (index, ch) in text.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            return index + ch.len_utf8();
+        }
+    }
+    text.len()
+}
+
+fn take_while_len(text: &str, mut predicate: impl FnMut(char) -> bool) -> usize {
+    let mut end = 0usize;
+    for (index, ch) in text.char_indices() {
+        if !predicate(ch) {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    end
+}
+
+fn is_code_ident_start(ch: char) -> bool {
+    ch == '/' || ch == '_' || ch == '@' || ch.is_ascii_alphabetic()
+}
+
+fn is_code_ident_continue(ch: char) -> bool {
+    matches!(ch, '_' | '-' | ':' | '/' | '@') || ch.is_ascii_alphanumeric()
+}
+
+fn is_code_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '{' | '}'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '<'
+            | '>'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '|'
+            | '&'
+            | ';'
+            | ','
+            | '.'
+            | ':'
+    )
+}
+
+fn is_keyword(language: &str, token: &str) -> bool {
+    let keywords = match language {
+        "python" => &[
+            "and", "as", "async", "await", "break", "class", "continue", "def", "elif", "else",
+            "except", "False", "finally", "for", "from", "if", "import", "in", "is", "lambda",
+            "None", "not", "or", "pass", "return", "True", "try", "while", "with", "yield",
+        ][..],
+        "javascript" => &[
+            "await", "break", "case", "catch", "class", "const", "continue", "default", "else",
+            "export", "extends", "false", "finally", "for", "function", "if", "import", "let",
+            "new", "null", "return", "switch", "this", "throw", "true", "try", "typeof", "var",
+            "while",
+        ][..],
+        "bash" => &[
+            "case", "do", "done", "elif", "else", "esac", "export", "fi", "for", "function", "if",
+            "in", "local", "then", "while",
+        ][..],
+        "css" => &[
+            "@media",
+            "background",
+            "border",
+            "color",
+            "display",
+            "font",
+            "grid",
+            "margin",
+            "padding",
+        ][..],
+        "html" => &[
+            "a", "body", "button", "div", "footer", "head", "header", "html", "main", "meta", "p",
+            "script", "section", "span", "style", "title",
+        ][..],
+        _ => &[][..],
+    };
+    keywords.contains(&token)
+}
+
 fn push_line(
     lines: &mut Vec<Line<'static>>,
     first: &mut bool,
@@ -482,6 +668,22 @@ fn list_item(line: &str) -> Option<(&str, &str)> {
     Some((&line[..=dot], &line[dot + 2..]))
 }
 
+fn blockquote(line: &str) -> Option<(usize, &str)> {
+    let mut rest = line.trim_start();
+    let mut level = 0usize;
+
+    while let Some(after_marker) = rest.strip_prefix('>') {
+        level += 1;
+        rest = after_marker.strip_prefix(' ').unwrap_or(after_marker);
+    }
+
+    (level > 0).then_some((level, rest))
+}
+
+fn quote_markers(level: usize) -> String {
+    "│ ".repeat(level.clamp(1, 4))
+}
+
 fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut rest = text;
@@ -492,6 +694,14 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
         {
             spans.extend(link_spans(label, url, base));
             rest = &rest[consumed + 1..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix("==")
+            && let Some(end) = after.find("==")
+        {
+            spans.extend(inline_spans(&after[..end], highlight_style()));
+            rest = &after[end + 2..];
             continue;
         }
 
@@ -550,8 +760,30 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
             continue;
         }
 
+        if let Some(after) = rest.strip_prefix("__")
+            && let Some(end) = after.find("__")
+        {
+            spans.extend(inline_spans(
+                &after[..end],
+                base.add_modifier(Modifier::BOLD),
+            ));
+            rest = &after[end + 2..];
+            continue;
+        }
+
         if let Some(after) = rest.strip_prefix('*')
             && let Some(end) = after.find('*')
+        {
+            spans.extend(inline_spans(
+                &after[..end],
+                base.add_modifier(Modifier::ITALIC),
+            ));
+            rest = &after[end + 1..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix('_')
+            && let Some(end) = after.find('_')
         {
             spans.extend(inline_spans(
                 &after[..end],
@@ -602,7 +834,7 @@ fn context_usage_glyph_style(ch: char, base: Style) -> Option<Style> {
 }
 
 fn next_markup(text: &str) -> Option<usize> {
-    ["[", "`", "~~", "***", "___", "**", "*"]
+    ["[", "==", "`", "~~", "***", "___", "**", "__", "*", "_"]
         .into_iter()
         .filter_map(|needle| text.find(needle))
         .filter(|index| *index > 0)
@@ -700,19 +932,64 @@ fn list_marker_style() -> Style {
 }
 
 fn quote_style() -> Style {
-    Style::default().fg(Color::DarkGray)
+    Style::default().fg(Color::LightBlue)
+}
+
+fn quote_bar_style() -> Style {
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn code_style() -> Style {
-    Style::default().fg(Color::Green)
+    Style::default().fg(Color::LightGreen)
+}
+
+fn code_block_bar_style() -> Style {
+    Style::default().fg(Color::DarkGray)
 }
 
 fn code_fence_style() -> Style {
     Style::default().fg(Color::DarkGray)
 }
 
+fn keyword_style() -> Style {
+    Style::default()
+        .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn string_style() -> Style {
+    Style::default().fg(Color::Yellow)
+}
+
+fn number_style() -> Style {
+    Style::default().fg(Color::LightCyan)
+}
+
+fn comment_style() -> Style {
+    Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::ITALIC)
+}
+
+fn punctuation_style() -> Style {
+    Style::default().fg(Color::Gray)
+}
+
+fn tag_style() -> Style {
+    Style::default().fg(Color::Cyan)
+}
+
 fn inline_code_style() -> Style {
     Style::default().fg(Color::Yellow)
+}
+
+fn highlight_style() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(Color::Yellow)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn link_text_style() -> Style {
@@ -843,7 +1120,7 @@ mod tests {
     #[test]
     fn renders_extended_inline_markdown() {
         let lines = render_assistant_markdown(
-            "***Жирный курсив*** ~~Зачёркнутый~~ [agent-contracts crate](https://github.com/example/agent-contracts)",
+            "***Жирный курсив*** ~~Зачёркнутый~~ ==Подсветка== [agent-contracts crate](https://github.com/example/agent-contracts)",
             "• ",
             Style::default(),
             160,
@@ -863,6 +1140,12 @@ mod tests {
             .expect("crossed span");
         assert!(crossed.style.add_modifier.contains(Modifier::CROSSED_OUT));
 
+        let highlighted = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "Подсветка")
+            .expect("highlight span");
+        assert_eq!(highlighted.style.bg, Some(Color::Yellow));
+
         let link = spans
             .iter()
             .find(|span| span.content.as_ref() == "agent-contracts crate")
@@ -873,6 +1156,40 @@ mod tests {
             span.content
                 .contains("https://github.com/example/agent-contracts")
         }));
+    }
+
+    #[test]
+    fn renders_nested_blockquotes() {
+        let lines = render_assistant_markdown(
+            "> Первый\n>> Второй\n>>> Третий\n>",
+            "• ",
+            Style::default(),
+            80,
+        );
+
+        assert!(
+            lines[0].spans.iter().any(|span| {
+                span.content.as_ref() == "│ " && span.style.fg == Some(Color::Cyan)
+            })
+        );
+        assert!(
+            lines[1]
+                .spans
+                .iter()
+                .any(|span| span.content.as_ref() == "│ │ ")
+        );
+        assert!(
+            lines[2]
+                .spans
+                .iter()
+                .any(|span| span.content.as_ref() == "│ │ │ ")
+        );
+        assert!(
+            lines[3]
+                .spans
+                .iter()
+                .any(|span| span.content.as_ref() == "│ ")
+        );
     }
 
     #[test]
@@ -939,6 +1256,37 @@ mod tests {
         assert_eq!(lines[3].spans[2].content.as_ref(), "");
         assert_eq!(lines[4].spans[1].content.as_ref(), "│ ");
         assert_eq!(lines[5].spans[1].content.as_ref(), "```");
+    }
+
+    #[test]
+    fn highlights_fenced_code_keywords_strings_and_comments() {
+        let lines = render_assistant_markdown(
+            "``` python\ndef greet(name):\n    return \"hi\"  # comment\n```",
+            "• ",
+            Style::default(),
+            80,
+        );
+
+        let keyword = lines[1]
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "def")
+            .expect("python keyword");
+        assert_eq!(keyword.style.fg, Some(Color::Magenta));
+
+        let string = lines[2]
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "\"hi\"")
+            .expect("string literal");
+        assert_eq!(string.style.fg, Some(Color::Yellow));
+
+        let comment = lines[2]
+            .spans
+            .iter()
+            .find(|span| span.content.contains("# comment"))
+            .expect("comment");
+        assert_eq!(comment.style.fg, Some(Color::DarkGray));
     }
 
     #[test]
