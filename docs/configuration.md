@@ -45,6 +45,31 @@ agent init full
 `coding` и `full` используют рабочий coding profile, `safe` использует
 `agent.example.toml` с fake model.
 
+## TUI Profiles
+
+`agent-tui` по умолчанию использует текущую директорию терминала как workspace
+и может запускаться без `--cwd`. Для коротких запусков есть launcher profiles:
+
+```bash
+agent-tui --profile claude
+```
+
+Профиль читается из:
+
+```text
+~/.config/agent-qweasd123tg/profiles/claude.toml
+```
+
+Минимальный пример:
+
+```toml
+agent_bin = "~/.local/bin/agent"
+config = "~/.config/agent-qweasd123tg/configs"
+```
+
+Поддерживаемые поля: `agent_bin`, `config`, `cwd`. CLI flags
+`--agent-bin`, `--config`, `--cwd` перекрывают значения из profile.
+
 ## JSON И TOML
 
 Рекомендуемый пользовательский формат - directory-based TOML:
