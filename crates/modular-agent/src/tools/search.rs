@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::{
     contracts::{SearchBackend, SearchQuery, Tool, ToolContext},
-    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
+    domain::{ContextChunk, ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
 pub struct SearchTool {
@@ -24,11 +24,14 @@ impl Tool for SearchTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec::new(
             "search",
-            "Search the current workspace",
+            "Search the current workspace through the configured SearchBackend. In the standard coding profile this is backed by ripgrep; use grep for raw regex line search and search for backend/context-aware workspace search.",
             json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string" },
+                    "query": {
+                        "type": "string",
+                        "description": "Text or regex-like query to search for."
+                    },
                     "max_results": { "type": "integer" },
                     "use_case": { "type": "string" },
                     "path": {
@@ -74,14 +77,46 @@ impl Tool for SearchTool {
             search_query = search_query.with_use_case(use_case);
         }
         let chunks = self.search.search(search_query).await?;
+        let output = format_search_output(&chunks);
+        let raw_chunks = serde_json::to_value(&chunks)?;
+        let results = chunks.len();
         Ok(ToolResult::new(
             call.id.clone(),
             true,
-            serde_json::to_string_pretty(&chunks)?,
+            output,
             Vec::new(),
             None,
-            json!({ "results": chunks.len() }),
+            json!({
+                "results": results,
+                "chunks": raw_chunks,
+            }),
         ))
+    }
+}
+
+fn format_search_output(chunks: &[ContextChunk]) -> String {
+    if chunks.is_empty() {
+        return "(no matches)".to_owned();
+    }
+
+    chunks
+        .iter()
+        .map(format_search_chunk)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_search_chunk(chunk: &ContextChunk) -> String {
+    let path = chunk
+        .path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| chunk.source.clone());
+    let content = chunk.content.trim();
+    if let Some(line) = chunk.metadata.get("line").and_then(|line| line.as_u64()) {
+        format!("{path}:{line}: {content}")
+    } else {
+        format!("{path}: {content}")
     }
 }
 
@@ -120,13 +155,14 @@ mod tests {
 
     struct RecordingSearch {
         queries: Mutex<Vec<SearchQuery>>,
+        chunks: Vec<ContextChunk>,
     }
 
     #[async_trait]
     impl SearchBackend for RecordingSearch {
         async fn search(&self, query: SearchQuery) -> Result<Vec<crate::domain::ContextChunk>> {
             self.queries.lock().unwrap().push(query);
-            Ok(Vec::new())
+            Ok(self.chunks.clone())
         }
     }
 
@@ -134,6 +170,7 @@ mod tests {
     fn search_tool_timeout_exceeds_rg_backend_timeout() {
         let tool = SearchTool::new(Arc::new(RecordingSearch {
             queries: Mutex::new(Vec::new()),
+            chunks: Vec::new(),
         }));
 
         assert_eq!(tool.spec().timeout_ms, Some(20_000));
@@ -143,6 +180,7 @@ mod tests {
     async fn search_tool_maps_path_alias_to_starts_with_filter() {
         let search = Arc::new(RecordingSearch {
             queries: Mutex::new(Vec::new()),
+            chunks: Vec::new(),
         });
         let tool = SearchTool::new(search.clone());
         let call = ToolCall::new(
@@ -166,5 +204,57 @@ mod tests {
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0].starts_with, ["tests/", "src/"]);
         assert_eq!(queries[0].ends_with, [".rs"]);
+    }
+
+    #[tokio::test]
+    async fn search_tool_outputs_human_readable_matches_and_keeps_raw_chunks() {
+        let tool = SearchTool::new(Arc::new(RecordingSearch {
+            queries: Mutex::new(Vec::new()),
+            chunks: vec![
+                ContextChunk::new("rg", "let needle = true;")
+                    .with_path("src/main.rs".into())
+                    .with_metadata(json!({ "line": 42 })),
+                ContextChunk::new("memory", "needle remembered"),
+            ],
+        }));
+        let call = ToolCall::new(
+            crate::domain::new_call_id(),
+            "search",
+            json!({ "query": "needle" }),
+        );
+
+        let result = tool
+            .invoke(&call, ToolContext::new(".".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.output,
+            "src/main.rs:42: let needle = true;\nmemory: needle remembered"
+        );
+        assert_eq!(result.metadata["results"], 2);
+        assert_eq!(result.metadata["chunks"][0]["path"], "src/main.rs");
+    }
+
+    #[tokio::test]
+    async fn search_tool_outputs_no_matches_instead_of_empty_json_array() {
+        let tool = SearchTool::new(Arc::new(RecordingSearch {
+            queries: Mutex::new(Vec::new()),
+            chunks: Vec::new(),
+        }));
+        let call = ToolCall::new(
+            crate::domain::new_call_id(),
+            "search",
+            json!({ "query": "absent" }),
+        );
+
+        let result = tool
+            .invoke(&call, ToolContext::new(".".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(result.output, "(no matches)");
+        assert_eq!(result.metadata["results"], 0);
+        assert!(result.metadata["chunks"].as_array().unwrap().is_empty());
     }
 }
