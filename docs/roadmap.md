@@ -278,6 +278,10 @@ Scope:
   `docs/tui-ux-research.md`. Основной вывод: сначала нужен единый render model,
   bottom-pane state machine, generic dialog/picker и paste-burst fallback, а не
   очередные точечные правки отступов.
+- Позже добавить `tui.render` profile/config для точечной настройки визуальных
+  slots без изменения core: tool cards, markdown links/images/tables/code,
+  blockquotes, status/footer, transcript spacing и reasoning placement/colors.
+  Это должно остаться client-side конфигурацией, не новым core renderer slot.
 - App-server protocol tests для submit, stream, tool call, approval
   request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
 - Durable task/session metadata и event-log based debugging для UI/evals.
