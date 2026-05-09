@@ -14,6 +14,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
+    live_preview::{append_plain_preview_text, live_preview_height},
     session_picker::ResumePicker,
     slash_commands::{SlashCommand, matching_slash_commands},
 };
@@ -177,8 +178,11 @@ impl VisualSurface {
         }
 
         if live_height > 0 {
-            let live_lines =
-                live_preview_lines(state, chunks[1].width as usize, live_height as usize);
+            let live_lines = crate::live_preview::live_preview_lines(
+                state,
+                chunks[1].width as usize,
+                live_height as usize,
+            );
             frame.render_widget(Paragraph::new(live_lines), chunks[1]);
         }
 
@@ -472,34 +476,6 @@ fn active_status_height(state: &VisualState<'_>, available: u16) -> u16 {
     }
 }
 
-fn live_preview_height(state: &VisualState<'_>, available: u16) -> u16 {
-    if available == 0 || state.pending_approval.is_some() {
-        return 0;
-    }
-    if state.streaming || reasoning_preview_visible(state) {
-        return available.max(1);
-    }
-    0
-}
-
-fn live_preview_lines(
-    state: &VisualState<'_>,
-    width: usize,
-    max_lines: usize,
-) -> Vec<Line<'static>> {
-    let mut body = Vec::new();
-    append_reasoning_preview_lines(&mut body, state, width);
-    if let Some(message) = state.streaming_message {
-        if !body.is_empty() {
-            body.push(Line::raw(""));
-        }
-        append_live_preview_message_lines(&mut body, message, width);
-        return tail_lines(body, max_lines.max(1));
-    }
-
-    tail_lines(body, max_lines.max(1))
-}
-
 pub(crate) fn reasoning_preview_visible(state: &VisualState<'_>) -> bool {
     !matches!(state.reasoning_mode, ReasoningDisplayMode::Hidden)
         && !state.reasoning_summary.trim().is_empty()
@@ -532,95 +508,6 @@ pub(crate) fn append_reasoning_preview_lines(
         }
         ReasoningDisplayMode::Expanded => {
             append_plain_preview_text(lines, state.reasoning_summary, "  ", style, width);
-        }
-    }
-}
-
-fn append_live_preview_message_lines(
-    lines: &mut Vec<Line<'static>>,
-    message: &VisualMessage,
-    width: usize,
-) {
-    if matches!(message.role, VisualRole::Tool) {
-        if let Some(card) = &message.tool {
-            append_tool_card_lines(lines, card, width);
-        }
-        return;
-    }
-
-    let (prefix, style) = match message.role {
-        VisualRole::User => ("› ", Style::default().fg(Color::Cyan)),
-        VisualRole::Assistant => ("• ", Style::default().fg(Color::Reset)),
-        VisualRole::Draft => ("◦ draft ", muted_style()),
-        VisualRole::System => ("  ", muted_style()),
-        VisualRole::Error => ("! ", Style::default().fg(Color::Red)),
-        VisualRole::Tool => ("  ", muted_style()),
-    };
-    if message.text.is_empty() {
-        lines.push(Line::from(Span::styled(
-            prefix.trim_end().to_owned(),
-            style,
-        )));
-        return;
-    }
-
-    if matches!(message.role, VisualRole::Assistant | VisualRole::Draft) {
-        let (stable_text, tail_text) = split_live_markdown_text(&message.text);
-        if !stable_text.is_empty() {
-            lines.extend(crate::markdown::render_assistant_markdown(
-                stable_text,
-                prefix,
-                style,
-                width,
-            ));
-        }
-        if !tail_text.is_empty() {
-            append_plain_preview_text(
-                lines,
-                tail_text,
-                if stable_text.is_empty() { prefix } else { "  " },
-                style,
-                width,
-            );
-        }
-        return;
-    }
-
-    append_plain_preview_text(lines, &message.text, prefix, style, width);
-}
-
-fn split_live_markdown_text(text: &str) -> (&str, &str) {
-    if text.ends_with('\n') {
-        return (text, "");
-    }
-    text.rfind('\n')
-        .map(|index| text.split_at(index + 1))
-        .unwrap_or(("", text))
-}
-
-fn append_plain_preview_text(
-    lines: &mut Vec<Line<'static>>,
-    text: &str,
-    prefix: &str,
-    style: Style,
-    width: usize,
-) {
-    let mut first_segment = true;
-    let text_width = width.saturating_sub(prefix.chars().count()).max(1);
-    for source_line in text.lines() {
-        let segments = wrap_text(source_line, text_width);
-        if segments.is_empty() {
-            lines.push(Line::raw(""));
-            continue;
-        }
-
-        for segment in segments {
-            let line_prefix = if first_segment { prefix } else { "  " };
-            lines.push(Line::from(vec![
-                Span::styled(line_prefix.to_owned(), style),
-                Span::styled(segment, style),
-            ]));
-            first_segment = false;
         }
     }
 }
@@ -736,14 +623,6 @@ pub(crate) fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         Style::default().fg(Color::DarkGray),
     )));
     out
-}
-
-fn tail_lines(mut lines: Vec<Line<'static>>, limit: usize) -> Vec<Line<'static>> {
-    if lines.len() <= limit {
-        return lines;
-    }
-    lines.drain(0..lines.len() - limit);
-    lines
 }
 
 impl SlashComponent {
@@ -1172,7 +1051,7 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
     }
 }
 
-fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
+pub(crate) fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
     match card.status {
         ToolStatus::Running => {
             if card.name == "shell" || card.name == "bash" {

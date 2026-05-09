@@ -9,6 +9,7 @@ mod bottom_pane;
 mod driver;
 mod history_insert;
 mod inline_terminal;
+mod live_preview;
 mod markdown;
 mod session_picker;
 mod slash_commands;

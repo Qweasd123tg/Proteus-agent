@@ -383,6 +383,10 @@ terminal surface и active streaming view, не меняя core protocol.
   `composer.rs` и `footer.rs`. Сейчас это ещё тонкие boundary-модули, но
   раскладка уже отделена от `visual.rs`; следующий шаг - вынести remaining
   visibility/layout helpers для slash/approval/status из общего файла.
+- Десятый шаг migration: `live_preview` вынесен в отдельный модуль. `visual.rs`
+  больше не владеет streaming/live-tail layout целиком и использует внешний
+  helper для расчёта высоты и рендера preview. Следующий шаг - вынести
+  approval/header helpers в отдельные files и дальше сокращать `visual.rs`.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
