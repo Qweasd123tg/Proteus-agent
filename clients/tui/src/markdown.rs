@@ -687,10 +687,18 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
     let mut rest = text;
 
     while !rest.is_empty() {
-        if let Some(after) = rest.strip_prefix('[')
-            && let Some((label, url, consumed)) = parse_link(after)
+        if let Some(after) = rest.strip_prefix("![")
+            && let Some((label, _url, consumed)) = parse_link(after)
         {
-            spans.extend(link_spans(label, url, base));
+            spans.extend(image_spans(label, base));
+            rest = &rest[consumed + 2..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix('[')
+            && let Some((label, _url, consumed)) = parse_link(after)
+        {
+            spans.extend(link_spans(label, base));
             rest = &rest[consumed + 1..];
             continue;
         }
@@ -859,6 +867,7 @@ fn context_usage_glyph_style(ch: char, base: Style) -> Option<Style> {
 
 fn next_markup(text: &str) -> Option<usize> {
     [
+        "![",
         "[",
         "<http://",
         "<https://",
@@ -893,12 +902,21 @@ fn parse_link(text_after_open: &str) -> Option<(&str, &str, usize)> {
     Some((label, url, url_end + 1))
 }
 
-fn link_spans(label: &str, url: &str, base: Style) -> Vec<Span<'static>> {
+fn link_spans(label: &str, base: Style) -> Vec<Span<'static>> {
     let label_style = link_text_style().add_modifier(base.add_modifier);
-    vec![
-        Span::styled(label.to_owned(), label_style),
-        Span::styled(format!(" ({url})"), link_url_style()),
-    ]
+    inline_spans(label, label_style)
+}
+
+fn image_spans(label: &str, base: Style) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled(
+        "image: ",
+        image_label_style().add_modifier(base.add_modifier),
+    )];
+    spans.extend(inline_spans(
+        label,
+        image_alt_style().add_modifier(base.add_modifier),
+    ));
+    spans
 }
 
 fn parse_angle_url(text_after_open: &str) -> Option<(&str, usize)> {
@@ -1077,8 +1095,14 @@ fn link_text_style() -> Style {
         .add_modifier(Modifier::UNDERLINED)
 }
 
-fn link_url_style() -> Style {
+fn image_label_style() -> Style {
     Style::default().fg(Color::DarkGray)
+}
+
+fn image_alt_style() -> Style {
+    Style::default()
+        .fg(Color::LightMagenta)
+        .add_modifier(Modifier::ITALIC)
 }
 
 fn footnote_ref_style() -> Style {
@@ -1244,10 +1268,30 @@ mod tests {
             .expect("link label");
         assert_eq!(link.style.fg, Some(Color::Cyan));
         assert!(link.style.add_modifier.contains(Modifier::UNDERLINED));
-        assert!(spans.iter().any(|span| {
+        assert!(!spans.iter().any(|span| {
             span.content
                 .contains("https://github.com/example/agent-contracts")
         }));
+    }
+
+    #[test]
+    fn renders_images_as_alt_text_without_url() {
+        let lines = render_assistant_markdown(
+            "![Placeholder](https://placehold.co/600x200)\n![Котик](https://example.com/cat.png \"Это котик\")",
+            "• ",
+            Style::default(),
+            120,
+        );
+        let rendered = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(rendered.contains("image: Placeholder"));
+        assert!(rendered.contains("image: Котик"));
+        assert!(!rendered.contains("placehold.co"));
+        assert!(!rendered.contains("example.com/cat"));
     }
 
     #[test]
