@@ -25,7 +25,7 @@ chmod 755 "${tui_bin_path}"
 # Install plugins. File I/O (file-tools) and shell (shell-tool) are required
 # for a typical coding workflow; other sample plugins are optional proofs.
 mkdir -p "${plugins_dir}"
-for plugin in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for plugin in file-tools shell-tool rg-search direct-patch coding-workflow claude_pack context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
   if [ ! -f "${src_so}" ]; then
     continue

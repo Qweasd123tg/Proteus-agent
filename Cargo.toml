@@ -13,6 +13,7 @@ members = [
     "plugins/rg-search",
     "plugins/direct-patch",
     "plugins/coding-workflow",
+    "plugins/claude_pack",
     "plugins/context-pack",
     "plugins/memory-pack",
     "plugins/policy-pack",
