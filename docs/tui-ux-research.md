@@ -434,6 +434,10 @@ terminal surface и active streaming view, не меняя core protocol.
   less-muted transcript styling. `Running` отображается жёлтым, `Ok` зелёным,
   `Err` красным; грубый `✗ Failed` заменён на красный `● Error`, а action/output
   styles вынесены в общие helpers для scrollback и live-preview.
+- Двадцать второй шаг migration: blockquote renderer теперь обрабатывает
+  quoted block groups как вложенный markdown. Таблицы, fenced code blocks,
+  списки, horizontal rules, headings и вложенные цитаты внутри `>` больше не
+  остаются сырыми строками stress-test markdown.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.
