@@ -412,8 +412,14 @@ terminal surface и active streaming view, не меняя core protocol.
   block закрыт пустой строкой/следующим нетабличным block или финальным
   `TurnOutput`; иначе нижняя рамка уже вставленной таблицы остаётся в history
   и следующие rows выглядят как "обрезанные".
+- Шестнадцатый шаг migration: markdown renderer получил поддержку
+  `==highlight==`, `__bold__`, `_italic_`, многоуровневых blockquote markers
+  (`>`, `>>`, `>>>`) и лёгкую syntax coloring для fenced code blocks. Это не
+  полноценный GitHub Markdown/parser, но закрывает основные dogfood-разрывы в
+  цитатах и кодовых блоках.
 - Исправить context overlay scroll direction.
-- Ограничить streaming markdown: live plain text, final markdown.
+- Ограничить streaming markdown: live plain text, final markdown или
+  block-aware staging для table/code/quote blocks.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
 
 ### TUI Migration Checklist
