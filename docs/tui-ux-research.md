@@ -427,6 +427,9 @@ terminal surface и active streaming view, не меняя core protocol.
 - Девятнадцатый шаг migration: inline markdown теперь парсится до wrap, а не
   после него. Это предотвращает raw backticks у code spans вроде
   `remember_fact`, если token попадает на границу переноса строки.
+- Двадцатый шаг migration: headings теперь тоже используют inline markdown
+  parsing. Заголовки вида `## 🧠 \`remember_fact\`` больше не показывают raw
+  backticks в chat transcript.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.
