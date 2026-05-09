@@ -1104,8 +1104,7 @@ fn candidate_config_roots(config_path: Option<&Path>) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(config_path) = config_path {
         push_config_root_candidates(&mut roots, expand_home_path(config_path));
-    }
-    if let Some(default_path) = default_config_path() {
+    } else if let Some(default_path) = default_config_path() {
         push_config_root_candidates(&mut roots, expand_home_path(&default_path));
     }
     dedup_paths(roots)
