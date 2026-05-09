@@ -1059,7 +1059,7 @@ pub(crate) struct ToolCard {
     pub output_preview: String,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolStatus {
     Running,
     Ok,
