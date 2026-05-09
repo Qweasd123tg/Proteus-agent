@@ -59,18 +59,45 @@ agent init full
 
 Порядок важен: более поздний файл может переопределить значения из более раннего. Object/table values merge-ятся рекурсивно, arrays/scalars заменяются целиком.
 
+Файл config-а может подключать общий config через top-level `include`.
+Подключённые config-и merge-ятся первыми, а текущий файл перекрывает их:
+
+```toml
+include = "agent.provider.example.toml"
+
+[profile]
+name = "claude-pack-local"
+```
+
+`include` принимает строку или массив строк. Относительные пути считаются от
+файла, где объявлен `include`; абсолютные пути и `~/...` тоже поддерживаются.
+Это основной способ держать provider/key config отдельно от поведенческих
+profiles: общий `agent.provider.example.toml` хранит `active_provider` и
+`providers.*`, а `agent.coding.example.toml` / `agent.claude-pack.example.toml`
+описывают только workflow, modules, tools, policy и event log.
+
 `config.example.json` - полный single-file пример/schema surface с
 `active_provider` и `providers`; для обычной локальной работы предпочтительнее
 directory-based TOML через `agent init`.
 
-`agent.coding.example.toml` - quickstart coding profile: real provider через
-env key, baseline `modules.workflow = "coding.single_loop"`,
+`agent.provider.example.toml` - общий пример provider profile: real provider
+через env key. Его можно подключать из разных behavioral profiles через
+`include`, чтобы не дублировать provider/model/secrets wiring.
+
+`agent.coding.example.toml` - quickstart coding profile: подключает общий
+provider через `include`, baseline `modules.workflow = "coding.single_loop"`,
 `modules.search = "rg"`, `modules.context = "repo_aware"` и полный coding
 toolset (`search`, `read_file`, `list_dir`, `grep`, `apply_patch`,
 `write_file`, `shell`, `remember_fact`). `rg` приходит из плагина `rg-search`,
 `modules.patch = "direct"` приходит из плагина `direct-patch`, `repo_aware`
 приходит из `context-pack`, файловые tools — из `file-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
+
+`agent.claude-pack.example.toml` - behavioral profile для `claude-pack`:
+подключает общий provider через `include`, выбирает workflow
+`claude.explore_edit_verify`, phased tool exposure `claude_phased` и
+Claude-like tools (`Read`, `Glob`, `Grep`, `Edit`, `Write`, `Bash`,
+`TodoWrite`).
 
 `agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
 `context = "simple"`, `module_config.*` payloads и core tools. `simple`

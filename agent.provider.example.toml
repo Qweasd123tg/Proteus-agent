@@ -1,0 +1,10 @@
+active_provider = "anthropic"
+
+[providers.anthropic]
+provider = "anthropic"
+model = "deepseek-v4-pro"
+stream = true
+api_key_env = "ANTHROPIC_API_KEY"
+base_url = "https://api.anthropic.com"
+auth = "x-api-key"
+api_version = "2023-06-01"

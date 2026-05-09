@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     path::{Path, PathBuf},
 };
@@ -68,38 +68,14 @@ impl AppConfig {
     }
 
     async fn load_file(path: &Path) -> Result<Self> {
-        let content = tokio::fs::read_to_string(path)
-            .await
-            .with_context(|| format!("failed to read config {}", path.display()))?;
-
-        match path.extension().and_then(|extension| extension.to_str()) {
-            Some("json") => serde_json::from_str(&content)
-                .with_context(|| format!("failed to parse JSON config {}", path.display())),
-            _ => toml::from_str(&content)
-                .with_context(|| format!("failed to parse TOML config {}", path.display())),
-        }
+        let value = load_config_path_value(path, &mut BTreeSet::new())?;
+        serde_json::from_value(value)
+            .with_context(|| format!("failed to build config from file {}", path.display()))
     }
 
     async fn load_dir(path: &Path) -> Result<Self> {
-        let mut entries = tokio::fs::read_dir(path)
-            .await
-            .with_context(|| format!("failed to read config dir {}", path.display()))?;
-        let mut files = Vec::new();
-        while let Some(entry) = entries.next_entry().await? {
-            let file_type = entry.file_type().await?;
-            if file_type.is_file() && is_config_file(&entry.path()) {
-                files.push(entry.path());
-            }
-        }
-        files.sort();
-
-        let mut merged = Value::Object(Map::new());
-        for file in files {
-            let value = load_config_value(&file).await?;
-            merge_config_value(&mut merged, value);
-        }
-
-        serde_json::from_value(merged)
+        let value = load_config_path_value(path, &mut BTreeSet::new())?;
+        serde_json::from_value(value)
             .with_context(|| format!("failed to build config from dir {}", path.display()))
     }
 
@@ -182,6 +158,95 @@ impl AppConfig {
         }
 
         config_root(config_path).map(|root| root.join("tools"))
+    }
+}
+
+fn load_config_path_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+    let canonical = std::fs::canonicalize(path)
+        .with_context(|| format!("failed to inspect config path {}", path.display()))?;
+    if !stack.insert(canonical.clone()) {
+        bail!("config include cycle at {}", path.display());
+    }
+
+    let metadata = std::fs::metadata(&canonical)
+        .with_context(|| format!("failed to inspect config path {}", canonical.display()))?;
+    let value = if metadata.is_dir() {
+        load_config_dir_value(&canonical, stack)?
+    } else {
+        load_config_file_value(&canonical, stack)?
+    };
+
+    stack.remove(&canonical);
+    Ok(value)
+}
+
+fn load_config_dir_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+    let mut entries = std::fs::read_dir(path)
+        .with_context(|| format!("failed to read config dir {}", path.display()))?;
+    let mut files = Vec::new();
+    for entry in entries.by_ref() {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_file() && is_config_file(&entry.path()) {
+            files.push(entry.path());
+        }
+    }
+    files.sort();
+
+    let mut merged = Value::Object(Map::new());
+    for file in files {
+        let value = load_config_path_value(&file, stack)?;
+        merge_config_value(&mut merged, value);
+    }
+
+    Ok(merged)
+}
+
+fn load_config_file_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+    let mut value = load_config_value(path)?;
+    let includes = take_config_includes(&mut value)?;
+    if includes.is_empty() {
+        return Ok(value);
+    }
+
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut merged = Value::Object(Map::new());
+    for include in includes {
+        let include_path = resolve_config_include(base_dir, &include);
+        let include_value = load_config_path_value(&include_path, stack)
+            .with_context(|| format!("failed to include config {}", include_path.display()))?;
+        merge_config_value(&mut merged, include_value);
+    }
+    merge_config_value(&mut merged, value);
+    Ok(merged)
+}
+
+fn take_config_includes(value: &mut Value) -> Result<Vec<PathBuf>> {
+    let Some(obj) = value.as_object_mut() else {
+        return Ok(Vec::new());
+    };
+    let Some(include) = obj.remove("include") else {
+        return Ok(Vec::new());
+    };
+    match include {
+        Value::String(path) => Ok(vec![PathBuf::from(path)]),
+        Value::Array(paths) => paths
+            .into_iter()
+            .map(|path| match path {
+                Value::String(path) => Ok(PathBuf::from(path)),
+                other => bail!("config include entries must be strings, got {other}"),
+            })
+            .collect(),
+        other => bail!("config include must be a string or array of strings, got {other}"),
+    }
+}
+
+fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
+    let include = expand_home(include.to_path_buf());
+    if include.is_absolute() {
+        include
+    } else {
+        base_dir.join(include)
     }
 }
 
@@ -597,9 +662,8 @@ fn is_config_file(path: &Path) -> bool {
     )
 }
 
-async fn load_config_value(path: &Path) -> Result<Value> {
-    let content = tokio::fs::read_to_string(path)
-        .await
+fn load_config_value(path: &Path) -> Result<Value> {
+    let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read config {}", path.display()))?;
 
     match path.extension().and_then(|extension| extension.to_str()) {
