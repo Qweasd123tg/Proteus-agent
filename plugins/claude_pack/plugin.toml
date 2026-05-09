@@ -1,4 +1,4 @@
 name = "claude-pack"
 version = "0.1.0"
-description = "Claude-Code-like behavior pack: phased workflow and tool exposure"
-capabilities = ["workflow", "tool_exposure"]
+description = "Claude-Code-like behavior pack: phased workflow, tool exposure, and Claude-style tool aliases"
+capabilities = ["workflow", "tool_exposure", "tool"]

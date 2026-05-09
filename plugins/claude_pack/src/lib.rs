@@ -8,6 +8,9 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
+mod tools;
+mod util;
+
 use agent_contracts::{
     abi_stable::{
         export_root_module,
@@ -25,13 +28,14 @@ use agent_contracts::{
         InstructionBlock, InstructionKind, MessageRole, TokenUsage,
     },
     plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginToolExposure,
-        PluginToolExposure_TO, PluginToolExposureError, PluginWorkflow, PluginWorkflow_TO,
-        PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
-        ToolExposureObject, WorkflowObject,
+        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool_TO,
+        PluginToolExposure, PluginToolExposure_TO, PluginToolExposureError, PluginToolObject,
+        PluginWorkflow, PluginWorkflow_TO, PluginWorkflowError, PluginWorkflowHostMut,
+        PluginWorkflowInput, PluginWorkflowOutput, ToolExposureObject, WorkflowObject,
     },
 };
 use serde_json::{Value, json};
+use tools::{BashTool, EditTool, GlobTool, GrepTool, ReadTool, TodoWriteTool, WriteTool};
 
 const WORKFLOW_ID: &str = "claude.explore_edit_verify";
 const TOOL_EXPOSURE_ID: &str = "claude_phased";
@@ -252,10 +256,10 @@ fn run_workflow(
 
 fn next_phase_after_tool(current: Phase, call: &ToolCall) -> Phase {
     match call.name.as_str() {
-        "apply_patch" | "write_file" => Phase::Verify,
-        "shell" if current == Phase::Verify => Phase::Verify,
-        "shell" => current,
-        "read_file" | "list_dir" | "grep" | "search" => {
+        "Edit" | "Write" | "apply_patch" | "write_file" => Phase::Verify,
+        "Bash" | "shell" if current == Phase::Verify => Phase::Verify,
+        "Bash" | "shell" => current,
+        "Read" | "Glob" | "Grep" | "read_file" | "list_dir" | "grep" | "search" => {
             if current == Phase::Explore {
                 Phase::Edit
             } else {
@@ -335,24 +339,43 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
     let reason = input.request.reason.as_deref().unwrap_or_default();
     let preferred = if reason.contains("verify") {
         &[
+            "Bash",
             "shell",
+            "Read",
             "read_file",
+            "Grep",
             "grep",
             "search",
+            "Glob",
             "list_dir",
+            "Edit",
             "apply_patch",
         ][..]
     } else if reason.contains("edit") {
         &[
+            "Read",
             "read_file",
+            "Grep",
             "grep",
             "search",
+            "Glob",
             "list_dir",
+            "Edit",
             "apply_patch",
+            "Write",
             "write_file",
         ][..]
     } else {
-        &["read_file", "list_dir", "grep", "search"][..]
+        &[
+            "Read",
+            "read_file",
+            "Glob",
+            "list_dir",
+            "Grep",
+            "grep",
+            "search",
+            "TodoWrite",
+        ][..]
     };
 
     let max_tools = input.request.max_tools.unwrap_or(preferred.len());
@@ -646,6 +669,21 @@ fn tool_exposure_err<T>(error: impl ToString) -> RResult<T, PluginToolExposureEr
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
+    for tool in [
+        PluginTool_TO::from_value(ReadTool, TD_Opaque),
+        PluginTool_TO::from_value(WriteTool, TD_Opaque),
+        PluginTool_TO::from_value(EditTool, TD_Opaque),
+        PluginTool_TO::from_value(GrepTool, TD_Opaque),
+        PluginTool_TO::from_value(GlobTool, TD_Opaque),
+        PluginTool_TO::from_value(BashTool, TD_Opaque),
+        PluginTool_TO::from_value(TodoWriteTool, TD_Opaque),
+    ] {
+        let tool: PluginToolObject = tool;
+        if let RResult::RErr(err) = registry.register_tool(tool) {
+            return RResult::RErr(err);
+        }
+    }
+
     let workflow: WorkflowObject = PluginWorkflow_TO::from_value(ClaudeWorkflow, TD_Opaque);
     if let RResult::RErr(err) = registry.register_workflow(RString::from(WORKFLOW_ID), workflow) {
         return RResult::RErr(err);
@@ -661,7 +699,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("claude-pack"),
         description: RStr::from_str(
-            "Claude-Code-like behavior pack with phased workflow and tool exposure",
+            "Claude-Code-like behavior pack with phased workflow, tool exposure, and tool aliases",
         ),
         register_modules,
     }
@@ -681,13 +719,20 @@ mod tests {
         ToolExposureInput::new(
             ToolExposureRequest::new(AgentTask::new("change code", ".".into())).with_reason(reason),
             vec![
+                spec("Bash", ToolSafety::RunsCommands),
                 spec("shell", ToolSafety::RunsCommands),
+                spec("Write", ToolSafety::WritesFiles),
                 spec("write_file", ToolSafety::WritesFiles),
+                spec("Edit", ToolSafety::WritesFiles),
                 spec("apply_patch", ToolSafety::WritesFiles),
+                spec("Read", ToolSafety::ReadOnly),
                 spec("read_file", ToolSafety::ReadOnly),
+                spec("Glob", ToolSafety::ReadOnly),
                 spec("list_dir", ToolSafety::ReadOnly),
+                spec("Grep", ToolSafety::ReadOnly),
                 spec("grep", ToolSafety::ReadOnly),
                 spec("search", ToolSafety::ReadOnly),
+                spec("TodoWrite", ToolSafety::ReadOnly),
                 spec("remember_fact", ToolSafety::WritesFiles),
             ],
         )
@@ -700,7 +745,19 @@ mod tests {
             .iter()
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["read_file", "list_dir", "grep", "search"]);
+        assert_eq!(
+            names,
+            [
+                "Read",
+                "read_file",
+                "Glob",
+                "list_dir",
+                "Grep",
+                "grep",
+                "search",
+                "TodoWrite"
+            ]
+        );
     }
 
     #[test]
@@ -713,11 +770,16 @@ mod tests {
         assert_eq!(
             names,
             [
+                "Read",
                 "read_file",
+                "Grep",
                 "grep",
                 "search",
+                "Glob",
                 "list_dir",
+                "Edit",
                 "apply_patch",
+                "Write",
                 "write_file"
             ]
         );
@@ -733,11 +795,16 @@ mod tests {
         assert_eq!(
             names,
             [
+                "Bash",
                 "shell",
+                "Read",
                 "read_file",
+                "Grep",
                 "grep",
                 "search",
+                "Glob",
                 "list_dir",
+                "Edit",
                 "apply_patch"
             ]
         );
@@ -746,6 +813,8 @@ mod tests {
     #[test]
     fn tool_call_transitions_toward_verify_after_edit() {
         let call = ToolCall::new("call-1", "apply_patch", json!({}));
+        assert_eq!(next_phase_after_tool(Phase::Edit, &call), Phase::Verify);
+        let call = ToolCall::new("call-2", "Edit", json!({}));
         assert_eq!(next_phase_after_tool(Phase::Edit, &call), Phase::Verify);
     }
 }

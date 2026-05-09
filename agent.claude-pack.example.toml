@@ -25,14 +25,14 @@ tool_exposure = "claude_phased"
 renderer = "statusline"
 
 [tools]
-enabled = ["search", "read_file", "list_dir", "grep", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite", "search", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-allow = ["search", "read_file", "list_dir", "grep"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+allow = ["Read", "Glob", "Grep", "TodoWrite", "search"]
+ask_before = ["Edit", "Write", "Bash", "remember_fact"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]
