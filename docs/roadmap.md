@@ -213,7 +213,8 @@ Scope:
 - Claude-Code-like workflow baseline pack: контрольный профиль, который
   повторяет близкий workflow/prompt/tool/search/approval/editing shape, чтобы
   проверить архитектурный потолок проекта. Это не обещание копии Claude Code и
-  не новый slot.
+  не новый slot. Первый MVP живёт в `plugins/claude_pack`:
+  `claude.explore_edit_verify` + `claude_phased`, без hooks/slash/subagents.
 - Eval harness поверх event log: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
