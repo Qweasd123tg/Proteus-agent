@@ -14,6 +14,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
+    cards::append_approval_lines,
     live_preview::{append_plain_preview_text, live_preview_height},
     session_picker::ResumePicker,
     slash_commands::{SlashCommand, matching_slash_commands},
@@ -888,49 +889,6 @@ pub(crate) enum ToolStatus {
     Err,
 }
 
-fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
-    let cwd = display_path(state.cwd);
-    let rows = [
-        format!("model:     {}", state.model),
-        format!("directory: {cwd}"),
-        format!("session:   {}", state.session_label),
-    ];
-    let content_width = rows
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(30)
-        .max(30)
-        .min(width.saturating_sub(4).max(24));
-    let title = ">_ Modular Agent";
-    let right = content_width
-        .saturating_add(1)
-        .saturating_sub(title.chars().count());
-
-    let mut lines = vec![Line::from(Span::styled(
-        format!("╭─{}{}╮", title, "─".repeat(right)),
-        Style::default().fg(Color::DarkGray),
-    ))];
-    for row in rows {
-        lines.push(card_line(&truncate(row, content_width), content_width));
-    }
-    lines.push(Line::from(Span::styled(
-        format!("╰{}╯", "─".repeat(content_width + 2)),
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::raw(""));
-    lines
-}
-
-fn card_line(text: &str, width: usize) -> Line<'static> {
-    Line::from(vec![
-        Span::styled("│ ", Style::default().fg(Color::DarkGray)),
-        Span::raw(text.to_owned()),
-        Span::raw(" ".repeat(width.saturating_sub(text.chars().count()))),
-        Span::styled(" │", Style::default().fg(Color::DarkGray)),
-    ])
-}
-
 fn append_message_lines(lines: &mut Vec<Line<'static>>, message: &VisualMessage, width: usize) {
     if matches!(message.role, VisualRole::Tool) {
         if let Some(card) = &message.tool {
@@ -1011,13 +969,6 @@ pub(crate) fn render_scrollback_message(
     lines
 }
 
-pub(crate) fn render_scrollback_header(
-    state: &VisualState<'_>,
-    width: usize,
-) -> Vec<Line<'static>> {
-    session_card(state, width)
-}
-
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
     let (marker, marker_style, label, label_style) = match card.status {
         ToolStatus::Running => ("•", muted_style(), "Running", muted_style()),
@@ -1075,70 +1026,6 @@ pub(crate) fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
             }
         }
     }
-}
-
-pub(crate) fn append_approval_lines(
-    lines: &mut Vec<Line<'static>>,
-    request: &AppApprovalRequest,
-    width: usize,
-) {
-    let safety = request
-        .tool_spec
-        .as_ref()
-        .map(|spec| format!("{:?}", spec.safety))
-        .unwrap_or_else(|| "unknown".to_owned());
-    let args = compact_value(&request.call.args);
-    let text_width = width.saturating_sub(4).max(1);
-
-    lines.push(Line::from(vec![
-        Span::styled("? ", muted_style()),
-        Span::styled(
-            "Would you like to allow this tool call?",
-            Style::default().fg(Color::Reset),
-        ),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("  tool: "),
-        Span::styled(request.call.name.clone(), Style::default().fg(Color::Reset)),
-        Span::styled(format!(" · {safety}"), muted_style()),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("  cwd:  "),
-        Span::styled(
-            truncate(request.cwd.display().to_string(), text_width),
-            muted_style(),
-        ),
-    ]));
-    for seg in wrap_text(&format!("reason: {}", request.reason), text_width) {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(seg, muted_style()),
-        ]));
-    }
-    for seg in wrap_text(&format!("args: {args}"), text_width) {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(seg, muted_style()),
-        ]));
-    }
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled("1. Yes, proceed", Style::default().fg(Color::Green)),
-        Span::raw("  "),
-        Span::styled(
-            "2. Yes, remember exact call",
-            Style::default().fg(Color::Green),
-        ),
-        Span::raw("  "),
-        Span::styled("3. No", Style::default().fg(Color::Red)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            "y/н approve · p/з remember · n/т/esc deny",
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
 }
 
 pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
@@ -1245,7 +1132,7 @@ fn format_elapsed(elapsed: Duration) -> String {
     }
 }
 
-fn display_path(path: &Path) -> String {
+pub(crate) fn display_path(path: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if let Some(home) = home
         && let Ok(rest) = path.strip_prefix(&home)
@@ -1261,7 +1148,10 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bottom_pane::{BottomPane, BottomPaneLines};
+    use crate::{
+        bottom_pane::{BottomPane, BottomPaneLines},
+        cards::render_scrollback_header,
+    };
 
     fn inline_panel_lines(
         state: &VisualState<'_>,
@@ -1303,7 +1193,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let lines = session_card(&state, 80);
+        let lines = render_scrollback_header(&state, 80);
         let top_width = lines[0].width();
         let bottom_width = lines[4].width();
 

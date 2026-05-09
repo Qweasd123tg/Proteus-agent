@@ -387,6 +387,11 @@ terminal surface и active streaming view, не меняя core protocol.
   больше не владеет streaming/live-tail layout целиком и использует внешний
   helper для расчёта высоты и рендера preview. Следующий шаг - вынести
   approval/header helpers в отдельные files и дальше сокращать `visual.rs`.
+- Одиннадцатый шаг migration: карточки `session_card` и approval lines вынесены
+  в `cards.rs`. `inline_terminal` теперь берёт scrollback header напрямую из
+  нового boundary, а `visual.rs` держит только оставшиеся визуальные helpers.
+  Следующий шаг - отделить footer/status/detail helpers, чтобы продолжать
+  сжимать `visual.rs`.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

@@ -5,10 +5,11 @@ use ratatui::{Terminal, backend::CrosstermBackend, text::Line};
 
 use crate::{
     bottom_pane::BottomPane,
+    cards::render_scrollback_header,
     history_insert::HistoryViewportState,
     state::AppState,
     terminal_surface::{InlinePanelLayout, PreparedInlinePanel, PreparedLiveTail, TerminalSurface},
-    visual::{render_scrollback_header, render_scrollback_message},
+    visual::render_scrollback_message,
 };
 
 #[derive(Default)]
