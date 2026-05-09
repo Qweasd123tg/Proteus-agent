@@ -10,6 +10,16 @@ pub(crate) fn render_assistant_markdown(
     prefix_style: Style,
     width: usize,
 ) -> Vec<Line<'static>> {
+    render_markdown(text, prefix, "  ", prefix_style, width)
+}
+
+fn render_markdown(
+    text: &str,
+    prefix: &str,
+    continuation_prefix: &str,
+    prefix_style: Style,
+    width: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut first = true;
     let mut code_language: Option<String> = None;
@@ -43,6 +53,7 @@ pub(crate) fn render_assistant_markdown(
                 &mut lines,
                 &mut first,
                 prefix,
+                continuation_prefix,
                 prefix_style,
                 vec![Span::styled(display, code_fence_style())],
             );
@@ -59,7 +70,14 @@ pub(crate) fn render_assistant_markdown(
             for segment in segments {
                 let mut code_spans = vec![Span::styled("│ ", code_block_bar_style())];
                 code_spans.extend(highlight_code_spans(&segment, language));
-                push_line(&mut lines, &mut first, prefix, prefix_style, code_spans);
+                push_line(
+                    &mut lines,
+                    &mut first,
+                    prefix,
+                    continuation_prefix,
+                    prefix_style,
+                    code_spans,
+                );
             }
             index += 1;
             continue;
@@ -76,6 +94,7 @@ pub(crate) fn render_assistant_markdown(
                 &mut lines,
                 &mut first,
                 prefix,
+                continuation_prefix,
                 prefix_style,
                 vec![Span::styled(
                     "─".repeat(content_width.min(72)),
@@ -87,7 +106,14 @@ pub(crate) fn render_assistant_markdown(
         }
 
         if let Some((table, consumed)) = parse_table(&raw_lines, index, content_width) {
-            render_table_lines(&mut lines, &mut first, prefix, prefix_style, &table);
+            render_table_lines(
+                &mut lines,
+                &mut first,
+                prefix,
+                continuation_prefix,
+                prefix_style,
+                &table,
+            );
             index += consumed;
             continue;
         }
@@ -104,6 +130,7 @@ pub(crate) fn render_assistant_markdown(
                     &mut lines,
                     &mut first,
                     prefix,
+                    continuation_prefix,
                     prefix_style,
                     heading_spans(segment, idx == 0),
                 );
@@ -112,20 +139,43 @@ pub(crate) fn render_assistant_markdown(
             continue;
         }
 
-        if let Some((quote_level, quote)) = blockquote(source) {
-            let markers = quote_markers(quote_level);
-            let quote_width = content_width.saturating_sub(display_width(&markers)).max(1);
-            let wrapped = if quote.is_empty() {
-                vec![Vec::new()]
-            } else {
-                wrap_spans(inline_spans(quote, quote_style()), quote_width)
-            };
-            for segment in wrapped {
-                let mut spans = vec![Span::styled(markers.clone(), quote_bar_style())];
-                spans.extend(segment);
-                push_line(&mut lines, &mut first, prefix, prefix_style, spans);
+        if let Some((quote_level, _quote)) = blockquote(source) {
+            let mut quote_lines = Vec::new();
+            let mut consumed = 0usize;
+            while let Some(raw) = raw_lines.get(index + consumed) {
+                let source = raw.trim_end_matches('\r');
+                let Some(stripped) = strip_blockquote_levels(source, quote_level) else {
+                    break;
+                };
+                quote_lines.push(stripped.to_owned());
+                consumed += 1;
             }
-            index += 1;
+
+            let markers = quote_markers(quote_level);
+            let quoted = quote_lines.join("\n");
+            let rendered = render_markdown(
+                &quoted,
+                &markers,
+                &markers,
+                quote_bar_style(),
+                content_width,
+            );
+            for line in rendered {
+                let spans = if line.spans.is_empty() {
+                    vec![Span::styled(markers.clone(), quote_bar_style())]
+                } else {
+                    line.spans
+                };
+                push_line(
+                    &mut lines,
+                    &mut first,
+                    prefix,
+                    continuation_prefix,
+                    prefix_style,
+                    spans,
+                );
+            }
+            index += consumed.max(1);
             continue;
         }
 
@@ -153,7 +203,14 @@ pub(crate) fn render_assistant_markdown(
                     }
                     spans.push(Span::styled(markers.clone(), quote_bar_style()));
                     spans.extend(segment);
-                    push_line(&mut lines, &mut first, prefix, prefix_style, spans);
+                    push_line(
+                        &mut lines,
+                        &mut first,
+                        prefix,
+                        continuation_prefix,
+                        prefix_style,
+                        spans,
+                    );
                 }
                 index += 1;
                 continue;
@@ -177,14 +234,28 @@ pub(crate) fn render_assistant_markdown(
                     spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
                 }
                 spans.extend(segment);
-                push_line(&mut lines, &mut first, prefix, prefix_style, spans);
+                push_line(
+                    &mut lines,
+                    &mut first,
+                    prefix,
+                    continuation_prefix,
+                    prefix_style,
+                    spans,
+                );
             }
             index += 1;
             continue;
         }
 
         for spans in wrap_spans(inline_spans(source, Style::default()), content_width) {
-            push_line(&mut lines, &mut first, prefix, prefix_style, spans);
+            push_line(
+                &mut lines,
+                &mut first,
+                prefix,
+                continuation_prefix,
+                prefix_style,
+                spans,
+            );
         }
         index += 1;
     }
@@ -296,6 +367,7 @@ fn render_table_lines(
     lines: &mut Vec<Line<'static>>,
     first: &mut bool,
     prefix: &str,
+    continuation_prefix: &str,
     prefix_style: Style,
     table: &MarkdownTable,
 ) {
@@ -303,6 +375,7 @@ fn render_table_lines(
         lines,
         first,
         prefix,
+        continuation_prefix,
         prefix_style,
         vec![Span::styled(
             table_border('┌', '┬', '┐', &table.widths),
@@ -310,12 +383,20 @@ fn render_table_lines(
         )],
     );
     for row_line in render_table_row_lines(&table.header, &table.widths, true) {
-        push_line(lines, first, prefix, prefix_style, row_line);
+        push_line(
+            lines,
+            first,
+            prefix,
+            continuation_prefix,
+            prefix_style,
+            row_line,
+        );
     }
     push_line(
         lines,
         first,
         prefix,
+        continuation_prefix,
         prefix_style,
         vec![Span::styled(
             table_border('├', '┼', '┤', &table.widths),
@@ -324,13 +405,21 @@ fn render_table_lines(
     );
     for row in &table.rows {
         for row_line in render_table_row_lines(row, &table.widths, false) {
-            push_line(lines, first, prefix, prefix_style, row_line);
+            push_line(
+                lines,
+                first,
+                prefix,
+                continuation_prefix,
+                prefix_style,
+                row_line,
+            );
         }
     }
     push_line(
         lines,
         first,
         prefix,
+        continuation_prefix,
         prefix_style,
         vec![Span::styled(
             table_border('└', '┴', '┘', &table.widths),
@@ -627,10 +716,11 @@ fn push_line(
     lines: &mut Vec<Line<'static>>,
     first: &mut bool,
     prefix: &str,
+    continuation_prefix: &str,
     prefix_style: Style,
     content: Vec<Span<'static>>,
 ) {
-    let line_prefix = if *first { prefix } else { "  " };
+    let line_prefix = if *first { prefix } else { continuation_prefix };
     let mut spans = Vec::with_capacity(content.len() + 1);
     spans.push(Span::styled(line_prefix.to_owned(), prefix_style));
     spans.extend(content);
@@ -682,6 +772,15 @@ fn blockquote(line: &str) -> Option<(usize, &str)> {
     }
 
     (level > 0).then_some((level, rest))
+}
+
+fn strip_blockquote_levels(line: &str, levels: usize) -> Option<&str> {
+    let mut rest = line.trim_start();
+    for _ in 0..levels {
+        let after_marker = rest.strip_prefix('>')?;
+        rest = after_marker.strip_prefix(' ').unwrap_or(after_marker);
+    }
+    Some(rest)
 }
 
 fn quote_markers(level: usize) -> String {
@@ -1381,24 +1480,17 @@ mod tests {
                 span.content.as_ref() == "│ " && span.style.fg == Some(Color::Cyan)
             })
         );
-        assert!(
-            lines[1]
-                .spans
-                .iter()
-                .any(|span| span.content.as_ref() == "│ │ ")
-        );
-        assert!(
-            lines[2]
-                .spans
-                .iter()
-                .any(|span| span.content.as_ref() == "│ │ │ ")
-        );
-        assert!(
-            lines[3]
-                .spans
-                .iter()
-                .any(|span| span.content.as_ref() == "│ ")
-        );
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert!(rendered[1].contains("│ │ Второй"));
+        assert!(rendered[2].contains("│ │ │ Третий"));
     }
 
     #[test]
@@ -1422,6 +1514,61 @@ mod tests {
                 .iter()
                 .any(|span| span.content.as_ref() == "│ ")
         );
+    }
+
+    #[test]
+    fn renders_nested_markdown_blocks_inside_blockquote() {
+        let lines = render_assistant_markdown(
+            "> #### Заголовок в цитате\n\
+             >\n\
+             > | В цитате | Таблица |\n\
+             > |:---:|---|\n\
+             > | 📊 | работает? |\n\
+             >\n\
+             > ```python\n\
+             > print(\"hello from blockquote!\")\n\
+             > ```\n\
+             >\n\
+             > - Список внутри цитаты\n\
+             >\n\
+             > > Вложенная цитата с ссылкой.\n\
+             >\n\
+             > ---\n\
+             >\n\
+             > И снизу разделитель внутри цитаты.",
+            "• ",
+            Style::default(),
+            80,
+        );
+
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(rendered.iter().any(|line| line.contains("│ ▌ Заголовок")));
+        assert!(rendered.iter().any(|line| line.contains("│ ┌")));
+        assert!(rendered.iter().any(|line| line.contains("│ │ В цитате")));
+        assert!(rendered.iter().any(|line| line.contains("│ code · python")));
+        assert!(rendered.iter().any(|line| line.contains("│ │ print")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("│ - Список внутри цитаты"))
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("│ │ Вложенная цитата"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("│ ─────")));
+        assert!(!rendered.iter().any(|line| line.contains("|:---:|---|")));
+        assert!(!rendered.iter().any(|line| line.contains("```")));
     }
 
     #[test]
