@@ -392,6 +392,11 @@ terminal surface и active streaming view, не меняя core protocol.
   нового boundary, а `visual.rs` держит только оставшиеся визуальные helpers.
   Следующий шаг - отделить footer/status/detail helpers, чтобы продолжать
   сжимать `visual.rs`.
+- Двенадцатый шаг migration: статусная строка и reasoning visibility переехали
+  в `bottom_pane/status.rs`. `bottom_pane` теперь не тянет active-status logic
+  из `visual.rs`, а использует отдельный helper module. Следующий шаг - добить
+  оставшиеся layout helpers (`composer`/gaps) и убрать дублирующие определения
+  из `visual.rs`.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
