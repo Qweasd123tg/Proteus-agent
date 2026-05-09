@@ -440,5 +440,5 @@ MCP server процессы (если/когда будет полноценны
 - `docs/configuration.md` — как выбирается module в slot через `AppConfig`.
 - `crates/agent-contracts/src/plugin.rs` — актуальный интерфейс плагинов (sabi_trait'ы и prefix type).
 - `crates/modular-agent/src/core/plugin_loader.rs` — реализация loader'а.
-- `plugins/hello-renderer/src/lib.rs`, `plugins/hello-tool/src/lib.rs` — референсные (минимальные) плагины.
-- `plugins/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.
+- `plugins/default/hello-renderer/src/lib.rs`, `plugins/default/hello-tool/src/lib.rs` — референсные (минимальные) плагины.
+- `plugins/default/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.

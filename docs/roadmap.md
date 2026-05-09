@@ -244,7 +244,7 @@ Scope:
   context/tool descriptions/history/artifacts находятся на диске и читаются по
   необходимости, а не всегда попадают в prompt.
 - Длинные tool/terminal outputs сохранять как artifacts и возвращать модели
-  краткий summary + path/tail. Черновик живёт в `plugins/tool-output-artifacts`;
+  краткий summary + path/tail. Черновик живёт в `plugins/default/tool-output-artifacts`;
   публичный contract пока не стабилизирован.
 - Исследовать generic `BudgetTracker` / `UsageMeter`, `ArtifactStore` и
   `ToolResultProcessor`, но добавлять contract только после второго use case.

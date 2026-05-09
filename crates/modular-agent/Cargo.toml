@@ -21,9 +21,9 @@ toml = "0.8"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
-coding-workflow = { path = "../../plugins/coding-workflow" }
-context-pack = { path = "../../plugins/context-pack", default-features = false }
-memory-pack = { path = "../../plugins/memory-pack", default-features = false }
-policy-pack = { path = "../../plugins/policy-pack", default-features = false }
-renderer-pack = { path = "../../plugins/renderer-pack", default-features = false }
+coding-workflow = { path = "../../plugins/default/coding-workflow" }
+context-pack = { path = "../../plugins/default/context-pack", default-features = false }
+memory-pack = { path = "../../plugins/default/memory-pack", default-features = false }
+policy-pack = { path = "../../plugins/default/policy-pack", default-features = false }
+renderer-pack = { path = "../../plugins/default/renderer-pack", default-features = false }
 tempfile = "3"

@@ -27,19 +27,21 @@ crates/
 clients/
   tui/              — внешний fullscreen TUI-клиент
 plugins/
-  hello-renderer/      — демо: декоративная рамка вокруг ответа
-  hello-tool/          — демо: tool current_time
-  hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
-  direct-patch/        — PatchApplier internal patch format под id "direct"
-  file-tools/          — реальный набор: read_file / write_file / list_dir / grep
-  rg-search/           — SearchBackend на ripgrep под id "rg"
-  shell-tool/          — tool shell (sh -lc)
-  sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
-  coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
-  context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
-  memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-  policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
-  renderer-pack/       — Renderer плагины "plain" и "statusline"
+  default/             — стандартные плагины, которые ставит install.sh
+    hello-renderer/      — демо: декоративная рамка вокруг ответа
+    hello-tool/          — демо: tool current_time
+    hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
+    direct-patch/        — PatchApplier internal patch format под id "direct"
+    file-tools/          — реальный набор: read_file / write_file / list_dir / grep
+    rg-search/           — SearchBackend на ripgrep под id "rg"
+    shell-tool/          — tool shell (sh -lc)
+    sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
+    coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
+    context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
+    memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
+    policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
+    renderer-pack/       — Renderer плагины "plain" и "statusline"
+  claude_pack/         — experimental behavior pack под Claude-like агентный стиль
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -186,8 +188,12 @@ cargo build --release --workspace --features context-pack/plugin-entrypoint,memo
 for p in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
-  cp plugins/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
+  cp plugins/default/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
 done
+
+mkdir -p ~/.agent/plugins/claude_pack
+cp target/release/libclaude_pack.so ~/.agent/plugins/claude_pack/
+cp plugins/claude_pack/plugin.toml ~/.agent/plugins/claude_pack/ 2>/dev/null || true
 
 # проверить что подхватились
 cargo run --bin modular-agent -- modules list

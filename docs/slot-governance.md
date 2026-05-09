@@ -66,7 +66,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Feature idea | Existing slot | Missing generic contract | Решение сейчас |
 |---|---|---|---|
 | Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как plugin/research pack, не добавлять `dynamic_context` slot |
-| Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `plugins/tool-output-artifacts`, contract не стабилизирован |
+| Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `plugins/default/tool-output-artifacts`, contract не стабилизирован |
 | Token/context usage breakdown `/context` | event/runtime accounting, app-server, TUI | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
 | Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
 | BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` plugin |
@@ -125,7 +125,7 @@ claude-code-like baseline profile
 - docs запрещают считать его стабильным slot API;
 - перед стабилизацией нужен второй независимый use case.
 
-`plugins/tool-output-artifacts` - пример такого черновика: он полезен для
+`plugins/default/tool-output-artifacts` - пример такого черновика: он полезен для
 Cursor-like output artifact идеи, но не доказывает, что нужен именно такой
 публичный ABI.
 
