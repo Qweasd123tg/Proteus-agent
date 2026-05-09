@@ -304,15 +304,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cli: Cli
                 match term_event {
                     Some(ev) => {
                         if matches!(ev, CTerm::Resize(_, _)) {
+                            inline_terminal.mark_resize_reflow_pending();
                             if picker_alt_screen {
                                 terminal.clear()?;
-                            } else {
-                                reset_normal_screen(
-                                    terminal,
-                                    &mut state,
-                                    &mut scrollback_header_printed,
-                                    &mut inline_terminal,
-                                )?;
                             }
                             dirty = true;
                             continue;
