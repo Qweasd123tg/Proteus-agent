@@ -424,6 +424,9 @@ terminal surface и active streaming view, не меняя core protocol.
 - Восемнадцатый шаг migration: normal markdown links теперь показывают только
   label без URL шума, autolinks/bare URLs продолжают показывать URL, а images
   рендерятся как компактный alt text без длинного source URL.
+- Девятнадцатый шаг migration: inline markdown теперь парсится до wrap, а не
+  после него. Это предотвращает raw backticks у code spans вроде
+  `remember_fact`, если token попадает на границу переноса строки.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.

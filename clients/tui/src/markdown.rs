@@ -112,14 +112,14 @@ pub(crate) fn render_assistant_markdown(
         if let Some((quote_level, quote)) = blockquote(source) {
             let markers = quote_markers(quote_level);
             let quote_width = content_width.saturating_sub(display_width(&markers)).max(1);
-            let segments = if quote.is_empty() {
-                vec![String::new()]
+            let wrapped = if quote.is_empty() {
+                vec![Vec::new()]
             } else {
-                wrap_text(quote, quote_width)
+                wrap_spans(inline_spans(quote, quote_style()), quote_width)
             };
-            for segment in segments {
+            for segment in wrapped {
                 let mut spans = vec![Span::styled(markers.clone(), quote_bar_style())];
-                spans.extend(inline_spans(&segment, quote_style()));
+                spans.extend(segment);
                 push_line(&mut lines, &mut first, prefix, prefix_style, spans);
             }
             index += 1;
@@ -134,7 +134,10 @@ pub(crate) fn render_assistant_markdown(
                 let quote_width = content_width
                     .saturating_sub(marker_width + display_width(&markers))
                     .max(1);
-                for (idx, segment) in wrap_text(quote, quote_width).into_iter().enumerate() {
+                for (idx, segment) in wrap_spans(inline_spans(quote, quote_style()), quote_width)
+                    .into_iter()
+                    .enumerate()
+                {
                     let mut spans = Vec::new();
                     if indent_width > 0 {
                         spans.push(Span::raw(" ".repeat(indent_width)));
@@ -146,14 +149,15 @@ pub(crate) fn render_assistant_markdown(
                         spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
                     }
                     spans.push(Span::styled(markers.clone(), quote_bar_style()));
-                    spans.extend(inline_spans(&segment, quote_style()));
+                    spans.extend(segment);
                     push_line(&mut lines, &mut first, prefix, prefix_style, spans);
                 }
                 index += 1;
                 continue;
             }
 
-            for (idx, segment) in wrap_text(body, content_width.saturating_sub(marker_width).max(1))
+            let body_width = content_width.saturating_sub(marker_width).max(1);
+            for (idx, segment) in wrap_spans(inline_spans(body, Style::default()), body_width)
                 .into_iter()
                 .enumerate()
             {
@@ -169,15 +173,14 @@ pub(crate) fn render_assistant_markdown(
                 } else {
                     spans.push(Span::raw(" ".repeat(display_width(marker) + 1)));
                 }
-                spans.extend(inline_spans(&segment, Style::default()));
+                spans.extend(segment);
                 push_line(&mut lines, &mut first, prefix, prefix_style, spans);
             }
             index += 1;
             continue;
         }
 
-        for segment in wrap_text(source, content_width) {
-            let spans = inline_spans(&segment, Style::default());
+        for spans in wrap_spans(inline_spans(source, Style::default()), content_width) {
             push_line(&mut lines, &mut first, prefix, prefix_style, spans);
         }
         index += 1;
@@ -1133,6 +1136,27 @@ mod tests {
         assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
         assert_eq!(lines[0].spans[2].content.as_ref(), "Title");
         assert_eq!(lines[1].spans[2].content.as_ref(), "cargo test");
+    }
+
+    #[test]
+    fn inline_code_survives_wrapping() {
+        let lines =
+            render_assistant_markdown("Before `remember_fact` after", "• ", Style::default(), 22);
+        let rendered = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(!rendered.contains('`'));
+        assert!(rendered.contains("remember_fact"));
+        let code_width = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .filter(|span| span.style.fg == Some(Color::Yellow))
+            .map(|span| display_width(span.content.as_ref()))
+            .sum::<usize>();
+        assert_eq!(code_width, display_width("remember_fact"));
     }
 
     #[test]
