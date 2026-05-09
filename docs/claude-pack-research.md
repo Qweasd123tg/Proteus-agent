@@ -16,12 +16,14 @@
 - Claude-like tool aliases: `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`,
   `TodoWrite`;
 - config example: `agent.claude-pack.example.toml`;
-- отдельный event log path: `.agent-claude-pack/events.jsonl`.
+- отдельный event log path: `.agent-claude-pack/events.jsonl` под config root.
 
 Отдельная история чатов достигается отдельным config root. Если запускать agent
 через `--config ~/.config/agent-claude-pack/configs`, session history будет жить
 рядом с этим config root, то есть в `~/.config/agent-claude-pack/sessions`, и не
 будет смешиваться с основным профилем `agent-qweasd123tg`.
+Event log для относительного `.agent-claude-pack/events.jsonl` тоже пишется под
+этот config root, а не в workspace.
 
 ## Запуск Для Отдельного Профиля
 

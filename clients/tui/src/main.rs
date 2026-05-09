@@ -798,7 +798,11 @@ async fn resume_session_dir(
     session_dir: PathBuf,
 ) -> Result<()> {
     let history = load_session_history(&session_dir)?;
-    let context_usage = load_session_context_usage(&session_dir, state.cwd())?;
+    let context_usage = load_session_context_usage(
+        &session_dir,
+        driver_config.config_path.as_deref(),
+        state.cwd(),
+    )?;
     let mut resumed_config = driver_config.clone();
     resumed_config.resume_session = Some(session_dir.clone());
 
@@ -811,13 +815,14 @@ async fn resume_session_dir(
 
 fn load_session_context_usage(
     session_dir: &Path,
+    config_path: Option<&Path>,
     cwd: &Path,
 ) -> Result<Vec<(TokenUsageSnapshot, Option<TurnId>)>> {
     let Some(session_id) = read_session_id_string(session_dir)? else {
         return Ok(Vec::new());
     };
     let mut snapshots = Vec::new();
-    for event_log_path in candidate_event_log_paths(cwd) {
+    for event_log_path in candidate_event_log_paths(config_path, cwd) {
         let content = match std::fs::read_to_string(&event_log_path) {
             Ok(content) => content,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -862,8 +867,15 @@ fn read_session_id_string(session_dir: &Path) -> Result<Option<String>> {
         .map(str::to_owned))
 }
 
-fn candidate_event_log_paths(cwd: &Path) -> Vec<PathBuf> {
-    vec![cwd.join(".agent/events.jsonl")]
+fn candidate_event_log_paths(config_path: Option<&Path>, cwd: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for root in candidate_config_roots(config_path) {
+        paths.push(root.join(".agent-claude-pack/events.jsonl"));
+        paths.push(root.join(".agent/events.jsonl"));
+    }
+    paths.push(cwd.join(".agent-claude-pack/events.jsonl"));
+    paths.push(cwd.join(".agent/events.jsonl"));
+    dedup_paths(paths)
 }
 
 fn load_session_history(session_dir: &Path) -> Result<Vec<VisualMessage>> {
@@ -1182,9 +1194,13 @@ fn config_store_root(path: &Path) -> PathBuf {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| path.to_path_buf());
     }
-    path.parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if parent.file_name().and_then(|name| name.to_str()) == Some("configs")
+        && let Some(root) = parent.parent()
+    {
+        return root.to_path_buf();
+    }
+    parent.to_path_buf()
 }
 
 fn encode_workspace_path(path: &Path) -> String {
@@ -1415,7 +1431,8 @@ mod tests {
             .join("\n");
         std::fs::write(event_dir.join("events.jsonl"), lines).expect("event log");
 
-        let usage = load_session_context_usage(session_dir.path(), cwd.path()).expect("usage");
+        let usage =
+            load_session_context_usage(session_dir.path(), None, cwd.path()).expect("usage");
 
         assert_eq!(usage.len(), 1);
         assert_eq!(usage[0].0.estimated_input_tokens, 123);

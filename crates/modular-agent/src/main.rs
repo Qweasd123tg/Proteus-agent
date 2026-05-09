@@ -339,7 +339,7 @@ async fn run_doctor(
     check_configured_tools(&mut findings, &config);
     check_external_commands(&mut findings, &config, cwd);
     check_runtime_limits(&mut findings, &config);
-    check_filesystem_paths(&mut findings, &config, cwd);
+    check_filesystem_paths(&mut findings, &config, cwd, effective_config);
 
     match build_tool_registry_for_listing(&config, cwd) {
         Ok(registry) => findings.ok(format!("tool registry: {} tools", registry.entries().len())),
@@ -640,18 +640,20 @@ fn format_timeout_ms(value: u64) -> String {
     format!("{value}ms")
 }
 
-fn check_filesystem_paths(findings: &mut DoctorFindings, config: &AppConfig, cwd: &Path) {
+fn check_filesystem_paths(
+    findings: &mut DoctorFindings,
+    config: &AppConfig,
+    cwd: &Path,
+    config_path: Option<&std::path::Path>,
+) {
     if cwd.is_dir() {
         findings.ok(format!("workspace dir exists: {}", cwd.display()));
     } else {
         findings.error(format!("workspace dir is missing: {}", cwd.display()));
     }
 
-    let event_log_path = if config.event_log.path.is_absolute() {
-        config.event_log.path.clone()
-    } else {
-        cwd.join(&config.event_log.path)
-    };
+    let event_log_path =
+        modular_agent::core::runtime::event_log_path(&config.event_log.path, config_path, cwd);
     match event_log_path.parent() {
         Some(parent) if parent.exists() => {
             if parent

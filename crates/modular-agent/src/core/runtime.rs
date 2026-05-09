@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use tokio::sync::Mutex;
@@ -395,8 +398,9 @@ impl AgentRuntimeBuilder {
             BuiltinRegistry::from_config(&config, cwd.clone())?
         };
         let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
-            let raw: Arc<dyn EventSink> =
-                Arc::new(JsonlEventStore::new(cwd.join(&config.event_log.path)));
+            let event_log_path =
+                event_log_path(&config.event_log.path, config_path.as_deref(), &cwd);
+            let raw: Arc<dyn EventSink> = Arc::new(JsonlEventStore::new(event_log_path));
             if config.event_log.persist_deltas {
                 raw
             } else {
@@ -453,6 +457,16 @@ impl AgentRuntimeBuilder {
     }
 }
 
+pub fn event_log_path(configured_path: &Path, config_path: Option<&Path>, cwd: &Path) -> PathBuf {
+    if configured_path.is_absolute() {
+        return configured_path.to_path_buf();
+    }
+    config_path
+        .map(config_store_root)
+        .unwrap_or_else(|| cwd.to_path_buf())
+        .join(configured_path)
+}
+
 fn config_store_root(path: &std::path::Path) -> PathBuf {
     if path.is_dir() {
         return path
@@ -461,9 +475,13 @@ fn config_store_root(path: &std::path::Path) -> PathBuf {
             .unwrap_or_else(|| path.to_path_buf());
     }
 
-    path.parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if parent.file_name().and_then(|name| name.to_str()) == Some("configs")
+        && let Some(root) = parent.parent()
+    {
+        return root.to_path_buf();
+    }
+    parent.to_path_buf()
 }
 
 #[cfg(test)]
