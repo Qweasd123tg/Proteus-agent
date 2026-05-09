@@ -355,6 +355,11 @@ terminal surface и active streaming view, не меняя core protocol.
   поддерживает scroll offset через `PageUp`/`PageDown`/`Up`/`Down` и исчезает
   при finalization, после чего final assistant вставляется как обычный
   committed history batch.
+- Четвёртый шаг migration: overlay enter/leave отделён от полного reset inline
+  terminal state. При входе в alt-screen очищается только transient bottom/live
+  area; при выходе сохраняется history viewport cursor, поэтому committed
+  события, пришедшие пока overlay открыт, flush'ятся после возврата без
+  повторного старта normal scrollback с верхней строки.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

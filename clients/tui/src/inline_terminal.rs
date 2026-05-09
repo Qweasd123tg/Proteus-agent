@@ -30,6 +30,17 @@ impl InlineTerminalState {
         Ok(())
     }
 
+    pub(crate) fn enter_overlay(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> Result<()> {
+        self.clear_panel(terminal)
+    }
+
+    pub(crate) fn leave_overlay(&mut self) {
+        self.panel = InlinePanelLayout::default();
+    }
+
     pub(crate) fn draw_normal(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -244,5 +255,20 @@ mod tests {
         assert_eq!(live_tail_visible_end(30, 10, 5), 25);
         assert_eq!(live_tail_visible_end(30, 10, 99), 10);
         assert_eq!(live_tail_visible_end(8, 10, 99), 8);
+    }
+
+    #[test]
+    fn leaving_overlay_preserves_history_viewport() {
+        let mut terminal = InlineTerminalState::default();
+        terminal.history.next_insert(3);
+        terminal.panel = InlinePanelLayout {
+            height: 3,
+            live_tail_height: 2,
+        };
+
+        terminal.leave_overlay();
+
+        assert_eq!(terminal.panel.total_height(), 0);
+        assert_eq!(terminal.history.next_insert(3).unwrap().row, 1);
     }
 }
