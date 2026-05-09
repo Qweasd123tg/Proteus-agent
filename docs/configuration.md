@@ -64,11 +64,14 @@ agent-tui --profile claude
 
 ```toml
 agent_bin = "~/.local/bin/agent"
-config = "~/.config/agent-qweasd123tg/configs"
+config = "~/.config/agent-qweasd123tg/claude/configs"
 ```
 
 Поддерживаемые поля: `agent_bin`, `config`, `cwd`. CLI flags
 `--agent-bin`, `--config`, `--cwd` перекрывают значения из profile.
+`config` также определяет store root для `/resume`, session history и
+относительного event log. Поэтому разные launcher profiles должны указывать на
+разные config roots, если их истории нужно держать отдельно.
 
 ## JSON И TOML
 

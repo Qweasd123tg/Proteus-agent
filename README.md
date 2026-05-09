@@ -171,9 +171,11 @@ TUI-сессии. `/reasoning summary` показывает компактный
 `/reasoning expanded` показывает summary в live panel полностью,
 `/reasoning hidden` возвращает поведение по умолчанию.
 `/resume` без аргумента открывает меню sessions текущего workspace на
-отдельном экране с поиском по conversation title/session id; с аргументом
-принимает путь к session directory или к `messages.jsonl` внутри неё и
-перезапускает app-server stdio на этой истории.
+отдельном экране с поиском по conversation title/session id. Если TUI запущен
+через `--profile` или `--config`, список берётся из соответствующего config
+root, чтобы разные profiles не смешивали истории; с аргументом принимает путь к
+session directory или к `messages.jsonl` внутри неё и перезапускает app-server
+stdio на этой истории.
 
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks, horizontal rules, links,

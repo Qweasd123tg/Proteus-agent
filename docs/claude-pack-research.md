@@ -36,9 +36,12 @@ agent-tui --profile claude
 ```
 
 Для profile launcher нужен файл
-`~/.config/agent-qweasd123tg/profiles/claude.toml`, который указывает на нужный
-agent config. API key/provider можно держать в общем included config-файле, не
-меняя репозиторий.
+`~/.config/agent-qweasd123tg/profiles/claude.toml`, который указывает на
+отдельный claude config root. API key/provider можно держать в общем included
+config-файле, не меняя репозиторий. Важно: `/resume`, session history и event
+log привязаны к config root, поэтому claude profile должен ссылаться не на
+общий `~/.config/agent-qweasd123tg/configs`, а на отдельный root вроде
+`~/.config/agent-qweasd123tg/claude/configs`.
 
 ## Поведенческая Модель
 
