@@ -4,14 +4,16 @@ use anyhow::Result;
 use ratatui::{Terminal, backend::CrosstermBackend, text::Line};
 
 use crate::{
+    bottom_pane::BottomPane,
     history_insert::HistoryViewportState,
     state::AppState,
     terminal_surface::{InlinePanelLayout, PreparedInlinePanel, PreparedLiveTail, TerminalSurface},
-    visual::{inline_panel_lines, render_scrollback_header, render_scrollback_message},
+    visual::{render_scrollback_header, render_scrollback_message},
 };
 
 #[derive(Default)]
 pub(crate) struct InlineTerminalState {
+    bottom_pane: BottomPane,
     panel: InlinePanelLayout,
     history: HistoryViewportState,
     resize_reflow_pending: bool,
@@ -52,7 +54,7 @@ impl InlineTerminalState {
         state: &mut AppState,
         header_printed: &mut bool,
     ) -> Result<()> {
-        let prepared_panel = prepare_inline_panel(terminal, state)?;
+        let prepared_panel = prepare_inline_panel(terminal, state, &self.bottom_pane)?;
         let prepared_live_tail = prepare_live_tail(terminal, state, prepared_panel.height())?;
         let previous_panel = self.panel.clone();
         let next_layout = InlinePanelLayout {
@@ -136,11 +138,12 @@ fn flush_scrollback_messages(
 fn prepare_inline_panel(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &AppState,
+    bottom_pane: &BottomPane,
 ) -> Result<PreparedInlinePanel> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
     let max_live_lines = max_inline_live_preview_lines(size.height);
-    let panel = inline_panel_lines(&state.visual_state(), width, max_live_lines);
+    let panel = bottom_pane.lines(&state.visual_state(), width, max_live_lines);
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
     let cursor_col = panel.cursor_col;

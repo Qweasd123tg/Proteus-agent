@@ -369,6 +369,11 @@ terminal surface и active streaming view, не меняя core protocol.
   tool card теперь может быть emitted в normal scrollback сразу и не блокирует
   последующие committed messages; `ToolFinished` добавляет отдельную final
   card с `Ok`/`Err` и preview вместо mutation уже напечатанного scrollback.
+- Седьмой шаг migration: добавлена первая граница `bottom_pane.rs`.
+  `inline_terminal` больше не вызывает line-builder из `visual.rs` напрямую, а
+  работает через `BottomPane::lines(...)`. Поведение пока сохранено; следующий
+  шаг - перенос composer/status/slash/approval/footer internals из `visual.rs`
+  внутрь bottom-pane module.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
