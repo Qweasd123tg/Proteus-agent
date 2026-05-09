@@ -751,7 +751,7 @@ impl AppState {
     }
 
     pub fn drain_scrollback_messages(&mut self) -> Vec<VisualMessage> {
-        self.transcript.drain_new_stable_messages()
+        self.transcript.drain_new_messages()
     }
 
     pub fn transcript_scroll_offset(&self) -> usize {
@@ -981,19 +981,39 @@ impl AppState {
     }
 
     fn update_tool_card(&mut self, result: ToolResult) {
-        for message in self.transcript.committed_mut().iter_mut().rev() {
-            if let Some(card) = message.tool.as_mut()
-                && card.call_id == result.call_id
-            {
-                card.status = if result.ok {
+        let finished_card = self
+            .transcript
+            .committed()
+            .iter()
+            .rev()
+            .find_map(|message| {
+                let card = message.tool.as_ref()?;
+                (card.call_id == result.call_id).then(|| ToolCard {
+                    call_id: card.call_id.clone(),
+                    name: card.name.clone(),
+                    args_summary: card.args_summary.clone(),
+                    status: if result.ok {
+                        ToolStatus::Ok
+                    } else {
+                        ToolStatus::Err
+                    },
+                    output_preview: preview(&result),
+                })
+            })
+            .unwrap_or_else(|| ToolCard {
+                call_id: result.call_id.clone(),
+                name: result.call_id.to_string(),
+                args_summary: result.call_id.to_string(),
+                status: if result.ok {
                     ToolStatus::Ok
                 } else {
                     ToolStatus::Err
-                };
-                card.output_preview = preview(&result);
-                return;
-            }
-        }
+                },
+                output_preview: preview(&result),
+            });
+
+        self.transcript
+            .push_committed(VisualMessage::tool(finished_card));
     }
 
     fn thinking_elapsed(&self) -> Option<Duration> {
@@ -1774,7 +1794,7 @@ mod tests {
                 2,
                 Event::ToolCallRequested {
                     call: agent_contracts::domain::ToolCall::new(
-                        call_id,
+                        call_id.clone(),
                         "read_file",
                         serde_json::json!({"path": "main.py"}),
                     ),
@@ -1798,6 +1818,27 @@ mod tests {
                 .as_ref()
                 .is_some_and(|tool| tool.name == "read_file")
         }));
+
+        state.ingest(AppServerEvent::Runtime {
+            envelope: agent_contracts::domain::EventEnvelope::new(
+                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+                3,
+                Event::ToolFinished {
+                    result: ToolResult::ok(call_id, "file contents"),
+                },
+            ),
+        });
+
+        let tool_statuses = state
+            .committed_messages()
+            .iter()
+            .filter_map(|message| message.tool.as_ref())
+            .map(|tool| (tool.status, tool.output_preview.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tool_statuses,
+            vec![(ToolStatus::Running, ""), (ToolStatus::Ok, "file contents")]
+        );
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("Итоговый ответ"),

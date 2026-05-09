@@ -1,4 +1,4 @@
-use crate::visual::{ToolStatus, VisualMessage};
+use crate::visual::VisualMessage;
 
 #[derive(Clone)]
 pub(crate) enum ActiveCell {
@@ -40,10 +40,6 @@ impl TranscriptStore {
 
     pub(crate) fn committed(&self) -> &[VisualMessage] {
         &self.committed
-    }
-
-    pub(crate) fn committed_mut(&mut self) -> &mut [VisualMessage] {
-        &mut self.committed
     }
 
     pub(crate) fn active_message(&self) -> Option<&VisualMessage> {
@@ -91,24 +87,14 @@ impl TranscriptStore {
         self.emitted_until = 0;
     }
 
-    pub(crate) fn drain_new_stable_messages(&mut self) -> Vec<VisualMessage> {
+    pub(crate) fn drain_new_messages(&mut self) -> Vec<VisualMessage> {
         let mut drained = Vec::new();
         while let Some(message) = self.committed.get(self.emitted_until) {
-            if !is_scrollback_stable_message(message) {
-                break;
-            }
             drained.push(message.clone());
             self.emitted_until += 1;
         }
         drained
     }
-}
-
-fn is_scrollback_stable_message(message: &VisualMessage) -> bool {
-    message
-        .tool
-        .as_ref()
-        .is_none_or(|tool| !matches!(tool.status, ToolStatus::Running))
 }
 
 #[cfg(test)]
@@ -121,21 +107,21 @@ mod tests {
         let mut transcript = TranscriptStore::new(vec![VisualMessage::system("ready")]);
         transcript.append_active_assistant("partial");
 
-        let drained = transcript.drain_new_stable_messages();
+        let drained = transcript.drain_new_messages();
 
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].text, "ready");
         assert!(transcript.is_streaming());
 
         transcript.finalize_active_assistant("final".to_owned());
-        let drained = transcript.drain_new_stable_messages();
+        let drained = transcript.drain_new_messages();
 
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].text, "final");
     }
 
     #[test]
-    fn running_tool_blocks_later_emission() {
+    fn running_tool_is_append_only_and_does_not_block_later_emission() {
         let mut transcript = TranscriptStore::new(vec![VisualMessage::tool(ToolCard {
             call_id: "call-1".to_owned(),
             name: "rg".to_owned(),
@@ -145,12 +131,13 @@ mod tests {
         })]);
         transcript.push_committed(VisualMessage::assistant("later"));
 
-        assert!(transcript.drain_new_stable_messages().is_empty());
-
-        transcript.committed_mut()[0].tool.as_mut().unwrap().status = ToolStatus::Ok;
-        let drained = transcript.drain_new_stable_messages();
+        let drained = transcript.drain_new_messages();
 
         assert_eq!(drained.len(), 2);
+        assert_eq!(
+            drained[0].tool.as_ref().unwrap().status,
+            ToolStatus::Running
+        );
         assert_eq!(drained[1].text, "later");
     }
 }

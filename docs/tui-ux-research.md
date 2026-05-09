@@ -365,6 +365,10 @@ terminal surface и active streaming view, не меняя core protocol.
   draw очищает owned normal screen, rewind'ит emitted cursor и replay'ит
   committed transcript под актуальную ширину. Если resize пришёл в alt-screen,
   reflow откладывается до выхода из overlay.
+- Шестой шаг migration: tool history переведён в append-only режим. `Running`
+  tool card теперь может быть emitted в normal scrollback сразу и не блокирует
+  последующие committed messages; `ToolFinished` добавляет отдельную final
+  card с `Ok`/`Err` и preview вместо mutation уже напечатанного scrollback.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
