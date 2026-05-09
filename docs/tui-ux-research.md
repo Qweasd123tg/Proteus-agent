@@ -417,6 +417,10 @@ terminal surface и active streaming view, не меняя core protocol.
   (`>`, `>>`, `>>>`) и лёгкую syntax coloring для fenced code blocks. Это не
   полноценный GitHub Markdown/parser, но закрывает основные dogfood-разрывы в
   цитатах и кодовых блоках.
+- Семнадцатый шаг migration: highlight убран с background fill и стал
+  foreground-only для тёмных terminal themes; raw ``` fences заменены на
+  компактный `code · lang` label без closing fence; добавлен terminal render
+  для autolinks `<https://...>`, bare URLs и footnote refs.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.

@@ -33,14 +33,12 @@ pub(crate) fn render_assistant_markdown(
             let label = trimmed.trim_start_matches("```").trim();
             if code_language.is_some() {
                 code_language = None;
+                index += 1;
+                continue;
             } else {
                 code_language = Some(label.to_owned());
             }
-            let display = if label.is_empty() {
-                "```".to_owned()
-            } else {
-                format!("``` {label}")
-            };
+            let display = code_fence_label(label);
             push_line(
                 &mut lines,
                 &mut first,
@@ -697,6 +695,32 @@ fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
             continue;
         }
 
+        if let Some(after) = rest.strip_prefix("[^")
+            && let Some(end) = after.find(']')
+        {
+            spans.push(Span::styled(
+                format!("[^{}]", &after[..end]),
+                footnote_ref_style().add_modifier(base.add_modifier),
+            ));
+            rest = &after[end + 1..];
+            continue;
+        }
+
+        if let Some(after) = rest.strip_prefix('<')
+            && let Some((url, consumed)) = parse_angle_url(after)
+        {
+            spans.extend(url_spans(url, base));
+            rest = &rest[consumed + 1..];
+            continue;
+        }
+
+        if starts_url(rest) {
+            let consumed = bare_url_len(rest);
+            spans.extend(url_spans(&rest[..consumed], base));
+            rest = &rest[consumed..];
+            continue;
+        }
+
         if let Some(after) = rest.strip_prefix("==")
             && let Some(end) = after.find("==")
         {
@@ -834,11 +858,27 @@ fn context_usage_glyph_style(ch: char, base: Style) -> Option<Style> {
 }
 
 fn next_markup(text: &str) -> Option<usize> {
-    ["[", "==", "`", "~~", "***", "___", "**", "__", "*", "_"]
-        .into_iter()
-        .filter_map(|needle| text.find(needle))
-        .filter(|index| *index > 0)
-        .min()
+    [
+        "[",
+        "<http://",
+        "<https://",
+        "http://",
+        "https://",
+        "www.",
+        "==",
+        "`",
+        "~~",
+        "***",
+        "___",
+        "**",
+        "__",
+        "*",
+        "_",
+    ]
+    .into_iter()
+    .filter_map(|needle| text.find(needle))
+    .filter(|index| *index > 0)
+    .min()
 }
 
 fn parse_link(text_after_open: &str) -> Option<(&str, &str, usize)> {
@@ -859,6 +899,46 @@ fn link_spans(label: &str, url: &str, base: Style) -> Vec<Span<'static>> {
         Span::styled(label.to_owned(), label_style),
         Span::styled(format!(" ({url})"), link_url_style()),
     ]
+}
+
+fn parse_angle_url(text_after_open: &str) -> Option<(&str, usize)> {
+    let end = text_after_open.find('>')?;
+    let url = &text_after_open[..end];
+    starts_url(url).then_some((url, end + 1))
+}
+
+fn starts_url(text: &str) -> bool {
+    text.starts_with("https://") || text.starts_with("http://") || text.starts_with("www.")
+}
+
+fn bare_url_len(text: &str) -> usize {
+    let mut end = 0usize;
+    for (index, ch) in text.char_indices() {
+        if ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '\'') {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    let mut trimmed = &text[..end];
+    while trimmed.ends_with([',', '.', ';', ':', '!', '?', ')', ']']) {
+        trimmed = &trimmed[..trimmed.len() - 1];
+    }
+    trimmed.len()
+}
+
+fn url_spans(url: &str, base: Style) -> Vec<Span<'static>> {
+    vec![Span::styled(
+        url.to_owned(),
+        link_text_style().add_modifier(base.add_modifier),
+    )]
+}
+
+fn code_fence_label(label: &str) -> String {
+    if label.is_empty() {
+        "code".to_owned()
+    } else {
+        format!("code · {label}")
+    }
 }
 
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
@@ -987,9 +1067,8 @@ fn inline_code_style() -> Style {
 
 fn highlight_style() -> Style {
     Style::default()
-        .fg(Color::Black)
-        .bg(Color::Yellow)
-        .add_modifier(Modifier::BOLD)
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
 }
 
 fn link_text_style() -> Style {
@@ -1000,6 +1079,12 @@ fn link_text_style() -> Style {
 
 fn link_url_style() -> Style {
     Style::default().fg(Color::DarkGray)
+}
+
+fn footnote_ref_style() -> Style {
+    Style::default()
+        .fg(Color::LightMagenta)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn table_border_style() -> Style {
@@ -1144,7 +1229,14 @@ mod tests {
             .iter()
             .find(|span| span.content.as_ref() == "Подсветка")
             .expect("highlight span");
-        assert_eq!(highlighted.style.bg, Some(Color::Yellow));
+        assert_eq!(highlighted.style.fg, Some(Color::Yellow));
+        assert_eq!(highlighted.style.bg, None);
+        assert!(
+            highlighted
+                .style
+                .add_modifier
+                .contains(Modifier::UNDERLINED)
+        );
 
         let link = spans
             .iter()
@@ -1155,6 +1247,32 @@ mod tests {
         assert!(spans.iter().any(|span| {
             span.content
                 .contains("https://github.com/example/agent-contracts")
+        }));
+    }
+
+    #[test]
+    fn renders_autolinks_and_bare_urls() {
+        let lines = render_assistant_markdown(
+            "Сайт <https://example.com>, bare https://example.org/test. footnote[^1]",
+            "• ",
+            Style::default(),
+            120,
+        );
+        let spans = &lines[0].spans;
+
+        let autolink = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "https://example.com")
+            .expect("angle autolink");
+        assert_eq!(autolink.style.fg, Some(Color::Cyan));
+        assert!(autolink.style.add_modifier.contains(Modifier::UNDERLINED));
+
+        assert!(spans.iter().any(|span| {
+            span.content.as_ref() == "https://example.org/test"
+                && span.style.add_modifier.contains(Modifier::UNDERLINED)
+        }));
+        assert!(spans.iter().any(|span| {
+            span.content.as_ref() == "[^1]" && span.style.fg == Some(Color::LightMagenta)
         }));
     }
 
@@ -1249,13 +1367,13 @@ mod tests {
             Style::default(),
             80,
         );
-        assert_eq!(lines[0].spans[1].content.as_ref(), "``` toml");
+        assert_eq!(lines[0].spans[1].content.as_ref(), "code · toml");
         assert_eq!(lines[1].spans[1].content.as_ref(), "│ ");
         assert_eq!(lines[2].spans[1].content.as_ref(), "│ ");
         assert_eq!(lines[3].spans[1].content.as_ref(), "│ ");
         assert_eq!(lines[3].spans[2].content.as_ref(), "");
         assert_eq!(lines[4].spans[1].content.as_ref(), "│ ");
-        assert_eq!(lines[5].spans[1].content.as_ref(), "```");
+        assert_eq!(lines.len(), 5);
     }
 
     #[test]
