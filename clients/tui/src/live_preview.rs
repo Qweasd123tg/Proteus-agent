@@ -2,7 +2,8 @@ use ratatui::{style::Style, text::Line};
 
 use crate::visual::{
     VisualMessage, VisualRole, append_reasoning_preview_lines, muted_style,
-    reasoning_preview_visible,
+    reasoning_preview_visible, tool_action_body, tool_output_prefix_style, tool_output_style,
+    tool_status_style,
 };
 
 pub(crate) fn live_preview_height(state: &crate::visual::VisualState<'_>, available: u16) -> u16 {
@@ -91,25 +92,13 @@ fn append_tool_preview_lines(
     card: &crate::visual::ToolCard,
     width: usize,
 ) {
-    let (marker, marker_style, label, label_style) = match card.status {
-        crate::visual::ToolStatus::Running => ("•", muted_style(), "Running", muted_style()),
-        crate::visual::ToolStatus::Ok => (
-            "•",
-            muted_style(),
-            "Ran",
-            Style::default().fg(ratatui::style::Color::Reset),
-        ),
-        crate::visual::ToolStatus::Err => (
-            "✗",
-            Style::default().fg(ratatui::style::Color::Red),
-            "Failed",
-            Style::default().fg(ratatui::style::Color::Red),
-        ),
-    };
-    let action = crate::visual::tool_action_text(card, label);
+    let status = tool_status_style(card.status);
+    let action = tool_action_body(card, status.label);
     lines.push(Line::from(vec![
-        ratatui::text::Span::styled(format!("{marker} "), marker_style),
-        ratatui::text::Span::styled(action, label_style),
+        ratatui::text::Span::styled(format!("{} ", status.marker), status.marker_style),
+        ratatui::text::Span::styled(status.label.to_owned(), status.label_style),
+        ratatui::text::Span::styled(" ", muted_style()),
+        ratatui::text::Span::styled(action, status.action_style),
     ]));
 
     if !card.output_preview.is_empty() {
@@ -119,8 +108,8 @@ fn append_tool_preview_lines(
             for segment in crate::visual::wrap_text(raw, preview_width) {
                 let prefix = if first_output_line { "  └ " } else { "    " };
                 lines.push(Line::from(vec![
-                    ratatui::text::Span::styled(prefix, muted_style()),
-                    ratatui::text::Span::styled(segment, muted_style()),
+                    ratatui::text::Span::styled(prefix, tool_output_prefix_style(card.status)),
+                    ratatui::text::Span::styled(segment, tool_output_style(card.status)),
                 ]));
                 first_output_line = false;
             }

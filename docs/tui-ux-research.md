@@ -430,6 +430,10 @@ terminal surface и active streaming view, не меняя core protocol.
 - Двадцатый шаг migration: headings теперь тоже используют inline markdown
   parsing. Заголовки вида `## 🧠 \`remember_fact\`` больше не показывают raw
   backticks в chat transcript.
+- Двадцать первый шаг migration: tool cards получили status-colored markers и
+  less-muted transcript styling. `Running` отображается жёлтым, `Ok` зелёным,
+  `Err` красным; грубый `✗ Failed` заменён на красный `● Error`, а action/output
+  styles вынесены в общие helpers для scrollback и live-preview.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.
