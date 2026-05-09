@@ -231,10 +231,13 @@ builtin/configured tool, это считается ошибкой конфигу
 `line_numbers`; имя tool'а совпадает с тем что было у builtin'а, поэтому старые
 конфиги и policy работают без правок — но теперь требуется плагин.
 
-Tool `search` принимает `query`, optional `max_results`, `use_case`,
-`starts_with` и `ends_with`. Последние два поля фильтруют результаты по path
-prefix/suffix и напрямую передаются в `SearchQuery`, чтобы `rg`, semantic
-backend или будущий repo discovery слой не парсили path filters из текста.
+Tool `search` принимает `query`, optional `max_results`, `use_case`, `path`,
+`starts_with` и `ends_with`. `path` - удобный alias для одного workspace-relative
+prefix; `starts_with`/`ends_with` фильтруют результаты по path prefix/suffix и
+напрямую передаются в `SearchQuery`, чтобы `rg`, semantic backend или будущий
+repo discovery слой не парсили path filters из текста. `rg-search` использует
+безопасные `starts_with` как реальные roots для ripgrep, а `ends_with` как glob,
+чтобы не сканировать лишние части workspace.
 
 В advanced/config-first режиме используйте `tools.path` или
 `tools.configured`, а `tools.enabled = []`.

@@ -8,6 +8,7 @@
 
 use std::{
     io::{BufRead, BufReader},
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::{self, TryRecvError},
     time::{Duration, Instant},
@@ -93,13 +94,59 @@ fn build_rg_command(query: &SearchQuery) -> Command {
         .arg("--max-columns")
         .arg("2000")
         .arg("--max-filesize")
-        .arg("1M")
-        .arg("--")
-        .arg(&query.text)
-        .arg(".")
-        .current_dir(&query.cwd)
-        .stdin(Stdio::null());
+        .arg("1M");
+    for suffix in &query.ends_with {
+        if let Some(glob) = suffix_glob(suffix) {
+            command.arg("--glob").arg(glob);
+        }
+    }
+    command.arg("--").arg(&query.text);
+    for root in search_roots(query) {
+        command.arg(root);
+    }
+    command.current_dir(&query.cwd).stdin(Stdio::null());
     command
+}
+
+fn search_roots(query: &SearchQuery) -> Vec<PathBuf> {
+    let roots = query
+        .starts_with
+        .iter()
+        .filter_map(|prefix| safe_relative_root(prefix))
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        roots
+    }
+}
+
+fn safe_relative_root(prefix: &str) -> Option<PathBuf> {
+    let trimmed = prefix.trim().trim_start_matches("./").trim_end_matches('/');
+    if trimmed.is_empty() || trimmed == "." {
+        return Some(PathBuf::from("."));
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return None;
+    }
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    Some(path.to_path_buf())
+}
+
+fn suffix_glob(suffix: &str) -> Option<String> {
+    let trimmed = suffix.trim().trim_start_matches("./");
+    if trimmed.is_empty() || trimmed.contains("..") {
+        return None;
+    }
+    Some(format!("*{trimmed}"))
 }
 
 fn run_rg_limited(
@@ -239,6 +286,23 @@ mod tests {
     }
 
     #[test]
+    fn rg_command_uses_safe_path_filters_as_search_roots_and_globs() {
+        let query = SearchQuery::new("needle", std::path::PathBuf::from("/tmp/workspace"), 10)
+            .with_path_filters(["src/", "../outside", "/tmp"], [".rs", "../secret"]);
+        let command = build_rg_command(&query);
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(args.windows(2).any(|pair| pair == ["--glob", "*.rs"]));
+        assert_eq!(args.last().map(String::as_str), Some("src"));
+        assert!(!args.iter().any(|arg| arg == "../outside"));
+        assert!(!args.iter().any(|arg| arg == "/tmp"));
+        assert!(!args.iter().any(|arg| arg.contains("secret")));
+    }
+
+    #[test]
     fn run_rg_returns_matches_from_tiny_workspace() {
         let dir = temp_workspace();
         fs::write(dir.join("a.txt"), "hello needle\n").expect("write a.txt");
@@ -253,6 +317,29 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert!(paths.contains(&"a.txt".to_owned()));
         assert!(paths.contains(&"b.txt".to_owned()));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn run_rg_honors_starts_with_without_scanning_other_roots() {
+        let dir = temp_workspace();
+        fs::create_dir_all(dir.join("src")).expect("create src");
+        fs::create_dir_all(dir.join("docs")).expect("create docs");
+        fs::write(dir.join("src/a.txt"), "hello needle\n").expect("write src/a.txt");
+        fs::write(dir.join("docs/b.txt"), "needle in docs\n").expect("write docs/b.txt");
+
+        let chunks = run_rg(
+            SearchQuery::new("needle", dir.clone(), 10)
+                .with_path_filters(["src/"], [] as [&str; 0]),
+        )
+        .expect("rg search");
+        let paths = chunks
+            .iter()
+            .map(|chunk| chunk.path.as_ref().unwrap().display().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(paths, ["src/a.txt"]);
 
         let _ = fs::remove_dir_all(dir);
     }
