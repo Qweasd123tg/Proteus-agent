@@ -397,6 +397,10 @@ terminal surface и active streaming view, не меняя core protocol.
   из `visual.rs`, а использует отдельный helper module. Следующий шаг - добить
   оставшиеся layout helpers (`composer`/gaps) и убрать дублирующие определения
   из `visual.rs`.
+- Тринадцатый шаг migration: live tail в `inline_terminal` временно переведён
+  на top-anchored render, чтобы первые строки streaming-ответа не исчезали при
+  росте вывода. Это убирает ощущение, что ответы "едят" начало текста; дальше
+  можно отдельно вернуть follow-tail режим как опцию, если он понадобится.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.
