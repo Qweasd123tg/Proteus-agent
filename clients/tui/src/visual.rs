@@ -14,7 +14,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    cards::append_approval_lines,
+    cards::{append_approval_lines, footer_plain_line},
     live_preview::{append_plain_preview_text, live_preview_height},
     session_picker::ResumePicker,
     slash_commands::{SlashCommand, matching_slash_commands},
@@ -413,31 +413,6 @@ impl VisualComponent for FooterComponent {
             Paragraph::new(Line::from(Span::styled(line, muted_style()))),
             area,
         );
-    }
-}
-
-pub(crate) fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
-    let left = footer_left_text(state);
-    if state.pending_model || state.pending_approval.is_some() {
-        truncate(format!("  {left}"), width)
-    } else {
-        truncate(format!("  {left}    {}", state.footer), width)
-    }
-}
-
-fn footer_left_text(state: &VisualState<'_>) -> String {
-    if state.pending_approval.is_some() {
-        "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
-    } else if state.resume_picker.is_some() {
-        "type search · enter resume · esc close · up/down select".to_owned()
-    } else if !matching_slash_commands(state.input).is_empty() {
-        "enter/tab complete · up/down select · enter run exact".to_owned()
-    } else if state.pending_model {
-        "turn running · esc cancel".to_owned()
-    } else if let Some(done) = state.status.strip_prefix("done") {
-        format!("✓ done{} · enter send", done)
-    } else {
-        state.status.to_owned()
     }
 }
 
@@ -1641,7 +1616,10 @@ mod tests {
             slash_selection: 0,
         };
 
-        assert_eq!(footer_left_text(&state), "✓ done · 7s · enter send");
+        assert_eq!(
+            crate::cards::footer_left_text(&state),
+            "✓ done · 7s · enter send"
+        );
     }
 
     #[test]

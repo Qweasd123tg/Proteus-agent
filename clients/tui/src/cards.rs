@@ -80,6 +80,31 @@ pub(crate) fn append_approval_lines(
     ]));
 }
 
+pub(crate) fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
+    let left = footer_left_text(state);
+    if state.pending_model || state.pending_approval.is_some() {
+        truncate(format!("  {left}"), width)
+    } else {
+        truncate(format!("  {left}    {}", state.footer), width)
+    }
+}
+
+pub(crate) fn footer_left_text(state: &VisualState<'_>) -> String {
+    if state.pending_approval.is_some() {
+        "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
+    } else if state.resume_picker.is_some() {
+        "type search · enter resume · esc close · up/down select".to_owned()
+    } else if !crate::slash_commands::matching_slash_commands(state.input).is_empty() {
+        "enter/tab complete · up/down select · enter run exact".to_owned()
+    } else if state.pending_model {
+        "turn running · esc cancel".to_owned()
+    } else if let Some(done) = state.status.strip_prefix("done") {
+        format!("✓ done{} · enter send", done)
+    } else {
+        state.status.to_owned()
+    }
+}
+
 fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
     let cwd = display_path(state.cwd);
     let rows = [
