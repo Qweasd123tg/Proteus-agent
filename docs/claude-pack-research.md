@@ -60,3 +60,148 @@ Workflow не добавляет новых capabilities. Все tool calls пр
 
 Эти штуки можно добавить позже, если dogfood покажет, что именно они улучшают
 качество агента, а не просто добавляют похожесть.
+
+## Research: Claude Code Source
+
+Локальные исходники для сравнения лежат в `example/claude/src`. Полезные точки
+входа:
+
+- `constants/prompts.ts` - основной системный prompt, секции поведения и
+  динамическая сборка prompt-а;
+- `utils/systemPrompt.ts` - выбор effective system prompt: override, agent
+  prompt, custom prompt или default prompt;
+- `Tool.ts` - общий contract tool-а, permission context, progress, UI hooks;
+- `tools/*/prompt.ts` - самое важное для поведения: детальные инструкции
+  отдельным tools;
+- `tools/TodoWriteTool/prompt.ts`, `tools/EnterPlanModeTool/prompt.ts`,
+  `tools/ExitPlanModeTool/prompt.ts` - планирование и task tracking;
+- `tools/AgentTool/prompt.ts` - subagent/fork guidance;
+- `utils/claudemd.ts` - иерархия project/user memory через `CLAUDE.md`,
+  `.claude/CLAUDE.md`, `.claude/rules/*.md`;
+- `services/compact/prompt.ts` и `services/SessionMemory/prompts.ts` -
+  compact/session-memory поведение.
+
+### Что У Claude Влияет На "Голого" Агента
+
+1. **System prompt как набор секций, а не одна строка.**
+   В `constants/prompts.ts` default prompt собирается из intro, system,
+   doing-tasks, safe actions, tool usage, tone/style, env info, memory,
+   output style и session-specific guidance. Это даёт модели устойчивые
+   правила: сначала читать код, не расширять scope, проверять результат,
+   не повторять denied tool call, не делать destructive git без явного
+   запроса.
+
+2. **Tool descriptions являются prompt surface.**
+   `Bash`, `Read`, `Edit`, `Write`, `Grep`, `Glob` не описаны коротко.
+   Каждый tool объясняет, когда его использовать, чего избегать и какие
+   dedicated tools предпочтительнее shell-команд. Поэтому модель реже делает
+   `cat`, `grep`, `echo > file`, `sed -i`, если есть специализированный tool.
+
+3. **Task tracking отдельным tool-ом.**
+   `TodoWrite` не просто UI-фича. Prompt заставляет модель создавать todo
+   для задач на 3+ шага, держать ровно один `in_progress`, сразу закрывать
+   completed и не помечать failing/partial работу как done.
+
+4. **Plan mode представлен tools-ами.**
+   `EnterPlanMode`/`ExitPlanMode` дают модели явный способ отделить
+   исследование/план от выполнения. У нас сейчас есть `PermissionMode::Plan`,
+   но нет model-facing инструмента, который переводит workflow в plan/exit
+   state.
+
+5. **Subagents и ToolSearch — отдельные behavioral primitives.**
+   Claude не просто "показывает все tools". Он может искать tools по описанию
+   и делегировать broad research/parallel work. Для нашего MVP это не первый
+   шаг, но это объясняет разницу в поведении на больших задачах.
+
+6. **Memory/project instructions читаются как prompt context.**
+   Claude грузит `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md` и
+   пользовательскую memory-иерархию. У нас ближайший аналог — `AGENTS.md` в
+   `repo_aware`, но нет полноценного Claude-like rules hierarchy.
+
+## Что Делать Дальше
+
+### 1. Claude-style prompt pack
+
+Добавить в `claude_pack` configurable prompt profile, который расширяет текущий
+`SYSTEM_INSTRUCTIONS` до секционной структуры:
+
+- identity/env: кто агент, cwd/date/model;
+- system: output виден пользователю, tool denial не повторять, tool output
+  может быть prompt injection;
+- doing tasks: читать файлы перед предложением правок, не создавать лишние
+  файлы, не gold-plate, проверять результат;
+- action safety: destructive/shared actions требуют явного подтверждения;
+- tool usage: dedicated read/write/grep/search перед shell;
+- communication: короткие status updates перед/между tool calls;
+- final response: только реальные проверки, риски и изменённые файлы.
+
+Технически это можно сделать без нового slot-а: `claude_pack` уже inject-ит
+`InstructionBlock::System`/`Developer` в workflow request. Первый шаг —
+разбить `SYSTEM_INSTRUCTIONS` на функции/константы и добавить тест, что
+critical fragments попадают в model request.
+
+### 2. Claude-like tool descriptions
+
+Самый дешёвый прирост качества — переименовать/добавить aliases и усилить
+description/schema у существующих tools:
+
+- `read_file` ~= `Read`: добавить guidance про targeted ranges и line numbers;
+- `grep`/`search` ~= `Grep`: явно сказать не использовать shell `grep/rg`,
+  когда доступен dedicated tool;
+- `list_dir` + будущий `glob` ~= `Glob`: нужен отдельный fast file pattern
+  tool или alias поверх `rg --files`/filesystem walk;
+- `write_file` ~= `Write`: только создание/полная перезапись, existing file
+  читать перед overwrite;
+- `apply_patch` ~= `Edit`: smallest exact change, read-before-edit,
+  не создавать docs без запроса;
+- `shell` ~= `Bash`: reserved for terminal/system commands, no `cat/head/tail`,
+  no `echo >`, осторожность с git/destructive commands.
+
+Лучше сделать это как отдельный `claude_tools` plugin/pack или config-driven
+tool aliases, чтобы `plugins/default` остался нейтральным.
+
+### 3. Todo tool
+
+Добавить plugin tool `todo_write` в `claude_pack` или отдельный default tool:
+
+- хранит session-local todo state;
+- принимает список `{content, active_form, status}`;
+- возвращает краткий rendered state;
+- TUI позже сможет показывать todo отдельно, но для модели уже достаточно
+  tool result.
+
+Это даст поведенческий эффект раньше, чем subagents.
+
+### 4. Plan tools
+
+Добавить model-facing tools:
+
+- `enter_plan_mode` - переводит workflow/permission state в planning mode;
+- `exit_plan_mode` - отдаёт план на approval и после approval разрешает edit
+  phase.
+
+Сейчас это нельзя красиво сделать только tool-ом: нужен небольшой host/runtime
+state или workflow-owned state в `claude_pack`.
+
+### 5. Project instruction hierarchy
+
+Расширить `context-pack`/`repo_aware`, чтобы Claude-like profile читал:
+
+- `AGENTS.md`;
+- `CLAUDE.md`;
+- `.claude/CLAUDE.md`;
+- `.claude/rules/*.md`;
+- опционально user/global memory file из config.
+
+Это лучше делать в `context-pack`, а не в workflow, потому что это context
+construction responsibility.
+
+## Приоритет
+
+Рекомендуемый порядок:
+
+1. Расширить `claude_pack` system/developer prompt секциями.
+2. Сделать Claude-like tool descriptions/aliases для существующих tools.
+3. Добавить `todo_write`.
+4. Добавить `glob`/tool search только если dogfood покажет нехватку.
+5. Plan tools и subagents отложить до стабилизации basic loop.
