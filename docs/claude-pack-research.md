@@ -13,6 +13,8 @@
 - plugin folder: `plugins/claude_pack`;
 - workflow module: `claude.explore_edit_verify`;
 - tool exposure module: `claude_phased`;
+- Claude-like tool aliases: `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`,
+  `TodoWrite`;
 - config example: `agent.claude-pack.example.toml`;
 - отдельный event log path: `.agent-claude-pack/events.jsonl`.
 
@@ -49,6 +51,12 @@ API key/provider можно заменить в скопированном confi
 
 Workflow не добавляет новых capabilities. Все tool calls проходят через
 `ToolRegistry`, `ApprovalPolicy`, `ToolExposure` и `ToolOrchestrator`.
+
+`Read`/`Write`/`Edit`/`Grep`/`Glob`/`Bash` являются не symlink-ами на default
+tools, а отдельным Claude-like prompt surface внутри pack-а. Это нужно, чтобы
+усилить model-facing descriptions, не меняя нейтральные default tools.
+`TodoWrite` пока хранит state только в текущем tool result; отдельная TUI-панель
+и durable todo state отложены.
 
 ## Не Включено В MVP
 
@@ -201,7 +209,7 @@ construction responsibility.
 Рекомендуемый порядок:
 
 1. Расширить `claude_pack` system/developer prompt секциями.
-2. Сделать Claude-like tool descriptions/aliases для существующих tools.
-3. Добавить `todo_write`.
-4. Добавить `glob`/tool search только если dogfood покажет нехватку.
-5. Plan tools и subagents отложить до стабилизации basic loop.
+2. Усилить Claude-like tools после dogfood (`TodoWrite` state, richer `Glob`,
+   better shell safety hints).
+3. Добавить `tool_search` только если dogfood покажет нехватку.
+4. Plan tools и subagents отложить до стабилизации basic loop.
