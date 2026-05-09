@@ -360,6 +360,11 @@ terminal surface и active streaming view, не меняя core protocol.
   area; при выходе сохраняется history viewport cursor, поэтому committed
   события, пришедшие пока overlay открыт, flush'ятся после возврата без
   повторного старта normal scrollback с верхней строки.
+- Пятый шаг migration: resize теперь ставит pending source-backed reflow вместо
+  немедленного reset normal screen из event handler. Первый следующий normal
+  draw очищает owned normal screen, rewind'ит emitted cursor и replay'ит
+  committed transcript под актуальную ширину. Если resize пришёл в alt-screen,
+  reflow откладывается до выхода из overlay.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown.
 - Добавить snapshot tests для размеров 60x20, 80x24, 120x30.

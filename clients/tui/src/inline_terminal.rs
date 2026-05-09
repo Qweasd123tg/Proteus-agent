@@ -14,6 +14,7 @@ use crate::{
 pub(crate) struct InlineTerminalState {
     panel: InlinePanelLayout,
     history: HistoryViewportState,
+    resize_reflow_pending: bool,
 }
 
 impl InlineTerminalState {
@@ -41,6 +42,10 @@ impl InlineTerminalState {
         self.panel = InlinePanelLayout::default();
     }
 
+    pub(crate) fn mark_resize_reflow_pending(&mut self) {
+        self.resize_reflow_pending = true;
+    }
+
     pub(crate) fn draw_normal(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -55,10 +60,12 @@ impl InlineTerminalState {
             live_tail_height: prepared_live_tail.height(),
         };
         let next_height = next_layout.total_height();
-        let draw_previous_panel = if panel_is_shrinking(previous_panel.total_height(), next_height)
+        let draw_previous_panel = if self.resize_reflow_pending
+            || panel_is_shrinking(previous_panel.total_height(), next_height)
         {
             repaint_normal_screen_before_history_flush(terminal, state, header_printed)?;
             self.history = HistoryViewportState::default();
+            self.resize_reflow_pending = false;
             InlinePanelLayout::default()
         } else {
             TerminalSurface::new(terminal)
@@ -269,6 +276,17 @@ mod tests {
         terminal.leave_overlay();
 
         assert_eq!(terminal.panel.total_height(), 0);
+        assert_eq!(terminal.history.next_insert(3).unwrap().row, 1);
+    }
+
+    #[test]
+    fn marking_resize_reflow_does_not_reset_history_immediately() {
+        let mut terminal = InlineTerminalState::default();
+        terminal.history.next_insert(3);
+
+        terminal.mark_resize_reflow_pending();
+
+        assert!(terminal.resize_reflow_pending);
         assert_eq!(terminal.history.next_insert(3).unwrap().row, 1);
     }
 }
