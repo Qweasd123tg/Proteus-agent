@@ -238,6 +238,9 @@ prefix; `starts_with`/`ends_with` фильтруют результаты по p
 repo discovery слой не парсили path filters из текста. `rg-search` использует
 безопасные `starts_with` как реальные roots для ripgrep, а `ends_with` как glob,
 чтобы не сканировать лишние части workspace.
+User-facing output `search` форматируется как grep-like строки
+`path:line: content` или `(no matches)`, а raw `ContextChunk` payload остаётся в
+`ToolResult.metadata.chunks` для debug/eval.
 
 В advanced/config-first режиме используйте `tools.path` или
 `tools.configured`, а `tools.enabled = []`.
