@@ -25,18 +25,25 @@ chmod 755 "${tui_bin_path}"
 # Install plugins. File I/O (file-tools) and shell (shell-tool) are required
 # for a typical coding workflow; other sample plugins are optional proofs.
 mkdir -p "${plugins_dir}"
-for plugin in file-tools shell-tool rg-search direct-patch coding-workflow claude_pack context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+install_plugin() {
+  plugin="$1"
+  source_dir="$2"
   src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
   if [ ! -f "${src_so}" ]; then
-    continue
+    return
   fi
   dest_dir="${plugins_dir}/${plugin}"
   mkdir -p "${dest_dir}"
   cp "${src_so}" "${dest_dir}/"
-  if [ -f "${project_dir}/plugins/${plugin}/plugin.toml" ]; then
-    cp "${project_dir}/plugins/${plugin}/plugin.toml" "${dest_dir}/"
+  if [ -f "${project_dir}/${source_dir}/plugin.toml" ]; then
+    cp "${project_dir}/${source_dir}/plugin.toml" "${dest_dir}/"
   fi
+}
+
+for plugin in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+  install_plugin "${plugin}" "plugins/default/${plugin}"
 done
+install_plugin "claude_pack" "plugins/claude_pack"
 
 echo "Installed: ${bin_path}"
 echo "Installed: ${tui_bin_path}"

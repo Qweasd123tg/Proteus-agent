@@ -2058,7 +2058,7 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 
 // list_dir/read_file workspace-escape and error-message tests moved to
 // the file-tools plugin alongside the implementations themselves. Direct patch
-// algorithm tests live in plugins/direct-patch; core tests keep only the tool
+// algorithm tests live in plugins/default/direct-patch; core tests keep only the tool
 // delegation boundary.
 
 #[tokio::test]

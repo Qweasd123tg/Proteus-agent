@@ -21,19 +21,21 @@ crates/
 clients/
     tui/                 - внешний TUI-клиент (бинарник agent-tui)
 plugins/
-    hello-renderer/      - референсный renderer-плагин (sabi_trait)
-    hello-tool/          - минимальный tool-плагин
-    hello-policy-patch/  - демо ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
-    file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
-    shell-tool/          - tool shell (sh -lc)
-    rg-search/           - SearchBackend на ripgrep под id "rg"
-    direct-patch/        - PatchApplier internal patch format под id "direct"
-    sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
-    coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
-    context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
-    memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-    policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
-    renderer-pack/       - Renderer плагины "plain" и "statusline"
+    default/             - стандартный набор плагинов
+        hello-renderer/      - референсный renderer-плагин (sabi_trait)
+        hello-tool/          - минимальный tool-плагин
+        hello-policy-patch/  - демо ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
+        file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
+        shell-tool/          - tool shell (sh -lc)
+        rg-search/           - SearchBackend на ripgrep под id "rg"
+        direct-patch/        - PatchApplier internal patch format под id "direct"
+        sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
+        coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
+        context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
+        memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
+        policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
+        renderer-pack/       - Renderer плагины "plain" и "statusline"
+    claude_pack/         - experimental behavior pack под Claude-like стиль
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
@@ -50,7 +52,7 @@ plugins/
 ## Как Добавлять Модуль
 
 1. Найти подходящий trait в `crates/agent-contracts/src/contracts`.
-2. Реализовать модуль как dylib-плагин в `plugins/<name>`; core-owned fallback размещать в `crates/modular-agent/src/stubs`, provider adapter — в `crates/modular-agent/src/adapters`, ABI glue нового plugin slot — в `crates/modular-agent/src/plugin_adapters`.
+2. Реализовать модуль как dylib-плагин в `plugins/default/<name>` для стандартного набора или в отдельном pack-каталоге вроде `plugins/claude_pack`; core-owned fallback размещать в `crates/modular-agent/src/stubs`, provider adapter — в `crates/modular-agent/src/adapters`, ABI glue нового plugin slot — в `crates/modular-agent/src/plugin_adapters`.
 3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить или обновить конфиг-пример.
 5. Добавить тест на заменяемость, если модуль относится к slot.

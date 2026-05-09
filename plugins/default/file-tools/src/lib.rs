@@ -14,7 +14,7 @@
 //! cargo build --release -p file-tools
 //! mkdir -p ~/.agent/plugins/file-tools
 //! cp target/release/libfile_tools.so ~/.agent/plugins/file-tools/
-//! cp plugins/file-tools/plugin.toml ~/.agent/plugins/file-tools/
+//! cp plugins/default/file-tools/plugin.toml ~/.agent/plugins/file-tools/
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,

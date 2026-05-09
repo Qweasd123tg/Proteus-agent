@@ -15,7 +15,7 @@ dylib-плагинов, а не реализации модулей и не DTO.
 `crates/agent-contracts/src/contracts/memory_store.rs` описывает trait
 `MemoryStore`, а `crates/modular-agent/src/plugin_adapters/memory` содержит
 adapter для plugin `MemoryStore`/`MemoryPolicy`. `jsonl`/`carry_forward` вынесены
-в `plugins/memory-pack`, SQLite FTS5 backend — в `plugins/sqlite-memory`.
+в `plugins/default/memory-pack`, SQLite FTS5 backend — в `plugins/default/sqlite-memory`.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/modular-agent/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
@@ -223,8 +223,8 @@ enabled = ["apply_patch", "remember_fact", "search"]
 
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Три tool'а остаются в ядре: `apply_patch`, `search`, `remember_fact`. Остальные базовые tools вынесены в плагины:
 
-- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/file-tools/`);
-- `shell-tool` — `shell` (из `plugins/shell-tool/`).
+- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/default/file-tools/`);
+- `shell-tool` — `shell` (из `plugins/default/shell-tool/`).
 
 Experimental behavior packs тоже могут регистрировать не-tool slots. Первый
 такой pack — `plugins/claude_pack`: Workflow `claude.explore_edit_verify` и
