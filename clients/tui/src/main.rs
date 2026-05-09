@@ -5,6 +5,7 @@
 //! ratatui/crossterm. Клиент depend только на `agent-contracts`, не на
 //! самом ядре — границa client/core проведена через wire protocol.
 
+mod bottom_pane;
 mod driver;
 mod history_insert;
 mod inline_terminal;
