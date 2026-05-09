@@ -93,16 +93,19 @@ pub(crate) fn render_assistant_markdown(
         }
 
         if let Some((_level, heading)) = heading(source) {
-            for (idx, segment) in wrap_text(heading, content_width.saturating_sub(2).max(1))
-                .into_iter()
-                .enumerate()
+            for (idx, segment) in wrap_spans(
+                inline_spans(heading, heading_style()),
+                content_width.saturating_sub(2).max(1),
+            )
+            .into_iter()
+            .enumerate()
             {
                 push_line(
                     &mut lines,
                     &mut first,
                     prefix,
                     prefix_style,
-                    heading_spans(&segment, idx == 0),
+                    heading_spans(segment, idx == 0),
                 );
             }
             index += 1;
@@ -989,12 +992,11 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     segments
 }
 
-fn heading_spans(text: &str, first: bool) -> Vec<Span<'static>> {
+fn heading_spans(text: Vec<Span<'static>>, first: bool) -> Vec<Span<'static>> {
     let marker = if first { "▌ " } else { "  " };
-    vec![
-        Span::styled(marker, heading_marker_style()),
-        Span::styled(text.to_owned(), heading_style()),
-    ]
+    let mut spans = vec![Span::styled(marker, heading_marker_style())];
+    spans.extend(text);
+    spans
 }
 
 fn inline_width(text: &str) -> usize {
@@ -1136,6 +1138,27 @@ mod tests {
         assert_eq!(lines[0].spans[0].content.as_ref(), "• ");
         assert_eq!(lines[0].spans[2].content.as_ref(), "Title");
         assert_eq!(lines[1].spans[2].content.as_ref(), "cargo test");
+    }
+
+    #[test]
+    fn heading_renders_inline_code() {
+        let lines = render_assistant_markdown(
+            "## 🧠 `remember_fact` — что ушло в память",
+            "• ",
+            Style::default(),
+            80,
+        );
+        let rendered = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(!rendered.contains('`'));
+        assert!(rendered.contains("remember_fact"));
+        assert!(lines[0].spans.iter().any(|span| {
+            span.content.as_ref() == "remember_fact" && span.style.fg == Some(Color::Yellow)
+        }));
     }
 
     #[test]
