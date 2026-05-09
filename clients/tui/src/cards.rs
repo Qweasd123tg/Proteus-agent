@@ -5,8 +5,8 @@ use ratatui::{
 };
 
 use crate::visual::{
-    ToolCard, ToolStatus, VisualState, compact_value, display_path, muted_style, tool_action_text,
-    truncate, wrap_text,
+    ToolCard, VisualState, compact_value, display_path, muted_style, tool_action_body,
+    tool_output_prefix_style, tool_output_style, tool_status_style, truncate, wrap_text,
 };
 
 pub(crate) fn render_scrollback_header(
@@ -150,20 +150,13 @@ fn card_line(text: &str, width: usize) -> Line<'static> {
 
 #[allow(dead_code)]
 fn _tool_card_preview_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
-    let (marker, marker_style, label, label_style) = match card.status {
-        ToolStatus::Running => ("•", muted_style(), "Running", muted_style()),
-        ToolStatus::Ok => ("•", muted_style(), "Ran", Style::default().fg(Color::Reset)),
-        ToolStatus::Err => (
-            "✗",
-            Style::default().fg(Color::Red),
-            "Failed",
-            Style::default().fg(Color::Red),
-        ),
-    };
-    let action = tool_action_text(card, label);
+    let status = tool_status_style(card.status);
+    let action = tool_action_body(card, status.label);
     lines.push(Line::from(vec![
-        Span::styled(format!("{marker} "), marker_style),
-        Span::styled(action, label_style),
+        Span::styled(format!("{} ", status.marker), status.marker_style),
+        Span::styled(status.label.to_owned(), status.label_style),
+        Span::styled(" ", muted_style()),
+        Span::styled(action, status.action_style),
     ]));
 
     if !card.output_preview.is_empty() {
@@ -173,8 +166,8 @@ fn _tool_card_preview_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, wid
             for segment in wrap_text(raw, preview_width) {
                 let prefix = if first_output_line { "  └ " } else { "    " };
                 lines.push(Line::from(vec![
-                    Span::styled(prefix, muted_style()),
-                    Span::styled(segment, muted_style()),
+                    Span::styled(prefix, tool_output_prefix_style(card.status)),
+                    Span::styled(segment, tool_output_style(card.status)),
                 ]));
                 first_output_line = false;
             }

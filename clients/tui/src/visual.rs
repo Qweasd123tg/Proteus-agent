@@ -945,20 +945,13 @@ pub(crate) fn render_scrollback_message(
 }
 
 fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width: usize) {
-    let (marker, marker_style, label, label_style) = match card.status {
-        ToolStatus::Running => ("•", muted_style(), "Running", muted_style()),
-        ToolStatus::Ok => ("•", muted_style(), "Ran", Style::default().fg(Color::Reset)),
-        ToolStatus::Err => (
-            "✗",
-            Style::default().fg(Color::Red),
-            "Failed",
-            Style::default().fg(Color::Red),
-        ),
-    };
-    let action = tool_action_text(card, label);
+    let status = tool_status_style(card.status);
+    let action = tool_action_body(card, status.label);
     lines.push(Line::from(vec![
-        Span::styled(format!("{marker} "), marker_style),
-        Span::styled(action, label_style),
+        Span::styled(format!("{} ", status.marker), status.marker_style),
+        Span::styled(status.label.to_owned(), status.label_style),
+        Span::styled(" ", muted_style()),
+        Span::styled(action, status.action_style),
     ]));
 
     if !card.output_preview.is_empty() {
@@ -968,8 +961,8 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
             for segment in wrap_text(raw, preview_width) {
                 let prefix = if first_output_line { "  └ " } else { "    " };
                 lines.push(Line::from(vec![
-                    Span::styled(prefix, muted_style()),
-                    Span::styled(segment, muted_style()),
+                    Span::styled(prefix, tool_output_prefix_style(card.status)),
+                    Span::styled(segment, tool_output_style(card.status)),
                 ]));
                 first_output_line = false;
             }
@@ -977,10 +970,69 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
     }
 }
 
+pub(crate) struct ToolStatusStyle {
+    pub marker: &'static str,
+    pub marker_style: Style,
+    pub label: &'static str,
+    pub label_style: Style,
+    pub action_style: Style,
+}
+
+pub(crate) fn tool_status_style(status: ToolStatus) -> ToolStatusStyle {
+    match status {
+        ToolStatus::Running => ToolStatusStyle {
+            marker: "●",
+            marker_style: Style::default().fg(Color::Yellow),
+            label: "Running",
+            label_style: Style::default().fg(Color::Yellow),
+            action_style: Style::default().fg(Color::LightCyan),
+        },
+        ToolStatus::Ok => ToolStatusStyle {
+            marker: "●",
+            marker_style: Style::default().fg(Color::Green),
+            label: "Ran",
+            label_style: Style::default().fg(Color::Green),
+            action_style: Style::default().fg(Color::LightCyan),
+        },
+        ToolStatus::Err => ToolStatusStyle {
+            marker: "●",
+            marker_style: Style::default().fg(Color::Red),
+            label: "Error",
+            label_style: Style::default().fg(Color::Red),
+            action_style: Style::default().fg(Color::LightRed),
+        },
+    }
+}
+
+pub(crate) fn tool_action_body(card: &ToolCard, status_label: &str) -> String {
+    let full = tool_action_text(card, status_label);
+    full.strip_prefix(status_label)
+        .map(str::trim_start)
+        .filter(|body| !body.is_empty())
+        .unwrap_or(&full)
+        .to_owned()
+}
+
+pub(crate) fn tool_output_prefix_style(status: ToolStatus) -> Style {
+    match status {
+        ToolStatus::Err => Style::default().fg(Color::Red),
+        ToolStatus::Running => Style::default().fg(Color::DarkGray),
+        ToolStatus::Ok => Style::default().fg(Color::Cyan),
+    }
+}
+
+pub(crate) fn tool_output_style(status: ToolStatus) -> Style {
+    match status {
+        ToolStatus::Err => Style::default().fg(Color::LightRed),
+        ToolStatus::Running => muted_style(),
+        ToolStatus::Ok => Style::default().fg(Color::Reset),
+    }
+}
+
 pub(crate) fn tool_action_text(card: &ToolCard, status_label: &str) -> String {
     match card.status {
         ToolStatus::Running => {
-            if card.name == "shell" || card.name == "bash" {
+            if !card.args_summary.is_empty() {
                 format!("{status_label} {}", card.args_summary)
             } else {
                 format!("{status_label} {}", card.name)
@@ -1368,17 +1420,60 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(lines[0], "• Ran uname -sr");
+        assert_eq!(lines[0], "● Ran uname -sr");
         assert_eq!(lines[1], "  └ Linux 6.19.9");
         assert_eq!(lines[2], "    extra");
 
         let styled_lines = render_scrollback_message(&message, 80);
-        assert!(
-            styled_lines[1].spans[1]
-                .style
-                .add_modifier
-                .contains(Modifier::DIM)
-        );
+        assert_eq!(styled_lines[0].spans[0].style.fg, Some(Color::Green));
+        assert_eq!(styled_lines[0].spans[1].style.fg, Some(Color::Green));
+        assert_eq!(styled_lines[0].spans[3].style.fg, Some(Color::LightCyan));
+        assert_eq!(styled_lines[1].spans[0].style.fg, Some(Color::Cyan));
+        assert_eq!(styled_lines[1].spans[1].style.fg, Some(Color::Reset));
+    }
+
+    #[test]
+    fn failed_tool_uses_red_status_without_cross_marker() {
+        let message = VisualMessage::tool(ToolCard {
+            call_id: agent_contracts::domain::new_call_id(),
+            name: "apply_patch".to_owned(),
+            args_summary: r#"{"patch":"bad"}"#.to_owned(),
+            status: ToolStatus::Err,
+            output_preview: "plugin patch error".to_owned(),
+        });
+
+        let styled_lines = render_scrollback_message(&message, 80);
+        let first_line = styled_lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert_eq!(first_line, r#"● Error {"patch":"bad"}"#);
+        assert!(!first_line.contains('✗'));
+        assert_eq!(styled_lines[0].spans[0].style.fg, Some(Color::Red));
+        assert_eq!(styled_lines[0].spans[1].style.fg, Some(Color::Red));
+        assert_eq!(styled_lines[1].spans[0].style.fg, Some(Color::Red));
+        assert_eq!(styled_lines[1].spans[1].style.fg, Some(Color::LightRed));
+    }
+
+    #[test]
+    fn running_non_shell_tool_shows_arguments_when_available() {
+        let message = VisualMessage::tool(ToolCard {
+            call_id: agent_contracts::domain::new_call_id(),
+            name: "list_dir".to_owned(),
+            args_summary: r#"{"path":"."}"#.to_owned(),
+            status: ToolStatus::Running,
+            output_preview: String::new(),
+        });
+
+        let line = render_scrollback_message(&message, 80)[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert_eq!(line, r#"● Running {"path":"."}"#);
     }
 
     #[test]
