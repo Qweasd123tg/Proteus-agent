@@ -54,7 +54,6 @@ pub struct AppState {
     context_report: Option<String>,
     context_report_scroll: usize,
     slash_selection: usize,
-    transcript_scroll_offset: usize,
     token_usage: Option<TokenUsageSnapshot>,
     usage_turn_id: Option<TurnId>,
     turn_usage: UsageTotals,
@@ -91,7 +90,6 @@ impl AppState {
             context_report: None,
             context_report_scroll: 0,
             slash_selection: 0,
-            transcript_scroll_offset: 0,
             token_usage: None,
             usage_turn_id: None,
             turn_usage: UsageTotals::default(),
@@ -464,7 +462,6 @@ impl AppState {
         self.transcript.clear_active();
         self.transcript
             .push_committed(VisualMessage::system("History cleared."));
-        self.transcript_scroll_offset = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -491,7 +488,6 @@ impl AppState {
         self.resume_picker = None;
         self.context_report = None;
         self.context_report_scroll = 0;
-        self.transcript_scroll_offset = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -726,7 +722,6 @@ impl AppState {
         self.completed_turn_at = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
-        self.transcript_scroll_offset = 0;
         self.reasoning_summary.clear();
         self.pending_model = true;
         self.status = "sent".to_owned();
@@ -744,7 +739,6 @@ impl AppState {
         self.active_turn_id = None;
         self.completed_turn_at = None;
         self.usage_turn_id = None;
-        self.transcript_scroll_offset = 0;
         self.status = "cancel requested".to_owned();
         self.transcript
             .push_committed(VisualMessage::system("Turn cancel requested."));
@@ -752,20 +746,6 @@ impl AppState {
 
     pub fn drain_scrollback_messages(&mut self) -> Vec<VisualMessage> {
         self.transcript.drain_new_messages()
-    }
-
-    pub fn transcript_scroll_offset(&self) -> usize {
-        self.transcript_scroll_offset
-    }
-
-    pub fn scroll_transcript_up(&mut self, by: usize) {
-        if self.transcript.is_streaming() {
-            self.transcript_scroll_offset = self.transcript_scroll_offset.saturating_add(by);
-        }
-    }
-
-    pub fn scroll_transcript_down(&mut self, by: usize) {
-        self.transcript_scroll_offset = self.transcript_scroll_offset.saturating_sub(by);
     }
 
     pub fn rewind_scrollback(&mut self) {
@@ -801,7 +781,6 @@ impl AppState {
                 // заменяем его каноническим TurnOutput, чтобы не зависеть от
                 // точной сборки provider deltas.
                 self.transcript.finalize_active_assistant(output.text);
-                self.transcript_scroll_offset = 0;
                 self.pending_model = false;
                 self.mark_turn_completed();
                 self.model_started_at = None;
@@ -1970,27 +1949,6 @@ mod tests {
         assert!(drained_text.contains(&"long task"));
         assert!(drained_text.contains(&"partial answer"));
         assert!(drained_text.contains(&"Turn cancel requested."));
-    }
-
-    #[test]
-    fn transcript_scroll_offset_only_moves_while_streaming() {
-        let mut state = AppState::new(PathBuf::from("."), None);
-
-        state.scroll_transcript_up(8);
-        assert_eq!(state.transcript_scroll_offset(), 0);
-
-        state.mark_user_sent("long task".to_owned(), Vec::new(), "turn-1".to_owned());
-        state.append_streaming_text("partial answer");
-        state.scroll_transcript_up(8);
-        state.scroll_transcript_down(3);
-
-        assert_eq!(state.transcript_scroll_offset(), 5);
-
-        state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("done"),
-        });
-
-        assert_eq!(state.transcript_scroll_offset(), 0);
     }
 
     #[test]
