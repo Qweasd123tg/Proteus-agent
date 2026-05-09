@@ -1,15 +1,13 @@
 mod composer;
 mod footer;
+mod slash;
+mod status;
 
 use ratatui::text::Line;
 
-use crate::{
-    slash_commands::matching_slash_commands,
-    visual::{
-        VisualState, active_status_line, active_status_visible, append_approval_lines,
-        append_reasoning_preview_lines, composer_lines, reasoning_preview_visible,
-        slash_plain_lines,
-    },
+use crate::visual::{
+    VisualState, active_status_line, append_approval_lines, append_reasoning_preview_lines,
+    composer_lines, slash_plain_lines,
 };
 
 pub(crate) struct BottomPane;
@@ -35,7 +33,7 @@ impl BottomPane {
     ) -> BottomPaneLines {
         let mut lines = Vec::new();
 
-        if slash_visible(state) {
+        if slash::slash_visible(state) {
             lines.extend(slash_plain_lines(state, width));
             lines.push(Line::raw(""));
         }
@@ -46,10 +44,10 @@ impl BottomPane {
             lines.extend(approval_lines);
         } else {
             append_reasoning_preview_lines(&mut lines, state, width);
-            if reasoning_preview_visible(state) && active_status_visible(state) {
+            if status::reasoning_preview_visible(state) && status::active_status_visible(state) {
                 lines.push(Line::raw(""));
             }
-            if active_status_visible(state) {
+            if status::active_status_visible(state) {
                 if lines.last().is_some_and(|line| line.width() > 0) {
                     lines.push(Line::raw(""));
                 }
@@ -75,10 +73,4 @@ impl BottomPane {
             cursor_col,
         }
     }
-}
-
-fn slash_visible(state: &VisualState<'_>) -> bool {
-    !matching_slash_commands(state.input).is_empty()
-        && state.pending_approval.is_none()
-        && state.resume_picker.is_none()
 }
