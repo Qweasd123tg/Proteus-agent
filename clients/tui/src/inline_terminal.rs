@@ -184,8 +184,7 @@ fn prepare_live_tail(
     let mut lines = render_scrollback_message(message, render_width);
     trim_trailing_blank_lines(&mut lines);
     let height = max_height.min(lines.len());
-    let end = live_tail_visible_end(lines.len(), height, state.transcript_scroll_offset());
-    let start = end.saturating_sub(height);
+    let start = live_tail_visible_start(lines.len(), height, state.transcript_scroll_offset());
 
     Ok(PreparedLiveTail {
         lines: lines.into_iter().skip(start).take(height).collect(),
@@ -203,15 +202,11 @@ fn max_live_tail_lines(screen_height: u16, panel_height: u16) -> usize {
         .min(18) as usize
 }
 
-fn live_tail_visible_end(total_lines: usize, height: usize, scroll_offset: usize) -> usize {
+fn live_tail_visible_start(total_lines: usize, height: usize, scroll_offset: usize) -> usize {
     if total_lines <= height {
-        return total_lines;
+        return 0;
     }
-    let min_end = height;
-    let max_end = total_lines;
-    total_lines
-        .saturating_sub(scroll_offset)
-        .clamp(min_end, max_end)
+    scroll_offset.min(total_lines.saturating_sub(height))
 }
 
 fn trim_trailing_blank_lines(lines: &mut Vec<Line<'static>>) {
@@ -261,11 +256,11 @@ mod tests {
     }
 
     #[test]
-    fn live_tail_visible_end_scrolls_from_tail() {
-        assert_eq!(live_tail_visible_end(30, 10, 0), 30);
-        assert_eq!(live_tail_visible_end(30, 10, 5), 25);
-        assert_eq!(live_tail_visible_end(30, 10, 99), 10);
-        assert_eq!(live_tail_visible_end(8, 10, 99), 8);
+    fn live_tail_visible_start_scrolls_from_top() {
+        assert_eq!(live_tail_visible_start(30, 10, 0), 0);
+        assert_eq!(live_tail_visible_start(30, 10, 5), 5);
+        assert_eq!(live_tail_visible_start(30, 10, 99), 20);
+        assert_eq!(live_tail_visible_start(8, 10, 99), 0);
     }
 
     #[test]
