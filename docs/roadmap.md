@@ -160,9 +160,9 @@ Scope:
   показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
   `stream = true`; ModelService транслирует TextDelta/ToolArgsDelta/
-  ReasoningDelta как runtime events; `agent-tui` дописывает deltas в tail
-  активного assistant-bubble. `FilteredEventSink` не пишет дельты в
-  durable JSONL по умолчанию.
+  ReasoningDelta как runtime events; `agent-tui` вставляет completed-line text
+  deltas в normal scrollback и не рисует partial tail отдельным live-preview.
+  `FilteredEventSink` не пишет дельты в durable JSONL по умолчанию.
 - ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
   `sqlite-memory` (ids `sqlite`, `sqlite_plugin`) — proof что
   `PluginMemoryStore` ABI работает с реальной I/O-зависимой реализацией без
@@ -274,7 +274,7 @@ Scope:
 
 - Продолжать доводить `agent-tui` как внешний client: slash autocomplete,
   fullscreen `/resume`, `/context` overlay, markdown renderer, paste UX,
-  stopwatch и smooth streaming остаются client concerns.
+  stopwatch и streaming readability остаются client concerns.
 - Разбор Codex/Claude/OpenCode и план стабилизации TUI зафиксированы в
   `docs/tui-ux-research.md`. Основной вывод: сначала нужен единый render model,
   bottom-pane state machine, generic dialog/picker и paste-burst fallback, а не

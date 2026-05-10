@@ -305,7 +305,12 @@ task
   запрос не доставлен, timed out или app-server shutdown, approval закрывается
   как отказ.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
-- Resume из event log, session restore, derived SQLite/index, real subagents/multiple threads и eval harness пока planned.
+- Session resume реализован через session store и `--resume-session`; TUI `/resume`
+  открывает picker по sessions текущего workspace/profile. Полный replay/index
+  поверх durable event log и derived SQLite/index пока planned.
+- Базовый eval report реализован как чтение существующего event log
+  (`agent eval report <event-log-path>`). Eval runner/suite, который сам
+  запускает задачи и сравнивает workflow/profile variants, пока planned.
 - Repo-aware context builder реализован в `context-pack` как provider pipeline за `ContextBuilder` slot. Line-oriented read/edit/git tools, diff-first approval, configurable phase settings для `coding.plan_execute_review` и JSON output mode для `modules list` пока planned.
 
 Эти ограничения нужно описывать как состояние v0, а не как архитектурный дефект.
