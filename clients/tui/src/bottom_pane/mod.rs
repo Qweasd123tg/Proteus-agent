@@ -25,12 +25,7 @@ impl Default for BottomPane {
 }
 
 impl BottomPane {
-    pub(crate) fn lines(
-        &self,
-        state: &VisualState<'_>,
-        width: usize,
-        _max_live_lines: usize,
-    ) -> BottomPaneLines {
+    pub(crate) fn lines(&self, state: &VisualState<'_>, width: usize) -> BottomPaneLines {
         let mut lines = Vec::new();
 
         if slash::slash_visible(state) {

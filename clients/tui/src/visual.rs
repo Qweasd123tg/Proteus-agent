@@ -6,16 +6,14 @@ use std::{
 use agent_contracts::app_protocol::AppApprovalRequest;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::{Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    cards::{append_approval_lines, footer_plain_line},
-    live_preview::{append_plain_preview_text, live_preview_height},
     session_picker::ResumePicker,
     slash_commands::{SlashCommand, matching_slash_commands},
 };
@@ -74,27 +72,21 @@ pub(crate) struct InputPasteRange {
 }
 
 pub(crate) struct VisualSurface {
-    composer: ComposerComponent,
-    footer: FooterComponent,
     resume_picker: ResumePickerComponent,
     context_report: ContextReportComponent,
-    slash: SlashComponent,
 }
 
 impl Default for VisualSurface {
     fn default() -> Self {
         Self {
-            composer: ComposerComponent,
-            footer: FooterComponent,
             resume_picker: ResumePickerComponent,
             context_report: ContextReportComponent,
-            slash: SlashComponent,
         }
     }
 }
 
 impl VisualSurface {
-    pub(crate) fn render_inline(&self, frame: &mut Frame, state: &VisualState<'_>) {
+    pub(crate) fn render_overlay(&self, frame: &mut Frame, state: &VisualState<'_>) {
         if let Some(picker) = state.resume_picker {
             self.resume_picker.render(frame, frame.area(), picker);
             frame.set_cursor_position(Position::new(
@@ -112,98 +104,6 @@ impl VisualSurface {
                 .render(frame, frame.area(), report, state.context_report_scroll);
             return;
         }
-
-        let approval_height = if state.pending_approval.is_some() {
-            9u16.min(frame.area().height.saturating_sub(3))
-        } else {
-            0
-        };
-        let active_status_top_gap_height = active_status_top_gap_height(state);
-        let composer_gap_height = composer_gap_height(state);
-        let composer_bottom_gap_height = composer_bottom_gap_height(state);
-        let active_status_height = active_status_height(
-            state,
-            frame.area().height.saturating_sub(
-                approval_height
-                    + active_status_top_gap_height
-                    + composer_gap_height
-                    + composer_bottom_gap_height
-                    + 2,
-            ),
-        );
-        let live_height = live_preview_height(
-            state,
-            frame.area().height.saturating_sub(
-                approval_height
-                    + active_status_top_gap_height
-                    + active_status_height
-                    + composer_gap_height
-                    + composer_bottom_gap_height
-                    + 2,
-            ),
-        );
-        let total_height = approval_height
-            .saturating_add(live_height)
-            .saturating_add(active_status_top_gap_height)
-            .saturating_add(active_status_height)
-            .saturating_add(composer_gap_height)
-            .saturating_add(composer_bottom_gap_height)
-            .saturating_add(2)
-            .min(frame.area().height);
-        let bottom = Rect::new(
-            frame.area().x,
-            frame.area().bottom().saturating_sub(total_height),
-            frame.area().width,
-            total_height,
-        );
-        frame.render_widget(Clear, bottom);
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(approval_height),
-                Constraint::Length(live_height),
-                Constraint::Length(active_status_top_gap_height),
-                Constraint::Length(active_status_height),
-                Constraint::Length(composer_gap_height),
-                Constraint::Length(1),
-                Constraint::Length(composer_bottom_gap_height),
-                Constraint::Length(1),
-            ])
-            .split(bottom);
-
-        if let Some(request) = state.pending_approval {
-            let mut approval_lines = Vec::new();
-            append_approval_lines(&mut approval_lines, request, chunks[0].width as usize);
-            frame.render_widget(Paragraph::new(approval_lines), chunks[0]);
-        }
-
-        if live_height > 0 {
-            let live_lines = crate::live_preview::live_preview_lines(
-                state,
-                chunks[1].width as usize,
-                live_height as usize,
-            );
-            frame.render_widget(Paragraph::new(live_lines), chunks[1]);
-        }
-
-        if active_status_height > 0 {
-            frame.render_widget(
-                Paragraph::new(vec![active_status_line(state, true)]),
-                chunks[3],
-            );
-        }
-
-        self.composer.render(frame, chunks[5], state);
-        self.footer.render(frame, chunks[7], state);
-        self.slash.render(frame, chunks[5], state);
-
-        let cursor_x = chunks[5].x + 2 + state.input.chars().count() as u16;
-        let cursor_y = chunks[5].y;
-        frame.set_cursor_position(Position::new(
-            cursor_x.min(chunks[5].right().saturating_sub(1)),
-            cursor_y,
-        ));
     }
 }
 
@@ -213,32 +113,8 @@ struct DisplaySegment {
     style: Style,
 }
 
-trait VisualComponent {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>);
-}
-
-struct ComposerComponent;
-struct FooterComponent;
 struct ResumePickerComponent;
 struct ContextReportComponent;
-struct SlashComponent;
-
-impl VisualComponent for ComposerComponent {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
-        let input = if state.input.is_empty() && !state.pending_model {
-            Span::styled("Ask agent to do anything", muted_style())
-        } else {
-            Span::raw(state.input.to_owned())
-        };
-        let prompt = if state.pending_approval.is_some() {
-            Span::styled("?", muted_style())
-        } else {
-            Span::styled("›", Style::default().fg(Color::Cyan))
-        };
-        let lines = vec![Line::from(vec![prompt, Span::raw(" "), input])];
-        frame.render_widget(Paragraph::new(lines), area);
-    }
-}
 
 pub(crate) fn composer_lines(
     state: &VisualState<'_>,
@@ -406,52 +282,6 @@ fn paste_marker_style() -> Style {
     Style::default().fg(Color::Blue)
 }
 
-impl VisualComponent for FooterComponent {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &VisualState<'_>) {
-        let line = footer_plain_line(state, area.width as usize);
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(line, muted_style()))),
-            area,
-        );
-    }
-}
-
-pub(crate) fn active_status_visible(state: &VisualState<'_>) -> bool {
-    state.pending_model && state.pending_approval.is_none()
-}
-
-fn active_status_top_gap_height(state: &VisualState<'_>) -> u16 {
-    if active_status_visible(state) { 1 } else { 0 }
-}
-
-fn composer_gap_visible(state: &VisualState<'_>) -> bool {
-    state.pending_approval.is_none()
-}
-
-fn composer_gap_height(state: &VisualState<'_>) -> u16 {
-    if composer_gap_visible(state) { 1 } else { 0 }
-}
-
-fn composer_bottom_gap_visible(_state: &VisualState<'_>) -> bool {
-    true
-}
-
-fn composer_bottom_gap_height(state: &VisualState<'_>) -> u16 {
-    if composer_bottom_gap_visible(state) {
-        1
-    } else {
-        0
-    }
-}
-
-fn active_status_height(state: &VisualState<'_>, available: u16) -> u16 {
-    if active_status_visible(state) {
-        1.min(available)
-    } else {
-        0
-    }
-}
-
 pub(crate) fn reasoning_preview_visible(state: &VisualState<'_>) -> bool {
     !matches!(state.reasoning_mode, ReasoningDisplayMode::Hidden)
         && !state.reasoning_summary.trim().is_empty()
@@ -484,6 +314,33 @@ pub(crate) fn append_reasoning_preview_lines(
         }
         ReasoningDisplayMode::Expanded => {
             append_plain_preview_text(lines, state.reasoning_summary, "  ", style, width);
+        }
+    }
+}
+
+fn append_plain_preview_text(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    prefix: &str,
+    style: Style,
+    width: usize,
+) {
+    let mut first_segment = true;
+    let text_width = width.saturating_sub(prefix.chars().count()).max(1);
+    for source_line in text.lines() {
+        let segments = wrap_text(source_line, text_width);
+        if segments.is_empty() {
+            lines.push(Line::raw(""));
+            continue;
+        }
+
+        for segment in segments {
+            let line_prefix = if first_segment { prefix } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(line_prefix.to_owned(), style),
+                Span::styled(segment, style),
+            ]));
+            first_segment = false;
         }
     }
 }
@@ -599,59 +456,6 @@ pub(crate) fn slash_plain_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         Style::default().fg(Color::DarkGray),
     )));
     out
-}
-
-impl SlashComponent {
-    fn render(&self, frame: &mut Frame, composer_area: Rect, state: &VisualState<'_>) {
-        let matches = matching_slash_commands(state.input);
-        if matches.is_empty() || state.pending_approval.is_some() || state.resume_picker.is_some() {
-            return;
-        }
-
-        let max_width = frame.area().width.saturating_sub(2);
-        let width = max_width.clamp(36, 74);
-        let visible_count = matches.len().min(7);
-        let height = (visible_count as u16).saturating_add(2);
-        let x = composer_area.x;
-        let y = composer_area.y.saturating_sub(height);
-        let area = Rect::new(x, y, width, height);
-        let selected = state.slash_selection.min(matches.len().saturating_sub(1));
-
-        frame.render_widget(Clear, area);
-
-        let mut lines = Vec::new();
-        for (index, command) in visible_matches(&matches, selected, visible_count)
-            .into_iter()
-            .enumerate()
-        {
-            let absolute_index = slash_window_start(selected, visible_count) + index;
-            let selected_row = absolute_index == selected;
-            let marker = if selected_row { "› " } else { "  " };
-            let style = if selected_row {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default().fg(Color::Reset)
-            };
-            let usage_width = (area.width as usize).saturating_div(2).saturating_sub(4);
-            let description_width = (area.width as usize)
-                .saturating_sub(usage_width)
-                .saturating_sub(7);
-            lines.push(Line::from(vec![
-                Span::styled(marker, style),
-                Span::styled(truncate(command.usage, usage_width), style),
-                Span::styled("  ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    truncate(command.description, description_width),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]));
-        }
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(Paragraph::new(lines).block(block), area);
-    }
 }
 
 fn visible_matches<'a>(
@@ -1180,12 +984,8 @@ mod tests {
         cards::render_scrollback_header,
     };
 
-    fn inline_panel_lines(
-        state: &VisualState<'_>,
-        width: usize,
-        max_live_lines: usize,
-    ) -> BottomPaneLines {
-        BottomPane.lines(state, width, max_live_lines)
+    fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> BottomPaneLines {
+        BottomPane.lines(state, width)
     }
 
     #[test]
@@ -1277,7 +1077,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let panel = inline_panel_lines(&state, 80, 20);
+        let panel = inline_panel_lines(&state, 80);
         let rendered = panel
             .lines
             .iter()
@@ -1317,7 +1117,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let panel = inline_panel_lines(&state, 80, 20);
+        let panel = inline_panel_lines(&state, 80);
         let rendered = panel
             .lines
             .iter()
@@ -1375,7 +1175,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let rendered = inline_panel_lines(&state, 80, 20)
+        let rendered = inline_panel_lines(&state, 80)
             .lines
             .iter()
             .map(|line| {
@@ -1556,7 +1356,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let panel = inline_panel_lines(&state, 80, 20);
+        let panel = inline_panel_lines(&state, 80);
         let rendered = panel
             .lines
             .iter()
@@ -1603,8 +1403,8 @@ mod tests {
         let empty = idle_state("");
         let typed = idle_state("a");
 
-        let empty_panel = inline_panel_lines(&empty, 80, 20);
-        let typed_panel = inline_panel_lines(&typed, 80, 20);
+        let empty_panel = inline_panel_lines(&empty, 80);
+        let typed_panel = inline_panel_lines(&typed, 80);
 
         assert_eq!(typed_panel.cursor_row, empty_panel.cursor_row);
         assert_eq!(typed_panel.lines.len(), empty_panel.lines.len());
@@ -1639,7 +1439,7 @@ mod tests {
             slash_selection: 0,
         };
 
-        let panel = inline_panel_lines(&state, 80, 20);
+        let panel = inline_panel_lines(&state, 80);
         let rendered = panel
             .lines
             .iter()
