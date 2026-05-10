@@ -15,12 +15,14 @@ agent init coding
 После `agent init coding` проверь provider/key config:
 
 ```text
+~/.config/agent-qweasd123tg/configs/00-provider.toml
 ~/.config/agent-qweasd123tg/configs/10-coding.toml
 ```
 
-Сейчас на основной машине ключ хранится inline в этом файле. На новом ПК нужно
-либо перенести такой же provider block, либо заменить его на `api_key_env` /
-`api_key_file`.
+`00-provider.toml` хранит `active_provider` и `providers.*`; `10-coding.toml`
+подключает его через `include = "00-provider.toml"` и содержит behavioral
+profile. На новом ПК проверь `api_key_env` / `api_key_file` в provider config
+и выставь соответствующий secret.
 
 ## Claude-Pack Config Root
 
