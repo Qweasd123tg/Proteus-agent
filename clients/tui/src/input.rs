@@ -1,0 +1,308 @@
+use std::collections::HashSet;
+
+use agent_contracts::{app_protocol::StdioRequest, contracts::ApprovalCacheScope};
+use anyhow::Result;
+use crossterm::event::{Event as CTerm, KeyCode, KeyEventKind, KeyModifiers};
+
+use crate::{
+    commands::{handle_slash_command, request_cancel, resume_session_dir},
+    driver::{AgentDriver, DriverConfig},
+    state::AppState,
+};
+
+pub(crate) async fn handle_term_event(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &DriverConfig,
+    canceled_turn_responses: &mut HashSet<String>,
+    cancel_request_responses: &mut HashSet<String>,
+    ev: CTerm,
+) -> Result<bool> {
+    match ev {
+        CTerm::Key(key) if is_handled_key_event(key.kind) => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                match key.code {
+                    KeyCode::Char('c') => {
+                        if state.has_context_report() {
+                            state.close_context_report();
+                        } else if state.input_is_empty() {
+                            state.arm_or_confirm_quit();
+                        } else {
+                            state.clear_input();
+                        }
+                        return Ok(true);
+                    }
+                    _ => {}
+                }
+            }
+
+            if state.has_context_report() {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                        state.close_context_report();
+                        return Ok(true);
+                    }
+                    KeyCode::Up => {
+                        state.scroll_context_report_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Down => {
+                        state.scroll_context_report_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::PageUp => {
+                        state.scroll_context_report_up(8);
+                        return Ok(true);
+                    }
+                    KeyCode::PageDown => {
+                        state.scroll_context_report_down(8);
+                        return Ok(true);
+                    }
+                    _ => return Ok(false),
+                }
+            }
+
+            if state.has_resume_picker() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if let Some(session_dir) = state.selected_resume_session() {
+                            resume_session_dir(state, driver, driver_config, session_dir).await?;
+                            canceled_turn_responses.clear();
+                            cancel_request_responses.clear();
+                        }
+                        return Ok(true);
+                    }
+                    KeyCode::Esc => {
+                        state.close_resume_picker();
+                        return Ok(true);
+                    }
+                    KeyCode::Backspace => {
+                        state.backspace_resume_query();
+                        return Ok(true);
+                    }
+                    KeyCode::Char(ch) => {
+                        state.type_resume_query_char(ch);
+                        return Ok(true);
+                    }
+                    KeyCode::Tab => {
+                        state.move_resume_selection_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::BackTab => {
+                        state.move_resume_selection_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Up => {
+                        state.move_resume_selection_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Down => {
+                        state.move_resume_selection_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::PageUp => {
+                        state.move_resume_selection_up(5);
+                        return Ok(true);
+                    }
+                    KeyCode::PageDown => {
+                        state.move_resume_selection_down(5);
+                        return Ok(true);
+                    }
+                    _ => return Ok(false),
+                }
+            }
+
+            if state.has_pending_approval() {
+                match key.code {
+                    KeyCode::Char('y')
+                    | KeyCode::Char('Y')
+                    | KeyCode::Char('1')
+                    | KeyCode::Char('н')
+                    | KeyCode::Char('Н') => {
+                        if let Some(id) = state.take_pending_approval_id() {
+                            driver
+                                .send(&StdioRequest::Approval {
+                                    id: None,
+                                    approval_id: id,
+                                    approved: true,
+                                    note: None,
+                                    cache: ApprovalCacheScope::None,
+                                })
+                                .await?;
+                            return Ok(true);
+                        }
+                    }
+                    KeyCode::Char('p')
+                    | KeyCode::Char('P')
+                    | KeyCode::Char('2')
+                    | KeyCode::Char('з')
+                    | KeyCode::Char('З') => {
+                        if let Some(id) = state.take_pending_approval_id() {
+                            driver
+                                .send(&StdioRequest::Approval {
+                                    id: None,
+                                    approval_id: id,
+                                    approved: true,
+                                    note: None,
+                                    cache: ApprovalCacheScope::ExactCall,
+                                })
+                                .await?;
+                            return Ok(true);
+                        }
+                    }
+                    KeyCode::Char('n')
+                    | KeyCode::Char('N')
+                    | KeyCode::Char('3')
+                    | KeyCode::Char('т')
+                    | KeyCode::Char('Т')
+                    | KeyCode::Esc => {
+                        if let Some(id) = state.take_pending_approval_id() {
+                            driver
+                                .send(&StdioRequest::Approval {
+                                    id: None,
+                                    approval_id: id,
+                                    approved: false,
+                                    note: Some("denied by user".into()),
+                                    cache: ApprovalCacheScope::None,
+                                })
+                                .await?;
+                            return Ok(true);
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(false);
+            }
+
+            match key.code {
+                KeyCode::Enter => {
+                    if state.complete_partial_slash_suggestion() {
+                        return Ok(true);
+                    } else if state.pending_model {
+                        if let Some(submission) = state.take_input_for_slash_command() {
+                            handle_slash_command(
+                                state,
+                                driver,
+                                driver_config,
+                                canceled_turn_responses,
+                                cancel_request_responses,
+                                &submission.text,
+                            )
+                            .await?;
+                        } else if !state.input_is_empty() {
+                            state.reject_send_while_busy();
+                        }
+                        return Ok(true);
+                    } else if let Some(submission) = state.take_input_for_send() {
+                        if submission.text.starts_with('/') {
+                            handle_slash_command(
+                                state,
+                                driver,
+                                driver_config,
+                                canceled_turn_responses,
+                                cancel_request_responses,
+                                &submission.text,
+                            )
+                            .await?;
+                        } else {
+                            let turn_id = state.next_turn_id();
+                            driver
+                                .send(&StdioRequest::Send {
+                                    id: Some(turn_id.clone()),
+                                    text: submission.text.clone(),
+                                })
+                                .await?;
+                            state.mark_user_sent(submission.text, submission.paste_ranges, turn_id);
+                        }
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Tab => {
+                    if state.has_slash_suggestions() {
+                        state.complete_slash_suggestion();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::BackTab => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Backspace => {
+                    state.backspace();
+                    return Ok(true);
+                }
+                KeyCode::Char(ch) => {
+                    state.type_char(ch);
+                    return Ok(true);
+                }
+                KeyCode::PageUp => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::PageDown => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_next();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Up => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_prev();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Down => {
+                    if state.has_slash_suggestions() {
+                        state.move_slash_selection_next();
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Right => {
+                    if state.complete_slash_suggestion() {
+                        return Ok(true);
+                    }
+                }
+                KeyCode::Esc => {
+                    if state.pending_model
+                        && request_cancel(
+                            state,
+                            driver,
+                            canceled_turn_responses,
+                            cancel_request_responses,
+                        )
+                        .await?
+                    {
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+        CTerm::Paste(text) => {
+            state.paste_text(&text);
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn is_handled_key_event(kind: KeyEventKind) -> bool {
+    matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handled_key_events_include_repeat_events() {
+        assert!(is_handled_key_event(KeyEventKind::Press));
+        assert!(is_handled_key_event(KeyEventKind::Repeat));
+        assert!(!is_handled_key_event(KeyEventKind::Release));
+    }
+}
