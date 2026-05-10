@@ -444,6 +444,10 @@ terminal surface и active streaming view, не меняя core protocol.
   отдельный `live_preview` module удалены. Streaming semantics теперь явные:
   completed-line output идёт в normal scrollback, partial assistant tail не
   показывается как отдельный bottom-pane preview.
+- Двадцать четвёртый шаг migration: slash command execution, cancel request и
+  resume/session-loading helpers вынесены из `main.rs` в `commands.rs`.
+  `main.rs` остаётся ближе к terminal/app-server event loop и больше не держит
+  command dispatch + session history parsing в одном файле.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.
