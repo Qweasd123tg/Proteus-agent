@@ -448,6 +448,9 @@ terminal surface и active streaming view, не меняя core protocol.
   resume/session-loading helpers вынесены из `main.rs` в `commands.rs`.
   `main.rs` остаётся ближе к terminal/app-server event loop и больше не держит
   command dispatch + session history parsing в одном файле.
+- Двадцать пятый шаг migration: CLI args и launcher profile resolution вынесены
+  из `main.rs` в `profiles.rs`. `main.rs` теперь держит terminal lifecycle,
+  app-server loop и key routing, но не profile-file parsing.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.

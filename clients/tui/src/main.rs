@@ -12,6 +12,7 @@ mod driver;
 mod history_insert;
 mod inline_terminal;
 mod markdown;
+mod profiles;
 mod session_picker;
 mod slash_commands;
 mod state;
@@ -19,15 +20,10 @@ mod terminal_surface;
 mod transcript;
 mod visual;
 
-use std::{
-    collections::HashSet,
-    io,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{collections::HashSet, io, path::PathBuf, time::Duration};
 
 use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{
@@ -41,12 +37,12 @@ use crossterm::{
     },
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use serde::Deserialize;
 
 use crate::{
     commands::{handle_slash_command, request_cancel, resume_session_dir},
     driver::{AgentDriver, DriverConfig},
     inline_terminal::InlineTerminalState,
+    profiles::{Cli, apply_profile, parse_args},
     state::AppState,
     terminal_surface::TerminalSurface,
     visual::VisualSurface,
@@ -93,166 +89,6 @@ fn install_panic_hook() {
         let _ = std::fs::write(&path, &msg);
         eprintln!("panic log: {}", path.display());
     }));
-}
-
-struct Cli {
-    agent_bin: Option<PathBuf>,
-    config_path: Option<PathBuf>,
-    cwd: Option<PathBuf>,
-    profile: Option<String>,
-}
-
-fn parse_args(args: &[String]) -> Result<Cli> {
-    let mut agent_bin = None;
-    let mut config_path = None;
-    let mut cwd = None;
-    let mut profile = None;
-    let mut iter = args.iter().peekable();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--profile" | "-p" => {
-                profile = iter
-                    .next()
-                    .map(ToOwned::to_owned)
-                    .context("--profile requires value")
-                    .ok();
-            }
-            "--agent-bin" => {
-                agent_bin = iter
-                    .next()
-                    .map(PathBuf::from)
-                    .context("--agent-bin requires value")
-                    .ok();
-            }
-            "--config" => {
-                config_path = iter
-                    .next()
-                    .map(PathBuf::from)
-                    .context("--config requires value")
-                    .ok();
-            }
-            "--cwd" => {
-                cwd = iter
-                    .next()
-                    .map(PathBuf::from)
-                    .context("--cwd requires value")
-                    .ok();
-            }
-            "--help" | "-h" => {
-                print_help();
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!("unknown arg: {other}");
-                print_help();
-                std::process::exit(2);
-            }
-        }
-    }
-    Ok(Cli {
-        agent_bin,
-        config_path,
-        cwd,
-        profile,
-    })
-}
-
-fn print_help() {
-    eprintln!(
-        "agent-tui — terminal UI for modular-agent\n\
-         \n\
-         usage:\n\
-           agent-tui [--profile NAME] [--agent-bin PATH] [--config PATH] [--cwd PATH]\n\
-         \n\
-         options:\n\
-           --profile, -p NAME  load ~/.config/agent-qweasd123tg/profiles/NAME.toml\n\
-           --agent-bin PATH    path to the modular-agent binary (default: in $PATH)\n\
-           --config PATH       path to agent config (toml or json)\n\
-           --cwd PATH          workspace directory for the agent (default: current dir)\n\
-           --help, -h          show this help"
-    );
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct TuiProfileConfig {
-    agent_bin: Option<PathBuf>,
-    config: Option<PathBuf>,
-    cwd: Option<PathBuf>,
-}
-
-fn apply_profile(cli: Cli) -> Result<Cli> {
-    let Some(profile) = cli.profile.as_deref() else {
-        return Ok(cli);
-    };
-    let profile_path = profile_path(profile)?;
-    apply_profile_file(cli, &profile_path)
-}
-
-fn apply_profile_file(cli: Cli, profile_path: &Path) -> Result<Cli> {
-    let content = std::fs::read_to_string(&profile_path)
-        .with_context(|| format!("failed to read TUI profile {}", profile_path.display()))?;
-    let profile_config: TuiProfileConfig = toml::from_str(&content)
-        .with_context(|| format!("failed to parse TUI profile {}", profile_path.display()))?;
-    let profile_dir = profile_path.parent().unwrap_or_else(|| Path::new("."));
-
-    Ok(Cli {
-        agent_bin: cli.agent_bin.or_else(|| {
-            profile_config
-                .agent_bin
-                .map(|path| resolve_profile_path(profile_dir, path))
-        }),
-        config_path: cli.config_path.or_else(|| {
-            profile_config
-                .config
-                .map(|path| resolve_profile_path(profile_dir, path))
-        }),
-        cwd: cli.cwd.or_else(|| {
-            profile_config
-                .cwd
-                .map(|path| resolve_profile_path(profile_dir, path))
-        }),
-        profile: cli.profile,
-    })
-}
-
-fn profile_path(profile: &str) -> Result<PathBuf> {
-    if profile.trim().is_empty() {
-        anyhow::bail!("profile name must not be empty");
-    }
-    let path = PathBuf::from(profile);
-    if path.components().count() != 1 || path.is_absolute() {
-        anyhow::bail!("profile name must be a simple file stem, got '{profile}'");
-    }
-    let home = std::env::var_os("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home)
-        .join(".config/agent-qweasd123tg/profiles")
-        .join(format!("{profile}.toml")))
-}
-
-fn resolve_profile_path(profile_dir: &Path, path: PathBuf) -> PathBuf {
-    let path = expand_home_path(&path);
-    if path.is_absolute() {
-        path
-    } else {
-        profile_dir.join(path)
-    }
-}
-
-fn expand_home_path(path: &Path) -> PathBuf {
-    let Some(path_str) = path.to_str() else {
-        return path.to_path_buf();
-    };
-    if path_str == "~"
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home);
-    }
-    if let Some(rest) = path_str.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(rest);
-    }
-    path.to_path_buf()
 }
 
 fn enter_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -786,33 +622,6 @@ fn is_handled_key_event(kind: KeyEventKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn profile_file_fills_missing_launcher_fields() {
-        let dir = tempfile::tempdir().expect("profile dir");
-        let profile_path = dir.path().join("claude.toml");
-        std::fs::write(
-            &profile_path,
-            r#"
-agent_bin = "bin/agent"
-config = "~/agent-config/configs"
-cwd = "workspace"
-"#,
-        )
-        .expect("profile");
-        let cli = Cli {
-            agent_bin: None,
-            config_path: Some(PathBuf::from("/explicit/config")),
-            cwd: None,
-            profile: Some("claude".to_owned()),
-        };
-
-        let cli = apply_profile_file(cli, &profile_path).expect("applied profile");
-
-        assert_eq!(cli.agent_bin, Some(dir.path().join("bin/agent")));
-        assert_eq!(cli.config_path, Some(PathBuf::from("/explicit/config")));
-        assert_eq!(cli.cwd, Some(dir.path().join("workspace")));
-    }
 
     #[test]
     fn handled_key_events_include_repeat_events() {
