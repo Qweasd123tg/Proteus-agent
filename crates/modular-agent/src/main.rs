@@ -25,7 +25,9 @@ use serde_json::Value;
 use tokio::time::sleep;
 
 const CODING_PROFILE_CONFIG: &str = include_str!("../../../agent.coding.example.toml");
+const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../agent.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../agent.example.toml");
+const INIT_PROVIDER_FILE: &str = "00-provider.toml";
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "CLI-first modular agent skeleton")]
@@ -237,7 +239,17 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&destination, profile.config_body())?;
+    if profile.uses_shared_provider() {
+        let provider_destination = provider_destination_path(&destination);
+        fs::write(&provider_destination, PROVIDER_PROFILE_CONFIG)?;
+        fs::write(&destination, profile.config_body_for_init())?;
+        println!(
+            "Initialized provider config: {}",
+            provider_destination.display()
+        );
+    } else {
+        fs::write(&destination, profile.config_body())?;
+    }
 
     println!(
         "Initialized {} profile: {}",
@@ -246,6 +258,36 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
     );
     println!("Next: agent doctor");
     Ok(())
+}
+
+impl InitProfile {
+    fn uses_shared_provider(self) -> bool {
+        matches!(self, Self::Coding | Self::Full)
+    }
+
+    fn config_body_for_init(self) -> String {
+        if self.uses_shared_provider() {
+            rewrite_profile_include(self.config_body(), INIT_PROVIDER_FILE)
+        } else {
+            self.config_body().to_owned()
+        }
+    }
+}
+
+fn rewrite_profile_include(config: &str, include_path: &str) -> String {
+    let replacement = format!("include = \"{include_path}\"");
+    if let Some(rest) = config.strip_prefix("include = \"agent.provider.example.toml\"") {
+        format!("{replacement}{rest}")
+    } else {
+        format!("{replacement}\n\n{config}")
+    }
+}
+
+fn provider_destination_path(profile_destination: &Path) -> PathBuf {
+    profile_destination
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(INIT_PROVIDER_FILE)
 }
 
 fn init_destination_path(config_path: &Path, profile: InitProfile) -> PathBuf {
@@ -1496,6 +1538,30 @@ mod tests {
             init_destination_path(Path::new("/tmp/configs"), InitProfile::Safe),
             PathBuf::from("/tmp/configs/10-safe.toml")
         );
+    }
+
+    #[tokio::test]
+    async fn init_coding_writes_loadable_provider_and_profile_files() {
+        let dir = tempfile::tempdir().expect("config dir");
+
+        run_init(InitProfile::Coding, Some(dir.path())).expect("init coding");
+
+        let provider = dir.path().join(INIT_PROVIDER_FILE);
+        let profile = dir.path().join("10-coding.toml");
+        assert!(provider.exists());
+        assert!(profile.exists());
+        let profile_body = std::fs::read_to_string(&profile).expect("profile body");
+        assert!(profile_body.starts_with("include = \"00-provider.toml\""));
+
+        let config = AppConfig::load(Some(dir.path()))
+            .await
+            .expect("generated config loads");
+        let model = config.active_model_config().expect("active model");
+
+        assert_eq!(config.profile.name, "coding-local");
+        assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
+        assert_eq!(model.provider, "anthropic");
+        assert_eq!(config.modules.workflow, "coding.single_loop");
     }
 
     #[test]

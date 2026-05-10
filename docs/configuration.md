@@ -83,9 +83,8 @@ config = "~/.config/agent-qweasd123tg/claude/configs"
 ```text
 ~/.config/agent-qweasd123tg/
   configs/
-    01-model.toml
-    02-tools.toml
-    03-runtime.toml
+    00-provider.toml
+    10-coding.toml
 ```
 
 Порядок важен: более поздний файл может переопределить значения из более раннего. Object/table values merge-ятся рекурсивно, arrays/scalars заменяются целиком.
@@ -94,7 +93,7 @@ config = "~/.config/agent-qweasd123tg/claude/configs"
 Подключённые config-и merge-ятся первыми, а текущий файл перекрывает их:
 
 ```toml
-include = "agent.provider.example.toml"
+include = "00-provider.toml"
 
 [profile]
 name = "claude-pack-local"
@@ -103,9 +102,10 @@ name = "claude-pack-local"
 `include` принимает строку или массив строк. Относительные пути считаются от
 файла, где объявлен `include`; абсолютные пути и `~/...` тоже поддерживаются.
 Это основной способ держать provider/key config отдельно от поведенческих
-profiles: общий `agent.provider.example.toml` хранит `active_provider` и
-`providers.*`, а `agent.coding.example.toml` / `agent.claude-pack.example.toml`
-описывают только workflow, modules, tools, policy и event log.
+profiles: `agent init coding` создаёт `00-provider.toml` с `active_provider` и
+`providers.*`, а `10-coding.toml` описывает workflow, modules, tools, policy и
+event log. Репозиторные examples используют `agent.provider.example.toml` как
+исходный shared-provider шаблон.
 
 `config.example.json` - полный single-file пример/schema surface с
 `active_provider` и `providers`; для обычной локальной работы предпочтительнее

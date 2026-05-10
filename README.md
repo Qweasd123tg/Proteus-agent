@@ -25,7 +25,7 @@ crates/
   agent-contracts/  — публичные trait'ы и DTO; плагины и клиенты depend сюда
   modular-agent/    — ядро: runtime, registry, loaders, app-server, CLI
 clients/
-  tui/              — внешний fullscreen TUI-клиент
+  tui/              — внешний terminal-клиент: normal scrollback + bottom pane + overlays
 plugins/
   default/             — стандартные плагины, которые ставит install.sh
     hello-renderer/      — демо: декоративная рамка вокруг ответа
@@ -92,7 +92,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - `AGENT_PLUGINS_DISABLE=1` для тестов.
 
 **Клиенты:**
-- `agent-tui` — fullscreen ratatui UI над `agent server stdio`.
+- `agent-tui` — normal-scrollback terminal UI над `agent server stdio`:
+  transcript остаётся в обычном scrollback, ввод/approval живут в закреплённой
+  нижней панели, а resume/context открываются как overlay screens.
 
 ## Быстрый запуск
 
@@ -236,7 +238,9 @@ agent doctor
 - `agent.coding.example.toml` — quickstart для реальной работы
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy). Более тяжёлый `coding.plan_execute_review`
-  оставлен в `agent.advanced.example.toml`.
+  оставлен в `agent.advanced.example.toml`. `agent init coding` создаёт
+  directory-based пару `00-provider.toml` + `10-coding.toml`, чтобы provider/key
+  config был отделён от behavioral profile и сразу загружался `agent doctor`.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
   предпочтительнее `agent init coding` и TOML config dir.
 
