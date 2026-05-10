@@ -438,6 +438,12 @@ terminal surface и active streaming view, не меняя core protocol.
   quoted block groups как вложенный markdown. Таблицы, fenced code blocks,
   списки, horizontal rules, headings и вложенные цитаты внутри `>` больше не
   остаются сырыми строками stress-test markdown.
+- Двадцать третий шаг migration: `VisualSurface` окончательно сужен до
+  fullscreen/overlay screens (`resume`, `/context`). Normal mode bottom pane
+  рендерится только через `bottom_pane`, старый composer/footer/slash path и
+  отдельный `live_preview` module удалены. Streaming semantics теперь явные:
+  completed-line output идёт в normal scrollback, partial assistant tail не
+  показывается как отдельный bottom-pane preview.
 - Исправить context overlay scroll direction.
 - Ограничить streaming markdown: live plain text, final markdown или
   block-aware staging для table/code/quote blocks.

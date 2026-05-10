@@ -166,8 +166,7 @@ fn prepare_inline_panel(
 ) -> Result<PreparedInlinePanel> {
     let size = terminal.size()?;
     let width = size.width.max(1) as usize;
-    let max_live_lines = max_inline_live_preview_lines(size.height);
-    let panel = bottom_pane.lines(&state.visual_state(), width, max_live_lines);
+    let panel = bottom_pane.lines(&state.visual_state(), width);
     let mut lines = panel.lines;
     let mut cursor_row = panel.cursor_row;
     let cursor_col = panel.cursor_col;
@@ -184,10 +183,6 @@ fn prepare_inline_panel(
         cursor_row,
         cursor_col: cursor_col.min(width.saturating_sub(1)) as u16,
     })
-}
-
-fn max_inline_live_preview_lines(screen_height: u16) -> usize {
-    screen_height.saturating_sub(10).max(1).min(48) as usize
 }
 
 fn trim_trailing_blank_lines(lines: &mut Vec<Line<'static>>) {
@@ -338,13 +333,6 @@ fn repaint_normal_screen_before_history_flush(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn live_preview_height_is_capped_to_keep_history_visible() {
-        assert_eq!(max_inline_live_preview_lines(24), 14);
-        assert_eq!(max_inline_live_preview_lines(60), 48);
-        assert_eq!(max_inline_live_preview_lines(2), 1);
-    }
 
     #[test]
     fn panel_shrink_is_detected_before_history_flush() {

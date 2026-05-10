@@ -10,7 +10,6 @@ mod cards;
 mod driver;
 mod history_insert;
 mod inline_terminal;
-mod live_preview;
 mod markdown;
 mod session_picker;
 mod slash_commands;
@@ -753,7 +752,7 @@ fn redraw(
                 terminal.clear()?;
                 *picker_alt_screen = true;
             }
-            terminal.draw(|frame| surface.render_inline(frame, &state.visual_state()))?;
+            terminal.draw(|frame| surface.render_overlay(frame, &state.visual_state()))?;
         } else {
             if *picker_alt_screen {
                 execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
