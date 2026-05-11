@@ -74,7 +74,7 @@ fn print_help() {
          \n\
          options:\n\
            --profile, -p NAME  load ~/.config/agent-qweasd123tg/profiles/NAME.toml\n\
-           --agent-bin PATH    path to the modular-agent binary (default: in $PATH)\n\
+           --agent-bin PATH    path to the agent binary (default: sibling agent, then PATH)\n\
            --config PATH       path to agent config (toml or json)\n\
            --cwd PATH          workspace directory for the agent (default: current dir)\n\
            --help, -h          show this help"
