@@ -1,6 +1,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use agent_contracts::contracts::{
+    UserInputAnswer, UserInputQuestion, UserInputQuestionOption, UserInputRequest,
+    UserInputResponse,
+};
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct PlanIntakeRequest {
     pub id: String,
@@ -37,6 +42,18 @@ pub(crate) struct PlanIntakeState {
 }
 
 impl PlanIntakeState {
+    pub(crate) fn from_user_input_request(request: &UserInputRequest) -> Option<Self> {
+        Self::new(PlanIntakeRequest {
+            id: request.request_id.clone(),
+            title: "User input".to_owned(),
+            questions: request
+                .questions
+                .iter()
+                .map(question_from_user_input)
+                .collect(),
+        })
+    }
+
     pub(crate) fn from_metadata(metadata: &Value) -> Option<Self> {
         let value = metadata
             .pointer("/ui/plan_intake")
@@ -168,6 +185,22 @@ impl PlanIntakeState {
         lines.join("\n")
     }
 
+    pub(crate) fn user_input_response(&self) -> UserInputResponse {
+        let answers = self
+            .request
+            .questions
+            .iter()
+            .enumerate()
+            .map(|(index, question)| {
+                (
+                    question.id.clone(),
+                    UserInputAnswer::new(vec![self.answer_label(index)]),
+                )
+            })
+            .collect();
+        UserInputResponse::new(answers)
+    }
+
     pub(crate) fn answer_label(&self, question_index: usize) -> String {
         let question = &self.request.questions[question_index];
         let selection = self.selections[question_index];
@@ -196,6 +229,29 @@ impl PlanIntakeState {
 
 fn default_question_kind() -> String {
     "single_choice".to_owned()
+}
+
+fn question_from_user_input(question: &UserInputQuestion) -> PlanIntakeQuestion {
+    PlanIntakeQuestion {
+        id: question.id.clone(),
+        prompt: question.question.clone(),
+        kind: "single_choice".to_owned(),
+        options: question
+            .options
+            .iter()
+            .enumerate()
+            .map(option_from_user_input)
+            .collect(),
+        allow_custom: question.is_other,
+    }
+}
+
+fn option_from_user_input((index, option): (usize, &UserInputQuestionOption)) -> PlanIntakeOption {
+    PlanIntakeOption {
+        id: format!("option_{}", index + 1),
+        label: option.label.clone(),
+        description: Some(option.description.clone()),
+    }
 }
 
 #[cfg(test)]
@@ -247,5 +303,32 @@ mod tests {
 
         assert!(intake.current_selection_is_custom());
         assert_eq!(intake.answer_prompt().contains("Stack?: Z"), true);
+    }
+
+    #[test]
+    fn maps_user_input_request_to_generic_selector_response() {
+        let request = UserInputRequest::new(
+            "call-1",
+            std::env::current_dir().expect("cwd"),
+            vec![UserInputQuestion::new(
+                "language",
+                "Language",
+                "Which language?",
+                vec![
+                    UserInputQuestionOption::new("Rust", "Compile-time checks."),
+                    UserInputQuestionOption::new("Python", "Fast scripting."),
+                ],
+            )],
+        );
+        let mut intake = PlanIntakeState::from_user_input_request(&request).expect("intake");
+
+        assert_eq!(intake.request().id, "call-1");
+        assert_eq!(intake.current_question().prompt, "Which language?");
+
+        intake.type_custom_char('G');
+        intake.type_custom_char('o');
+        let response = intake.user_input_response();
+
+        assert_eq!(response.answers["language"].answers, vec!["Go"]);
     }
 }

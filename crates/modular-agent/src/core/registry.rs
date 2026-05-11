@@ -6,11 +6,11 @@ use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryPolicy, MemoryStore,
         ModelClient, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure,
-        ToolRegistry, Workflow,
+        ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
-        AppConfig, BuiltinModuleCatalog, ModeAwarePolicy, ModelService, ModuleBuildContext,
-        PolicyBuildContext,
+        AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
+        ModuleBuildContext, PolicyBuildContext,
     },
     domain::{SessionId, ThreadId, TurnId},
 };
@@ -116,6 +116,27 @@ impl BuiltinRegistry {
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> RuntimeContext {
+        self.runtime_context_with_user_input(
+            session_id,
+            thread_id,
+            turn_id,
+            events,
+            approval,
+            Arc::new(HeadlessUserInputTransport),
+            permission_mode,
+        )
+    }
+
+    pub fn runtime_context_with_user_input(
+        &self,
+        session_id: SessionId,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        events: Arc<EventEmitter>,
+        approval: Arc<dyn crate::contracts::ApprovalTransport>,
+        user_input: Arc<dyn UserInputTransport>,
+        permission_mode: crate::domain::PermissionMode,
+    ) -> RuntimeContext {
         RuntimeContext::new(
             session_id,
             thread_id,
@@ -131,6 +152,7 @@ impl BuiltinRegistry {
             self.tools.clone(),
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
+            user_input,
             self.patch.clone(),
             self.compactor.clone(),
             self.tool_exposure.clone(),

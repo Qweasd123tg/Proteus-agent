@@ -149,6 +149,21 @@ pub async fn run_stdio_app_server(
                 )
                 .await;
             }
+            StdioRequest::UserInput {
+                request_id,
+                response,
+                ..
+            } => {
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    server
+                        .respond_user_input(&request_id, response)
+                        .await
+                        .map(|_| None),
+                )
+                .await;
+            }
             StdioRequest::Cancel { target_id, .. } => {
                 let result =
                     cancel_stdio_turn(&server, &mut keyed_turn_handles, &output_tx, &target_id)

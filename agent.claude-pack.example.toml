@@ -16,13 +16,13 @@ tool_exposure = "claude_phased"
 renderer = "statusline"
 
 [tools]
-enabled = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite", "search", "remember_fact"]
+enabled = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite", "request_user_input", "search", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-allow = ["Read", "Glob", "Grep", "TodoWrite", "search"]
+allow = ["Read", "Glob", "Grep", "TodoWrite", "request_user_input", "search"]
 ask_before = ["Edit", "Write", "Bash", "remember_fact"]
 
 [module_config.context.repo_aware]

@@ -12,6 +12,7 @@ pub mod registry;
 pub mod runtime;
 pub mod session_store;
 pub mod tool_orchestrator;
+pub mod user_input;
 
 pub use approval::*;
 pub use config::*;
@@ -26,3 +27,4 @@ pub use registry::*;
 pub use runtime::*;
 pub use session_store::*;
 pub use tool_orchestrator::*;
+pub use user_input::*;

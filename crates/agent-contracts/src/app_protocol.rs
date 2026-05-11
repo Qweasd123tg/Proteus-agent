@@ -24,12 +24,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    contracts::ApprovalCacheScope,
+    contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse},
     domain::{AgentOutput, EventEnvelope, PermissionMode, ToolCall, ToolSpec},
 };
 
 /// ID approval'а — произвольная строка, уникальная для session агента.
 pub type AppApprovalId = String;
+pub type AppUserInputRequestId = String;
 
 /// События, которые ядро публикует внешним клиентам.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +56,12 @@ pub enum AppServerEvent {
         approval_id: AppApprovalId,
         approved: bool,
     },
+
+    /// Запрос typed user input от tool `request_user_input`.
+    UserInputRequested { request: UserInputRequest },
+
+    /// User-input request разрешён клиентом, timeout'ом или shutdown'ом.
+    UserInputResolved { request_id: AppUserInputRequestId },
 
     /// Ошибка в turn или ядре.
     Error { message: String },
@@ -112,6 +119,11 @@ pub enum StdioRequest {
         #[serde(default)]
         cache: ApprovalCacheScope,
     },
+    UserInput {
+        id: Option<String>,
+        request_id: String,
+        response: UserInputResponse,
+    },
     Cancel {
         id: Option<String>,
         target_id: String,
@@ -131,6 +143,7 @@ impl StdioRequest {
             Self::Send { id, .. }
             | Self::ClearHistory { id }
             | Self::Approval { id, .. }
+            | Self::UserInput { id, .. }
             | Self::Cancel { id, .. }
             | Self::SetPermissionMode { id, .. }
             | Self::Shutdown { id } => id.clone(),

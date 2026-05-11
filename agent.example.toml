@@ -23,14 +23,14 @@ renderer = "statusline"
 # Core-resident slot facade tools. File I/O, git helpers, and shell come from
 # plugins: install file-tools, git-tools, and shell-tool into ~/.agent/plugins/
 # and extend this list.
-enabled = ["apply_patch", "remember_fact", "search"]
+enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
 ask_before = ["apply_patch", "remember_fact"]
-allow = ["search"]
+allow = ["search", "request_user_input"]
 
 [module_config.search.rg]
 max_results = 50

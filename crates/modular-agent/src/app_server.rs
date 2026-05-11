@@ -12,12 +12,12 @@ use uuid::Uuid;
 use crate::{
     contracts::{
         ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        is_streaming_delta,
+        UserInputResponse, is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
-        ChannelApprovalTransport, FanoutEventSink, JsonlEventStore, PendingApproval,
-        normalize_session_dir_path, session_id_from_session_dir,
+        ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
+        PendingApproval, PendingUserInput, normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, new_thread_id},
 };
@@ -29,17 +29,21 @@ pub mod stdio;
 // без зависимости на ядро. Здесь просто re-export для обратной
 // совместимости внутри modular-agent.
 pub use agent_contracts::app_protocol::{
-    AppApprovalId, AppApprovalRequest, AppServerEvent, StdioOutput, StdioRequest,
+    AppApprovalId, AppApprovalRequest, AppServerEvent, AppUserInputRequestId, StdioOutput,
+    StdioRequest,
 };
 
 type PendingApprovalResponders =
     Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>;
+type PendingUserInputResponders =
+    Arc<Mutex<HashMap<AppUserInputRequestId, tokio::sync::oneshot::Sender<UserInputResponse>>>>;
 
 #[derive(Clone)]
 pub struct AppServerHandle {
     runtime: Arc<AgentRuntime>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
+    pending_user_inputs: PendingUserInputResponders,
 }
 
 impl AppServerHandle {
@@ -116,9 +120,35 @@ impl AppServerHandle {
         Ok(())
     }
 
+    pub async fn respond_user_input(
+        &self,
+        request_id: &str,
+        response: UserInputResponse,
+    ) -> Result<()> {
+        let responder = self
+            .pending_user_inputs
+            .lock()
+            .await
+            .remove(request_id)
+            .ok_or_else(|| anyhow!("unknown user input request id: {request_id}"))?;
+        responder
+            .send(response)
+            .map_err(|_| anyhow!("user input response channel dropped"))?;
+        let _ = self.events.send(AppServerEvent::UserInputResolved {
+            request_id: request_id.to_owned(),
+        });
+        Ok(())
+    }
+
     pub async fn shutdown(&self) {
         deny_pending_approvals(
             self.pending_approvals.clone(),
+            self.events.clone(),
+            "app-server shutting down".to_owned(),
+        )
+        .await;
+        deny_pending_user_inputs(
+            self.pending_user_inputs.clone(),
             self.events.clone(),
             "app-server shutting down".to_owned(),
         )
@@ -187,10 +217,12 @@ impl AgentAppServer {
 
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
+        let (user_input_transport, user_input_rx) = ChannelUserInputTransport::new(32);
         let mut builder = AgentRuntime::builder(config, cwd)
             .with_config_path(config_path)
             .with_event_sink(event_sink)
-            .with_approval(Arc::new(approval_transport));
+            .with_approval(Arc::new(approval_transport))
+            .with_user_input(Arc::new(user_input_transport));
         if let Some(session_dir) = resume_session_dir {
             let session_dir = normalize_session_dir_path(session_dir)?;
             let session_id = session_id_from_session_dir(&session_dir)?;
@@ -202,6 +234,7 @@ impl AgentAppServer {
         let runtime = Arc::new(builder.build()?);
         let (events, _) = broadcast::channel(1024);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+        let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
 
         spawn_runtime_event_forwarder(core_broadcast, events.clone());
         spawn_approval_forwarder(
@@ -210,11 +243,18 @@ impl AgentAppServer {
             pending_approvals.clone(),
             approval_timeout,
         );
+        spawn_user_input_forwarder(
+            user_input_rx,
+            events.clone(),
+            pending_user_inputs.clone(),
+            approval_timeout,
+        );
 
         Ok(AppServerHandle {
             runtime,
             events,
             pending_approvals,
+            pending_user_inputs,
         })
     }
 }
@@ -310,6 +350,55 @@ fn spawn_approval_timeout(
     });
 }
 
+fn spawn_user_input_forwarder(
+    mut user_input_rx: tokio::sync::mpsc::Receiver<PendingUserInput>,
+    events: broadcast::Sender<AppServerEvent>,
+    pending_user_inputs: PendingUserInputResponders,
+    timeout: Duration,
+) {
+    tokio::spawn(async move {
+        while let Some(PendingUserInput { request, responder }) = user_input_rx.recv().await {
+            let request_id = request.request_id.clone();
+            pending_user_inputs
+                .lock()
+                .await
+                .insert(request_id.clone(), responder);
+            if events
+                .send(AppServerEvent::UserInputRequested { request })
+                .is_err()
+                && let Some(responder) = pending_user_inputs.lock().await.remove(&request_id)
+            {
+                let _ = responder.send(UserInputResponse::empty());
+                let _ = events.send(AppServerEvent::UserInputResolved { request_id });
+                continue;
+            }
+
+            spawn_user_input_timeout(
+                request_id,
+                pending_user_inputs.clone(),
+                events.clone(),
+                timeout,
+            );
+        }
+    });
+}
+
+fn spawn_user_input_timeout(
+    request_id: AppUserInputRequestId,
+    pending_user_inputs: PendingUserInputResponders,
+    events: broadcast::Sender<AppServerEvent>,
+    timeout: Duration,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(timeout).await;
+        let responder = pending_user_inputs.lock().await.remove(&request_id);
+        if let Some(responder) = responder {
+            let _ = responder.send(UserInputResponse::empty());
+            let _ = events.send(AppServerEvent::UserInputResolved { request_id });
+        }
+    });
+}
+
 async fn deny_pending_approvals(
     pending_approvals: PendingApprovalResponders,
     events: broadcast::Sender<AppServerEvent>,
@@ -322,6 +411,18 @@ async fn deny_pending_approvals(
             approval_id,
             approved: false,
         });
+    }
+}
+
+async fn deny_pending_user_inputs(
+    pending_user_inputs: PendingUserInputResponders,
+    events: broadcast::Sender<AppServerEvent>,
+    _note: String,
+) {
+    let pending = std::mem::take(&mut *pending_user_inputs.lock().await);
+    for (request_id, responder) in pending {
+        let _ = responder.send(UserInputResponse::empty());
+        let _ = events.send(AppServerEvent::UserInputResolved { request_id });
     }
 }
 

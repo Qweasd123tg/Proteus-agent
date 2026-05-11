@@ -12,12 +12,16 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
-use crate::domain::{ToolCall, ToolResult, ToolSpec};
+use crate::{
+    contracts::UserInputTransport,
+    domain::{ToolCall, ToolResult, ToolSpec},
+};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolContext {
     pub cwd: PathBuf,
     pub cancellation: CancellationToken,
+    pub user_input: Option<Arc<dyn UserInputTransport>>,
 }
 
 impl ToolContext {
@@ -25,6 +29,7 @@ impl ToolContext {
         Self {
             cwd,
             cancellation: CancellationToken::new(),
+            user_input: None,
         }
     }
 }

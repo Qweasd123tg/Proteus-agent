@@ -30,7 +30,7 @@ adapters.
 - `crates/modular-agent/src/core/approval` — transports и cache для approval UI;
 - `crates/modular-agent/src/core/model_service.rs` — shaping wrapper вокруг `ModelAdapter`;
 - `crates/modular-agent/src/core/permission_mode.rs` — mode-aware wrapper для `ApprovalPolicy`;
-- `crates/modular-agent/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
+- `crates/modular-agent/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`, `request_user_input`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
 
 Список встроенных manifests можно посмотреть без запуска runtime:
 
@@ -217,11 +217,11 @@ UI/debug view “что занимает контекст”, но visual layer 
 ```toml
 [tools]
 # Core-resident slot facade tools.
-enabled = ["apply_patch", "remember_fact", "search"]
+enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 # path omitted: no external tool manifests in quickstart profile
 ```
 
-Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Три tool'а остаются в ядре: `apply_patch`, `search`, `remember_fact`. Остальные базовые tools вынесены в плагины:
+Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Четыре tool'а остаются в ядре: `apply_patch`, `search`, `remember_fact`, `request_user_input`. Остальные базовые tools вынесены в плагины:
 
 - `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/default/file-tools/`);
 - `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);

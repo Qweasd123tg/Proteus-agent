@@ -58,6 +58,7 @@ pub struct AppState {
     input_paste_ranges: Vec<InputPasteRange>,
     quit_armed: bool,
     pending_approval: Option<AppApprovalRequest>,
+    pending_user_input_request_id: Option<String>,
     last_error: Option<String>,
     turn_started_at: Option<Instant>,
     model_started_at: Option<Instant>,
@@ -101,6 +102,7 @@ impl AppState {
             input_paste_ranges: Vec::new(),
             quit_armed: false,
             pending_approval: None,
+            pending_user_input_request_id: None,
             last_error: None,
             turn_started_at: None,
             model_started_at: None,
@@ -604,6 +606,7 @@ impl AppState {
 
     pub fn type_char(&mut self, ch: char) {
         self.plan_intake = None;
+        self.pending_user_input_request_id = None;
         self.plan_review_selection = None;
         self.input.push(ch);
         self.clear_completed_status();
@@ -613,6 +616,7 @@ impl AppState {
 
     pub fn paste_text(&mut self, text: &str) {
         self.plan_intake = None;
+        self.pending_user_input_request_id = None;
         self.plan_review_selection = None;
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         let start = self.input.len();
@@ -631,6 +635,7 @@ impl AppState {
 
     pub fn backspace(&mut self) {
         self.plan_intake = None;
+        self.pending_user_input_request_id = None;
         self.plan_review_selection = None;
         if let Some(range) = self
             .input_paste_ranges
@@ -702,8 +707,17 @@ impl AppState {
         self.plan_intake.take().map(|intake| intake.answer_prompt())
     }
 
+    pub fn take_user_input_response(
+        &mut self,
+    ) -> Option<(String, agent_contracts::contracts::UserInputResponse)> {
+        let request_id = self.pending_user_input_request_id.take()?;
+        let response = self.plan_intake.take()?.user_input_response();
+        Some((request_id, response))
+    }
+
     pub fn clear_plan_intake(&mut self) {
         self.plan_intake = None;
+        self.pending_user_input_request_id = None;
         self.status = "ready".to_owned();
     }
 
@@ -862,6 +876,7 @@ impl AppState {
         turn_id: String,
     ) {
         self.plan_intake = None;
+        self.pending_user_input_request_id = None;
         self.plan_review_selection = None;
         self.transcript
             .push_committed(VisualMessage::user_with_paste_ranges(text, paste_ranges));
@@ -951,6 +966,20 @@ impl AppState {
             }
             AppServerEvent::ApprovalResolved { .. } => {
                 self.pending_approval = None;
+                self.status = "thinking...".to_owned();
+            }
+            AppServerEvent::UserInputRequested { request } => {
+                if let Some(intake) = PlanIntakeState::from_user_input_request(&request) {
+                    self.model_started_at = None;
+                    self.pending_user_input_request_id = Some(request.request_id);
+                    self.plan_intake = Some(intake);
+                    self.plan_review_selection = None;
+                    self.status = "user input needed".to_owned();
+                }
+            }
+            AppServerEvent::UserInputResolved { .. } => {
+                self.pending_user_input_request_id = None;
+                self.plan_intake = None;
                 self.status = "thinking...".to_owned();
             }
             AppServerEvent::Error { message } => {

@@ -169,6 +169,7 @@ impl ToolOrchestrator {
         let tool_ctx = ToolContext {
             cwd: task.cwd.clone(),
             cancellation: ctx.cancellation.clone(),
+            user_input: Some(ctx.user_input.clone()),
         };
         let result = tokio::select! {
             result = timeout(Duration::from_millis(timeout_ms), tool.invoke(call, tool_ctx)) => {

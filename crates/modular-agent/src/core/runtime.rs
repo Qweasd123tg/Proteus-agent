@@ -8,10 +8,13 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, timeout};
 
 use crate::{
-    contracts::{ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput},
+    contracts::{
+        ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput,
+        UserInputTransport,
+    },
     core::{
         AppConfig, BuiltinRegistry, CachedApprovalTransport, HeadlessApprovalTransport,
-        JsonlEventStore, SessionStore,
+        HeadlessUserInputTransport, JsonlEventStore, SessionStore,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, PermissionMode, SessionId, ThreadId,
@@ -30,6 +33,7 @@ struct RuntimeServices {
     registry: BuiltinRegistry,
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
+    user_input: Arc<dyn UserInputTransport>,
     permission_mode: RwLock<PermissionMode>,
 }
 
@@ -169,12 +173,13 @@ impl AgentRuntime {
         let runtime_context = self
             .services
             .registry
-            .runtime_context(
+            .runtime_context_with_user_input(
                 self.session.session_id,
                 self.session.thread_id,
                 turn_id,
                 self.services.events.clone(),
                 self.services.approval.clone(),
+                self.services.user_input.clone(),
                 permission_mode,
             )
             .with_cancellation(cancellation.clone());
@@ -325,6 +330,7 @@ pub struct AgentRuntimeBuilder {
     config_path: Option<PathBuf>,
     event_sink: Option<Arc<dyn EventSink>>,
     approval: Option<Arc<dyn ApprovalTransport>>,
+    user_input: Option<Arc<dyn UserInputTransport>>,
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
     session_dir: Option<PathBuf>,
@@ -340,6 +346,7 @@ impl AgentRuntimeBuilder {
             config_path: None,
             event_sink: None,
             approval: None,
+            user_input: None,
             session_id: None,
             thread_id: None,
             session_dir: None,
@@ -364,6 +371,11 @@ impl AgentRuntimeBuilder {
 
     pub fn with_approval(mut self, approval: Arc<dyn ApprovalTransport>) -> Self {
         self.approval = Some(approval);
+        self
+    }
+
+    pub fn with_user_input(mut self, user_input: Arc<dyn UserInputTransport>) -> Self {
+        self.user_input = Some(user_input);
         self
     }
 
@@ -394,6 +406,7 @@ impl AgentRuntimeBuilder {
             config_path,
             event_sink,
             approval,
+            user_input,
             session_id,
             thread_id,
             session_dir,
@@ -426,6 +439,8 @@ impl AgentRuntimeBuilder {
         let approval: Arc<dyn ApprovalTransport> = Arc::new(CachedApprovalTransport::new(
             approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport)),
         ));
+        let user_input: Arc<dyn UserInputTransport> =
+            user_input.unwrap_or_else(|| Arc::new(HeadlessUserInputTransport));
         let session_id = session_id.unwrap_or_else(new_session_id);
         let thread_id = thread_id.unwrap_or_else(new_thread_id);
         let session_store = if let Some(session_dir) = session_dir {
@@ -453,6 +468,7 @@ impl AgentRuntimeBuilder {
                 registry,
                 events,
                 approval,
+                user_input,
                 permission_mode: RwLock::new(permission_mode),
             },
             session: SessionState::new(
