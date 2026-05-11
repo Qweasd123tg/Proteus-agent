@@ -78,8 +78,11 @@ impl InlineTerminalState {
             self.resize_reflow_pending = false;
             InlinePanelLayout::default()
         } else {
-            TerminalSurface::new(terminal)
-                .resize_inline_viewport_for_panel(previous_panel.total_height(), next_height)?;
+            TerminalSurface::new(terminal).resize_inline_viewport_for_panel(
+                previous_panel.total_height(),
+                next_height,
+                self.history.occupied_rows(),
+            )?;
             previous_panel
         };
         flush_scrollback_messages(
