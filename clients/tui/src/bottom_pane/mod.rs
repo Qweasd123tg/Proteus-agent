@@ -8,8 +8,8 @@ use ratatui::text::Line;
 use crate::{
     cards::append_approval_lines,
     visual::{
-        VisualState, append_reasoning_preview_lines, composer_lines, plan_review_lines,
-        slash_plain_lines,
+        VisualState, append_reasoning_preview_lines, composer_lines, plan_intake_lines,
+        plan_review_lines, slash_plain_lines,
     },
 };
 
@@ -41,6 +41,10 @@ impl BottomPane {
             append_approval_lines(&mut approval_lines, request, width);
             lines.extend(approval_lines);
         } else {
+            if state.plan_intake.is_some() {
+                lines.extend(plan_intake_lines(state, width));
+                lines.push(Line::raw(""));
+            }
             if state.plan_review.is_some() {
                 lines.extend(plan_review_lines(state, width));
                 lines.push(Line::raw(""));

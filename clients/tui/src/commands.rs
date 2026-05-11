@@ -178,6 +178,24 @@ pub(crate) async fn handle_plan_review_action(
     }
 }
 
+pub(crate) async fn submit_plan_intake_answers(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+) -> Result<()> {
+    let Some(text) = state.take_plan_intake_answer_prompt() else {
+        return Ok(());
+    };
+    let turn_id = state.next_turn_id();
+    driver
+        .send(&StdioRequest::Send {
+            id: Some(turn_id.clone()),
+            text: text.clone(),
+        })
+        .await?;
+    state.mark_user_sent(text, Vec::new(), turn_id);
+    Ok(())
+}
+
 async fn execute_approved_plan(
     state: &mut AppState,
     driver: &mut AgentDriver,

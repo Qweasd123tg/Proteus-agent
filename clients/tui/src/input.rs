@@ -7,6 +7,7 @@ use crossterm::event::{Event as CTerm, KeyCode, KeyEventKind, KeyModifiers};
 use crate::{
     commands::{
         handle_plan_review_action, handle_slash_command, request_cancel, resume_session_dir,
+        submit_plan_intake_answers,
     },
     driver::{AgentDriver, DriverConfig},
     state::AppState,
@@ -27,6 +28,8 @@ pub(crate) async fn handle_term_event(
                     KeyCode::Char('c') => {
                         if state.has_context_report() {
                             state.close_context_report();
+                        } else if state.has_plan_intake() {
+                            state.clear_plan_intake();
                         } else if state.has_plan_review() {
                             state.clear_plan_review();
                         } else if state.input_is_empty() {
@@ -172,6 +175,49 @@ pub(crate) async fn handle_term_event(
                                 .await?;
                             return Ok(true);
                         }
+                    }
+                    _ => {}
+                }
+                return Ok(false);
+            }
+
+            if state.has_plan_intake() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if state.plan_intake_is_last_question() {
+                            submit_plan_intake_answers(state, driver).await?;
+                        } else {
+                            state.move_plan_intake_question_next();
+                        }
+                        return Ok(true);
+                    }
+                    KeyCode::Esc => {
+                        state.clear_plan_intake();
+                        return Ok(true);
+                    }
+                    KeyCode::Tab | KeyCode::Right => {
+                        state.move_plan_intake_question_next();
+                        return Ok(true);
+                    }
+                    KeyCode::BackTab | KeyCode::Left => {
+                        state.move_plan_intake_question_prev();
+                        return Ok(true);
+                    }
+                    KeyCode::Down | KeyCode::PageDown => {
+                        state.move_plan_intake_option_next();
+                        return Ok(true);
+                    }
+                    KeyCode::Up | KeyCode::PageUp => {
+                        state.move_plan_intake_option_prev();
+                        return Ok(true);
+                    }
+                    KeyCode::Backspace => {
+                        state.backspace_plan_intake_custom();
+                        return Ok(true);
+                    }
+                    KeyCode::Char(ch) => {
+                        state.type_plan_intake_custom_char(ch);
+                        return Ok(true);
                     }
                     _ => {}
                 }

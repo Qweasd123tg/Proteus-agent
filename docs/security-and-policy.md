@@ -46,7 +46,10 @@ app-server, показывает активный override в header и умее
 config-файл и не перезапускает app-server: TUI отправляет
 `StdioRequest::SetPermissionMode`. В `/plan` TUI просит модель вернуть staged
 read-only plan, а после ответа предлагает execute/revise/dismiss; enforcement
-read/write/shell/network ограничений остаётся в core policy.
+read/write/shell/network ограничений остаётся в core policy. Если workflow
+возвращает `metadata.ui.plan_intake`, TUI показывает generic form для
+уточняющих выборов; эти ответы являются обычным следующим user turn и не дают
+обхода `ModeAwarePolicy`.
 
 ## Встроенные Tools
 

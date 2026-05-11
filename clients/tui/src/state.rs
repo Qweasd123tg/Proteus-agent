@@ -17,6 +17,7 @@ use agent_contracts::{
 };
 
 use crate::{
+    plan_intake::PlanIntakeState,
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::{is_exact_slash_command, matching_slash_commands},
     transcript::TranscriptStore,
@@ -73,6 +74,7 @@ pub struct AppState {
     session_usage: UsageTotals,
     reasoning_mode: ReasoningDisplayMode,
     reasoning_summary: String,
+    plan_intake: Option<PlanIntakeState>,
     plan_review_selection: Option<usize>,
 }
 
@@ -115,6 +117,7 @@ impl AppState {
             session_usage: UsageTotals::default(),
             reasoning_mode: ReasoningDisplayMode::Hidden,
             reasoning_summary: String::new(),
+            plan_intake: None,
             plan_review_selection: None,
         }
     }
@@ -146,6 +149,7 @@ impl AppState {
             resume_picker: self.resume_picker.as_ref(),
             context_report: self.context_report.as_deref(),
             context_report_scroll: self.context_report_scroll,
+            plan_intake: self.plan_intake.as_ref(),
             plan_review: self
                 .plan_review_selection
                 .map(|selected| PlanReviewVisualState { selected }),
@@ -449,6 +453,7 @@ impl AppState {
         self.permission_mode = Some(mode);
         if !matches!(mode, PermissionMode::Plan) {
             self.plan_review_selection = None;
+            self.plan_intake = None;
         }
         self.status = format!("mode: {}", permission_mode_label(Some(mode)));
         self.transcript
@@ -598,6 +603,7 @@ impl AppState {
     }
 
     pub fn type_char(&mut self, ch: char) {
+        self.plan_intake = None;
         self.plan_review_selection = None;
         self.input.push(ch);
         self.clear_completed_status();
@@ -606,6 +612,7 @@ impl AppState {
     }
 
     pub fn paste_text(&mut self, text: &str) {
+        self.plan_intake = None;
         self.plan_review_selection = None;
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         let start = self.input.len();
@@ -623,6 +630,7 @@ impl AppState {
     }
 
     pub fn backspace(&mut self) {
+        self.plan_intake = None;
         self.plan_review_selection = None;
         if let Some(range) = self
             .input_paste_ranges
@@ -642,6 +650,61 @@ impl AppState {
 
     pub fn has_plan_review(&self) -> bool {
         self.plan_review_selection.is_some()
+    }
+
+    pub fn has_plan_intake(&self) -> bool {
+        self.plan_intake.is_some()
+    }
+
+    pub fn move_plan_intake_option_next(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.move_option_next();
+        }
+    }
+
+    pub fn move_plan_intake_option_prev(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.move_option_prev();
+        }
+    }
+
+    pub fn move_plan_intake_question_next(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.move_question_next();
+        }
+    }
+
+    pub fn move_plan_intake_question_prev(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.move_question_prev();
+        }
+    }
+
+    pub fn plan_intake_is_last_question(&self) -> bool {
+        self.plan_intake
+            .as_ref()
+            .is_none_or(PlanIntakeState::is_last_question)
+    }
+
+    pub fn type_plan_intake_custom_char(&mut self, ch: char) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.type_custom_char(ch);
+        }
+    }
+
+    pub fn backspace_plan_intake_custom(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.backspace_custom();
+        }
+    }
+
+    pub fn take_plan_intake_answer_prompt(&mut self) -> Option<String> {
+        self.plan_intake.take().map(|intake| intake.answer_prompt())
+    }
+
+    pub fn clear_plan_intake(&mut self) {
+        self.plan_intake = None;
+        self.status = "ready".to_owned();
     }
 
     pub fn move_plan_review_next(&mut self) {
@@ -798,6 +861,7 @@ impl AppState {
         paste_ranges: Vec<InputPasteRange>,
         turn_id: String,
     ) {
+        self.plan_intake = None;
         self.plan_review_selection = None;
         self.transcript
             .push_committed(VisualMessage::user_with_paste_ranges(text, paste_ranges));
@@ -868,6 +932,7 @@ impl AppState {
                 // заменяем его каноническим TurnOutput, чтобы не зависеть от
                 // точной сборки provider deltas.
                 let output_text = output.text;
+                let output_metadata = output.metadata;
                 self.transcript
                     .finalize_active_assistant(output_text.clone());
                 self.pending_model = false;
@@ -875,7 +940,9 @@ impl AppState {
                 self.model_started_at = None;
                 self.active_turn_id = None;
                 self.usage_turn_id = None;
-                self.maybe_open_plan_review(&output_text);
+                if !self.maybe_open_plan_intake(&output_metadata) {
+                    self.maybe_open_plan_review(&output_text);
+                }
             }
             AppServerEvent::ApprovalRequested { request } => {
                 self.model_started_at = None;
@@ -1048,6 +1115,17 @@ impl AppState {
         }
     }
 
+    fn maybe_open_plan_intake(&mut self, metadata: &serde_json::Value) -> bool {
+        let Some(intake) = PlanIntakeState::from_metadata(metadata) else {
+            return false;
+        };
+        self.plan_intake = Some(intake);
+        self.plan_review_selection = None;
+        self.status = "planning choices".to_owned();
+        self.completed_turn_at = None;
+        true
+    }
+
     fn append_streaming_text(&mut self, chunk: &str) {
         self.transcript.append_active_assistant(chunk);
     }
@@ -1170,6 +1248,7 @@ fn permission_mode_description(mode: PermissionMode) -> &'static str {
 mod tests {
     use super::*;
     use crate::visual::VisualRole;
+    use serde_json::json;
 
     fn error_count(state: &AppState) -> usize {
         state
@@ -1211,6 +1290,66 @@ mod tests {
             Some(PlanReviewVisualState { selected: 0 })
         );
         assert_eq!(state.status, "plan ready");
+    }
+
+    #[test]
+    fn plan_intake_metadata_opens_intake_instead_of_review() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::new(
+                "Need choices.",
+                json!({
+                    "ui": {
+                        "plan_intake": {
+                            "id": "telegram-bot",
+                            "title": "Telegram bot",
+                            "questions": [{
+                                "id": "stack",
+                                "prompt": "Stack?",
+                                "options": [{"id": "aiogram", "label": "aiogram"}],
+                                "allow_custom": true
+                            }]
+                        }
+                    }
+                }),
+            ),
+        });
+
+        assert!(state.has_plan_intake());
+        assert!(!state.has_plan_review());
+        assert_eq!(state.status, "planning choices");
+        assert!(state.visual_state().plan_intake.is_some());
+    }
+
+    #[test]
+    fn plan_intake_answers_can_be_serialized_for_followup() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::new(
+                "Need choices.",
+                json!({
+                    "plan_intake": {
+                        "id": "telegram-bot",
+                        "title": "Telegram bot",
+                        "questions": [{
+                            "id": "stack",
+                            "prompt": "Stack?",
+                            "options": [{"id": "aiogram", "label": "aiogram"}],
+                            "allow_custom": true
+                        }]
+                    }
+                }),
+            ),
+        });
+
+        let answer = state
+            .take_plan_intake_answer_prompt()
+            .expect("answer prompt");
+
+        assert!(answer.contains("Planning intake answers for: Telegram bot"));
+        assert!(answer.contains("- Stack?: aiogram"));
+        assert!(!state.has_plan_intake());
     }
 
     #[test]

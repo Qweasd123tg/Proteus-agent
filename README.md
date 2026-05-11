@@ -186,9 +186,14 @@ TUI-сессии. `/reasoning summary` показывает компактный
 `/plan`, `/normal` и `/auto` переключают core `permissions.mode` для следующих
 turns без restart app-server процесса. В режиме `/plan` обычный user request
 отправляется как read-only planning request; после финального ответа TUI
-показывает chooser в нижней панели: execute в `auto`, execute через approvals,
-revise plan или dismiss. В header TUI показывается активный режим; если режим
-пришёл только из config и TUI его не переопределял, header показывает `config`.
+может сначала показать plugin-owned planning choices, если workflow вернул
+`metadata.ui.plan_intake` (например stack/language/deploy для нового Telegram
+bot). TUI рендерит такие вопросы как generic selector: Up/Down выбирают option,
+Left/Right или Tab переходят между вопросами, Enter отправляет ответы, typing
+заполняет custom option. После финального плана TUI показывает chooser в нижней
+панели: execute в `auto`, execute через approvals, revise plan или dismiss. В
+header TUI показывается активный режим; если режим пришёл только из config и
+TUI его не переопределял, header показывает `config`.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id. Если TUI запущен
 через `--profile` или `--config`, список берётся из соответствующего config
