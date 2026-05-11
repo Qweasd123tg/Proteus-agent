@@ -31,10 +31,12 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
         config_path: cli.config_path.clone(),
         cwd: Some(cwd.clone()),
         resume_session: None,
+        permission_mode: cli.permission_mode,
     };
+    let mut driver_config = driver_config;
     let mut driver = AgentDriver::spawn(driver_config.clone()).await?;
 
-    let mut state = AppState::new(cwd, cli.config_path);
+    let mut state = AppState::new(cwd, cli.config_path, cli.permission_mode);
     let surface = VisualSurface::default();
 
     // Crossterm входные события читаем в отдельном blocking thread и
@@ -140,7 +142,7 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
                         if handle_term_event(
                             &mut state,
                             &mut driver,
-                            &driver_config,
+                            &mut driver_config,
                             &mut canceled_turn_responses,
                             &mut cancel_request_responses,
                             ev,

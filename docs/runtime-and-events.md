@@ -317,7 +317,13 @@ Approval cache находится в transport-слое текущей runtime s
 name и canonical JSON args будет approved без нового pending app-server request.
 Этот cache не пишется в `messages.jsonl` и не восстанавливается при resume.
 
-Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`, `/mode`, `/model`, `/doctor`, `/events` и `/export`. Эти команды должны оставаться клиентским слоем поверх runtime/app-server boundary, а не переносить business logic в visual layer.
+Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
+state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`,
+`/model`, `/doctor`, `/events` и `/export`. Эти команды должны оставаться
+клиентским слоем поверх runtime/app-server boundary, а не переносить business
+logic в visual layer. Режимы `/plan`, `/normal` и `/auto` уже реализованы в TUI
+как control-plane команды: enforcement остаётся в core `ModeAwarePolicy`, а TUI
+только перезапускает app-server stdio с новым permission override.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 

@@ -42,6 +42,21 @@ pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
         description: "show or configure reasoning summary",
     },
     SlashCommand {
+        name: "/plan",
+        usage: "/plan",
+        description: "switch to read-only planning",
+    },
+    SlashCommand {
+        name: "/normal",
+        usage: "/normal",
+        description: "switch to approval mode",
+    },
+    SlashCommand {
+        name: "/auto",
+        usage: "/auto",
+        description: "switch to read/write auto mode",
+    },
+    SlashCommand {
         name: "/quit",
         usage: "/quit",
         description: "quit TUI",

@@ -33,6 +33,7 @@ pub(crate) fn muted_style() -> Style {
 
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
+    pub permission_mode: &'a str,
     pub cwd: &'a Path,
     pub session_label: &'a str,
     pub input: &'a str,
@@ -445,6 +446,7 @@ mod tests {
     fn session_card_borders_have_equal_width() {
         let state = VisualState {
             model: "anthropic/deepseek-v4-pro",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "not persisted",
             input: "",
@@ -502,6 +504,7 @@ mod tests {
         let messages = vec![VisualMessage::assistant(text)];
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -542,6 +545,7 @@ mod tests {
         let messages = vec![VisualMessage::assistant("streaming answer")];
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -600,6 +604,7 @@ mod tests {
     fn reasoning_summary_mode_renders_compact_preview() {
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -741,6 +746,7 @@ mod tests {
     fn active_status_uses_stable_marker_instead_of_braille_animation() {
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -782,6 +788,7 @@ mod tests {
     fn idle_inline_panel_keeps_gap_above_input() {
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -825,6 +832,7 @@ mod tests {
         fn idle_state(input: &'static str) -> VisualState<'static> {
             VisualState {
                 model: "test/model",
+                permission_mode: "normal",
                 cwd: Path::new("/tmp/workspace"),
                 session_label: "1",
                 input,
@@ -865,6 +873,7 @@ mod tests {
         ];
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",
@@ -937,6 +946,7 @@ mod tests {
     fn idle_footer_makes_recent_completion_explicit() {
         let state = VisualState {
             model: "test/model",
+            permission_mode: "normal",
             cwd: Path::new("/tmp/workspace"),
             session_label: "1",
             input: "",

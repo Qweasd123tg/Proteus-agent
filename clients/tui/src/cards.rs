@@ -109,6 +109,7 @@ fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
     let cwd = display_path(state.cwd);
     let rows = [
         format!("model:     {}", state.model),
+        format!("mode:      {}", state.permission_mode),
         format!("directory: {cwd}"),
         format!("session:   {}", state.session_label),
     ];

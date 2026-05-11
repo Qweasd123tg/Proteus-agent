@@ -13,7 +13,7 @@ use crate::{
 pub(crate) async fn handle_term_event(
     state: &mut AppState,
     driver: &mut AgentDriver,
-    driver_config: &DriverConfig,
+    driver_config: &mut DriverConfig,
     canceled_turn_responses: &mut HashSet<String>,
     cancel_request_responses: &mut HashSet<String>,
     ev: CTerm,

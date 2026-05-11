@@ -13,7 +13,7 @@ use std::{
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
-    domain::{Event, TokenUsageSnapshot, ToolResult, TurnId},
+    domain::{Event, PermissionMode, TokenUsageSnapshot, ToolResult, TurnId},
 };
 
 use crate::{
@@ -48,6 +48,7 @@ pub struct AppState {
     session_dir: Option<PathBuf>,
     session_label: String,
     model_label: String,
+    permission_mode: Option<PermissionMode>,
     status: String,
     footer: String,
     transcript: TranscriptStore,
@@ -74,7 +75,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(cwd: PathBuf, _config_path_hint: Option<PathBuf>) -> Self {
+    pub fn new(
+        cwd: PathBuf,
+        _config_path_hint: Option<PathBuf>,
+        permission_mode: Option<PermissionMode>,
+    ) -> Self {
         Self {
             should_quit: false,
             pending_model: false,
@@ -82,6 +87,7 @@ impl AppState {
             session_dir: None,
             session_label: "not persisted".to_owned(),
             model_label: "unknown".to_owned(),
+            permission_mode,
             status: "ready".to_owned(),
             footer: footer_hint(),
             transcript: TranscriptStore::new(vec![VisualMessage::system(
@@ -113,6 +119,7 @@ impl AppState {
     pub fn visual_state(&self) -> VisualState<'_> {
         VisualState {
             model: &self.model_label,
+            permission_mode: permission_mode_label(self.permission_mode),
             cwd: &self.cwd,
             session_label: &self.session_label,
             input: &self.input,
@@ -430,6 +437,17 @@ impl AppState {
     pub fn set_reasoning_mode(&mut self, mode: ReasoningDisplayMode) {
         self.reasoning_mode = mode;
         self.status = format!("reasoning: {}", mode.label());
+    }
+
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.permission_mode = Some(mode);
+        self.status = format!("mode: {}", permission_mode_label(Some(mode)));
+        self.transcript
+            .push_committed(VisualMessage::system(format!(
+                "Permission mode: {}. {}",
+                permission_mode_label(Some(mode)),
+                permission_mode_description(mode)
+            )));
     }
 
     pub fn close_context_report(&mut self) {
@@ -1053,6 +1071,29 @@ impl AppState {
     }
 }
 
+fn permission_mode_label(mode: Option<PermissionMode>) -> &'static str {
+    match mode {
+        Some(PermissionMode::Plan) => "plan",
+        Some(PermissionMode::Normal) => "normal",
+        Some(PermissionMode::Auto) => "auto",
+        Some(_) => "custom",
+        None => "config",
+    }
+}
+
+fn permission_mode_description(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Plan => "Only read-only tools are visible and executable.",
+        PermissionMode::Normal => {
+            "Configured approval policy controls tool visibility and execution."
+        }
+        PermissionMode::Auto => {
+            "Read-only and file-write tools can run automatically; command, network, and dangerous tools are denied."
+        }
+        _ => "Configured approval policy controls tool visibility and execution.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1067,8 +1108,20 @@ mod tests {
     }
 
     #[test]
+    fn permission_mode_is_exposed_to_visual_state() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+
+        assert_eq!(state.visual_state().permission_mode, "plan");
+
+        state.set_permission_mode(PermissionMode::Auto);
+
+        assert_eq!(state.visual_state().permission_mode, "auto");
+        assert_eq!(state.status, "mode: auto");
+    }
+
+    #[test]
     fn duplicate_errors_are_collapsed_until_next_turn() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
 
         state.ingest(AppServerEvent::Error {
             message: "boom".to_owned(),
@@ -1093,7 +1146,7 @@ mod tests {
 
     #[test]
     fn large_paste_is_sent_as_full_text_with_display_range() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let pasted = "line\n".repeat(8);
 
         state.type_char('a');
@@ -1113,7 +1166,7 @@ mod tests {
 
     #[test]
     fn busy_turn_keeps_normal_input_available_but_allows_slash_take() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.mark_user_sent("first".to_owned(), Vec::new(), "turn-1".to_owned());
 
         state.type_char('s');
@@ -1138,7 +1191,7 @@ mod tests {
 
     #[test]
     fn reject_send_while_busy_updates_status_without_clearing_input() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.type_char('x');
 
         state.reject_send_while_busy();
@@ -1152,7 +1205,7 @@ mod tests {
 
     #[test]
     fn turn_output_replaces_streaming_assistant_text() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
         let turn_id = agent_contracts::domain::new_turn_id();
@@ -1188,7 +1241,7 @@ mod tests {
 
     #[test]
     fn activity_tick_redraws_while_text_is_streaming() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
         let turn_id = agent_contracts::domain::new_turn_id();
@@ -1211,7 +1264,7 @@ mod tests {
 
     #[test]
     fn next_model_request_marks_transient_streaming_draft() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
         let turn_id = agent_contracts::domain::new_turn_id();
@@ -1262,7 +1315,7 @@ mod tests {
 
     #[test]
     fn tool_call_commits_streaming_preamble_before_tool_card() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
         let turn_id = agent_contracts::domain::new_turn_id();
@@ -1348,7 +1401,7 @@ mod tests {
 
     #[test]
     fn active_turn_elapsed_uses_whole_turn_not_current_model_phase() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.turn_started_at = Some(Instant::now() - Duration::from_secs(12));
         state.model_started_at = Some(Instant::now());
 
@@ -1362,7 +1415,7 @@ mod tests {
 
     #[test]
     fn context_report_estimates_loaded_history_without_live_usage() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.replace_committed_messages_for_test(vec![
             VisualMessage::user("hello from previous session"),
             VisualMessage::assistant("previous answer"),
@@ -1380,7 +1433,7 @@ mod tests {
 
     #[test]
     fn context_report_overlay_state_opens_and_closes() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
 
         state.open_context_report();
         assert!(state.has_context_report());
@@ -1393,7 +1446,7 @@ mod tests {
 
     #[test]
     fn reasoning_delta_is_stored_for_report_and_visual_state() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.set_reasoning_mode(ReasoningDisplayMode::Summary);
 
         state.ingest(AppServerEvent::Runtime {
@@ -1425,7 +1478,7 @@ mod tests {
 
     #[test]
     fn context_report_scroll_down_increases_offset_and_up_decreases_it() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
 
         state.scroll_context_report_down(8);
         assert_eq!(state.context_report_scroll, 8);
@@ -1439,7 +1492,7 @@ mod tests {
 
     #[test]
     fn cancel_requested_clears_active_turn() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         state.mark_user_sent("long task".to_owned(), Vec::new(), "turn-1".to_owned());
         state.append_streaming_text("partial answer");
         assert_eq!(state.active_turn_id(), Some("turn-1"));
@@ -1464,7 +1517,7 @@ mod tests {
 
     #[test]
     fn session_started_updates_header_metadata() {
-        let mut state = AppState::new(PathBuf::from("/tmp/old"), None);
+        let mut state = AppState::new(PathBuf::from("/tmp/old"), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
 
@@ -1492,7 +1545,7 @@ mod tests {
 
     #[test]
     fn context_report_uses_latest_token_usage_event() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
             agent_contracts::domain::ModelRef::new("test", "model"),
             100,
@@ -1539,7 +1592,7 @@ mod tests {
 
     #[test]
     fn context_report_formats_large_token_counts() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
             agent_contracts::domain::ModelRef::new("test", "large"),
             37_500,
@@ -1574,7 +1627,7 @@ mod tests {
 
     #[test]
     fn context_report_infers_window_for_visual_map_when_provider_omits_it() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
             agent_contracts::domain::ModelRef::new("anthropic", "deepseek-v4-pro"),
             12_700,
@@ -1604,7 +1657,7 @@ mod tests {
 
     #[test]
     fn context_report_accumulates_turn_and_session_usage() {
-        let mut state = AppState::new(PathBuf::from("."), None);
+        let mut state = AppState::new(PathBuf::from("."), None, None);
         let session_id = agent_contracts::domain::new_session_id();
         let thread_id = agent_contracts::domain::new_thread_id();
         let first_turn = agent_contracts::domain::new_turn_id();

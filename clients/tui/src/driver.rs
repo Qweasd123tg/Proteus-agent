@@ -11,7 +11,10 @@
 
 use std::path::PathBuf;
 
-use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
+use agent_contracts::{
+    app_protocol::{StdioOutput, StdioRequest},
+    domain::PermissionMode,
+};
 use anyhow::{Context, Result};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -35,6 +38,8 @@ pub struct DriverConfig {
     pub cwd: Option<PathBuf>,
     /// Session directory для resume. Передаётся как `--resume-session`.
     pub resume_session: Option<PathBuf>,
+    /// Optional override for core permission mode.
+    pub permission_mode: Option<PermissionMode>,
 }
 
 impl AgentDriver {
@@ -54,6 +59,9 @@ impl AgentDriver {
         }
         if let Some(session_dir) = &cfg.resume_session {
             cmd.arg("--resume-session").arg(session_dir);
+        }
+        if let Some(mode) = cfg.permission_mode {
+            cmd.arg("--permission-mode").arg(permission_mode_arg(mode));
         }
         cmd.arg("server").arg("stdio");
         // stderr ядра → /tmp/agent-tui-core.log (append).
@@ -140,6 +148,15 @@ impl AgentDriver {
                 Ok(())
             }
         }
+    }
+}
+
+pub(crate) fn permission_mode_arg(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Plan => "plan",
+        PermissionMode::Normal => "normal",
+        PermissionMode::Auto => "auto",
+        _ => "normal",
     }
 }
 
