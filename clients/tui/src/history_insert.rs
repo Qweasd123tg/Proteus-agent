@@ -21,6 +21,10 @@ pub(crate) struct HistoryViewportState {
 }
 
 impl HistoryViewportState {
+    pub(crate) fn occupied_rows(&self) -> u16 {
+        self.occupied_rows
+    }
+
     pub(crate) fn clamp_to_height(&mut self, height: u16) {
         self.occupied_rows = self.occupied_rows.min(height);
     }
@@ -58,6 +62,7 @@ pub(crate) fn viewport_growth_scroll(
     screen_height: u16,
     previous_height: u16,
     next_height: u16,
+    occupied_history_rows: u16,
 ) -> Option<ViewportGrowth> {
     let previous_height = previous_height.min(screen_height);
     let next_height = next_height.min(screen_height);
@@ -66,7 +71,11 @@ pub(crate) fn viewport_growth_scroll(
     }
 
     let previous_top = screen_height.saturating_sub(previous_height);
-    let scroll_by = (next_height - previous_height).min(previous_top);
+    let next_history_height = screen_height.saturating_sub(next_height);
+    let needed_scroll = occupied_history_rows.saturating_sub(next_history_height);
+    let scroll_by = (next_height - previous_height)
+        .min(previous_top)
+        .min(needed_scroll);
     (scroll_by > 0).then_some(ViewportGrowth {
         previous_top,
         scroll_by,
@@ -103,9 +112,15 @@ pub(crate) fn scroll_history_for_panel_growth(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     previous_height: u16,
     next_height: u16,
+    occupied_history_rows: u16,
 ) -> Result<()> {
     let size = terminal.size()?;
-    let Some(growth) = viewport_growth_scroll(size.height, previous_height, next_height) else {
+    let Some(growth) = viewport_growth_scroll(
+        size.height,
+        previous_height,
+        next_height,
+        occupied_history_rows,
+    ) else {
         return Ok(());
     };
 
@@ -364,7 +379,7 @@ mod tests {
     #[test]
     fn viewport_growth_scrolls_history_before_panel_expands() {
         assert_eq!(
-            viewport_growth_scroll(24, 3, 9),
+            viewport_growth_scroll(24, 3, 9, 24),
             Some(ViewportGrowth {
                 previous_top: 21,
                 scroll_by: 6
@@ -374,6 +389,22 @@ mod tests {
 
     #[test]
     fn viewport_growth_does_not_scroll_when_panel_shrinks() {
-        assert_eq!(viewport_growth_scroll(24, 9, 3), None);
+        assert_eq!(viewport_growth_scroll(24, 9, 3, 24), None);
+    }
+
+    #[test]
+    fn viewport_growth_does_not_scroll_sparse_history() {
+        assert_eq!(viewport_growth_scroll(24, 4, 7, 5), None);
+    }
+
+    #[test]
+    fn viewport_growth_scrolls_only_overflowing_sparse_history() {
+        assert_eq!(
+            viewport_growth_scroll(24, 4, 7, 19),
+            Some(ViewportGrowth {
+                previous_top: 20,
+                scroll_by: 2
+            })
+        );
     }
 }

@@ -120,8 +120,14 @@ impl<'a> TerminalSurface<'a> {
         &mut self,
         previous_height: u16,
         next_height: u16,
+        occupied_history_rows: u16,
     ) -> Result<()> {
-        scroll_history_for_panel_growth(self.terminal, previous_height, next_height)
+        scroll_history_for_panel_growth(
+            self.terminal,
+            previous_height,
+            next_height,
+            occupied_history_rows,
+        )
     }
 
     pub(crate) fn insert_scrollback_line(
