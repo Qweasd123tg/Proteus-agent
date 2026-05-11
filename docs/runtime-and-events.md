@@ -336,19 +336,19 @@ metadata TUI открывает chooser для execute/revise/dismiss.
 {
   "ui": {
     "plan_intake": {
-      "id": "telegram-bot-intake",
-      "title": "Telegram bot",
+      "id": "task-intake",
+      "title": "Implementation choices",
       "questions": [
         {
-          "id": "stack",
-          "prompt": "Какой Telegram stack использовать?",
+          "id": "approach",
+          "prompt": "Какой подход использовать?",
           "kind": "single_choice",
           "allow_custom": true,
           "options": [
             {
-              "id": "aiogram",
-              "label": "aiogram",
-              "description": "Python async framework для Bot API"
+              "id": "minimal",
+              "label": "minimal",
+              "description": "минимальная реализация без лишней инфраструктуры"
             }
           ]
         }
@@ -360,6 +360,8 @@ metadata TUI открывает chooser для execute/revise/dismiss.
 
 TUI не знает domain-specific options; разные workflow-плагины могут формировать
 свои intake-схемы, а клиент рендерит только `single_choice`/custom форму.
+`coding-workflow` генерирует intake schema через model request в plan mode:
+содержание вопросов не хардкодится в TUI и не привязано к одному типу задач.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 

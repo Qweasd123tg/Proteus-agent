@@ -53,6 +53,14 @@ call remember_fact for temporary test notes; use it only when the user explicitl
 asks you to remember a stable preference or durable project fact. Do not invent \
 dates or times; omit them unless the user supplied them or you verified them with \
 a tool.";
+const PLAN_INTAKE_DEVELOPER_INSTRUCTIONS: &str = "\
+Decide whether the user's planning request needs choices before a useful plan. \
+If choices would materially improve the plan, return only JSON with \
+{\"intake\":{\"id\":\"...\",\"title\":\"...\",\"questions\":[...]}}. \
+Each question must have id, prompt, kind=\"single_choice\", allow_custom=true, \
+and 2-5 options with id, label, and optional description. Questions must be \
+specific to the user's task. If no choices are needed, return only \
+{\"intake\":null}. Do not include markdown or prose.";
 const PLAN_DEVELOPER_INSTRUCTIONS: &str = "Planning phase: write a short actionable plan for the user's task. Do not call tools in this phase. Keep it concrete and adjust it later if tool results contradict it.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
@@ -568,7 +576,40 @@ fn maybe_plan_intake_output(
     input: &PluginWorkflowInput,
     host: &mut PluginWorkflowHostMut<'_>,
 ) -> Result<Option<PluginWorkflowOutput>, PluginWorkflowError> {
-    let Some(plan_intake) = plan_intake_for_task(&input.task.text) else {
+    if !should_request_plan_intake(&input.task.text) {
+        return Ok(None);
+    }
+    let mut intake_request = CanonicalModelRequest::new(
+        input.runtime.model_ref.clone(),
+        vec![CanonicalMessage::text(
+            MessageRole::User,
+            input.task.text.clone(),
+        )],
+    )
+    .with_instructions(vec![
+        InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
+        InstructionBlock::new(
+            InstructionKind::Developer,
+            PLAN_INTAKE_DEVELOPER_INSTRUCTIONS,
+            90,
+        ),
+    ])
+    .with_tool_choice(ToolChoice::None);
+    intake_request.tools.clear();
+    emit_event(
+        host,
+        &Event::ModelRequestPrepared {
+            model: intake_request.model.clone(),
+        },
+    )?;
+    let response = complete_model(host, &intake_request, "plan_intake")?;
+    emit_event(
+        host,
+        &Event::ModelResponseReceived {
+            finish_reason: response.finish_reason.clone(),
+        },
+    )?;
+    let Some(plan_intake) = parse_plan_intake_response(&message_text(&response.message)) else {
         return Ok(None);
     };
     let mut persistent_messages = input.history.clone();
@@ -609,93 +650,66 @@ fn maybe_plan_intake_output(
     }))
 }
 
-fn plan_intake_for_task(task: &str) -> Option<Value> {
+fn should_request_plan_intake(task: &str) -> bool {
     let normalized = task.to_lowercase();
-    if normalized.contains("planning intake answers") {
-        return None;
-    }
-    let asks_for_bot = normalized.contains("bot") || normalized.contains("бот");
-    let asks_for_telegram = normalized.contains("telegram")
-        || normalized.contains("телеграм")
-        || normalized.contains("тг ");
-    if !(asks_for_bot && asks_for_telegram) {
-        return None;
-    }
+    normalized.contains("plan this task before making changes")
+        && !normalized.contains("planning intake answers for:")
+}
 
-    Some(json!({
-        "id": "telegram-bot-intake",
-        "title": "Telegram bot",
-        "questions": [
-            {
-                "id": "stack",
-                "prompt": "Какой Telegram stack использовать?",
-                "kind": "single_choice",
-                "allow_custom": true,
-                "options": [
-                    {
-                        "id": "telegram_bot_api",
-                        "label": "Telegram Bot API",
-                        "description": "официальный HTTP Bot API"
-                    },
-                    {
-                        "id": "aiogram",
-                        "label": "aiogram",
-                        "description": "Python async framework для Bot API"
-                    },
-                    {
-                        "id": "telethon",
-                        "label": "Telethon",
-                        "description": "MTProto client; нужен для userbot/client сценариев"
-                    }
-                ]
-            },
-            {
-                "id": "language",
-                "prompt": "На каком языке писать?",
-                "kind": "single_choice",
-                "allow_custom": true,
-                "options": [
-                    { "id": "python", "label": "Python" },
-                    { "id": "typescript", "label": "TypeScript" },
-                    { "id": "rust", "label": "Rust" }
-                ]
-            },
-            {
-                "id": "runtime",
-                "prompt": "Как запускать бота?",
-                "kind": "single_choice",
-                "allow_custom": true,
-                "options": [
-                    {
-                        "id": "local_polling",
-                        "label": "local polling",
-                        "description": "проще для разработки"
-                    },
-                    {
-                        "id": "vps_systemd",
-                        "label": "VPS + systemd",
-                        "description": "обычный production deploy"
-                    },
-                    {
-                        "id": "docker",
-                        "label": "Docker",
-                        "description": "контейнер с env config"
-                    }
-                ]
-            },
-            {
-                "id": "storage",
-                "prompt": "Нужно ли хранить состояние?",
-                "kind": "single_choice",
-                "allow_custom": true,
-                "options": [
-                    { "id": "none", "label": "без базы" },
-                    { "id": "sqlite", "label": "SQLite" },
-                    { "id": "postgres", "label": "Postgres" }
-                ]
-            }
-        ]
-    }))
+fn parse_plan_intake_response(text: &str) -> Option<Value> {
+    let value = serde_json::from_str::<Value>(json_payload(text)).ok()?;
+    let intake = value
+        .pointer("/ui/plan_intake")
+        .or_else(|| value.get("plan_intake"))
+        .or_else(|| value.get("intake"))?;
+    validate_plan_intake(intake)
+}
+
+fn json_payload(text: &str) -> &str {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_prefix("```json") {
+        return rest.trim().trim_end_matches("```").trim();
+    }
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        return rest.trim().trim_end_matches("```").trim();
+    }
+    trimmed
+}
+
+fn validate_plan_intake(value: &Value) -> Option<Value> {
+    if value.is_null() {
+        return None;
+    }
+    let object = value.as_object()?;
+    object.get("id")?.as_str().filter(|id| !id.is_empty())?;
+    object
+        .get("title")?
+        .as_str()
+        .filter(|title| !title.is_empty())?;
+    let questions = object.get("questions")?.as_array()?;
+    if questions.is_empty() {
+        return None;
+    }
+    for question in questions {
+        let question = question.as_object()?;
+        question.get("id")?.as_str().filter(|id| !id.is_empty())?;
+        question
+            .get("prompt")?
+            .as_str()
+            .filter(|prompt| !prompt.is_empty())?;
+        let options_len = question
+            .get("options")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let allow_custom = question
+            .get("allow_custom")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if options_len == 0 && !allow_custom {
+            return None;
+        }
+    }
+    Some(value.clone())
 }
 
 fn output_metadata(
@@ -1191,10 +1205,10 @@ mod tests {
     }
 
     #[test]
-    fn single_loop_can_return_plugin_owned_plan_intake_metadata() {
+    fn single_loop_can_return_model_owned_plan_intake_metadata() {
         let input = PluginWorkflowInput {
             task: AgentTask::new(
-                "Plan this task before making changes.\n\nTask:\nсоздать тг бота",
+                "Plan this task before making changes.\n\nTask:\nнаписать 10 стихов в жанрах в файлах md или html",
                 std::env::current_dir().expect("cwd"),
             ),
             history: Vec::new(),
@@ -1208,7 +1222,14 @@ mod tests {
             },
         };
         let input_json = serde_json::to_string(&input).expect("input json");
-        let mut host = FakeHost::default();
+        let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
+            CanonicalMessage::text(
+                MessageRole::Assistant,
+                r#"{"intake":{"id":"creative-writing-intake","title":"Creative writing","questions":[{"id":"genre","prompt":"Какой жанр?","kind":"single_choice","allow_custom":true,"options":[{"id":"lyric","label":"лирика"},{"id":"humor","label":"юмор"}]},{"id":"length","prompt":"Какая длина?","kind":"single_choice","allow_custom":true,"options":[{"id":"short","label":"коротко"},{"id":"medium","label":"средне"}]}]}}"#,
+            ),
+            Vec::new(),
+            FinishReason::Stop,
+        )]);
         let mut host_to: PluginWorkflowHostMut<'_> =
             PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
 
@@ -1224,21 +1245,17 @@ mod tests {
 
         assert_eq!(
             output.output.metadata["ui"]["plan_intake"]["id"],
-            "telegram-bot-intake"
+            "creative-writing-intake"
         );
         assert_eq!(
             output.output.metadata["ui"]["plan_intake"]["questions"][0]["id"],
-            "stack"
+            "genre"
         );
         assert_eq!(output.messages.len(), 2);
-        assert!(host.requests.lock().expect("requests").is_empty());
-        assert!(
-            host.events
-                .lock()
-                .expect("events")
-                .iter()
-                .any(|event| matches!(event, Event::TurnFinished { .. }))
-        );
+        let requests = host.requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].tool_choice, ToolChoice::None);
+        assert!(requests[0].tools.is_empty());
     }
 
     #[test]
