@@ -414,7 +414,7 @@ fn is_handled_key_event(kind: KeyEventKind) -> bool {
 
 fn plan_mode_prompt(task: &str) -> String {
     format!(
-        "Plan this task before making changes. Inspect only what is needed with read-only tools. Do not modify files, run write tools, or execute shell/network commands. Return a concise staged plan with risks or open questions.\n\nTask:\n{task}"
+        "Plan this task before making changes. Inspect only what is needed with read-only tools. Do not modify files, run write tools, or execute shell/network commands. If important choices remain, do not list them as open questions in prose; call request_user_input first, wait for the user's answers, then return a concise staged plan with risks.\n\nTask:\n{task}"
     )
 }
 
@@ -435,6 +435,7 @@ mod tests {
 
         assert!(prompt.contains("Plan this task before making changes"));
         assert!(prompt.contains("Do not modify files"));
+        assert!(prompt.contains("call request_user_input first"));
         assert!(prompt.contains("Task:\nfix the TUI"));
     }
 }
