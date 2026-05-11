@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::{
     contracts::{
@@ -13,36 +13,68 @@ use crate::{
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
-#[derive(Clone, Default)]
-pub struct RequestUserInputTool;
+#[derive(Clone)]
+pub struct RequestUserInputTool {
+    name: &'static str,
+}
 
-#[derive(Debug, Deserialize)]
-struct RequestUserInputArgs {
-    questions: Vec<RequestUserInputQuestionArg>,
+impl RequestUserInputTool {
+    pub fn new(name: &'static str) -> Self {
+        Self { name }
+    }
+}
+
+impl Default for RequestUserInputTool {
+    fn default() -> Self {
+        Self::new("request_user_input")
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct RequestUserInputQuestionArg {
-    id: String,
-    header: String,
-    question: String,
+struct RequestUserInputArgs {
+    #[serde(default)]
+    questions: Vec<RequestUserInputQuestionArg>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    header: Option<String>,
+    #[serde(default)]
+    question: Option<String>,
+    #[serde(default)]
     options: Vec<RequestUserInputOptionArg>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RequestUserInputOptionArg {
-    label: String,
-    description: String,
+struct RequestUserInputQuestionArg {
+    #[serde(default)]
+    id: Option<String>,
+    header: String,
+    question: String,
+    #[serde(default, rename = "multiSelect")]
+    multi_select: bool,
+    options: Vec<RequestUserInputOptionArg>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RequestUserInputOptionArg {
+    Object {
+        label: String,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    Label(String),
 }
 
 #[async_trait]
 impl Tool for RequestUserInputTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec::new(
-            "request_user_input",
+            self.name,
             "Request user input for one to three short questions and wait for \
-             the response. Use in plan mode for meaningful choices that cannot \
-             be discovered through read-only exploration.",
+             the response. Use in plan mode for meaningful choices, ambiguity, \
+             preferences, or requirements that cannot be discovered through \
+             read-only exploration.",
             json!({
                 "type": "object",
                 "properties": {
@@ -54,7 +86,7 @@ impl Tool for RequestUserInputTool {
                             "properties": {
                                 "id": {
                                     "type": "string",
-                                    "description": "Stable identifier for mapping answers (snake_case)."
+                                    "description": "Optional stable identifier for mapping answers (snake_case). If omitted, the question text is used."
                                 },
                                 "header": {
                                     "type": "string",
@@ -64,30 +96,65 @@ impl Tool for RequestUserInputTool {
                                     "type": "string",
                                     "description": "Single-sentence prompt shown to the user."
                                 },
+                                "multiSelect": {
+                                    "type": "boolean",
+                                    "description": "Optional. Set true when choices are not mutually exclusive."
+                                },
                                 "options": {
                                     "type": "array",
-                                    "description": "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option; the client adds free-form Other automatically.",
+                                    "description": "Provide 2-4 choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option; the client adds free-form Other automatically. Options may be strings or objects with label and description.",
                                     "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "label": {
-                                                "type": "string",
-                                                "description": "User-facing label (1-5 words)."
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
                                             },
-                                            "description": {
-                                                "type": "string",
-                                                "description": "One short sentence explaining impact/tradeoff if selected."
+                                            {
+                                                "type": "object",
+                                                "properties": {
+                                                    "label": {
+                                                        "type": "string",
+                                                        "description": "User-facing label (1-5 words)."
+                                                    },
+                                                    "description": {
+                                                        "type": "string",
+                                                        "description": "One short sentence explaining impact/tradeoff if selected."
+                                                    }
+                                                },
+                                                "required": ["label"]
                                             }
-                                        },
-                                        "required": ["label", "description"]
+                                        ]
                                     }
                                 }
                             },
-                            "required": ["id", "header", "question", "options"]
+                            "required": ["header", "question", "options"]
+                        }
+                    },
+                    "header": {
+                        "type": "string",
+                        "description": "Compatibility form for a single question: short header label."
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Compatibility form for a single question."
+                    },
+                    "options": {
+                        "type": "array",
+                        "description": "Compatibility form for a single question.",
+                        "items": {
+                            "anyOf": [
+                                { "type": "string" },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": { "type": "string" },
+                                        "description": { "type": "string" }
+                                    },
+                                    "required": ["label"]
+                                }
+                            ]
                         }
                     }
-                },
-                "required": ["questions"]
+                }
             }),
             ToolSafety::ReadOnly,
         )
@@ -99,14 +166,12 @@ impl Tool for RequestUserInputTool {
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        let args: RequestUserInputArgs = serde_json::from_value(call.args.clone())
-            .map_err(|error| anyhow!("request_user_input: invalid args: {error}"))?;
-        let questions = normalize_questions(args.questions)?;
+        let questions = parse_questions(call.args.clone())?;
         let transport = ctx
             .user_input
-            .ok_or_else(|| anyhow!("request_user_input: no user input transport configured"))?;
+            .ok_or_else(|| anyhow!("{}: no user input transport configured", self.name))?;
         if !transport.can_request_user_input() {
-            bail!("request_user_input: user input transport is not interactive");
+            bail!("{}: user input transport is not interactive", self.name);
         }
         let response = transport
             .request_user_input(UserInputRequest::new(
@@ -118,12 +183,30 @@ impl Tool for RequestUserInputTool {
         let output = format_user_input_response(&response.answers);
         Ok(
             ToolResult::ok(call.id.clone(), output).with_metadata(json!({
-                "tool": "request_user_input",
+                "tool": self.name,
                 "questions": questions,
                 "answers": response.answers,
             })),
         )
     }
+}
+
+fn parse_questions(value: Value) -> Result<Vec<UserInputQuestion>> {
+    let mut args: RequestUserInputArgs = serde_json::from_value(value)
+        .map_err(|error| anyhow!("request_user_input: invalid args: {error}"))?;
+    if args.questions.is_empty() {
+        if args.question.is_none() && args.header.is_none() && args.options.is_empty() {
+            bail!("request_user_input requires questions or a single question");
+        }
+        args.questions.push(RequestUserInputQuestionArg {
+            id: args.id.take(),
+            header: args.header.take().unwrap_or_else(|| "Question".to_owned()),
+            question: args.question.take().unwrap_or_default(),
+            multi_select: false,
+            options: args.options,
+        });
+    }
+    normalize_questions(args.questions)
 }
 
 fn normalize_questions(
@@ -138,9 +221,6 @@ fn normalize_questions(
     questions
         .into_iter()
         .map(|question| {
-            if question.id.trim().is_empty() {
-                bail!("request_user_input question id must be non-empty");
-            }
             if question.header.trim().is_empty() {
                 bail!("request_user_input question header must be non-empty");
             }
@@ -153,13 +233,27 @@ fn normalize_questions(
             if question.options.len() > 4 {
                 bail!("request_user_input supports at most four options per question");
             }
+            if question.multi_select {
+                bail!("request_user_input multiSelect is not supported yet");
+            }
+            let id = question
+                .id
+                .filter(|id| !id.trim().is_empty())
+                .unwrap_or_else(|| question.question.clone());
             let options = question
                 .options
                 .into_iter()
-                .map(|option| UserInputQuestionOption::new(option.label, option.description))
+                .map(|option| match option {
+                    RequestUserInputOptionArg::Object { label, description } => {
+                        UserInputQuestionOption::new(label, description.unwrap_or_default())
+                    }
+                    RequestUserInputOptionArg::Label(label) => {
+                        UserInputQuestionOption::new(label, "")
+                    }
+                })
                 .collect();
             Ok(UserInputQuestion::new(
-                question.id,
+                id,
                 question.header,
                 question.question,
                 options,
@@ -191,17 +285,18 @@ mod tests {
 
     fn question(id: &str) -> RequestUserInputQuestionArg {
         RequestUserInputQuestionArg {
-            id: id.to_owned(),
+            id: Some(id.to_owned()),
             header: "Header".to_owned(),
             question: "Choose?".to_owned(),
+            multi_select: false,
             options: vec![
-                RequestUserInputOptionArg {
+                RequestUserInputOptionArg::Object {
                     label: "A".to_owned(),
-                    description: "First option.".to_owned(),
+                    description: Some("First option.".to_owned()),
                 },
-                RequestUserInputOptionArg {
+                RequestUserInputOptionArg::Object {
                     label: "B".to_owned(),
-                    description: "Second option.".to_owned(),
+                    description: Some("Second option.".to_owned()),
                 },
             ],
         }
@@ -227,6 +322,23 @@ mod tests {
         .expect_err("too many questions should fail");
 
         assert!(error.to_string().contains("at most three questions"));
+    }
+
+    #[test]
+    fn parses_claude_style_single_question_without_id() {
+        let questions = parse_questions(json!({
+            "header": "Language",
+            "question": "На каком языке писать бота?",
+            "options": [
+                {"label": "Python", "description": "aiogram or python-telegram-bot."},
+                {"label": "TypeScript", "description": "Telegraf or grammY."},
+                "Rust"
+            ]
+        }))
+        .expect("questions");
+
+        assert_eq!(questions[0].id, "На каком языке писать бота?");
+        assert_eq!(questions[0].options[2].label, "Rust");
     }
 
     #[test]

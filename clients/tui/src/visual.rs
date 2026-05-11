@@ -67,18 +67,41 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     };
     let question = intake.current_question();
     let mut lines = Vec::new();
-    lines.push(Line::from(vec![
-        Span::styled("Planning choices", Style::default().fg(Color::Cyan)),
-        Span::styled(
-            format!(
-                "  {}/{}  {}",
+    let mut progress = vec![Span::styled("<  ", muted_style())];
+    for (index, question) in intake.request().questions.iter().enumerate() {
+        let marker = if index == intake.question_index() {
+            "●"
+        } else {
+            "☐"
+        };
+        let style = if index == intake.question_index() {
+            Style::default().fg(Color::Cyan)
+        } else {
+            muted_style()
+        };
+        progress.push(Span::styled(
+            truncate(
+                &format!("{marker} {}", question.id),
+                width.saturating_sub(8).max(1),
+            ),
+            style,
+        ));
+        progress.push(Span::raw("  "));
+    }
+    progress.push(Span::styled("✔ Submit  >", muted_style()));
+    lines.push(Line::from(progress));
+    lines.push(Line::from(vec![Span::styled(
+        truncate(
+            &format!(
+                "Planning choices  {}/{}  {}",
                 intake.question_index() + 1,
                 intake.question_count(),
                 intake.request().title
             ),
-            muted_style(),
+            width.max(1),
         ),
-    ]));
+        muted_style(),
+    )]));
     lines.push(Line::from(vec![Span::styled(
         truncate(&question.prompt, width.max(1)),
         Style::default().add_modifier(Modifier::BOLD),
@@ -87,7 +110,7 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     let available_width = width.saturating_sub(4).max(1);
     for (index, option) in question.options.iter().enumerate() {
         let marker = if index == intake.current_selection() {
-            "> "
+            "› "
         } else {
             "  "
         };
@@ -99,17 +122,18 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         let label = option
             .description
             .as_ref()
-            .map(|description| format!("{} - {}", option.label, description))
-            .unwrap_or_else(|| option.label.clone());
+            .filter(|description| !description.is_empty())
+            .map(|description| format!("{}. {} - {}", index + 1, option.label, description))
+            .unwrap_or_else(|| format!("{}. {}", index + 1, option.label));
         lines.push(Line::from(vec![
             Span::styled(marker, style),
             Span::styled(truncate(&label, available_width), style),
         ]));
     }
     if question.allow_custom {
-        let custom_index = question.options.len();
+        let custom_index = intake.custom_index(intake.question_index());
         let marker = if intake.current_selection() == custom_index {
-            "> "
+            "› "
         } else {
             "  "
         };
@@ -120,9 +144,9 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         };
         let custom = intake.current_custom_answer();
         let label = if custom.is_empty() {
-            "Custom...".to_owned()
+            format!("{}. Type something.", custom_index + 1)
         } else {
-            format!("Custom: {custom}")
+            format!("{}. Type something: {custom}", custom_index + 1)
         };
         lines.push(Line::from(vec![
             Span::styled(marker, style),
@@ -130,7 +154,39 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         ]));
     }
     lines.push(Line::from(vec![Span::styled(
-        "Up/Down choose · Left/Right question · Enter next/submit · type for custom",
+        "────────────────────────────────────────────────────────────────",
+        muted_style(),
+    )]));
+    for (index, label) in [
+        (
+            intake.chat_index(intake.question_index()),
+            "Chat about this",
+        ),
+        (
+            intake.skip_index(intake.question_index()),
+            "Skip interview and plan immediately",
+        ),
+    ] {
+        let marker = if intake.current_selection() == index {
+            "› "
+        } else {
+            "  "
+        };
+        let style = if intake.current_selection() == index {
+            Style::default().fg(Color::Cyan)
+        } else {
+            muted_style()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled(
+                truncate(&format!("{}. {label}", index + 1), available_width),
+                style,
+            ),
+        ]));
+    }
+    lines.push(Line::from(vec![Span::styled(
+        "Up/Down choose · Left/Right question · Enter next/submit · type for custom · Esc cancel",
         muted_style(),
     )]));
     lines
@@ -1096,13 +1152,20 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Planning choices"))
         );
+        assert!(rendered.iter().any(|line| line.contains("● stack")));
         assert!(rendered.iter().any(|line| line.contains("Какой stack?")));
         assert!(
             rendered
                 .iter()
-                .any(|line| line.starts_with("> Telegram Bot API"))
+                .any(|line| line.starts_with("› 1. Telegram Bot API"))
         );
-        assert!(rendered.iter().any(|line| line.contains("Custom")));
+        assert!(rendered.iter().any(|line| line.contains("Type something")));
+        assert!(rendered.iter().any(|line| line.contains("Chat about this")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("Skip interview and plan immediately"))
+        );
     }
 
     #[test]

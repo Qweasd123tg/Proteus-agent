@@ -691,6 +691,12 @@ impl AppState {
             .is_none_or(PlanIntakeState::is_last_question)
     }
 
+    pub fn plan_intake_selection_submits_immediately(&self) -> bool {
+        self.plan_intake
+            .as_ref()
+            .is_some_and(PlanIntakeState::current_selection_submits_immediately)
+    }
+
     pub fn type_plan_intake_custom_char(&mut self, ch: char) {
         if let Some(intake) = &mut self.plan_intake {
             intake.type_custom_char(ch);
