@@ -11,6 +11,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
+    plan_intake::PlanIntakeState,
     session_picker::ResumePicker,
     slash_commands::{SlashCommand, matching_slash_commands},
 };
@@ -60,6 +61,81 @@ pub(crate) fn plan_review_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     lines
 }
 
+pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+    let Some(intake) = state.plan_intake else {
+        return Vec::new();
+    };
+    let question = intake.current_question();
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Planning choices", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!(
+                "  {}/{}  {}",
+                intake.question_index() + 1,
+                intake.question_count(),
+                intake.request().title
+            ),
+            muted_style(),
+        ),
+    ]));
+    lines.push(Line::from(vec![Span::styled(
+        truncate(&question.prompt, width.max(1)),
+        Style::default().add_modifier(Modifier::BOLD),
+    )]));
+
+    let available_width = width.saturating_sub(4).max(1);
+    for (index, option) in question.options.iter().enumerate() {
+        let marker = if index == intake.current_selection() {
+            "> "
+        } else {
+            "  "
+        };
+        let style = if index == intake.current_selection() {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        let label = option
+            .description
+            .as_ref()
+            .map(|description| format!("{} - {}", option.label, description))
+            .unwrap_or_else(|| option.label.clone());
+        lines.push(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled(truncate(&label, available_width), style),
+        ]));
+    }
+    if question.allow_custom {
+        let custom_index = question.options.len();
+        let marker = if intake.current_selection() == custom_index {
+            "> "
+        } else {
+            "  "
+        };
+        let style = if intake.current_selection() == custom_index {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        let custom = intake.current_custom_answer();
+        let label = if custom.is_empty() {
+            "Custom...".to_owned()
+        } else {
+            format!("Custom: {custom}")
+        };
+        lines.push(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled(truncate(&label, available_width), style),
+        ]));
+    }
+    lines.push(Line::from(vec![Span::styled(
+        "Up/Down choose · Left/Right question · Enter next/submit · type for custom",
+        muted_style(),
+    )]));
+    lines
+}
+
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
     pub permission_mode: &'a str,
@@ -81,6 +157,7 @@ pub(crate) struct VisualState<'a> {
     pub resume_picker: Option<&'a ResumePicker>,
     pub context_report: Option<&'a str>,
     pub context_report_scroll: usize,
+    pub plan_intake: Option<&'a PlanIntakeState>,
     pub plan_review: Option<PlanReviewVisualState>,
     pub slash_selection: usize,
 }
@@ -499,7 +576,9 @@ mod tests {
     use crate::{
         bottom_pane::{BottomPane, BottomPaneLines},
         cards::render_scrollback_header,
+        plan_intake::PlanIntakeState,
     };
+    use serde_json::json;
 
     fn inline_panel_lines(state: &VisualState<'_>, width: usize) -> BottomPaneLines {
         BottomPane.lines(state, width)
@@ -535,6 +614,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -594,6 +674,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -636,6 +717,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -696,6 +778,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -839,6 +922,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -882,6 +966,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -926,6 +1011,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: Some(PlanReviewVisualState { selected: 1 }),
             slash_selection: 0,
         };
@@ -948,6 +1034,75 @@ mod tests {
                 .any(|line| line.starts_with("> Execute with approvals"))
         );
         assert!(rendered.iter().any(|line| line.starts_with("› ")));
+    }
+
+    #[test]
+    fn plan_intake_renders_current_question_and_options() {
+        let intake = PlanIntakeState::from_metadata(&json!({
+            "plan_intake": {
+                "id": "telegram-bot",
+                "title": "Telegram bot",
+                "questions": [{
+                    "id": "stack",
+                    "prompt": "Какой stack?",
+                    "options": [
+                        {"id": "api", "label": "Telegram Bot API"},
+                        {"id": "aiogram", "label": "aiogram"}
+                    ],
+                    "allow_custom": true
+                }]
+            }
+        }))
+        .expect("intake");
+        let state = VisualState {
+            model: "test/model",
+            permission_mode: "plan",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "planning choices",
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            plan_intake: Some(&intake),
+            plan_review: None,
+            slash_selection: 0,
+        };
+
+        let rendered = inline_panel_lines(&state, 80)
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("Planning choices"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("Какой stack?")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.starts_with("> Telegram Bot API"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("Custom")));
     }
 
     #[test]
@@ -974,6 +1129,7 @@ mod tests {
                 resume_picker: None,
                 context_report: None,
                 context_report_scroll: 0,
+                plan_intake: None,
                 plan_review: None,
                 slash_selection: 0,
             }
@@ -1016,6 +1172,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };
@@ -1090,6 +1247,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_intake: None,
             plan_review: None,
             slash_selection: 0,
         };

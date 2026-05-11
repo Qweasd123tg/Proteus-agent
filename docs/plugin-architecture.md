@@ -366,6 +366,10 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `emit_event`). `coding-workflow` использует
   эту границу как рабочий single-loop plugin и как staged plan/execute/review
   workflow.
+- ✅ Workflow-плагины могут отдавать UI-neutral planning intake schema через
+  `AgentOutput.metadata.ui.plan_intake`. Это не TUI plugin: плагин решает,
+  какие вопросы/options нужны, а клиент только рендерит generic selector и
+  возвращает ответы следующим turn'ом.
 - ✅ `compactor` добавлен как plugin ABI и host capability для workflow.
   Core fallback `none` ничего не меняет; плагинная реализация может делать
   summary/sliding-window/token-budget compaction без изменения session log.

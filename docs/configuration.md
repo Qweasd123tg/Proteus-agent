@@ -431,7 +431,10 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 `/plan`, `/normal` и `/auto` переключают режим для следующих turns через
 app-server control-plane request без restart процесса. После ответа в `/plan`
 TUI показывает bottom-pane chooser: execute в `auto`, execute через approvals,
-revise plan или dismiss.
+revise plan или dismiss. Workflow-плагин может вставить перед этим шагом
+structured intake форму через `AgentOutput.metadata.ui.plan_intake`; TUI
+отрисует вопросы/options/custom input универсально и отправит ответы обратно
+следующим turn'ом.
 
 Более гибкая table-driven схема прав (`hide`/`deny`/`ask`/`allow`,
 priority, per-tool limits) пока является planned design. Текущая реализация

@@ -95,7 +95,7 @@ fn print_help() {
            --agent-bin PATH    path to the agent binary (default: sibling agent, then PATH)\n\
            --config PATH       path to agent config (toml or json)\n\
            --cwd PATH          workspace directory for the agent (default: current dir)\n\
-           --plan              start in plan mode (read-only tools + review chooser)\n\
+           --plan              start in plan mode (planning choices + review chooser)\n\
            --auto              start in auto mode (read/write tools, no command/network)\n\
            --permission-mode   start with explicit mode: plan, normal, or auto\n\
            --help, -h          show this help"

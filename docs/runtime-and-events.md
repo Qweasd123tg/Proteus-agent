@@ -324,8 +324,42 @@ state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`,
 logic в visual layer. Режимы `/plan`, `/normal` и `/auto` уже реализованы в TUI
 как control-plane команды: enforcement остаётся в core `ModeAwarePolicy`, а TUI
 отправляет app-server request с новым permission override. В plan mode TUI
-дополнительно оборачивает следующий user request как read-only planning prompt и
-после `TurnOutput` открывает bottom-pane chooser для execute/revise/dismiss.
+дополнительно оборачивает следующий user request как read-only planning prompt.
+Если workflow возвращает `AgentOutput.metadata.ui.plan_intake`, TUI открывает
+generic bottom-pane form для вопросов/options/custom answers и отправляет ответы
+следующим `StdioRequest::Send`. После обычного plan `TurnOutput` без intake
+metadata TUI открывает chooser для execute/revise/dismiss.
+
+Минимальный metadata contract для workflow/pack plugins:
+
+```json
+{
+  "ui": {
+    "plan_intake": {
+      "id": "telegram-bot-intake",
+      "title": "Telegram bot",
+      "questions": [
+        {
+          "id": "stack",
+          "prompt": "Какой Telegram stack использовать?",
+          "kind": "single_choice",
+          "allow_custom": true,
+          "options": [
+            {
+              "id": "aiogram",
+              "label": "aiogram",
+              "description": "Python async framework для Bot API"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+TUI не знает domain-specific options; разные workflow-плагины могут формировать
+свои intake-схемы, а клиент рендерит только `single_choice`/custom форму.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 

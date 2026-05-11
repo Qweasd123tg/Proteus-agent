@@ -124,6 +124,10 @@ fn run_single_loop(
         },
     )?;
 
+    if let Some(output) = maybe_plan_intake_output(SINGLE_LOOP_MODULE_ID, &input, host)? {
+        return Ok(output);
+    }
+
     let bundle = build_context(host, &input)?;
     emit_event(
         host,
@@ -256,6 +260,10 @@ fn run_plan_execute_review(
             task: input.task.clone(),
         },
     )?;
+
+    if let Some(output) = maybe_plan_intake_output(PLAN_EXECUTE_REVIEW_MODULE_ID, &input, host)? {
+        return Ok(output);
+    }
 
     let bundle = build_context(host, &input)?;
     emit_event(
@@ -553,6 +561,141 @@ fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, PluginWorkfl
 
 fn from_json_string<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, PluginWorkflowError> {
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
+}
+
+fn maybe_plan_intake_output(
+    module_id: &str,
+    input: &PluginWorkflowInput,
+    host: &mut PluginWorkflowHostMut<'_>,
+) -> Result<Option<PluginWorkflowOutput>, PluginWorkflowError> {
+    let Some(plan_intake) = plan_intake_for_task(&input.task.text) else {
+        return Ok(None);
+    };
+    let mut persistent_messages = input.history.clone();
+    persistent_messages.push(CanonicalMessage::text(
+        MessageRole::User,
+        input.task.text.clone(),
+    ));
+    let assistant_text =
+        "I need a few planning choices before writing a useful implementation plan.".to_owned();
+    persistent_messages.push(CanonicalMessage::text(
+        MessageRole::Assistant,
+        assistant_text.clone(),
+    ));
+    let output = AgentOutput::new(
+        assistant_text,
+        output_metadata_with_extra(
+            module_id,
+            input,
+            &persistent_messages,
+            0,
+            None,
+            json!({
+                "ui": {
+                    "plan_intake": plan_intake,
+                },
+            }),
+        ),
+    );
+    emit_event(
+        host,
+        &Event::TurnFinished {
+            output: output.clone(),
+        },
+    )?;
+    Ok(Some(PluginWorkflowOutput {
+        output,
+        messages: persistent_messages,
+    }))
+}
+
+fn plan_intake_for_task(task: &str) -> Option<Value> {
+    let normalized = task.to_lowercase();
+    if normalized.contains("planning intake answers") {
+        return None;
+    }
+    let asks_for_bot = normalized.contains("bot") || normalized.contains("бот");
+    let asks_for_telegram = normalized.contains("telegram")
+        || normalized.contains("телеграм")
+        || normalized.contains("тг ");
+    if !(asks_for_bot && asks_for_telegram) {
+        return None;
+    }
+
+    Some(json!({
+        "id": "telegram-bot-intake",
+        "title": "Telegram bot",
+        "questions": [
+            {
+                "id": "stack",
+                "prompt": "Какой Telegram stack использовать?",
+                "kind": "single_choice",
+                "allow_custom": true,
+                "options": [
+                    {
+                        "id": "telegram_bot_api",
+                        "label": "Telegram Bot API",
+                        "description": "официальный HTTP Bot API"
+                    },
+                    {
+                        "id": "aiogram",
+                        "label": "aiogram",
+                        "description": "Python async framework для Bot API"
+                    },
+                    {
+                        "id": "telethon",
+                        "label": "Telethon",
+                        "description": "MTProto client; нужен для userbot/client сценариев"
+                    }
+                ]
+            },
+            {
+                "id": "language",
+                "prompt": "На каком языке писать?",
+                "kind": "single_choice",
+                "allow_custom": true,
+                "options": [
+                    { "id": "python", "label": "Python" },
+                    { "id": "typescript", "label": "TypeScript" },
+                    { "id": "rust", "label": "Rust" }
+                ]
+            },
+            {
+                "id": "runtime",
+                "prompt": "Как запускать бота?",
+                "kind": "single_choice",
+                "allow_custom": true,
+                "options": [
+                    {
+                        "id": "local_polling",
+                        "label": "local polling",
+                        "description": "проще для разработки"
+                    },
+                    {
+                        "id": "vps_systemd",
+                        "label": "VPS + systemd",
+                        "description": "обычный production deploy"
+                    },
+                    {
+                        "id": "docker",
+                        "label": "Docker",
+                        "description": "контейнер с env config"
+                    }
+                ]
+            },
+            {
+                "id": "storage",
+                "prompt": "Нужно ли хранить состояние?",
+                "kind": "single_choice",
+                "allow_custom": true,
+                "options": [
+                    { "id": "none", "label": "без базы" },
+                    { "id": "sqlite", "label": "SQLite" },
+                    { "id": "postgres", "label": "Postgres" }
+                ]
+            }
+        ]
+    }))
 }
 
 fn output_metadata(
@@ -1042,6 +1185,57 @@ mod tests {
         )));
         assert!(
             events
+                .iter()
+                .any(|event| matches!(event, Event::TurnFinished { .. }))
+        );
+    }
+
+    #[test]
+    fn single_loop_can_return_plugin_owned_plan_intake_metadata() {
+        let input = PluginWorkflowInput {
+            task: AgentTask::new(
+                "Plan this task before making changes.\n\nTask:\nсоздать тг бота",
+                std::env::current_dir().expect("cwd"),
+            ),
+            history: Vec::new(),
+            runtime: PluginWorkflowRuntimeInfo {
+                session_id: new_session_id(),
+                thread_id: new_thread_id(),
+                turn_id: new_turn_id(),
+                model_ref: ModelRef::new("fake", "model"),
+                model_timeout_ms: 120_000,
+                context_timeout_ms: 30_000,
+            },
+        };
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let mut host = FakeHost::default();
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let output_json = match CodingSingleLoopWorkflow::default()
+            .run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+        let output: PluginWorkflowOutput =
+            serde_json::from_str(output_json.as_str()).expect("output json");
+        drop(host_to);
+
+        assert_eq!(
+            output.output.metadata["ui"]["plan_intake"]["id"],
+            "telegram-bot-intake"
+        );
+        assert_eq!(
+            output.output.metadata["ui"]["plan_intake"]["questions"][0]["id"],
+            "stack"
+        );
+        assert_eq!(output.messages.len(), 2);
+        assert!(host.requests.lock().expect("requests").is_empty());
+        assert!(
+            host.events
+                .lock()
+                .expect("events")
                 .iter()
                 .any(|event| matches!(event, Event::TurnFinished { .. }))
         );
