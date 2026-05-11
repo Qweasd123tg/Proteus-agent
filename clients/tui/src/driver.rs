@@ -27,7 +27,7 @@ pub struct AgentDriver {
 
 #[derive(Clone)]
 pub struct DriverConfig {
-    /// Путь к бинарю ядра. Если None — `modular-agent` ищется в `$PATH`.
+    /// Путь к бинарю ядра. Если None — ищем соседний `agent`, затем `agent` в `$PATH`.
     pub agent_bin: Option<PathBuf>,
     /// Путь к config-файлу ядра. Передаётся как `--config`.
     pub config_path: Option<PathBuf>,
@@ -40,9 +40,7 @@ pub struct DriverConfig {
 impl AgentDriver {
     /// Spawn ядра и подготовка каналов.
     pub async fn spawn(cfg: DriverConfig) -> Result<Self> {
-        let program = cfg
-            .agent_bin
-            .unwrap_or_else(|| PathBuf::from("modular-agent"));
+        let program = cfg.agent_bin.unwrap_or_else(default_agent_bin);
 
         let mut cmd = Command::new(&program);
         // Важно: --config / --cwd должны идти ДО positional args
@@ -143,4 +141,16 @@ impl AgentDriver {
             }
         }
     }
+}
+
+fn default_agent_bin() -> PathBuf {
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(dir) = current_exe.parent()
+    {
+        let sibling = dir.join("agent");
+        if sibling.is_file() {
+            return sibling;
+        }
+    }
+    PathBuf::from("agent")
 }
