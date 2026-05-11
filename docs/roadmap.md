@@ -274,8 +274,9 @@ Scope:
 ### TUI / Control Plane
 
 - Продолжать доводить `agent-tui` как внешний client: slash autocomplete,
-  fullscreen `/resume`, `/context` overlay, markdown renderer, paste UX,
-  stopwatch и streaming readability остаются client concerns.
+  fullscreen `/resume`, `/context` overlay, `/plan`/`/normal`/`/auto`
+  permission control, markdown renderer, paste UX, stopwatch и streaming
+  readability остаются client concerns.
 - Разбор Codex/Claude/OpenCode и план стабилизации TUI зафиксированы в
   `docs/tui-ux-research.md`. Основной вывод: сначала нужен единый render model,
   bottom-pane state machine, generic dialog/picker и paste-burst fallback, а не

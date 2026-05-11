@@ -7,8 +7,8 @@ use std::{
 use agent_contracts::{
     app_protocol::StdioRequest,
     domain::{
-        CallId, Event as DomainEvent, EventEnvelope, TokenUsageSnapshot, ToolCall, ToolResult,
-        TurnId,
+        CallId, Event as DomainEvent, EventEnvelope, PermissionMode, TokenUsageSnapshot, ToolCall,
+        ToolResult, TurnId,
     },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
@@ -24,7 +24,7 @@ use crate::{
 pub(crate) async fn handle_slash_command(
     state: &mut AppState,
     driver: &mut AgentDriver,
-    driver_config: &DriverConfig,
+    driver_config: &mut DriverConfig,
     canceled_turn_responses: &mut HashSet<String>,
     cancel_request_responses: &mut HashSet<String>,
     text: &str,
@@ -37,7 +37,7 @@ pub(crate) async fn handle_slash_command(
     match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /reasoning [hidden|summary|expanded], /quit",
+                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /reasoning [hidden|summary|expanded], /plan, /normal, /auto, /quit",
             );
         }
         "/clear" => {
@@ -70,6 +70,21 @@ pub(crate) async fn handle_slash_command(
         }
         "/context" => state.open_context_report(),
         "/reasoning" => handle_reasoning_command(state, rest),
+        "/plan" => {
+            switch_permission_mode(state, driver, driver_config, PermissionMode::Plan).await?;
+            canceled_turn_responses.clear();
+            cancel_request_responses.clear();
+        }
+        "/normal" => {
+            switch_permission_mode(state, driver, driver_config, PermissionMode::Normal).await?;
+            canceled_turn_responses.clear();
+            cancel_request_responses.clear();
+        }
+        "/auto" => {
+            switch_permission_mode(state, driver, driver_config, PermissionMode::Auto).await?;
+            canceled_turn_responses.clear();
+            cancel_request_responses.clear();
+        }
         "/resume" => {
             if state.pending_model {
                 state.push_error("cancel active turn before resume".to_owned());
@@ -107,7 +122,7 @@ fn handle_reasoning_command(state: &mut AppState, rest: &str) {
 async fn resume_session(
     state: &mut AppState,
     driver: &mut AgentDriver,
-    driver_config: &DriverConfig,
+    driver_config: &mut DriverConfig,
     raw_path: &str,
 ) -> Result<()> {
     let session_dir = resolve_session_dir(raw_path)?;
@@ -117,7 +132,7 @@ async fn resume_session(
 pub(crate) async fn resume_session_dir(
     state: &mut AppState,
     driver: &mut AgentDriver,
-    driver_config: &DriverConfig,
+    driver_config: &mut DriverConfig,
     session_dir: PathBuf,
 ) -> Result<()> {
     let history = load_session_history(&session_dir)?;
@@ -131,8 +146,33 @@ pub(crate) async fn resume_session_dir(
 
     driver.shutdown().await?;
     *driver = AgentDriver::spawn(resumed_config).await?;
+    driver_config.resume_session = Some(session_dir.clone());
     state.reset_after_resume_with_history(session_dir, history);
     state.restore_context_usage(context_usage);
+    Ok(())
+}
+
+async fn switch_permission_mode(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &mut DriverConfig,
+    mode: PermissionMode,
+) -> Result<()> {
+    if state.pending_model {
+        state.push_error("cancel active turn before changing permission mode".to_owned());
+        return Ok(());
+    }
+
+    let mut next_config = driver_config.clone();
+    next_config.permission_mode = Some(mode);
+    if next_config.resume_session.is_none() {
+        next_config.resume_session = state.session_dir().map(Path::to_path_buf);
+    }
+
+    driver.shutdown().await?;
+    *driver = AgentDriver::spawn(next_config.clone()).await?;
+    *driver_config = next_config;
+    state.set_permission_mode(mode);
     Ok(())
 }
 

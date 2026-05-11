@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use agent_contracts::domain::PermissionMode;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
@@ -8,6 +9,7 @@ pub(crate) struct Cli {
     pub(crate) config_path: Option<PathBuf>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) profile: Option<String>,
+    pub(crate) permission_mode: Option<PermissionMode>,
 }
 
 pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
@@ -15,9 +17,24 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
     let mut config_path = None;
     let mut cwd = None;
     let mut profile = None;
+    let mut permission_mode = None;
     let mut iter = args.iter().peekable();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "--plan" => {
+                set_permission_mode(&mut permission_mode, PermissionMode::Plan)?;
+            }
+            "--auto" => {
+                set_permission_mode(&mut permission_mode, PermissionMode::Auto)?;
+            }
+            "--permission-mode" => {
+                let raw = iter
+                    .next()
+                    .context("--permission-mode requires value")
+                    .map(String::as_str)?;
+                let mode = parse_permission_mode(raw)?;
+                set_permission_mode(&mut permission_mode, mode)?;
+            }
             "--profile" | "-p" => {
                 profile = iter
                     .next()
@@ -62,6 +79,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
         config_path,
         cwd,
         profile,
+        permission_mode,
     })
 }
 
@@ -70,13 +88,16 @@ fn print_help() {
         "agent-tui — terminal UI for modular-agent\n\
          \n\
          usage:\n\
-           agent-tui [--profile NAME] [--agent-bin PATH] [--config PATH] [--cwd PATH]\n\
+           agent-tui [--profile NAME] [--agent-bin PATH] [--config PATH] [--cwd PATH] [--plan|--auto|--permission-mode MODE]\n\
          \n\
          options:\n\
            --profile, -p NAME  load ~/.config/agent-qweasd123tg/profiles/NAME.toml\n\
            --agent-bin PATH    path to the agent binary (default: sibling agent, then PATH)\n\
            --config PATH       path to agent config (toml or json)\n\
            --cwd PATH          workspace directory for the agent (default: current dir)\n\
+           --plan              start in plan mode (read-only tools only)\n\
+           --auto              start in auto mode (read/write tools, no command/network)\n\
+           --permission-mode   start with explicit mode: plan, normal, or auto\n\
            --help, -h          show this help"
     );
 }
@@ -86,6 +107,7 @@ struct TuiProfileConfig {
     agent_bin: Option<PathBuf>,
     config: Option<PathBuf>,
     cwd: Option<PathBuf>,
+    permission_mode: Option<PermissionMode>,
 }
 
 pub(crate) fn apply_profile(cli: Cli) -> Result<Cli> {
@@ -119,8 +141,29 @@ fn apply_profile_file(cli: Cli, profile_path: &Path) -> Result<Cli> {
                 .cwd
                 .map(|path| resolve_profile_path(profile_dir, path))
         }),
+        permission_mode: cli.permission_mode.or(profile_config.permission_mode),
         profile: cli.profile,
     })
+}
+
+fn set_permission_mode(
+    permission_mode: &mut Option<PermissionMode>,
+    next: PermissionMode,
+) -> Result<()> {
+    if permission_mode.is_some() {
+        anyhow::bail!("use only one of --plan, --auto, or --permission-mode");
+    }
+    *permission_mode = Some(next);
+    Ok(())
+}
+
+fn parse_permission_mode(raw: &str) -> Result<PermissionMode> {
+    match raw {
+        "plan" => Ok(PermissionMode::Plan),
+        "normal" => Ok(PermissionMode::Normal),
+        "auto" => Ok(PermissionMode::Auto),
+        _ => anyhow::bail!("unsupported permission mode '{raw}'; use plan, normal, or auto"),
+    }
 }
 
 fn profile_path(profile: &str) -> Result<PathBuf> {
@@ -177,6 +220,7 @@ mod tests {
 agent_bin = "bin/agent"
 config = "~/agent-config/configs"
 cwd = "workspace"
+permission_mode = "auto"
 "#,
         )
         .expect("profile");
@@ -185,6 +229,7 @@ cwd = "workspace"
             config_path: Some(PathBuf::from("/explicit/config")),
             cwd: None,
             profile: Some("claude".to_owned()),
+            permission_mode: None,
         };
 
         let cli = apply_profile_file(cli, &profile_path).expect("applied profile");
@@ -192,5 +237,18 @@ cwd = "workspace"
         assert_eq!(cli.agent_bin, Some(dir.path().join("bin/agent")));
         assert_eq!(cli.config_path, Some(PathBuf::from("/explicit/config")));
         assert_eq!(cli.cwd, Some(dir.path().join("workspace")));
+        assert_eq!(cli.permission_mode, Some(PermissionMode::Auto));
+    }
+
+    #[test]
+    fn cli_parses_permission_mode_aliases() {
+        let cli = parse_args(&["--plan".to_owned()]).expect("plan args");
+        assert_eq!(cli.permission_mode, Some(PermissionMode::Plan));
+
+        let cli = parse_args(&["--permission-mode".to_owned(), "auto".to_owned()])
+            .expect("permission args");
+        assert_eq!(cli.permission_mode, Some(PermissionMode::Auto));
+
+        assert!(parse_args(&["--plan".to_owned(), "--auto".to_owned()]).is_err());
     }
 }

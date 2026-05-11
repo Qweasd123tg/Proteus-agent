@@ -141,6 +141,13 @@ agent-tui
 ```
 
 По умолчанию `agent-tui` запускает агента в текущей директории терминала.
+Режим прав можно задать сразу:
+
+```bash
+agent-tui --plan
+agent-tui --permission-mode auto
+```
+
 Для named launcher profiles можно использовать:
 
 ```bash
@@ -148,7 +155,8 @@ agent-tui --profile claude
 ```
 
 Profile-файлы лежат в `~/.config/agent-qweasd123tg/profiles/<name>.toml` и
-могут задавать `agent_bin`, `config`, `cwd`; явные CLI flags перекрывают profile.
+могут задавать `agent_bin`, `config`, `cwd`, `permission_mode`; явные CLI flags
+перекрывают profile.
 
 Клавиши TUI: **Enter** отправить, **Ctrl+C** очистить текущий ввод; если ввод
 уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
@@ -163,7 +171,8 @@ Approval показывается inline в нижней панели, без о
 выполняет точную команду или подставляет неполную.
 
 Slash-команды TUI: `/help`, `/clear`, `/cancel`, `/session`, `/context`,
-`/reasoning [hidden|summary|expanded]`, `/resume [session-dir]`, `/quit`.
+`/reasoning [hidden|summary|expanded]`, `/plan`, `/normal`, `/auto`,
+`/resume [session-dir]`, `/quit`.
 `/context` открывает отдельный экран с картой
 контекста, последней оценкой input tokens по категориям, source учёта и
 provider usage, если модель его вернула. Там же видны накопления по текущему
@@ -174,6 +183,10 @@ breakdown по категориям остаётся локальной оцен
 TUI-сессии. `/reasoning summary` показывает компактный live-preview,
 `/reasoning expanded` показывает summary в live panel полностью,
 `/reasoning hidden` возвращает поведение по умолчанию.
+`/plan`, `/normal` и `/auto` переключают core `permissions.mode` через restart
+AppServer stdio с сохранением текущей session dir. В header TUI показывается
+активный режим; если режим пришёл только из config и TUI его не переопределял,
+header показывает `config`.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id. Если TUI запущен
 через `--profile` или `--config`, список берётся из соответствующего config

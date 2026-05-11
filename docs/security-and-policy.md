@@ -39,7 +39,12 @@ Runtime применяет режим через `ModeAwarePolicy` на гран
 `RuntimeContext`. `ToolOrchestrator` не знает про конкретные режимы и
 делегирует visibility/execution одному `ApprovalPolicy`.
 
-CLI может переопределить config через `--plan`, `--auto` или `--permission-mode plan|normal|auto`.
+CLI может переопределить config через `--plan`, `--auto` или
+`--permission-mode plan|normal|auto`. `agent-tui` передаёт эти startup flags в
+app-server, показывает активный override в header и умеет переключать режимы
+для следующих turns через `/plan`, `/normal`, `/auto`. Переключение не меняет
+config-файл: TUI перезапускает app-server stdio с тем же config/cwd/session и
+новым permission override.
 
 ## Встроенные Tools
 
