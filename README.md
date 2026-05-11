@@ -33,6 +33,7 @@ plugins/
     hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
     direct-patch/        — PatchApplier internal patch format под id "direct"
     file-tools/          — реальный набор: read_file / write_file / list_dir / grep
+    git-tools/           — read-only git_status / git_diff
     rg-search/           — SearchBackend на ripgrep под id "rg"
     shell-tool/          — tool shell (sh -lc)
     sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
@@ -65,8 +66,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
   поставляется плагином `rg-search`, patch backend `direct` — плагином
   `direct-patch`. File I/O
-  (`read_file`/`write_file`/`list_dir`/`grep`) и `shell` поставляются
-  плагинами `file-tools` и `shell-tool` — устанавливаются через
+  (`read_file`/`write_file`/`list_dir`/`grep`), git helpers
+  (`git_status`/`git_diff`) и `shell` поставляются плагинами
+  `file-tools`, `git-tools` и `shell-tool` — устанавливаются через
   `./install.sh`. Плюс configured native/process/MCP wrappers через
   main config.
 - Permission modes: `plan` / `normal` / `auto`.
@@ -187,8 +189,8 @@ strikethrough и inline `code`/bold/italic.
 
 Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
 плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
-`direct-patch`, `file-tools`, `shell-tool`, `coding-workflow`, `context-pack`,
-`memory-pack`, `policy-pack`, `renderer-pack` и демо-плагины
+`direct-patch`, `file-tools`, `git-tools`, `shell-tool`, `coding-workflow`,
+`context-pack`, `memory-pack`, `policy-pack`, `renderer-pack` и демо-плагины
 подхватываются автоматически.
 
 Ручной способ:
@@ -196,7 +198,7 @@ strikethrough и inline `code`/bold/italic.
 ```bash
 cargo build --release --workspace --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
-for p in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/default/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true

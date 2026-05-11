@@ -29,8 +29,8 @@ enabled = []
 mode = "normal"
 
 [module_config.policy.ask_write]
-# Core slot facade tools ship only apply_patch, remember_fact, and search — file_io/shell
-# are plugin-provided (file-tools, shell-tool).
+# Core slot facade tools ship only apply_patch, remember_fact, and search.
+# File I/O, git helpers, and shell are plugin-provided.
 ask_before = ["apply_patch", "remember_fact"]
 allow = ["search"]
 

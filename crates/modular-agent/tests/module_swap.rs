@@ -289,6 +289,8 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
         "read_file",
         "list_dir",
         "grep",
+        "git_status",
+        "git_diff",
         "apply_patch",
         "write_file",
         "shell",

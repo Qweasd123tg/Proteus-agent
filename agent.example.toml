@@ -20,8 +20,9 @@ tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
-# Core-resident slot facade tools. File I/O and shell come from plugins:
-# install file-tools and shell-tool into ~/.agent/plugins/ and extend this list.
+# Core-resident slot facade tools. File I/O, git helpers, and shell come from
+# plugins: install file-tools, git-tools, and shell-tool into ~/.agent/plugins/
+# and extend this list.
 enabled = ["apply_patch", "remember_fact", "search"]
 
 [permissions]

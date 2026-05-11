@@ -22,8 +22,8 @@ exec "${project_dir}/target/release/agent-tui" "\$@"
 EOF
 chmod 755 "${tui_bin_path}"
 
-# Install plugins. File I/O (file-tools) and shell (shell-tool) are required
-# for a typical coding workflow; other sample plugins are optional proofs.
+# Install plugins. File I/O, git helpers, and shell are required for a typical
+# coding workflow; other sample plugins are optional proofs.
 mkdir -p "${plugins_dir}"
 install_plugin() {
   plugin="$1"
@@ -40,7 +40,7 @@ install_plugin() {
   fi
 }
 
-for plugin in file-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
 install_plugin "claude_pack" "plugins/claude_pack"
