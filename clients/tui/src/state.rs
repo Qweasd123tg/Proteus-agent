@@ -21,7 +21,8 @@ use crate::{
     slash_commands::{is_exact_slash_command, matching_slash_commands},
     transcript::TranscriptStore,
     visual::{
-        InputPasteRange, ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualState,
+        InputPasteRange, PLAN_REVIEW_ACTIONS, PlanReviewAction, PlanReviewVisualState,
+        ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, VisualState,
     },
 };
 
@@ -72,6 +73,7 @@ pub struct AppState {
     session_usage: UsageTotals,
     reasoning_mode: ReasoningDisplayMode,
     reasoning_summary: String,
+    plan_review_selection: Option<usize>,
 }
 
 impl AppState {
@@ -113,6 +115,7 @@ impl AppState {
             session_usage: UsageTotals::default(),
             reasoning_mode: ReasoningDisplayMode::Hidden,
             reasoning_summary: String::new(),
+            plan_review_selection: None,
         }
     }
 
@@ -143,6 +146,9 @@ impl AppState {
             resume_picker: self.resume_picker.as_ref(),
             context_report: self.context_report.as_deref(),
             context_report_scroll: self.context_report_scroll,
+            plan_review: self
+                .plan_review_selection
+                .map(|selected| PlanReviewVisualState { selected }),
             slash_selection: self.slash_selection,
         }
     }
@@ -441,6 +447,9 @@ impl AppState {
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) {
         self.permission_mode = Some(mode);
+        if !matches!(mode, PermissionMode::Plan) {
+            self.plan_review_selection = None;
+        }
         self.status = format!("mode: {}", permission_mode_label(Some(mode)));
         self.transcript
             .push_committed(VisualMessage::system(format!(
@@ -448,6 +457,10 @@ impl AppState {
                 permission_mode_label(Some(mode)),
                 permission_mode_description(mode)
             )));
+    }
+
+    pub fn is_plan_mode(&self) -> bool {
+        matches!(self.permission_mode, Some(PermissionMode::Plan))
     }
 
     pub fn close_context_report(&mut self) {
@@ -585,6 +598,7 @@ impl AppState {
     }
 
     pub fn type_char(&mut self, ch: char) {
+        self.plan_review_selection = None;
         self.input.push(ch);
         self.clear_completed_status();
         self.quit_armed = false;
@@ -592,6 +606,7 @@ impl AppState {
     }
 
     pub fn paste_text(&mut self, text: &str) {
+        self.plan_review_selection = None;
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         let start = self.input.len();
         self.input.push_str(&normalized);
@@ -608,6 +623,7 @@ impl AppState {
     }
 
     pub fn backspace(&mut self) {
+        self.plan_review_selection = None;
         if let Some(range) = self
             .input_paste_ranges
             .last()
@@ -620,6 +636,47 @@ impl AppState {
             self.input.pop();
         }
         self.clear_completed_status();
+        self.quit_armed = false;
+        self.clamp_slash_selection();
+    }
+
+    pub fn has_plan_review(&self) -> bool {
+        self.plan_review_selection.is_some()
+    }
+
+    pub fn move_plan_review_next(&mut self) {
+        let Some(selection) = self.plan_review_selection.as_mut() else {
+            return;
+        };
+        *selection = (*selection + 1) % PLAN_REVIEW_ACTIONS.len();
+    }
+
+    pub fn move_plan_review_prev(&mut self) {
+        let Some(selection) = self.plan_review_selection.as_mut() else {
+            return;
+        };
+        if *selection == 0 {
+            *selection = PLAN_REVIEW_ACTIONS.len().saturating_sub(1);
+        } else {
+            *selection -= 1;
+        }
+    }
+
+    pub fn selected_plan_review_action(&self) -> Option<PlanReviewAction> {
+        let selected = self.plan_review_selection?;
+        PLAN_REVIEW_ACTIONS.get(selected).copied()
+    }
+
+    pub fn clear_plan_review(&mut self) {
+        self.plan_review_selection = None;
+        self.status = "ready".to_owned();
+    }
+
+    pub fn begin_plan_revision(&mut self) {
+        self.plan_review_selection = None;
+        self.input = "Revise the plan: ".to_owned();
+        self.input_paste_ranges.clear();
+        self.status = "plan revision".to_owned();
         self.quit_armed = false;
         self.clamp_slash_selection();
     }
@@ -741,6 +798,7 @@ impl AppState {
         paste_ranges: Vec<InputPasteRange>,
         turn_id: String,
     ) {
+        self.plan_review_selection = None;
         self.transcript
             .push_committed(VisualMessage::user_with_paste_ranges(text, paste_ranges));
         self.last_error = None;
@@ -809,12 +867,15 @@ impl AppState {
                 // Основной текст уже мог прийти streaming-delta'ми. В финале
                 // заменяем его каноническим TurnOutput, чтобы не зависеть от
                 // точной сборки provider deltas.
-                self.transcript.finalize_active_assistant(output.text);
+                let output_text = output.text;
+                self.transcript
+                    .finalize_active_assistant(output_text.clone());
                 self.pending_model = false;
                 self.mark_turn_completed();
                 self.model_started_at = None;
                 self.active_turn_id = None;
                 self.usage_turn_id = None;
+                self.maybe_open_plan_review(&output_text);
             }
             AppServerEvent::ApprovalRequested { request } => {
                 self.model_started_at = None;
@@ -976,6 +1037,17 @@ impl AppState {
         self.session_usage.add_snapshot(usage);
     }
 
+    fn maybe_open_plan_review(&mut self, output_text: &str) {
+        if matches!(self.permission_mode, Some(PermissionMode::Plan))
+            && !output_text.trim().is_empty()
+            && self.pending_approval.is_none()
+        {
+            self.plan_review_selection = Some(0);
+            self.status = "plan ready".to_owned();
+            self.completed_turn_at = None;
+        }
+    }
+
     fn append_streaming_text(&mut self, chunk: &str) {
         self.transcript.append_active_assistant(chunk);
     }
@@ -1117,6 +1189,66 @@ mod tests {
 
         assert_eq!(state.visual_state().permission_mode, "auto");
         assert_eq!(state.status, "mode: auto");
+    }
+
+    #[test]
+    fn plan_turn_output_opens_review_selector() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text(
+                "Plan:\n1. Inspect files\n2. Apply patch",
+            ),
+        });
+
+        assert!(state.has_plan_review());
+        assert_eq!(
+            state.selected_plan_review_action(),
+            Some(PlanReviewAction::ExecuteAuto)
+        );
+        assert_eq!(
+            state.visual_state().plan_review,
+            Some(PlanReviewVisualState { selected: 0 })
+        );
+        assert_eq!(state.status, "plan ready");
+    }
+
+    #[test]
+    fn plan_review_selection_wraps_and_revision_clears_selector() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("Plan"),
+        });
+
+        state.move_plan_review_prev();
+        assert_eq!(
+            state.selected_plan_review_action(),
+            Some(PlanReviewAction::Dismiss)
+        );
+        state.move_plan_review_next();
+        assert_eq!(
+            state.selected_plan_review_action(),
+            Some(PlanReviewAction::ExecuteAuto)
+        );
+
+        state.begin_plan_revision();
+
+        assert!(!state.has_plan_review());
+        assert_eq!(state.input, "Revise the plan: ");
+        assert_eq!(state.status, "plan revision");
+    }
+
+    #[test]
+    fn typing_clears_plan_review_selector() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("Plan"),
+        });
+
+        state.type_char('x');
+
+        assert!(!state.has_plan_review());
+        assert_eq!(state.input, "x");
     }
 
     #[test]

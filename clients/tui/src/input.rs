@@ -5,7 +5,9 @@ use anyhow::Result;
 use crossterm::event::{Event as CTerm, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::{
-    commands::{handle_slash_command, request_cancel, resume_session_dir},
+    commands::{
+        handle_plan_review_action, handle_slash_command, request_cancel, resume_session_dir,
+    },
     driver::{AgentDriver, DriverConfig},
     state::AppState,
 };
@@ -25,6 +27,8 @@ pub(crate) async fn handle_term_event(
                     KeyCode::Char('c') => {
                         if state.has_context_report() {
                             state.close_context_report();
+                        } else if state.has_plan_review() {
+                            state.clear_plan_review();
                         } else if state.input_is_empty() {
                             state.arm_or_confirm_quit();
                         } else {
@@ -174,6 +178,68 @@ pub(crate) async fn handle_term_event(
                 return Ok(false);
             }
 
+            if state.has_plan_review() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if let Some(action) = state.selected_plan_review_action() {
+                            handle_plan_review_action(state, driver, driver_config, action).await?;
+                        }
+                        return Ok(true);
+                    }
+                    KeyCode::Esc => {
+                        state.clear_plan_review();
+                        return Ok(true);
+                    }
+                    KeyCode::Tab | KeyCode::Down | KeyCode::PageDown => {
+                        state.move_plan_review_next();
+                        return Ok(true);
+                    }
+                    KeyCode::BackTab | KeyCode::Up | KeyCode::PageUp => {
+                        state.move_plan_review_prev();
+                        return Ok(true);
+                    }
+                    KeyCode::Char('1') => {
+                        handle_plan_review_action(
+                            state,
+                            driver,
+                            driver_config,
+                            crate::visual::PlanReviewAction::ExecuteAuto,
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
+                    KeyCode::Char('2') => {
+                        handle_plan_review_action(
+                            state,
+                            driver,
+                            driver_config,
+                            crate::visual::PlanReviewAction::ExecuteNormal,
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
+                    KeyCode::Char('3') => {
+                        state.begin_plan_revision();
+                        return Ok(true);
+                    }
+                    KeyCode::Char('4') => {
+                        state.clear_plan_review();
+                        return Ok(true);
+                    }
+                    KeyCode::Backspace => {
+                        state.clear_plan_review();
+                        return Ok(true);
+                    }
+                    KeyCode::Char(ch) => {
+                        state.clear_plan_review();
+                        state.type_char(ch);
+                        return Ok(true);
+                    }
+                    _ => {}
+                }
+                return Ok(false);
+            }
+
             match key.code {
                 KeyCode::Enter => {
                     if state.complete_partial_slash_suggestion() {
@@ -206,10 +272,15 @@ pub(crate) async fn handle_term_event(
                             .await?;
                         } else {
                             let turn_id = state.next_turn_id();
+                            let request_text = if state.is_plan_mode() {
+                                plan_mode_prompt(&submission.text)
+                            } else {
+                                submission.text.clone()
+                            };
                             driver
                                 .send(&StdioRequest::Send {
                                     id: Some(turn_id.clone()),
-                                    text: submission.text.clone(),
+                                    text: request_text,
                                 })
                                 .await?;
                             state.mark_user_sent(submission.text, submission.paste_ranges, turn_id);
@@ -295,6 +366,12 @@ fn is_handled_key_event(kind: KeyEventKind) -> bool {
     matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
+fn plan_mode_prompt(task: &str) -> String {
+    format!(
+        "Plan this task before making changes. Inspect only what is needed with read-only tools. Do not modify files, run write tools, or execute shell/network commands. Return a concise staged plan with risks or open questions.\n\nTask:\n{task}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +381,14 @@ mod tests {
         assert!(is_handled_key_event(KeyEventKind::Press));
         assert!(is_handled_key_event(KeyEventKind::Repeat));
         assert!(!is_handled_key_event(KeyEventKind::Release));
+    }
+
+    #[test]
+    fn plan_mode_prompt_wraps_task_as_read_only_planning_request() {
+        let prompt = plan_mode_prompt("fix the TUI");
+
+        assert!(prompt.contains("Plan this task before making changes"));
+        assert!(prompt.contains("Do not modify files"));
+        assert!(prompt.contains("Task:\nfix the TUI"));
     }
 }

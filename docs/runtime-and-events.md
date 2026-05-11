@@ -323,7 +323,9 @@ state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`,
 клиентским слоем поверх runtime/app-server boundary, а не переносить business
 logic в visual layer. Режимы `/plan`, `/normal` и `/auto` уже реализованы в TUI
 как control-plane команды: enforcement остаётся в core `ModeAwarePolicy`, а TUI
-только отправляет app-server request с новым permission override.
+отправляет app-server request с новым permission override. В plan mode TUI
+дополнительно оборачивает следующий user request как read-only planning prompt и
+после `TurnOutput` открывает bottom-pane chooser для execute/revise/dismiss.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 
