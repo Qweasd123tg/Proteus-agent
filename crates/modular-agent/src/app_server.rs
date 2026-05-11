@@ -19,7 +19,7 @@ use crate::{
         ChannelApprovalTransport, FanoutEventSink, JsonlEventStore, PendingApproval,
         normalize_session_dir_path, session_id_from_session_dir,
     },
-    domain::{AgentOutput, new_thread_id},
+    domain::{AgentOutput, PermissionMode, new_thread_id},
 };
 
 pub mod protocol;
@@ -83,6 +83,14 @@ impl AppServerHandle {
 
     pub async fn clear_history(&self) -> Result<()> {
         self.runtime.clear_history().await
+    }
+
+    pub async fn set_permission_mode(&self, mode: PermissionMode) {
+        self.runtime.set_permission_mode(mode).await;
+    }
+
+    pub async fn permission_mode(&self) -> PermissionMode {
+        self.runtime.permission_mode().await
     }
 
     pub async fn respond_approval(
@@ -336,7 +344,7 @@ mod tests {
     use crate::{
         contracts::ApprovalRequest,
         core::PendingApproval,
-        domain::{Event, ToolCall, new_call_id},
+        domain::{Event, PermissionMode, ToolCall, new_call_id},
     };
 
     fn test_catalog() -> BuiltinModuleCatalog {
@@ -366,6 +374,26 @@ mod tests {
             )
             .expect("register test renderer");
         catalog
+    }
+
+    #[tokio::test]
+    async fn app_server_updates_permission_mode_without_restart() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let mut config = AppConfig::default();
+        config.permissions.mode = PermissionMode::Normal;
+        let server = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
+
+        assert_eq!(server.permission_mode().await, PermissionMode::Normal);
+
+        server.set_permission_mode(PermissionMode::Plan).await;
+
+        assert_eq!(server.permission_mode().await, PermissionMode::Plan);
     }
 
     #[tokio::test]

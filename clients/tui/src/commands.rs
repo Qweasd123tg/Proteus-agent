@@ -169,8 +169,15 @@ async fn switch_permission_mode(
         next_config.resume_session = state.session_dir().map(Path::to_path_buf);
     }
 
-    driver.shutdown().await?;
-    *driver = AgentDriver::spawn(next_config.clone()).await?;
+    driver
+        .send(&StdioRequest::SetPermissionMode {
+            id: Some(format!(
+                "permission-mode-{}",
+                crate::driver::permission_mode_arg(mode)
+            )),
+            mode,
+        })
+        .await?;
     *driver_config = next_config;
     state.set_permission_mode(mode);
     Ok(())

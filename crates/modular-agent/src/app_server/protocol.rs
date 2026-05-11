@@ -10,6 +10,7 @@ pub use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 mod tests {
     use super::*;
     use agent_contracts::contracts::ApprovalCacheScope;
+    use agent_contracts::domain::PermissionMode;
 
     #[test]
     fn request_id_is_extracted_for_all_commands() {
@@ -38,6 +39,14 @@ mod tests {
             }
             .id(),
             Some("approval".to_owned())
+        );
+        assert_eq!(
+            StdioRequest::SetPermissionMode {
+                id: Some("mode".to_owned()),
+                mode: PermissionMode::Plan,
+            }
+            .id(),
+            Some("mode".to_owned())
         );
     }
 
