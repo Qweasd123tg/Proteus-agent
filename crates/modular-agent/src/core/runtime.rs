@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, timeout};
 
 use crate::{
@@ -30,7 +30,7 @@ struct RuntimeServices {
     registry: BuiltinRegistry,
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
-    permission_mode: PermissionMode,
+    permission_mode: RwLock<PermissionMode>,
 }
 
 struct SessionState {
@@ -165,6 +165,7 @@ impl AgentRuntime {
                 turn_id: Some(turn_id),
             });
         }
+        let permission_mode = *self.services.permission_mode.read().await;
         let runtime_context = self
             .services
             .registry
@@ -174,7 +175,7 @@ impl AgentRuntime {
                 turn_id,
                 self.services.events.clone(),
                 self.services.approval.clone(),
-                self.services.permission_mode,
+                permission_mode,
             )
             .with_cancellation(cancellation.clone());
         let history = self.session.history.lock().await.clone();
@@ -239,6 +240,14 @@ impl AgentRuntime {
         }
         *history = workflow_output.messages;
         Ok(workflow_output.output)
+    }
+
+    pub async fn set_permission_mode(&self, mode: PermissionMode) {
+        *self.services.permission_mode.write().await = mode;
+    }
+
+    pub async fn permission_mode(&self) -> PermissionMode {
+        *self.services.permission_mode.read().await
     }
 
     pub async fn start_session(&self) -> Result<()> {
@@ -444,7 +453,7 @@ impl AgentRuntimeBuilder {
                 registry,
                 events,
                 approval,
-                permission_mode,
+                permission_mode: RwLock::new(permission_mode),
             },
             session: SessionState::new(
                 session_id,

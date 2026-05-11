@@ -155,6 +155,15 @@ pub async fn run_stdio_app_server(
                         .await;
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
             }
+            StdioRequest::SetPermissionMode { mode, .. } => {
+                server.set_permission_mode(mode).await;
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    Ok(Some(serde_json::json!({ "mode": mode }))),
+                )
+                .await;
+            }
             StdioRequest::Shutdown { .. } => {
                 shutdown_requested = true;
                 server.shutdown().await;

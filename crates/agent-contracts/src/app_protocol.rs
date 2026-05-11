@@ -25,7 +25,7 @@ use serde_json::Value;
 
 use crate::{
     contracts::ApprovalCacheScope,
-    domain::{AgentOutput, EventEnvelope, ToolCall, ToolSpec},
+    domain::{AgentOutput, EventEnvelope, PermissionMode, ToolCall, ToolSpec},
 };
 
 /// ID approval'а — произвольная строка, уникальная для session агента.
@@ -116,6 +116,10 @@ pub enum StdioRequest {
         id: Option<String>,
         target_id: String,
     },
+    SetPermissionMode {
+        id: Option<String>,
+        mode: PermissionMode,
+    },
     Shutdown {
         id: Option<String>,
     },
@@ -128,6 +132,7 @@ impl StdioRequest {
             | Self::ClearHistory { id }
             | Self::Approval { id, .. }
             | Self::Cancel { id, .. }
+            | Self::SetPermissionMode { id, .. }
             | Self::Shutdown { id } => id.clone(),
         }
     }

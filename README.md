@@ -183,10 +183,10 @@ breakdown по категориям остаётся локальной оцен
 TUI-сессии. `/reasoning summary` показывает компактный live-preview,
 `/reasoning expanded` показывает summary в live panel полностью,
 `/reasoning hidden` возвращает поведение по умолчанию.
-`/plan`, `/normal` и `/auto` переключают core `permissions.mode` через restart
-AppServer stdio с сохранением текущей session dir. В header TUI показывается
-активный режим; если режим пришёл только из config и TUI его не переопределял,
-header показывает `config`.
+`/plan`, `/normal` и `/auto` переключают core `permissions.mode` для следующих
+turns без restart app-server процесса. В header TUI показывается активный режим;
+если режим пришёл только из config и TUI его не переопределял, header
+показывает `config`.
 `/resume` без аргумента открывает меню sessions текущего workspace на
 отдельном экране с поиском по conversation title/session id. Если TUI запущен
 через `--profile` или `--config`, список берётся из соответствующего config

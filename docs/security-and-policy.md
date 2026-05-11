@@ -43,8 +43,8 @@ CLI может переопределить config через `--plan`, `--auto`
 `--permission-mode plan|normal|auto`. `agent-tui` передаёт эти startup flags в
 app-server, показывает активный override в header и умеет переключать режимы
 для следующих turns через `/plan`, `/normal`, `/auto`. Переключение не меняет
-config-файл: TUI перезапускает app-server stdio с тем же config/cwd/session и
-новым permission override.
+config-файл и не перезапускает app-server: TUI отправляет
+`StdioRequest::SetPermissionMode`.
 
 ## Встроенные Tools
 
