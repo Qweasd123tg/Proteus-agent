@@ -99,6 +99,11 @@ args = ["status", "--short"]
 
 — получает работающий tool без компиляции. Это fallback для "быстро обернуть shell-команду". Логически похоже на то, что мог бы делать YAML-plugin, но живёт в ядре и не требует loader.
 
+Для стандартного coding profile такой helper уже вынесен в обычный plugin:
+`plugins/default/git-tools` предоставляет `git_status` и `git_diff` как
+фиксированные read-only git tools. `ConfiguredProcessTool` остаётся для
+локальных одноразовых wrappers, а не как основной путь standard pack.
+
 В далёком будущем (Волна 3) `ConfiguredProcessTool` можно будет вынести в отдельный default-плагин, но сейчас остаётся в ядре.
 
 ### MCP (отложено)
@@ -300,7 +305,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - `crates/modular-agent/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
   NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoCompactor,
   AllVisibleToolExposure, NoWorkflow, TextRenderer, FakeModelClient.
-- Core tools, тесно связанные со slot'ами ядра: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`). Остальные базовые tools (read_file, write_file, list_dir, grep, shell) живут в плагинах `file-tools` и `shell-tool`.
+- Core tools, тесно связанные со slot'ами ядра: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`). Остальные базовые tools (read_file, write_file, list_dir, grep, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
   стартовать без plugin pack; для полноценного runtime нужен workflow plugin,
@@ -338,7 +343,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Hello-world плагины: `hello-renderer`, `hello-tool`, `hello-policy-patch`
   (`hello-policy-patch` также демонстрирует `context_provider`, declarative
   `memory_policy` и `workflow`).
-- ✅ Реальные плагины: `file-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
 - 📝 Draft plugin pack: `tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и

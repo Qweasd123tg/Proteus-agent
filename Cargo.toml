@@ -7,6 +7,7 @@ members = [
     "plugins/default/hello-renderer",
     "plugins/default/hello-tool",
     "plugins/default/file-tools",
+    "plugins/default/git-tools",
     "plugins/default/hello-policy-patch",
     "plugins/default/sqlite-memory",
     "plugins/default/shell-tool",

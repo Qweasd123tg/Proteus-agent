@@ -1,0 +1,7 @@
+name = "git-tools"
+version = "0.1.0"
+description = "Read-only git status and diff tools"
+author = "modular-agent examples"
+tags = ["git", "tools", "coding"]
+library = "libgit_tools.so"
+requires_agent_contracts = "0.1"

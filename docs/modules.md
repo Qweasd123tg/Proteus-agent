@@ -224,6 +224,7 @@ enabled = ["apply_patch", "remember_fact", "search"]
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Три tool'а остаются в ядре: `apply_patch`, `search`, `remember_fact`. Остальные базовые tools вынесены в плагины:
 
 - `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/default/file-tools/`);
+- `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);
 - `shell-tool` — `shell` (из `plugins/default/shell-tool/`).
 
 Experimental behavior packs тоже могут регистрировать не-tool slots. Первый

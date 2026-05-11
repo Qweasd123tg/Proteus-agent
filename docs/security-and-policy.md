@@ -49,7 +49,12 @@ CLI может переопределить config через `--plan`, `--auto`
 | `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
 
-File I/O (`read_file`, `write_file`, `list_dir`, `grep`) и `shell` вынесены из ядра в плагины `file-tools` и `shell-tool` соответственно. Подключите их через `~/.agent/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же механизмом, что и ядерные.
+File I/O (`read_file`, `write_file`, `list_dir`, `grep`), git helpers
+(`git_status`, `git_diff`) и `shell` вынесены из ядра в плагины `file-tools`,
+`git-tools` и `shell-tool` соответственно. Подключите их через
+`~/.agent/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого
+плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же
+механизмом, что и ядерные.
 
 Plugin tool names валидируются при регистрации: пустое имя и duplicate между
 плагинами отклоняются. Если имя совпало с builtin/configured tool, приоритет
@@ -81,7 +86,10 @@ path перед записью и отклоняет absolute paths, parent trav
 symlink-escape. `ToolOrchestrator` не делает workspace-санитизации за
 `PatchApplier` — это обязанность выбранной реализации.
 
-Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` / `grep`) и `shell-tool` применяют свои собственные проверки workspace-boundary. Core не гарантирует эту проверку за плагины — это обязанность автора плагина.
+Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` /
+`grep`), `git-tools` (`git_status` / `git_diff`) и `shell-tool` применяют свои
+собственные проверки workspace-boundary. Core не гарантирует эту проверку за
+плагины — это обязанность автора плагина.
 
 ## ask_write
 
