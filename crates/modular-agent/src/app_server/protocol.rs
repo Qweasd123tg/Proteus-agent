@@ -9,7 +9,7 @@ pub use agent_contracts::app_protocol::{StdioOutput, StdioRequest};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_contracts::contracts::ApprovalCacheScope;
+    use agent_contracts::contracts::{ApprovalCacheScope, UserInputResponse};
     use agent_contracts::domain::PermissionMode;
 
     #[test]
@@ -39,6 +39,15 @@ mod tests {
             }
             .id(),
             Some("approval".to_owned())
+        );
+        assert_eq!(
+            StdioRequest::UserInput {
+                id: Some("user-input".to_owned()),
+                request_id: "u1".to_owned(),
+                response: UserInputResponse::empty(),
+            }
+            .id(),
+            Some("user-input".to_owned())
         );
         assert_eq!(
             StdioRequest::SetPermissionMode {

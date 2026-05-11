@@ -44,7 +44,7 @@
     "policy": {
       "ask_write": {
         "ask_before": ["apply_patch", "remember_fact"],
-        "allow": ["search"]
+        "allow": ["search", "request_user_input"]
       }
     },
     "search": {
@@ -97,7 +97,7 @@
     }
   },
   "tools": {
-    "enabled": ["apply_patch", "remember_fact", "search"],
+    "enabled": ["apply_patch", "remember_fact", "request_user_input", "search"],
     "path": null
   },
   "permissions": {

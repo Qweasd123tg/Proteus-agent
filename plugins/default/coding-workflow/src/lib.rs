@@ -18,7 +18,7 @@ use agent_contracts::{
     contracts::{CompactionInput, ToolExposureRequest},
     domain::{
         AgentOutput, ContextBundle, Event, TokenUsageCategory, TokenUsageSnapshot,
-        TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSpec,
+        TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -53,15 +53,12 @@ call remember_fact for temporary test notes; use it only when the user explicitl
 asks you to remember a stable preference or durable project fact. Do not invent \
 dates or times; omit them unless the user supplied them or you verified them with \
 a tool.";
-const PLAN_INTAKE_DEVELOPER_INSTRUCTIONS: &str = "\
-Decide whether the user's planning request needs choices before a useful plan. \
-If choices would materially improve the plan, return only JSON with \
-{\"intake\":{\"id\":\"...\",\"title\":\"...\",\"questions\":[...]}}. \
-Each question must have id, prompt, kind=\"single_choice\", allow_custom=true, \
-and 2-5 options with id, label, and optional description. Questions must be \
-specific to the user's task. If no choices are needed, return only \
-{\"intake\":null}. Do not include markdown or prose.";
-const PLAN_DEVELOPER_INSTRUCTIONS: &str = "Planning phase: write a short actionable plan for the user's task. Do not call tools in this phase. Keep it concrete and adjust it later if tool results contradict it.";
+const PLAN_DEVELOPER_INSTRUCTIONS: &str = "\
+Planning phase: produce a short actionable plan for the user's task. You may \
+use read-only tools to discover facts. If high-impact user preferences or \
+tradeoffs remain after reasonable read-only exploration, use request_user_input \
+with 1-3 concise multiple-choice questions before finalizing the plan. Do not \
+use write, shell, network, or mutation-oriented tools in this phase.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
 
@@ -131,10 +128,6 @@ fn run_single_loop(
             task: input.task.clone(),
         },
     )?;
-
-    if let Some(output) = maybe_plan_intake_output(SINGLE_LOOP_MODULE_ID, &input, host)? {
-        return Ok(output);
-    }
 
     let bundle = build_context(host, &input)?;
     emit_event(
@@ -269,10 +262,6 @@ fn run_plan_execute_review(
         },
     )?;
 
-    if let Some(output) = maybe_plan_intake_output(PLAN_EXECUTE_REVIEW_MODULE_ID, &input, host)? {
-        return Ok(output);
-    }
-
     let bundle = build_context(host, &input)?;
     emit_event(
         host,
@@ -296,14 +285,16 @@ fn run_plan_execute_review(
         );
     }
 
-    let mut plan_request =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), model_messages.clone())
-            .with_instructions(vec![
-                InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
-                InstructionBlock::new(InstructionKind::Developer, PLAN_DEVELOPER_INSTRUCTIONS, 90),
-            ])
-            .with_tool_choice(ToolChoice::None);
-    plan_request.tools.clear();
+    let mut plan_request = request_from_state(
+        &input,
+        host,
+        &model_messages,
+        PLAN_SYSTEM_INSTRUCTIONS,
+        Some(PLAN_DEVELOPER_INSTRUCTIONS),
+    )?;
+    plan_request
+        .tools
+        .retain(|tool| matches!(tool.safety, ToolSafety::ReadOnly));
     emit_event(
         host,
         &Event::ModelRequestPrepared {
@@ -569,147 +560,6 @@ fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, PluginWorkfl
 
 fn from_json_string<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, PluginWorkflowError> {
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
-}
-
-fn maybe_plan_intake_output(
-    module_id: &str,
-    input: &PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
-) -> Result<Option<PluginWorkflowOutput>, PluginWorkflowError> {
-    if !should_request_plan_intake(&input.task.text) {
-        return Ok(None);
-    }
-    let mut intake_request = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
-        vec![CanonicalMessage::text(
-            MessageRole::User,
-            input.task.text.clone(),
-        )],
-    )
-    .with_instructions(vec![
-        InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
-        InstructionBlock::new(
-            InstructionKind::Developer,
-            PLAN_INTAKE_DEVELOPER_INSTRUCTIONS,
-            90,
-        ),
-    ])
-    .with_tool_choice(ToolChoice::None);
-    intake_request.tools.clear();
-    emit_event(
-        host,
-        &Event::ModelRequestPrepared {
-            model: intake_request.model.clone(),
-        },
-    )?;
-    let response = complete_model(host, &intake_request, "plan_intake")?;
-    emit_event(
-        host,
-        &Event::ModelResponseReceived {
-            finish_reason: response.finish_reason.clone(),
-        },
-    )?;
-    let Some(plan_intake) = parse_plan_intake_response(&message_text(&response.message)) else {
-        return Ok(None);
-    };
-    let mut persistent_messages = input.history.clone();
-    persistent_messages.push(CanonicalMessage::text(
-        MessageRole::User,
-        input.task.text.clone(),
-    ));
-    let assistant_text =
-        "I need a few planning choices before writing a useful implementation plan.".to_owned();
-    persistent_messages.push(CanonicalMessage::text(
-        MessageRole::Assistant,
-        assistant_text.clone(),
-    ));
-    let output = AgentOutput::new(
-        assistant_text,
-        output_metadata_with_extra(
-            module_id,
-            input,
-            &persistent_messages,
-            0,
-            None,
-            json!({
-                "ui": {
-                    "plan_intake": plan_intake,
-                },
-            }),
-        ),
-    );
-    emit_event(
-        host,
-        &Event::TurnFinished {
-            output: output.clone(),
-        },
-    )?;
-    Ok(Some(PluginWorkflowOutput {
-        output,
-        messages: persistent_messages,
-    }))
-}
-
-fn should_request_plan_intake(task: &str) -> bool {
-    let normalized = task.to_lowercase();
-    normalized.contains("plan this task before making changes")
-        && !normalized.contains("planning intake answers for:")
-}
-
-fn parse_plan_intake_response(text: &str) -> Option<Value> {
-    let value = serde_json::from_str::<Value>(json_payload(text)).ok()?;
-    let intake = value
-        .pointer("/ui/plan_intake")
-        .or_else(|| value.get("plan_intake"))
-        .or_else(|| value.get("intake"))?;
-    validate_plan_intake(intake)
-}
-
-fn json_payload(text: &str) -> &str {
-    let trimmed = text.trim();
-    if let Some(rest) = trimmed.strip_prefix("```json") {
-        return rest.trim().trim_end_matches("```").trim();
-    }
-    if let Some(rest) = trimmed.strip_prefix("```") {
-        return rest.trim().trim_end_matches("```").trim();
-    }
-    trimmed
-}
-
-fn validate_plan_intake(value: &Value) -> Option<Value> {
-    if value.is_null() {
-        return None;
-    }
-    let object = value.as_object()?;
-    object.get("id")?.as_str().filter(|id| !id.is_empty())?;
-    object
-        .get("title")?
-        .as_str()
-        .filter(|title| !title.is_empty())?;
-    let questions = object.get("questions")?.as_array()?;
-    if questions.is_empty() {
-        return None;
-    }
-    for question in questions {
-        let question = question.as_object()?;
-        question.get("id")?.as_str().filter(|id| !id.is_empty())?;
-        question
-            .get("prompt")?
-            .as_str()
-            .filter(|prompt| !prompt.is_empty())?;
-        let options_len = question
-            .get("options")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-        let allow_custom = question
-            .get("allow_custom")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if options_len == 0 && !allow_custom {
-            return None;
-        }
-    }
-    Some(value.clone())
 }
 
 fn output_metadata(
@@ -1205,60 +1055,6 @@ mod tests {
     }
 
     #[test]
-    fn single_loop_can_return_model_owned_plan_intake_metadata() {
-        let input = PluginWorkflowInput {
-            task: AgentTask::new(
-                "Plan this task before making changes.\n\nTask:\nнаписать 10 стихов в жанрах в файлах md или html",
-                std::env::current_dir().expect("cwd"),
-            ),
-            history: Vec::new(),
-            runtime: PluginWorkflowRuntimeInfo {
-                session_id: new_session_id(),
-                thread_id: new_thread_id(),
-                turn_id: new_turn_id(),
-                model_ref: ModelRef::new("fake", "model"),
-                model_timeout_ms: 120_000,
-                context_timeout_ms: 30_000,
-            },
-        };
-        let input_json = serde_json::to_string(&input).expect("input json");
-        let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
-            CanonicalMessage::text(
-                MessageRole::Assistant,
-                r#"{"intake":{"id":"creative-writing-intake","title":"Creative writing","questions":[{"id":"genre","prompt":"Какой жанр?","kind":"single_choice","allow_custom":true,"options":[{"id":"lyric","label":"лирика"},{"id":"humor","label":"юмор"}]},{"id":"length","prompt":"Какая длина?","kind":"single_choice","allow_custom":true,"options":[{"id":"short","label":"коротко"},{"id":"medium","label":"средне"}]}]}}"#,
-            ),
-            Vec::new(),
-            FinishReason::Stop,
-        )]);
-        let mut host_to: PluginWorkflowHostMut<'_> =
-            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
-
-        let output_json = match CodingSingleLoopWorkflow::default()
-            .run_json(RString::from(input_json), &mut host_to)
-        {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-        let output: PluginWorkflowOutput =
-            serde_json::from_str(output_json.as_str()).expect("output json");
-        drop(host_to);
-
-        assert_eq!(
-            output.output.metadata["ui"]["plan_intake"]["id"],
-            "creative-writing-intake"
-        );
-        assert_eq!(
-            output.output.metadata["ui"]["plan_intake"]["questions"][0]["id"],
-            "genre"
-        );
-        assert_eq!(output.messages.len(), 2);
-        let requests = host.requests.lock().expect("requests");
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].tool_choice, ToolChoice::None);
-        assert!(requests[0].tools.is_empty());
-    }
-
-    #[test]
     fn plan_execute_review_runs_plan_execute_and_review_requests() {
         let input = PluginWorkflowInput {
             task: AgentTask::new("change code", std::env::current_dir().expect("cwd")),
@@ -1333,8 +1129,13 @@ mod tests {
 
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 3);
-        assert_eq!(requests[0].tool_choice, ToolChoice::None);
-        assert_eq!(requests[0].tools.len(), 0);
+        assert_eq!(requests[0].tool_choice, ToolChoice::Auto);
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .all(|tool| matches!(tool.safety, ToolSafety::ReadOnly))
+        );
         assert_eq!(requests[2].tool_choice, ToolChoice::None);
         assert_eq!(requests[2].tools.len(), 0);
     }

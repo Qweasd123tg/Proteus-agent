@@ -63,8 +63,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `carry_forward` memory policy поставляет плагин `memory-pack`;
   `allow_all`/`ask_write` поставляет `policy-pack`; `plain`/`statusline`
   поставляет `renderer-pack`.
-- Builtin tools: `apply_patch`, `search`, `remember_fact`. Search backend `rg`
-  поставляется плагином `rg-search`, patch backend `direct` — плагином
+- Builtin tools: `apply_patch`, `search`, `remember_fact`,
+  `request_user_input`. Search backend `rg` поставляется плагином `rg-search`,
+  patch backend `direct` — плагином
   `direct-patch`. File I/O
   (`read_file`/`write_file`/`list_dir`/`grep`), git helpers
   (`git_status`/`git_diff`) и `shell` поставляются плагинами
@@ -185,12 +186,11 @@ TUI-сессии. `/reasoning summary` показывает компактный
 `/reasoning hidden` возвращает поведение по умолчанию.
 `/plan`, `/normal` и `/auto` переключают core `permissions.mode` для следующих
 turns без restart app-server процесса. В режиме `/plan` обычный user request
-отправляется как read-only planning request; после финального ответа TUI
-может сначала показать plugin-owned planning choices, если workflow вернул
-`metadata.ui.plan_intake`. Эти вопросы генерирует workflow/model под конкретную
-задачу; TUI рендерит их как generic selector: Up/Down выбирают option,
-Left/Right или Tab переходят между вопросами, Enter отправляет ответы, typing
-заполняет custom option. После финального плана TUI показывает chooser в нижней
+отправляется как read-only planning request. Если модель вызывает
+`request_user_input`, app-server держит turn открытым, а TUI показывает generic
+selector: Up/Down выбирают option, Left/Right или Tab переходят между
+вопросами, Enter отправляет typed answers, typing заполняет custom option. После
+финального плана TUI показывает chooser в нижней
 панели: execute в `auto`, execute через approvals, revise plan или dismiss. В
 header TUI показывается активный режим; если режим пришёл только из config и
 TUI его не переопределял, header показывает `config`.

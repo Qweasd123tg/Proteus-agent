@@ -278,7 +278,12 @@ fn standard_tool_names() -> Vec<&'static str> {
     // File I/O and shell tools moved to plugins (file-tools, shell-tool).
     // The fixture here covers only core-resident slot facade tools so tests don't
     // depend on plugin state.
-    let mut names = vec!["apply_patch", "search", "remember_fact"];
+    let mut names = vec![
+        "apply_patch",
+        "search",
+        "remember_fact",
+        "request_user_input",
+    ];
     names.sort();
     names
 }
@@ -291,6 +296,7 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
         "grep",
         "git_status",
         "git_diff",
+        "request_user_input",
         "apply_patch",
         "write_file",
         "shell",
@@ -908,7 +914,15 @@ fn tool_specs_are_returned_in_stable_name_order() {
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
 
-    assert_eq!(names, ["apply_patch", "remember_fact", "search"]);
+    assert_eq!(
+        names,
+        [
+            "apply_patch",
+            "remember_fact",
+            "request_user_input",
+            "search"
+        ]
+    );
 }
 
 #[tokio::test]
@@ -1370,11 +1384,11 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
 #[tokio::test]
 async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
     // ask_write asks before apply_patch and remember_fact; without an
-    // interactive transport those disappear from the tool list. Only
-    // `search` (in the allow list) remains visible.
+    // interactive transport those disappear from the tool list. Read-only
+    // `search` and `request_user_input` remain visible.
     let (output, _events) = run_with(test_config(), "summarize hello").await;
 
-    assert!(output.contains("tools=1"), "got: {output}");
+    assert!(output.contains("tools=2"), "got: {output}");
 }
 
 #[tokio::test]
@@ -1392,8 +1406,8 @@ async fn plan_permission_mode_exposes_only_read_only_tools_even_when_interactive
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
-    // Plan mode hides anything that is not ReadOnly — only `search` survives.
-    assert!(output.text.contains("tools=1"), "got: {}", output.text);
+    // Plan mode hides anything that is not ReadOnly.
+    assert!(output.text.contains("tools=2"), "got: {}", output.text);
 }
 
 #[tokio::test]
@@ -1404,8 +1418,7 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
     let (output, _events) = run_with(config, "summarize hello").await;
 
     // Auto allows ReadOnly and WritesFiles without approval.
-    // Core-resident slot facade tools are apply_patch + search + remember_fact.
-    assert!(output.contains("tools=3"), "got: {output}");
+    assert!(output.contains("tools=4"), "got: {output}");
 }
 
 #[tokio::test]
@@ -1522,9 +1535,9 @@ async fn interactive_approval_transport_exposes_ask_tools_to_model() {
 
     let output = runtime.run("summarize hello".to_owned()).await.unwrap();
 
-    // Interactive transport exposes ask_before tools too — all 3 core
-    // tools are visible.
-    assert!(output.text.contains("tools=3"), "got: {}", output.text);
+    // Interactive transport exposes ask_before tools too — all core tools
+    // are visible.
+    assert!(output.text.contains("tools=4"), "got: {}", output.text);
 }
 
 #[tokio::test]
@@ -1707,8 +1720,8 @@ async fn allow_all_keeps_all_registered_tools_visible_to_model() {
 
     let (output, _events) = run_with(config, "summarize hello").await;
 
-    // allow_all exposes every registered tool — 3 core-resident slot facade tools.
-    assert!(output.contains("tools=3"), "got: {output}");
+    // allow_all exposes every registered tool.
+    assert!(output.contains("tools=4"), "got: {output}");
 }
 
 #[derive(Debug)]

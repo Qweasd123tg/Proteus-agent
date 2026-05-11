@@ -182,6 +182,17 @@ pub(crate) async fn submit_plan_intake_answers(
     state: &mut AppState,
     driver: &mut AgentDriver,
 ) -> Result<()> {
+    if let Some((request_id, response)) = state.take_user_input_response() {
+        driver
+            .send(&StdioRequest::UserInput {
+                id: None,
+                request_id,
+                response,
+            })
+            .await?;
+        return Ok(());
+    }
+
     let Some(text) = state.take_plan_intake_answer_prompt() else {
         return Ok(());
     };

@@ -382,6 +382,7 @@ mod tests {
             ToolRegistry::new(),
             Arc::new(TestAllowAllPolicy),
             Arc::new(HeadlessApprovalTransport),
+            Arc::new(crate::core::HeadlessUserInputTransport),
             Arc::new(NullPatchApplier),
             Arc::new(NoCompactor),
             Arc::new(AllVisibleToolExposure),

@@ -6,7 +6,7 @@ use crate::{
     contracts::{
         MemoryStore, PatchApplier, ProvidedTool, SearchBackend, Tool, ToolProvider, ToolSource,
     },
-    tools::{ApplyPatchTool, RememberFactTool, SearchTool},
+    tools::{ApplyPatchTool, RememberFactTool, RequestUserInputTool, SearchTool},
 };
 
 #[derive(Clone)]
@@ -41,6 +41,7 @@ impl BuiltinToolProvider {
             "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(self.patch.clone()))),
             "search" => Ok(Arc::new(SearchTool::new(self.search.clone()))),
             "remember_fact" => Ok(Arc::new(RememberFactTool::new(self.memory.clone()))),
+            "request_user_input" => Ok(Arc::new(RequestUserInputTool)),
             name => bail!(
                 "unsupported tool: '{name}'. File I/O (read_file/write_file/list_dir/grep) \
                  is provided by the `file-tools` plugin; shell by `shell-tool`. Install those \
@@ -51,7 +52,10 @@ impl BuiltinToolProvider {
 }
 
 pub fn is_builtin_tool_name(name: &str) -> bool {
-    matches!(name, "apply_patch" | "search" | "remember_fact")
+    matches!(
+        name,
+        "apply_patch" | "search" | "remember_fact" | "request_user_input"
+    )
 }
 
 impl ToolProvider for BuiltinToolProvider {
