@@ -187,8 +187,8 @@ TUI-сессии. `/reasoning summary` показывает компактный
 turns без restart app-server процесса. В режиме `/plan` обычный user request
 отправляется как read-only planning request; после финального ответа TUI
 может сначала показать plugin-owned planning choices, если workflow вернул
-`metadata.ui.plan_intake` (например stack/language/deploy для нового Telegram
-bot). TUI рендерит такие вопросы как generic selector: Up/Down выбирают option,
+`metadata.ui.plan_intake`. Эти вопросы генерирует workflow/model под конкретную
+задачу; TUI рендерит их как generic selector: Up/Down выбирают option,
 Left/Right или Tab переходят между вопросами, Enter отправляет ответы, typing
 заполняет custom option. После финального плана TUI показывает chooser в нижней
 панели: execute в `auto`, execute через approvals, revise plan или dismiss. В
