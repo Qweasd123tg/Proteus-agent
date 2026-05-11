@@ -41,7 +41,8 @@ impl BuiltinToolProvider {
             "apply_patch" => Ok(Arc::new(ApplyPatchTool::new(self.patch.clone()))),
             "search" => Ok(Arc::new(SearchTool::new(self.search.clone()))),
             "remember_fact" => Ok(Arc::new(RememberFactTool::new(self.memory.clone()))),
-            "request_user_input" => Ok(Arc::new(RequestUserInputTool)),
+            "request_user_input" => Ok(Arc::new(RequestUserInputTool::new("request_user_input"))),
+            "AskUserQuestion" => Ok(Arc::new(RequestUserInputTool::new("AskUserQuestion"))),
             name => bail!(
                 "unsupported tool: '{name}'. File I/O (read_file/write_file/list_dir/grep) \
                  is provided by the `file-tools` plugin; shell by `shell-tool`. Install those \
@@ -54,7 +55,7 @@ impl BuiltinToolProvider {
 pub fn is_builtin_tool_name(name: &str) -> bool {
     matches!(
         name,
-        "apply_patch" | "search" | "remember_fact" | "request_user_input"
+        "apply_patch" | "search" | "remember_fact" | "request_user_input" | "AskUserQuestion"
     )
 }
 

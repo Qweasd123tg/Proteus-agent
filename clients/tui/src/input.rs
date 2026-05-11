@@ -184,7 +184,9 @@ pub(crate) async fn handle_term_event(
             if state.has_plan_intake() {
                 match key.code {
                     KeyCode::Enter => {
-                        if state.plan_intake_is_last_question() {
+                        if state.plan_intake_selection_submits_immediately()
+                            || state.plan_intake_is_last_question()
+                        {
                             submit_plan_intake_answers(state, driver).await?;
                         } else {
                             state.move_plan_intake_question_next();

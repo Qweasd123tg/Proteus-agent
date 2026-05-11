@@ -6,6 +6,9 @@ use agent_contracts::contracts::{
     UserInputResponse,
 };
 
+const CHAT_ABOUT_THIS: &str = "Chat about this";
+const SKIP_INTERVIEW: &str = "Skip interview and plan immediately";
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct PlanIntakeRequest {
     pub id: String,
@@ -114,6 +117,18 @@ impl PlanIntakeState {
         self.selection_is_custom(self.question_index)
     }
 
+    pub(crate) fn current_selection_is_chat(&self) -> bool {
+        self.selections[self.question_index] == self.chat_index(self.question_index)
+    }
+
+    pub(crate) fn current_selection_is_skip(&self) -> bool {
+        self.selections[self.question_index] == self.skip_index(self.question_index)
+    }
+
+    pub(crate) fn current_selection_submits_immediately(&self) -> bool {
+        self.current_selection_is_chat() || self.current_selection_is_skip()
+    }
+
     pub(crate) fn move_option_next(&mut self) {
         let count = self.option_count(self.question_index);
         if count > 0 {
@@ -186,6 +201,9 @@ impl PlanIntakeState {
     }
 
     pub(crate) fn user_input_response(&self) -> UserInputResponse {
+        if self.current_selection_is_skip() {
+            return UserInputResponse::empty();
+        }
         let answers = self
             .request
             .questions
@@ -207,9 +225,15 @@ impl PlanIntakeState {
         if selection < question.options.len() {
             return question.options[selection].label.clone();
         }
+        if selection == self.chat_index(question_index) {
+            return CHAT_ABOUT_THIS.to_owned();
+        }
+        if selection == self.skip_index(question_index) {
+            return SKIP_INTERVIEW.to_owned();
+        }
         let custom = self.custom_answers[question_index].trim();
         if custom.is_empty() {
-            "custom".to_owned()
+            "Type something.".to_owned()
         } else {
             custom.to_owned()
         }
@@ -217,13 +241,24 @@ impl PlanIntakeState {
 
     fn selection_is_custom(&self, question_index: usize) -> bool {
         self.request.questions[question_index].allow_custom
-            && self.selections[question_index]
-                >= self.request.questions[question_index].options.len()
+            && self.selections[question_index] == self.custom_index(question_index)
     }
 
     fn option_count(&self, question_index: usize) -> usize {
-        let question = &self.request.questions[question_index];
-        question.options.len() + usize::from(question.allow_custom)
+        self.skip_index(question_index) + 1
+    }
+
+    pub(crate) fn custom_index(&self, question_index: usize) -> usize {
+        self.request.questions[question_index].options.len()
+    }
+
+    pub(crate) fn chat_index(&self, question_index: usize) -> usize {
+        self.custom_index(question_index)
+            + usize::from(self.request.questions[question_index].allow_custom)
+    }
+
+    pub(crate) fn skip_index(&self, question_index: usize) -> usize {
+        self.chat_index(question_index) + 1
     }
 }
 
@@ -330,5 +365,30 @@ mod tests {
         let response = intake.user_input_response();
 
         assert_eq!(response.answers["language"].answers, vec!["Go"]);
+    }
+
+    #[test]
+    fn skip_interview_returns_empty_response() {
+        let request = UserInputRequest::new(
+            "call-1",
+            std::env::current_dir().expect("cwd"),
+            vec![UserInputQuestion::new(
+                "language",
+                "Language",
+                "Which language?",
+                vec![
+                    UserInputQuestionOption::new("Rust", "Compile-time checks."),
+                    UserInputQuestionOption::new("Python", "Fast scripting."),
+                ],
+            )],
+        );
+        let mut intake = PlanIntakeState::from_user_input_request(&request).expect("intake");
+
+        while !intake.current_selection_is_skip() {
+            intake.move_option_next();
+        }
+
+        assert!(intake.current_selection_submits_immediately());
+        assert!(intake.user_input_response().answers.is_empty());
     }
 }

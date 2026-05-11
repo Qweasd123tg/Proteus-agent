@@ -377,6 +377,7 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
             "Grep",
             "grep",
             "search",
+            "AskUserQuestion",
             "request_user_input",
             "TodoWrite",
         ][..]
@@ -736,6 +737,7 @@ mod tests {
                 spec("Grep", ToolSafety::ReadOnly),
                 spec("grep", ToolSafety::ReadOnly),
                 spec("search", ToolSafety::ReadOnly),
+                spec("AskUserQuestion", ToolSafety::ReadOnly),
                 spec("request_user_input", ToolSafety::ReadOnly),
                 spec("TodoWrite", ToolSafety::ReadOnly),
                 spec("remember_fact", ToolSafety::WritesFiles),
@@ -760,6 +762,7 @@ mod tests {
                 "Grep",
                 "grep",
                 "search",
+                "AskUserQuestion",
                 "request_user_input",
                 "TodoWrite"
             ]

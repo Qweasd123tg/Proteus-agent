@@ -2480,6 +2480,13 @@ async fn claude_pack_config_uses_shared_provider_include() {
     assert_eq!(model.provider_config["api_key_env"], "ANTHROPIC_API_KEY");
     assert_eq!(config.modules.workflow, "claude.explore_edit_verify");
     assert!(config.tools.enabled.iter().any(|tool| tool == "TodoWrite"));
+    assert!(
+        config
+            .tools
+            .enabled
+            .iter()
+            .any(|tool| tool == "AskUserQuestion")
+    );
 }
 
 #[tokio::test]
