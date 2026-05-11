@@ -429,7 +429,9 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 `agent-tui` поддерживает те же startup overrides и profile key
 `permission_mode = "plan" | "normal" | "auto"`. Внутри TUI slash-команды
 `/plan`, `/normal` и `/auto` переключают режим для следующих turns через
-app-server control-plane request без restart процесса.
+app-server control-plane request без restart процесса. После ответа в `/plan`
+TUI показывает bottom-pane chooser: execute в `auto`, execute через approvals,
+revise plan или dismiss.
 
 Более гибкая table-driven схема прав (`hide`/`deny`/`ask`/`allow`,
 priority, per-tool limits) пока является planned design. Текущая реализация

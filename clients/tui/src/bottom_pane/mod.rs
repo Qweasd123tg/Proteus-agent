@@ -7,7 +7,10 @@ use ratatui::text::Line;
 
 use crate::{
     cards::append_approval_lines,
-    visual::{VisualState, append_reasoning_preview_lines, composer_lines, slash_plain_lines},
+    visual::{
+        VisualState, append_reasoning_preview_lines, composer_lines, plan_review_lines,
+        slash_plain_lines,
+    },
 };
 
 pub(crate) struct BottomPane;
@@ -38,6 +41,10 @@ impl BottomPane {
             append_approval_lines(&mut approval_lines, request, width);
             lines.extend(approval_lines);
         } else {
+            if state.plan_review.is_some() {
+                lines.extend(plan_review_lines(state, width));
+                lines.push(Line::raw(""));
+            }
             append_reasoning_preview_lines(&mut lines, state, width);
             if status::reasoning_preview_visible(state) && status::active_status_visible(state) {
                 lines.push(Line::raw(""));

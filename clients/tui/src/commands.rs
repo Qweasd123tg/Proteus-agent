@@ -18,7 +18,9 @@ use crate::{
     driver::{AgentDriver, DriverConfig},
     session_picker::ResumePickerItem,
     state::AppState,
-    visual::{ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, compact_value},
+    visual::{
+        PlanReviewAction, ReasoningDisplayMode, ToolCard, ToolStatus, VisualMessage, compact_value,
+    },
 };
 
 pub(crate) async fn handle_slash_command(
@@ -149,6 +151,49 @@ pub(crate) async fn resume_session_dir(
     driver_config.resume_session = Some(session_dir.clone());
     state.reset_after_resume_with_history(session_dir, history);
     state.restore_context_usage(context_usage);
+    Ok(())
+}
+
+pub(crate) async fn handle_plan_review_action(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &mut DriverConfig,
+    action: PlanReviewAction,
+) -> Result<()> {
+    match action {
+        PlanReviewAction::ExecuteAuto => {
+            execute_approved_plan(state, driver, driver_config, PermissionMode::Auto).await
+        }
+        PlanReviewAction::ExecuteNormal => {
+            execute_approved_plan(state, driver, driver_config, PermissionMode::Normal).await
+        }
+        PlanReviewAction::Revise => {
+            state.begin_plan_revision();
+            Ok(())
+        }
+        PlanReviewAction::Dismiss => {
+            state.clear_plan_review();
+            Ok(())
+        }
+    }
+}
+
+async fn execute_approved_plan(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+    driver_config: &mut DriverConfig,
+    mode: PermissionMode,
+) -> Result<()> {
+    switch_permission_mode(state, driver, driver_config, mode).await?;
+    let text = "Execute the approved plan from your previous response. Apply the changes now, then summarize the changed files and verification.".to_owned();
+    let turn_id = state.next_turn_id();
+    driver
+        .send(&StdioRequest::Send {
+            id: Some(turn_id.clone()),
+            text: text.clone(),
+        })
+        .await?;
+    state.mark_user_sent(text, Vec::new(), turn_id);
     Ok(())
 }
 

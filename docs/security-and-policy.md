@@ -44,7 +44,9 @@ CLI может переопределить config через `--plan`, `--auto`
 app-server, показывает активный override в header и умеет переключать режимы
 для следующих turns через `/plan`, `/normal`, `/auto`. Переключение не меняет
 config-файл и не перезапускает app-server: TUI отправляет
-`StdioRequest::SetPermissionMode`.
+`StdioRequest::SetPermissionMode`. В `/plan` TUI просит модель вернуть staged
+read-only plan, а после ответа предлагает execute/revise/dismiss; enforcement
+read/write/shell/network ограничений остаётся в core policy.
 
 ## Встроенные Tools
 

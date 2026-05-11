@@ -31,6 +31,35 @@ pub(crate) fn muted_style() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
+pub(crate) fn plan_review_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+    let Some(review) = state.plan_review else {
+        return Vec::new();
+    };
+    let selected = review
+        .selected
+        .min(PLAN_REVIEW_ACTIONS.len().saturating_sub(1));
+    let mut lines = Vec::with_capacity(PLAN_REVIEW_ACTIONS.len() + 1);
+    lines.push(Line::from(vec![
+        Span::styled("Plan ready", Style::default().fg(Color::Cyan)),
+        Span::styled("  review", muted_style()),
+    ]));
+    let available_width = width.saturating_sub(4).max(1);
+    for (index, action) in PLAN_REVIEW_ACTIONS.iter().copied().enumerate() {
+        let marker = if index == selected { "> " } else { "  " };
+        let style = if index == selected {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        let text = format!("{} - {}", action.label(), action.description());
+        lines.push(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled(truncate(&text, available_width), style),
+        ]));
+    }
+    lines
+}
+
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
     pub permission_mode: &'a str,
@@ -52,8 +81,49 @@ pub(crate) struct VisualState<'a> {
     pub resume_picker: Option<&'a ResumePicker>,
     pub context_report: Option<&'a str>,
     pub context_report_scroll: usize,
+    pub plan_review: Option<PlanReviewVisualState>,
     pub slash_selection: usize,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PlanReviewVisualState {
+    pub selected: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlanReviewAction {
+    ExecuteAuto,
+    ExecuteNormal,
+    Revise,
+    Dismiss,
+}
+
+impl PlanReviewAction {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::ExecuteAuto => "Execute in auto",
+            Self::ExecuteNormal => "Execute with approvals",
+            Self::Revise => "Revise plan",
+            Self::Dismiss => "Dismiss",
+        }
+    }
+
+    pub(crate) fn description(self) -> &'static str {
+        match self {
+            Self::ExecuteAuto => "read/write tools; shell and network denied",
+            Self::ExecuteNormal => "configured approval policy",
+            Self::Revise => "keep planning mode and edit the request",
+            Self::Dismiss => "leave the plan in history",
+        }
+    }
+}
+
+pub(crate) const PLAN_REVIEW_ACTIONS: &[PlanReviewAction] = &[
+    PlanReviewAction::ExecuteAuto,
+    PlanReviewAction::ExecuteNormal,
+    PlanReviewAction::Revise,
+    PlanReviewAction::Dismiss,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReasoningDisplayMode {
@@ -465,6 +535,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -523,6 +594,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -564,6 +636,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -623,6 +696,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -765,6 +839,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -807,6 +882,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -825,6 +901,53 @@ mod tests {
         assert_eq!(rendered[0], "");
         assert!(rendered[1].starts_with("› "));
         assert_eq!(panel.cursor_row, 1);
+    }
+
+    #[test]
+    fn plan_review_renders_selectable_actions_above_input() {
+        let state = VisualState {
+            model: "test/model",
+            permission_mode: "plan",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "plan ready",
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            plan_review: Some(PlanReviewVisualState { selected: 1 }),
+            slash_selection: 0,
+        };
+
+        let rendered = inline_panel_lines(&state, 80)
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(rendered.iter().any(|line| line.contains("Plan ready")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.starts_with("> Execute with approvals"))
+        );
+        assert!(rendered.iter().any(|line| line.starts_with("› ")));
     }
 
     #[test]
@@ -851,6 +974,7 @@ mod tests {
                 resume_picker: None,
                 context_report: None,
                 context_report_scroll: 0,
+                plan_review: None,
                 slash_selection: 0,
             }
         }
@@ -892,6 +1016,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 
@@ -965,6 +1090,7 @@ mod tests {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            plan_review: None,
             slash_selection: 0,
         };
 

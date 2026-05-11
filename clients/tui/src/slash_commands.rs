@@ -44,7 +44,7 @@ pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand {
         name: "/plan",
         usage: "/plan",
-        description: "switch to read-only planning",
+        description: "plan first, then choose execution",
     },
     SlashCommand {
         name: "/normal",
