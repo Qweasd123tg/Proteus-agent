@@ -194,8 +194,11 @@ summary = true
 `budget_tokens`, adapter включает manual thinking
 `thinking = { type = "enabled", budget_tokens = N }`; без `budget_tokens`
 используется adaptive thinking `thinking = { type = "adaptive" }`.
-Эти поля зависят от конкретной модели/совместимого endpoint-а, поэтому shared
-provider example оставляет их закомментированными.
+В shared provider example reasoning включён по умолчанию. Для Anthropic
+thinking adapter не отправляет `temperature`/`top_p`, потому что extended
+thinking несовместим с кастомным sampling. Если совместимый endpoint не
+поддерживает `thinking`, уберите `budget_tokens` или весь `[providers.*.reasoning]`
+блок из локального provider config.
 
 ## Secrets
 

@@ -504,17 +504,20 @@ fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
         };
     }
 
-    if let Some(temperature) = request.sampling.temperature {
-        body["temperature"] = json!(temperature);
-    } else if let Some(top_p) = request.sampling.top_p {
-        body["top_p"] = json!(top_p);
+    let thinking_requested = request.reasoning.budget_tokens.is_some() || request.reasoning.summary;
+    if !thinking_requested {
+        if let Some(temperature) = request.sampling.temperature {
+            body["temperature"] = json!(temperature);
+        } else if let Some(top_p) = request.sampling.top_p {
+            body["top_p"] = json!(top_p);
+        }
     }
 
     if let Some(effort) = &request.reasoning.effort {
         body["output_config"] = json!({ "effort": effort });
     }
 
-    if request.reasoning.budget_tokens.is_some() || request.reasoning.summary {
+    if thinking_requested {
         let mut thinking = serde_json::Map::new();
         if let Some(budget_tokens) = request.reasoning.budget_tokens {
             thinking.insert("type".to_owned(), Value::String("enabled".to_owned()));
@@ -942,6 +945,8 @@ mod tests {
         let body = to_anthropic_request(&request).unwrap();
 
         assert_eq!(body["output_config"], json!({ "effort": "max" }));
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
         assert_eq!(
             body["thinking"],
             json!({
@@ -963,6 +968,8 @@ mod tests {
         let body = to_anthropic_request(&request).unwrap();
 
         assert_eq!(body["output_config"], json!({ "effort": "xhigh" }));
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
         assert_eq!(
             body["thinking"],
             json!({
