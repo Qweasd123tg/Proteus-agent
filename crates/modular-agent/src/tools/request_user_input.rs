@@ -35,6 +35,8 @@ struct RequestUserInputArgs {
     #[serde(default)]
     questions: Vec<RequestUserInputQuestionArg>,
     #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
     id: Option<String>,
     #[serde(default)]
     header: Option<String>,
@@ -62,6 +64,8 @@ enum RequestUserInputOptionArg {
         label: String,
         #[serde(default)]
         description: Option<String>,
+        #[serde(default)]
+        preview: Option<String>,
     },
     Label(String),
 }
@@ -118,6 +122,10 @@ impl Tool for RequestUserInputTool {
                                                     "description": {
                                                         "type": "string",
                                                         "description": "One short sentence explaining impact/tradeoff if selected."
+                                                    },
+                                                    "preview": {
+                                                        "type": "string",
+                                                        "description": "Optional markdown preview for richer clients."
                                                     }
                                                 },
                                                 "required": ["label"]
@@ -128,6 +136,10 @@ impl Tool for RequestUserInputTool {
                             },
                             "required": ["header", "question", "options"]
                         }
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional short title for the whole question group."
                     },
                     "header": {
                         "type": "string",
@@ -147,7 +159,8 @@ impl Tool for RequestUserInputTool {
                                     "type": "object",
                                     "properties": {
                                         "label": { "type": "string" },
-                                        "description": { "type": "string" }
+                                        "description": { "type": "string" },
+                                        "preview": { "type": "string" }
                                     },
                                     "required": ["label"]
                                 }
@@ -166,20 +179,15 @@ impl Tool for RequestUserInputTool {
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        let questions = parse_questions(call.args.clone())?;
+        let request = parse_request(call.args.clone(), call.id.clone(), ctx.cwd)?;
         let transport = ctx
             .user_input
             .ok_or_else(|| anyhow!("{}: no user input transport configured", self.name))?;
         if !transport.can_request_user_input() {
             bail!("{}: user input transport is not interactive", self.name);
         }
-        let response = transport
-            .request_user_input(UserInputRequest::new(
-                call.id.clone(),
-                ctx.cwd,
-                questions.clone(),
-            ))
-            .await?;
+        let questions = request.questions.clone();
+        let response = transport.request_user_input(request).await?;
         let output = format_user_input_response(&response.answers);
         Ok(
             ToolResult::ok(call.id.clone(), output).with_metadata(json!({
@@ -191,9 +199,29 @@ impl Tool for RequestUserInputTool {
     }
 }
 
+fn parse_request(
+    value: Value,
+    request_id: String,
+    cwd: std::path::PathBuf,
+) -> Result<UserInputRequest> {
+    let mut args: RequestUserInputArgs = serde_json::from_value(value)
+        .map_err(|error| anyhow!("request_user_input: invalid args: {error}"))?;
+    let questions = questions_from_args(&mut args)?;
+    let mut request = UserInputRequest::new(request_id, cwd, questions);
+    if let Some(title) = args.title.filter(|title| !title.trim().is_empty()) {
+        request = request.with_title(title);
+    }
+    Ok(request)
+}
+
+#[cfg(test)]
 fn parse_questions(value: Value) -> Result<Vec<UserInputQuestion>> {
     let mut args: RequestUserInputArgs = serde_json::from_value(value)
         .map_err(|error| anyhow!("request_user_input: invalid args: {error}"))?;
+    questions_from_args(&mut args)
+}
+
+fn questions_from_args(args: &mut RequestUserInputArgs) -> Result<Vec<UserInputQuestion>> {
     if args.questions.is_empty() {
         if args.question.is_none() && args.header.is_none() && args.options.is_empty() {
             bail!("request_user_input requires questions or a single question");
@@ -203,10 +231,10 @@ fn parse_questions(value: Value) -> Result<Vec<UserInputQuestion>> {
             header: args.header.take().unwrap_or_else(|| "Question".to_owned()),
             question: args.question.take().unwrap_or_default(),
             multi_select: false,
-            options: args.options,
+            options: std::mem::take(&mut args.options),
         });
     }
-    normalize_questions(args.questions)
+    normalize_questions(std::mem::take(&mut args.questions))
 }
 
 fn normalize_questions(
@@ -244,8 +272,19 @@ fn normalize_questions(
                 .options
                 .into_iter()
                 .map(|option| match option {
-                    RequestUserInputOptionArg::Object { label, description } => {
-                        UserInputQuestionOption::new(label, description.unwrap_or_default())
+                    RequestUserInputOptionArg::Object {
+                        label,
+                        description,
+                        preview,
+                    } => {
+                        let option =
+                            UserInputQuestionOption::new(label, description.unwrap_or_default());
+                        if let Some(preview) = preview.filter(|preview| !preview.trim().is_empty())
+                        {
+                            option.with_preview(preview)
+                        } else {
+                            option
+                        }
                     }
                     RequestUserInputOptionArg::Label(label) => {
                         UserInputQuestionOption::new(label, "")
@@ -293,10 +332,12 @@ mod tests {
                 RequestUserInputOptionArg::Object {
                     label: "A".to_owned(),
                     description: Some("First option.".to_owned()),
+                    preview: None,
                 },
                 RequestUserInputOptionArg::Object {
                     label: "B".to_owned(),
                     description: Some("Second option.".to_owned()),
+                    preview: None,
                 },
             ],
         }
@@ -339,6 +380,37 @@ mod tests {
 
         assert_eq!(questions[0].id, "На каком языке писать бота?");
         assert_eq!(questions[0].options[2].label, "Rust");
+    }
+
+    #[test]
+    fn parses_group_title_and_option_preview() {
+        let request = parse_request(
+            json!({
+                "title": "Telegram bot",
+                "questions": [{
+                    "id": "stack",
+                    "header": "Stack",
+                    "question": "На каком стеке писать?",
+                    "options": [{
+                        "label": "Python",
+                        "description": "aiogram.",
+                        "preview": "async bot skeleton"
+                    }, {
+                        "label": "Rust",
+                        "description": "teloxide."
+                    }]
+                }]
+            }),
+            "call-1".to_owned(),
+            std::env::current_dir().expect("cwd"),
+        )
+        .expect("request");
+
+        assert_eq!(request.title.as_deref(), Some("Telegram bot"));
+        assert_eq!(
+            request.questions[0].options[0].preview.as_deref(),
+            Some("async bot skeleton")
+        );
     }
 
     #[test]

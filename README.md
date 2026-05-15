@@ -192,7 +192,8 @@ turns без restart app-server процесса. В режиме `/plan` обы
 `request_user_input` или Claude-compatible alias `AskUserQuestion`, app-server
 держит turn открытым, а TUI показывает generic selector: Up/Down выбирают
 option, Left/Right или Tab переходят между вопросами, Enter отправляет typed
-answers, typing заполняет custom option; также есть chat/skip actions. После
+answers, typing заполняет custom option; short question `header` отображается
+как верхняя chip/tab строка прогресса. Также есть chat/skip actions. После
 финального плана TUI показывает chooser в нижней
 панели: execute в `auto`, execute через approvals, revise plan или dismiss. В
 header TUI показывается активный режим; если режим пришёл только из config и
