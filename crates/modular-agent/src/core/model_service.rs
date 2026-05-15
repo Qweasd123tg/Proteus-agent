@@ -8,8 +8,8 @@ use crate::{
     contracts::{EventEmitter, ModelAdapter, ModelClient, ModelEventStream},
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
-        RequestShaper,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
+        ModelCapabilities, ModelStreamEvent, RequestShaper,
     },
 };
 
@@ -87,6 +87,10 @@ impl ModelClient for ModelService {
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
         let ctx = self.snapshot_context();
         let mut stream = self.stream(request).await?;
+        let mut text = String::new();
+        let mut saw_tool_delta = false;
+        let mut saw_tool_finished = false;
+        let mut done_reason = None;
 
         while let Some(event) = stream.next().await {
             let event = event?;
@@ -95,14 +99,22 @@ impl ModelClient for ModelService {
                 ModelStreamEvent::Error { message } => {
                     return Err(anyhow!("model stream error: {message}"));
                 }
-                ModelStreamEvent::TextDelta { text } => {
-                    emit_delta(&ctx, Event::AssistantTextDelta { text }).await;
+                ModelStreamEvent::TextDelta { text: delta } => {
+                    emit_delta(
+                        &ctx,
+                        Event::AssistantTextDelta {
+                            text: delta.clone(),
+                        },
+                    )
+                    .await;
+                    text.push_str(&delta);
                 }
                 ModelStreamEvent::ToolCallDelta {
                     call_id,
                     args_delta,
                     ..
                 } => {
+                    saw_tool_delta = true;
                     emit_delta(
                         &ctx,
                         Event::AssistantToolArgsDelta {
@@ -115,10 +127,27 @@ impl ModelClient for ModelService {
                 ModelStreamEvent::ReasoningSummaryDelta { text } => {
                     emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
                 }
-                // Usage / Done / ToolCallFinished пока не эмитим как runtime
-                // events — в них нет UI-полезной нагрузки сверх Response.
+                ModelStreamEvent::ToolCallFinished { .. } => {
+                    saw_tool_finished = true;
+                }
+                ModelStreamEvent::Done { finish_reason } => {
+                    done_reason = Some(finish_reason);
+                }
+                // Usage пока не эмитим как runtime event — в нём нет
+                // UI-полезной нагрузки сверх Response.
                 _ => {}
             }
+        }
+        if !text.is_empty() && !saw_tool_delta && !saw_tool_finished {
+            let reason = done_reason.unwrap_or(FinishReason::Stop);
+            return Ok(CanonicalModelResponse::new(
+                CanonicalMessage::text(MessageRole::Assistant, text),
+                Vec::new(),
+                reason,
+            )
+            .with_provider_metadata(serde_json::json!({
+                "synthesized_from_text_deltas": true
+            })));
         }
         Err(anyhow!("model stream ended without Response event"))
     }
@@ -293,10 +322,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_ending_without_response_is_error() {
+    async fn stream_ending_with_text_without_response_synthesizes_response() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::TextDelta {
             text: "foo".into(),
         }]));
+        let service = ModelService::new(adapter);
+        let response = service.complete(sample_request()).await.unwrap();
+        assert_eq!(response.finish_reason, FinishReason::Stop);
+        assert!(matches!(
+            response.message.parts.as_slice(),
+            [crate::model_standard::ContentPart::Text { text }] if text == "foo"
+        ));
+        assert_eq!(
+            response.provider_metadata["synthesized_from_text_deltas"],
+            true
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_ending_without_text_or_response_is_error() {
+        let adapter = Arc::new(ScriptedAdapter::new(Vec::new()));
+        let service = ModelService::new(adapter);
+        let err = service.complete(sample_request()).await.unwrap_err();
+        assert!(err.to_string().contains("without Response"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn stream_ending_with_tool_delta_without_response_is_error() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![
+            ModelStreamEvent::TextDelta {
+                text: "calling".into(),
+            },
+            ModelStreamEvent::ToolCallDelta {
+                call_id: "call-1".into(),
+                name: Some("read_file".into()),
+                args_delta: "{}".into(),
+            },
+        ]));
         let service = ModelService::new(adapter);
         let err = service.complete(sample_request()).await.unwrap_err();
         assert!(err.to_string().contains("without Response"), "{err}");
