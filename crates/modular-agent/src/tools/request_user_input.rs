@@ -42,6 +42,8 @@ struct RequestUserInputArgs {
     header: Option<String>,
     #[serde(default)]
     question: Option<String>,
+    #[serde(default, rename = "multiSelect")]
+    multi_select: bool,
     #[serde(default)]
     options: Vec<RequestUserInputOptionArg>,
 }
@@ -149,6 +151,10 @@ impl Tool for RequestUserInputTool {
                         "type": "string",
                         "description": "Compatibility form for a single question."
                     },
+                    "multiSelect": {
+                        "type": "boolean",
+                        "description": "Compatibility form for a single question. Set true when choices are not mutually exclusive."
+                    },
                     "options": {
                         "type": "array",
                         "description": "Compatibility form for a single question.",
@@ -230,7 +236,7 @@ fn questions_from_args(args: &mut RequestUserInputArgs) -> Result<Vec<UserInputQ
             id: args.id.take(),
             header: args.header.take().unwrap_or_else(|| "Question".to_owned()),
             question: args.question.take().unwrap_or_default(),
-            multi_select: false,
+            multi_select: args.multi_select,
             options: std::mem::take(&mut args.options),
         });
     }
@@ -261,9 +267,7 @@ fn normalize_questions(
             if question.options.len() > 4 {
                 bail!("request_user_input supports at most four options per question");
             }
-            if question.multi_select {
-                bail!("request_user_input multiSelect is not supported yet");
-            }
+            let multi_select = question.multi_select;
             let id = question
                 .id
                 .filter(|id| !id.trim().is_empty())
@@ -291,12 +295,10 @@ fn normalize_questions(
                     }
                 })
                 .collect();
-            Ok(UserInputQuestion::new(
-                id,
-                question.header,
-                question.question,
-                options,
-            ))
+            Ok(
+                UserInputQuestion::new(id, question.header, question.question, options)
+                    .with_multi_select(multi_select),
+            )
         })
         .collect()
 }
@@ -411,6 +413,26 @@ mod tests {
             request.questions[0].options[0].preview.as_deref(),
             Some("async bot skeleton")
         );
+    }
+
+    #[test]
+    fn parses_multi_select_questions() {
+        let questions = parse_questions(json!({
+            "questions": [{
+                "id": "features",
+                "header": "Features",
+                "question": "Какие функции нужны?",
+                "multiSelect": true,
+                "options": [
+                    {"label": "Catalog", "description": "Product listing."},
+                    {"label": "Cart", "description": "Shopping cart."}
+                ]
+            }]
+        }))
+        .expect("questions");
+
+        assert!(questions[0].multi_select);
+        assert_eq!(questions[0].options[1].label, "Cart");
     }
 
     #[test]

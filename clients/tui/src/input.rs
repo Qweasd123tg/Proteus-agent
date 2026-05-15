@@ -217,6 +217,10 @@ pub(crate) async fn handle_term_event(
                         state.backspace_plan_intake_custom();
                         return Ok(true);
                     }
+                    KeyCode::Char(' ') => {
+                        state.toggle_plan_intake_current_option();
+                        return Ok(true);
+                    }
                     KeyCode::Char(ch) => {
                         state.type_plan_intake_custom_char(ch);
                         return Ok(true);

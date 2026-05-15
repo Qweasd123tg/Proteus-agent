@@ -38,6 +38,8 @@ pub struct UserInputQuestion {
     pub is_other: bool,
     #[serde(default)]
     pub is_secret: bool,
+    #[serde(default, alias = "multiSelect")]
+    pub multi_select: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<UserInputQuestionOption>,
 }
@@ -55,6 +57,7 @@ impl UserInputQuestion {
             question: question.into(),
             is_other: true,
             is_secret: false,
+            multi_select: false,
             options,
         }
     }
@@ -66,6 +69,11 @@ impl UserInputQuestion {
 
     pub fn with_secret(mut self, is_secret: bool) -> Self {
         self.is_secret = is_secret;
+        self
+    }
+
+    pub fn with_multi_select(mut self, multi_select: bool) -> Self {
+        self.multi_select = multi_select;
         self
     }
 }

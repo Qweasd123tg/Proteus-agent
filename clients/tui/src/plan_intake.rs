@@ -28,6 +28,8 @@ pub(crate) struct PlanIntakeQuestion {
     pub options: Vec<PlanIntakeOption>,
     #[serde(default)]
     pub allow_custom: bool,
+    #[serde(default, alias = "multiSelect")]
+    pub multi_select: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -43,6 +45,7 @@ pub(crate) struct PlanIntakeState {
     request: PlanIntakeRequest,
     question_index: usize,
     selections: Vec<usize>,
+    selected_options: Vec<Vec<usize>>,
     custom_answers: Vec<String>,
 }
 
@@ -86,10 +89,22 @@ impl PlanIntakeState {
             })
             .collect::<Vec<_>>();
         let custom_answers = vec![String::new(); request.questions.len()];
+        let selected_options = request
+            .questions
+            .iter()
+            .map(|question| {
+                if question.multi_select && !question.options.is_empty() {
+                    vec![0]
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect::<Vec<_>>();
         Some(Self {
             request,
             question_index: 0,
             selections,
+            selected_options,
             custom_answers,
         })
     }
@@ -140,6 +155,15 @@ impl PlanIntakeState {
         self.selections[self.question_index] == self.skip_index(self.question_index)
     }
 
+    pub(crate) fn current_question_is_multi_select(&self) -> bool {
+        self.current_question().multi_select
+    }
+
+    pub(crate) fn current_option_is_selected(&self, option_index: usize) -> bool {
+        self.current_question_is_multi_select()
+            && self.selected_options[self.question_index].contains(&option_index)
+    }
+
     pub(crate) fn current_selection_submits_immediately(&self) -> bool {
         self.current_selection_is_chat() || self.current_selection_is_skip()
     }
@@ -179,6 +203,26 @@ impl PlanIntakeState {
 
     pub(crate) fn is_last_question(&self) -> bool {
         self.question_index + 1 >= self.request.questions.len()
+    }
+
+    pub(crate) fn toggle_current_option(&mut self) {
+        if !self.current_question_is_multi_select() {
+            return;
+        }
+        let option_index = self.current_selection();
+        if option_index >= self.current_question().options.len() {
+            return;
+        }
+        let selected = &mut self.selected_options[self.question_index];
+        if let Some(index) = selected
+            .iter()
+            .position(|selected| *selected == option_index)
+        {
+            selected.remove(index);
+        } else {
+            selected.push(option_index);
+            selected.sort_unstable();
+        }
     }
 
     pub(crate) fn type_custom_char(&mut self, ch: char) {
@@ -227,7 +271,7 @@ impl PlanIntakeState {
             .map(|(index, question)| {
                 (
                     question.id.clone(),
-                    UserInputAnswer::new(vec![self.answer_label(index)]),
+                    UserInputAnswer::new(self.answer_labels(index)),
                 )
             })
             .collect();
@@ -235,22 +279,45 @@ impl PlanIntakeState {
     }
 
     pub(crate) fn answer_label(&self, question_index: usize) -> String {
+        let answers = self.answer_labels(question_index);
+        if answers.is_empty() {
+            return "No selection".to_owned();
+        }
+        answers.join(", ")
+    }
+
+    fn answer_labels(&self, question_index: usize) -> Vec<String> {
         let question = &self.request.questions[question_index];
         let selection = self.selections[question_index];
+        if question.multi_select {
+            let mut answers = self.selected_options[question_index]
+                .iter()
+                .filter_map(|index| question.options.get(*index))
+                .map(|option| option.label.clone())
+                .collect::<Vec<_>>();
+            let custom = self.custom_answers[question_index].trim();
+            if !custom.is_empty() {
+                answers.push(custom.to_owned());
+            }
+            if answers.is_empty() && selection < question.options.len() {
+                answers.push(question.options[selection].label.clone());
+            }
+            return answers;
+        }
         if selection < question.options.len() {
-            return question.options[selection].label.clone();
+            return vec![question.options[selection].label.clone()];
         }
         if selection == self.chat_index(question_index) {
-            return CHAT_ABOUT_THIS.to_owned();
+            return vec![CHAT_ABOUT_THIS.to_owned()];
         }
         if selection == self.skip_index(question_index) {
-            return SKIP_INTERVIEW.to_owned();
+            return vec![SKIP_INTERVIEW.to_owned()];
         }
         let custom = self.custom_answers[question_index].trim();
         if custom.is_empty() {
-            "Type something.".to_owned()
+            vec!["Type something.".to_owned()]
         } else {
-            custom.to_owned()
+            vec![custom.to_owned()]
         }
     }
 
@@ -286,7 +353,11 @@ fn question_from_user_input(question: &UserInputQuestion) -> PlanIntakeQuestion 
         id: question.id.clone(),
         header: question.header.clone(),
         prompt: question.question.clone(),
-        kind: "single_choice".to_owned(),
+        kind: if question.multi_select {
+            "multi_choice".to_owned()
+        } else {
+            "single_choice".to_owned()
+        },
         options: question
             .options
             .iter()
@@ -294,6 +365,7 @@ fn question_from_user_input(question: &UserInputQuestion) -> PlanIntakeQuestion 
             .map(option_from_user_input)
             .collect(),
         allow_custom: question.is_other,
+        multi_select: question.multi_select,
     }
 }
 
@@ -411,5 +483,39 @@ mod tests {
 
         assert!(intake.current_selection_submits_immediately());
         assert!(intake.user_input_response().answers.is_empty());
+    }
+
+    #[test]
+    fn multi_select_returns_selected_answers() {
+        let request = UserInputRequest::new(
+            "call-1",
+            std::env::current_dir().expect("cwd"),
+            vec![
+                UserInputQuestion::new(
+                    "features",
+                    "Features",
+                    "Which features?",
+                    vec![
+                        UserInputQuestionOption::new("Catalog", "Product listing."),
+                        UserInputQuestionOption::new("Cart", "Shopping cart."),
+                        UserInputQuestionOption::new("Search", "Search page."),
+                    ],
+                )
+                .with_multi_select(true),
+            ],
+        );
+        let mut intake = PlanIntakeState::from_user_input_request(&request).expect("intake");
+
+        assert!(intake.current_question_is_multi_select());
+        assert!(intake.current_option_is_selected(0));
+
+        intake.move_option_next();
+        intake.toggle_current_option();
+        let response = intake.user_input_response();
+
+        assert_eq!(
+            response.answers["features"].answers,
+            vec!["Catalog", "Cart"]
+        );
     }
 }
