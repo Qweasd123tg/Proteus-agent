@@ -41,13 +41,26 @@ impl Default for SamplingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct ReasoningConfig {
+    #[serde(default)]
     pub effort: Option<String>,
+    #[serde(default)]
     pub summary: bool,
+    #[serde(default)]
+    pub budget_tokens: Option<u32>,
 }
 
 impl ReasoningConfig {
     pub fn new(effort: Option<String>, summary: bool) -> Self {
-        Self { effort, summary }
+        Self {
+            effort,
+            summary,
+            budget_tokens: None,
+        }
+    }
+
+    pub fn with_budget_tokens(mut self, budget_tokens: Option<u32>) -> Self {
+        self.budget_tokens = budget_tokens;
+        self
     }
 }
 

@@ -142,6 +142,7 @@ impl BuiltinRegistry {
             thread_id,
             turn_id,
             self.model_config.model_ref(),
+            self.model_config.reasoning.clone(),
             self.runtime_config.model_timeout_ms,
             self.runtime_config.context_timeout_ms,
             events,

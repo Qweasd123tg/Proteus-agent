@@ -8,3 +8,11 @@ api_key_env = "ANTHROPIC_API_KEY"
 base_url = "https://api.anthropic.com"
 auth = "x-api-key"
 api_version = "2023-06-01"
+
+# Optional provider-neutral reasoning knobs. Leave commented until the selected
+# model/provider is known to support them.
+#
+# [providers.anthropic.reasoning]
+# effort = "high"
+# summary = true
+# budget_tokens = 8192

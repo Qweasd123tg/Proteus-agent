@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::domain::{ModelRef, ModuleKind, PermissionMode};
+use crate::domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -277,6 +277,8 @@ pub struct ProviderProfileConfig {
     #[serde(default = "default_model_stream")]
     pub stream: bool,
     #[serde(default)]
+    pub reasoning: ReasoningConfig,
+    #[serde(default)]
     pub provider_config: serde_json::Value,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -299,6 +301,7 @@ impl ProviderProfileConfig {
             provider: self.provider.clone(),
             model: self.model.clone(),
             stream: self.stream,
+            reasoning: self.reasoning.clone(),
             provider_config: serde_json::Value::Object(provider_config),
         })
     }
@@ -327,6 +330,8 @@ pub struct ModelConfig {
     #[serde(default = "default_model_stream")]
     pub stream: bool,
     #[serde(default)]
+    pub reasoning: ReasoningConfig,
+    #[serde(default)]
     pub provider_config: serde_json::Value,
 }
 
@@ -342,6 +347,7 @@ impl Default for ModelConfig {
             provider: default_model_provider(),
             model: default_model_name(),
             stream: default_model_stream(),
+            reasoning: ReasoningConfig::default(),
             provider_config: serde_json::Value::Null,
         }
     }

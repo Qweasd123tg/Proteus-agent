@@ -2313,6 +2313,39 @@ async fn json_config_file_can_select_anthropic_provider() {
 }
 
 #[tokio::test]
+async fn provider_profile_reasoning_reaches_model_config() {
+    let dir = temp_workspace();
+    let config_path = dir.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+active_provider = "anthropic"
+
+[providers.anthropic]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+stream = false
+
+[providers.anthropic.reasoning]
+effort = "max"
+summary = true
+budget_tokens = 8192
+"#,
+    )
+    .expect("config");
+
+    let config = modular_agent::core::AppConfig::load(Some(&config_path))
+        .await
+        .unwrap();
+    let model_config = config.active_model_config().unwrap();
+
+    assert_eq!(model_config.provider, "anthropic");
+    assert_eq!(model_config.reasoning.effort.as_deref(), Some("max"));
+    assert!(model_config.reasoning.summary);
+    assert_eq!(model_config.reasoning.budget_tokens, Some(8192));
+}
+
+#[tokio::test]
 async fn toml_config_file_can_select_statusline_renderer() {
     let config =
         modular_agent::core::AppConfig::load(Some(&workspace_root_file("agent.example.toml")))

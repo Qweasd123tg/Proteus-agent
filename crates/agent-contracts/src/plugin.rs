@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::RendererObject,
-    domain::{AgentOutput, AgentTask, ModelRef, SessionId, ThreadId, TurnId},
+    domain::{AgentOutput, AgentTask, ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
 };
 
@@ -514,6 +514,8 @@ pub struct PluginWorkflowRuntimeInfo {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    #[serde(default)]
+    pub reasoning: ReasoningConfig,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
 }

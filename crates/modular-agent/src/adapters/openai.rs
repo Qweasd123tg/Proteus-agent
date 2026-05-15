@@ -329,7 +329,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                     "call_id": result.call_id,
                     "output": result.error.clone().unwrap_or_else(|| result.output.clone()),
                 })),
-                ContentPart::ReasoningSummary { text } => input.push(json!({
+                ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => input.push(json!({
                     "type": "message",
                     "role": "assistant",
                     "content": [{ "type": "output_text", "text": format!("Reasoning summary: {text}") }]

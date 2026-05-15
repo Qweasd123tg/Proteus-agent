@@ -287,7 +287,8 @@ fn request_from_state(
                 InstructionBlock::new(InstructionKind::System, SYSTEM_INSTRUCTIONS, 100),
                 InstructionBlock::new(InstructionKind::Developer, phase.instructions(), 90),
             ])
-            .with_tools(tools),
+            .with_tools(tools)
+            .with_reasoning(input.runtime.reasoning.clone()),
     )
 }
 
@@ -302,7 +303,8 @@ fn final_model_response(
             InstructionBlock::new(InstructionKind::System, SYSTEM_INSTRUCTIONS, 100),
             InstructionBlock::new(InstructionKind::Developer, FINAL_INSTRUCTIONS, 90),
         ])
-        .with_tool_choice(ToolChoice::None);
+        .with_tool_choice(ToolChoice::None)
+        .with_reasoning(input.runtime.reasoning.clone());
     request.tools.clear();
     emit_event(
         host,
@@ -555,7 +557,9 @@ fn message_text_len(message: &CanonicalMessage) -> usize {
 
 fn part_text_len(part: &ContentPart) -> usize {
     match part {
-        ContentPart::Text { text } | ContentPart::ReasoningSummary { text } => text.len(),
+        ContentPart::Text { text }
+        | ContentPart::ReasoningSummary { text }
+        | ContentPart::Reasoning { text, .. } => text.len(),
         ContentPart::Context { chunk } => {
             chunk.source.len()
                 + chunk
