@@ -186,7 +186,9 @@ TUI-сессии. `/reasoning summary` показывает компактный
 `/reasoning hidden` возвращает поведение по умолчанию.
 `/plan`, `/normal` и `/auto` переключают core `permissions.mode` для следующих
 turns без restart app-server процесса. В режиме `/plan` обычный user request
-отправляется как read-only planning request. Если модель вызывает
+отправляется как read-only interview-first planning request: для широких или
+недоопределённых задач модель должна сначала уточнить существенные решения
+через typed question round-trip, а не печатать финальный план сразу. Если модель вызывает
 `request_user_input` или Claude-compatible alias `AskUserQuestion`, app-server
 держит turn открытым, а TUI показывает generic selector: Up/Down выбирают
 option, Left/Right или Tab переходят между вопросами, Enter отправляет typed
