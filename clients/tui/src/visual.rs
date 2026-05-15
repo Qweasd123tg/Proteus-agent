@@ -39,11 +39,7 @@ pub(crate) fn plan_review_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     let selected = review
         .selected
         .min(PLAN_REVIEW_ACTIONS.len().saturating_sub(1));
-    let mut lines = Vec::with_capacity(PLAN_REVIEW_ACTIONS.len() + 1);
-    lines.push(Line::from(vec![
-        Span::styled("Plan ready", Style::default().fg(Color::Cyan)),
-        Span::styled("  review", muted_style()),
-    ]));
+    let mut lines = Vec::with_capacity(PLAN_REVIEW_ACTIONS.len());
     let available_width = width.saturating_sub(4).max(1);
     for (index, action) in PLAN_REVIEW_ACTIONS.iter().copied().enumerate() {
         let marker = if index == selected { "> " } else { "  " };
@@ -52,10 +48,9 @@ pub(crate) fn plan_review_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         } else {
             Style::default()
         };
-        let text = format!("{} - {}", action.label(), action.description());
         lines.push(Line::from(vec![
             Span::styled(marker, style),
-            Span::styled(truncate(&text, available_width), style),
+            Span::styled(truncate(action.label(), available_width), style),
         ]));
     }
     lines
@@ -234,19 +229,10 @@ pub(crate) enum PlanReviewAction {
 impl PlanReviewAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::ExecuteAuto => "Execute in auto",
+            Self::ExecuteAuto => "Submit + execute",
             Self::ExecuteNormal => "Execute with approvals",
-            Self::Revise => "Revise plan",
+            Self::Revise => "Revise",
             Self::Dismiss => "Dismiss",
-        }
-    }
-
-    pub(crate) fn description(self) -> &'static str {
-        match self {
-            Self::ExecuteAuto => "read/write tools; shell and network denied",
-            Self::ExecuteNormal => "configured approval policy",
-            Self::Revise => "keep planning mode and edit the request",
-            Self::Dismiss => "leave the plan in history",
         }
     }
 }
@@ -1083,11 +1069,15 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(rendered.iter().any(|line| line.contains("Plan ready")));
         assert!(
             rendered
                 .iter()
                 .any(|line| line.starts_with("> Execute with approvals"))
+        );
+        assert!(
+            rendered
+                .iter()
+                .all(|line| !line.contains("read/write tools"))
         );
         assert!(rendered.iter().any(|line| line.starts_with("› ")));
     }
