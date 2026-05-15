@@ -442,6 +442,11 @@ fn history_tool_preview(result: &ToolResult) -> String {
     if let Some(error) = &result.error {
         return error.clone();
     }
+    let limit = if is_user_input_result(result) {
+        2_000
+    } else {
+        160
+    };
     let mut out = String::new();
     for ch in result.output.chars() {
         match ch {
@@ -449,11 +454,18 @@ fn history_tool_preview(result: &ToolResult) -> String {
             '\r' => {}
             other => out.push(other),
         }
-        if out.chars().count() >= 160 {
+        if out.chars().count() >= limit {
             break;
         }
     }
     out
+}
+
+fn is_user_input_result(result: &ToolResult) -> bool {
+    matches!(
+        result.metadata.get("tool").and_then(|tool| tool.as_str()),
+        Some("request_user_input" | "AskUserQuestion")
+    ) || result.output.starts_with("User answered:\n")
 }
 
 fn list_resume_sessions(config_path: Option<&Path>, cwd: &Path) -> Result<Vec<ResumePickerItem>> {

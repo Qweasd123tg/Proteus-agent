@@ -16,6 +16,11 @@ pub(super) fn preview(result: &ToolResult) -> String {
         return error.clone();
     }
 
+    let limit = if is_user_input_result(result) {
+        2_000
+    } else {
+        160
+    };
     let mut out = String::new();
     for ch in result.output.chars() {
         match ch {
@@ -23,11 +28,18 @@ pub(super) fn preview(result: &ToolResult) -> String {
             '\r' => {}
             other => out.push(other),
         }
-        if out.chars().count() >= 160 {
+        if out.chars().count() >= limit {
             break;
         }
     }
     out
+}
+
+pub(super) fn is_user_input_result(result: &ToolResult) -> bool {
+    matches!(
+        result.metadata.get("tool").and_then(|tool| tool.as_str()),
+        Some("request_user_input" | "AskUserQuestion")
+    ) || result.output.starts_with("User answered:\n")
 }
 
 pub(super) fn footer_hint() -> String {

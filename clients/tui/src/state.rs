@@ -54,6 +54,7 @@ pub struct AppState {
     status: String,
     footer: String,
     transcript: TranscriptStore,
+    active_tools: Vec<ToolCard>,
     input: String,
     input_paste_ranges: Vec<InputPasteRange>,
     quit_armed: bool,
@@ -98,6 +99,7 @@ impl AppState {
             transcript: TranscriptStore::new(vec![VisualMessage::system(
                 "Connected to modular-agent. Type and press Enter.",
             )]),
+            active_tools: Vec::new(),
             input: String::new(),
             input_paste_ranges: Vec::new(),
             quit_armed: false,
@@ -509,6 +511,7 @@ impl AppState {
     pub fn clear_transcript(&mut self) {
         self.transcript.clear_committed();
         self.transcript.clear_active();
+        self.active_tools.clear();
         self.transcript
             .push_committed(VisualMessage::system("History cleared."));
         self.token_usage = None;
@@ -524,6 +527,7 @@ impl AppState {
         mut history: Vec<VisualMessage>,
     ) {
         self.transcript.clear_committed();
+        self.active_tools.clear();
         self.session_dir = Some(session_dir.clone());
         self.session_label = session_label_from_dir(&session_dir);
         self.pending_model = false;
@@ -884,6 +888,7 @@ impl AppState {
         self.plan_intake = None;
         self.pending_user_input_request_id = None;
         self.plan_review_selection = None;
+        self.active_tools.clear();
         self.transcript
             .push_committed(VisualMessage::user_with_paste_ranges(text, paste_ranges));
         self.last_error = None;
@@ -905,6 +910,7 @@ impl AppState {
 
     pub fn mark_cancel_requested(&mut self) {
         self.commit_streaming_draft();
+        self.active_tools.clear();
         self.pending_model = false;
         self.turn_started_at = None;
         self.model_started_at = None;
@@ -933,6 +939,7 @@ impl AppState {
     fn replace_committed_messages_for_test(&mut self, messages: Vec<VisualMessage>) {
         self.transcript.clear_committed();
         self.transcript.clear_active();
+        self.active_tools.clear();
         for message in messages {
             self.transcript.push_committed(message);
         }
@@ -957,6 +964,7 @@ impl AppState {
                 self.transcript
                     .finalize_active_assistant(output_text.clone());
                 self.pending_model = false;
+                self.active_tools.clear();
                 self.mark_turn_completed();
                 self.model_started_at = None;
                 self.active_turn_id = None;
@@ -991,6 +999,7 @@ impl AppState {
             AppServerEvent::Error { message } => {
                 self.push_error(message);
                 self.pending_model = false;
+                self.active_tools.clear();
                 self.turn_started_at = None;
                 self.model_started_at = None;
                 self.active_turn_id = None;
@@ -1081,16 +1090,13 @@ impl AppState {
             }
             Event::ToolCallRequested { call } => {
                 self.commit_streaming_draft();
-                self.transcript
-                    .push_committed(VisualMessage::tool(ToolCard {
-                        call_id: call.id.clone(),
-                        name: call.name.clone(),
-                        args_summary: crate::visual::tool_invocation_summary(
-                            &call.name, &call.args,
-                        ),
-                        status: ToolStatus::Running,
-                        output_preview: String::new(),
-                    }));
+                self.active_tools.push(ToolCard {
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    args_summary: crate::visual::tool_invocation_summary(&call.name, &call.args),
+                    status: ToolStatus::Running,
+                    output_preview: String::new(),
+                });
                 self.status = format!("tool: {}", call.name);
             }
             Event::ToolFinished { result } => self.update_tool_card(result),
@@ -1174,24 +1180,22 @@ impl AppState {
     }
 
     fn update_tool_card(&mut self, result: ToolResult) {
-        let finished_card = self
-            .transcript
-            .committed()
+        let active_card = self
+            .active_tools
             .iter()
-            .rev()
-            .find_map(|message| {
-                let card = message.tool.as_ref()?;
-                (card.call_id == result.call_id).then(|| ToolCard {
-                    call_id: card.call_id.clone(),
-                    name: card.name.clone(),
-                    args_summary: card.args_summary.clone(),
-                    status: if result.ok {
-                        ToolStatus::Ok
-                    } else {
-                        ToolStatus::Err
-                    },
-                    output_preview: preview(&result),
-                })
+            .position(|card| card.call_id == result.call_id)
+            .map(|index| self.active_tools.remove(index));
+        let finished_card = active_card
+            .map(|card| ToolCard {
+                call_id: card.call_id,
+                name: card.name,
+                args_summary: card.args_summary,
+                status: if result.ok {
+                    ToolStatus::Ok
+                } else {
+                    ToolStatus::Err
+                },
+                output_preview: preview(&result),
             })
             .unwrap_or_else(|| ToolCard {
                 call_id: result.call_id.clone(),
@@ -1491,6 +1495,21 @@ mod tests {
     }
 
     #[test]
+    fn user_input_preview_keeps_all_answer_lines() {
+        let output = [
+            "User answered:",
+            "Какой набор функций нужен?: Каталог + корзина (Recommended)",
+            "Какой стек технологий предпочтителен для сайта?: Vanilla HTML/CSS/JS",
+            "Какой стиль/дизайн нужен?: Минималистичный магазин электроники",
+        ]
+        .join("\n");
+        let result = ToolResult::ok(agent_contracts::domain::new_call_id(), output.clone())
+            .with_metadata(serde_json::json!({"tool": "AskUserQuestion"}));
+
+        assert_eq!(preview(&result), output);
+    }
+
+    #[test]
     fn large_paste_is_sent_as_full_text_with_display_range() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
         let pasted = "line\n".repeat(8);
@@ -1701,12 +1720,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Сейчас посмотрю файл."]
         );
-        assert!(state.committed_messages().iter().any(|message| {
-            message
-                .tool
-                .as_ref()
-                .is_some_and(|tool| tool.name == "read_file")
-        }));
+        assert!(
+            !state
+                .committed_messages()
+                .iter()
+                .any(|message| message.tool.is_some())
+        );
+        assert_eq!(state.visual_state().status, "tool: read_file");
 
         state.ingest(AppServerEvent::Runtime {
             envelope: agent_contracts::domain::EventEnvelope::new(
@@ -1724,10 +1744,7 @@ mod tests {
             .filter_map(|message| message.tool.as_ref())
             .map(|tool| (tool.status, tool.output_preview.as_str()))
             .collect::<Vec<_>>();
-        assert_eq!(
-            tool_statuses,
-            vec![(ToolStatus::Running, ""), (ToolStatus::Ok, "file contents")]
-        );
+        assert_eq!(tool_statuses, vec![(ToolStatus::Ok, "file contents")]);
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("Итоговый ответ"),
