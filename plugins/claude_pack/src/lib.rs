@@ -63,7 +63,9 @@ explicitly skips the interview. Do not ask whether the plan is approved.";
 const EDIT_INSTRUCTIONS: &str = "\
 Edit phase: make the smallest coherent change using apply_patch or write_file. \
 Inspect files before modifying them. Keep unrelated refactors out. After an \
-edit, move toward verification instead of continuing to browse.";
+edit, move toward verification instead of continuing to browse. If material \
+requirements are still unclear, use AskUserQuestion/request_user_input before \
+editing instead of asking prose-only questions.";
 
 const VERIFY_INSTRUCTIONS: &str = "\
 Verify phase: run the most relevant available check. Prefer focused tests or \
@@ -180,6 +182,7 @@ fn run_workflow(
     let mut phase = Phase::Explore;
     let mut phases = vec![phase.reason()];
     let mut tool_round_limit_reached = true;
+    let mut terminal_response = None;
     for _round in 0..MAX_TOOL_ROUNDS {
         let request = request_from_state(&input, host, &model_messages, phase)?;
         emit_event(
@@ -202,13 +205,12 @@ fn run_workflow(
         ));
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
-        if should_run_tools {
-            persistent_messages.push(response.message);
-        }
         if !should_run_tools {
             tool_round_limit_reached = false;
+            terminal_response = Some(response);
             break;
         }
+        persistent_messages.push(response.message.clone());
 
         let mut next_phase = phase;
         for call in response.tool_calls {
@@ -228,8 +230,13 @@ fn run_workflow(
         phases.push(phase.reason());
     }
 
-    let final_response = final_model_response(&input, host, &model_messages)?;
-    model_messages.push(final_response.message.clone());
+    let final_response = if let Some(response) = terminal_response {
+        response
+    } else {
+        let response = final_model_response(&input, host, &model_messages)?;
+        model_messages.push(response.message.clone());
+        response
+    };
     persistent_messages.push(final_response.message.clone());
     let output = AgentOutput::new(
         message_text(&final_response.message),
@@ -358,6 +365,9 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
         ][..]
     } else if reason.contains("edit") {
         &[
+            "AskUserQuestion",
+            "request_user_input",
+            "TodoWrite",
             "Read",
             "read_file",
             "Grep",
@@ -783,6 +793,9 @@ mod tests {
         assert_eq!(
             names,
             [
+                "AskUserQuestion",
+                "request_user_input",
+                "TodoWrite",
                 "Read",
                 "read_file",
                 "Grep",

@@ -1141,7 +1141,7 @@ impl AppState {
 
     fn maybe_open_plan_review(&mut self, output_text: &str) {
         if matches!(self.permission_mode, Some(PermissionMode::Plan))
-            && !output_text.trim().is_empty()
+            && is_reviewable_plan_output(output_text)
             && self.pending_approval.is_none()
         {
             self.plan_review_selection = Some(0);
@@ -1256,6 +1256,29 @@ impl AppState {
     }
 }
 
+fn is_reviewable_plan_output(output_text: &str) -> bool {
+    let trimmed = output_text.trim();
+    if trimmed.is_empty() || trimmed == "<empty model response>" {
+        return false;
+    }
+
+    let lower = trimmed.to_lowercase();
+    let looks_like_question = trimmed.ends_with('?')
+        || lower.contains("question")
+        || lower.contains("вопрос")
+        || lower.contains("which ")
+        || lower.contains("what ")
+        || lower.contains("какой ")
+        || lower.contains("какая ")
+        || lower.contains("какие ")
+        || lower.contains("какое ");
+    if looks_like_question && !(lower.contains("plan") || lower.contains("план")) {
+        return false;
+    }
+
+    true
+}
+
 fn permission_mode_label(mode: Option<PermissionMode>) -> &'static str {
     match mode {
         Some(PermissionMode::Plan) => "plan",
@@ -1325,6 +1348,23 @@ mod tests {
             Some(PlanReviewVisualState { selected: 0 })
         );
         assert_eq!(state.status, "plan ready");
+    }
+
+    #[test]
+    fn plan_turn_output_does_not_review_empty_or_question_output() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text("<empty model response>"),
+        });
+        assert!(!state.has_plan_review());
+
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::text(
+                "Which stack should I use?\n1. React\n2. Next.js",
+            ),
+        });
+        assert!(!state.has_plan_review());
     }
 
     #[test]
