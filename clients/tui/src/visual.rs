@@ -62,10 +62,12 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     };
     let question = intake.current_question();
     let mut lines = Vec::new();
-    let mut progress = vec![Span::styled("<  ", muted_style())];
-    for (index, question) in intake.request().questions.iter().enumerate() {
+    let mut progress = vec![Span::styled("←  ", muted_style())];
+    for (index, _question) in intake.request().questions.iter().enumerate() {
         let marker = if index == intake.question_index() {
             "●"
+        } else if index < intake.question_index() {
+            "✔"
         } else {
             "☐"
         };
@@ -76,14 +78,22 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         };
         progress.push(Span::styled(
             truncate(
-                &format!("{marker} {}", question.id),
+                &format!("{marker} {}", intake.question_header(index)),
                 width.saturating_sub(8).max(1),
             ),
             style,
         ));
         progress.push(Span::raw("  "));
     }
-    progress.push(Span::styled("✔ Submit  >", muted_style()));
+    let submit_marker = if intake.is_last_question() {
+        "✔"
+    } else {
+        "☐"
+    };
+    progress.push(Span::styled(
+        format!("{submit_marker} Submit  →"),
+        muted_style(),
+    ));
     lines.push(Line::from(progress));
     lines.push(Line::from(vec![Span::styled(
         truncate(
@@ -1090,6 +1100,7 @@ mod tests {
                 "title": "Telegram bot",
                 "questions": [{
                     "id": "stack",
+                    "header": "Stack",
                     "prompt": "Какой stack?",
                     "options": [
                         {"id": "api", "label": "Telegram Bot API"},
@@ -1142,7 +1153,7 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Planning choices"))
         );
-        assert!(rendered.iter().any(|line| line.contains("● stack")));
+        assert!(rendered.iter().any(|line| line.contains("● Stack")));
         assert!(rendered.iter().any(|line| line.contains("Какой stack?")));
         assert!(
             rendered

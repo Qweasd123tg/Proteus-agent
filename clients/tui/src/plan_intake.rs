@@ -19,6 +19,8 @@ pub(crate) struct PlanIntakeRequest {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct PlanIntakeQuestion {
     pub id: String,
+    #[serde(default)]
+    pub header: String,
     pub prompt: String,
     #[serde(default = "default_question_kind")]
     pub kind: String,
@@ -48,7 +50,10 @@ impl PlanIntakeState {
     pub(crate) fn from_user_input_request(request: &UserInputRequest) -> Option<Self> {
         Self::new(PlanIntakeRequest {
             id: request.request_id.clone(),
-            title: "User input".to_owned(),
+            title: request
+                .title
+                .clone()
+                .unwrap_or_else(|| "User input".to_owned()),
             questions: request
                 .questions
                 .iter()
@@ -103,6 +108,16 @@ impl PlanIntakeState {
 
     pub(crate) fn current_question(&self) -> &PlanIntakeQuestion {
         &self.request.questions[self.question_index]
+    }
+
+    pub(crate) fn question_header(&self, question_index: usize) -> &str {
+        let question = &self.request.questions[question_index];
+        let header = question.header.trim();
+        if header.is_empty() {
+            &question.id
+        } else {
+            header
+        }
     }
 
     pub(crate) fn current_selection(&self) -> usize {
@@ -269,6 +284,7 @@ fn default_question_kind() -> String {
 fn question_from_user_input(question: &UserInputQuestion) -> PlanIntakeQuestion {
     PlanIntakeQuestion {
         id: question.id.clone(),
+        header: question.header.clone(),
         prompt: question.question.clone(),
         kind: "single_choice".to_owned(),
         options: question
@@ -304,6 +320,7 @@ mod tests {
                     "title": "Telegram bot",
                     "questions": [{
                         "id": "stack",
+                        "header": "Stack",
                         "prompt": "Stack?",
                         "options": [{"id": "aiogram", "label": "aiogram"}],
                         "allow_custom": true
@@ -315,6 +332,7 @@ mod tests {
         let intake = PlanIntakeState::from_metadata(&metadata).expect("intake");
 
         assert_eq!(intake.request().id, "telegram-bot");
+        assert_eq!(intake.question_header(0), "Stack");
         assert_eq!(intake.current_question().prompt, "Stack?");
     }
 
@@ -354,10 +372,13 @@ mod tests {
                     UserInputQuestionOption::new("Python", "Fast scripting."),
                 ],
             )],
-        );
+        )
+        .with_title("Bot setup");
         let mut intake = PlanIntakeState::from_user_input_request(&request).expect("intake");
 
         assert_eq!(intake.request().id, "call-1");
+        assert_eq!(intake.request().title, "Bot setup");
+        assert_eq!(intake.question_header(0), "Language");
         assert_eq!(intake.current_question().prompt, "Which language?");
 
         intake.type_custom_char('G');

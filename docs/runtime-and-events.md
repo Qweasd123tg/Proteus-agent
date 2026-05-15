@@ -335,6 +335,10 @@ Prompt следует interview-first модели: для широких или
 вопросов/options/custom answers и отвечает через `StdioRequest::UserInput`.
 Turn остаётся открытым, а workflow получает typed `ToolResult` с ответами. После
 обычного plan `TurnOutput` TUI открывает chooser для execute/revise/dismiss.
+`header` каждого вопроса является коротким UI-chip/tab label; TUI использует
+эти labels в верхней строке прогресса (`Language`, `Stack`, `Deploy`, ...), но
+не решает сам, какие вопросы задавать. Это остаётся ответственностью
+workflow/model через typed tool-call.
 
 Минимальный request contract:
 
@@ -345,6 +349,7 @@ Turn остаётся открытым, а workflow получает typed `Tool
     "type": "user_input_requested",
     "request": {
       "request_id": "call_1",
+      "title": "Telegram bot",
       "questions": [
         {
           "id": "approach",
@@ -354,7 +359,8 @@ Turn остаётся открытым, а workflow получает typed `Tool
           "options": [
             {
               "label": "minimal",
-              "description": "минимальная реализация без лишней инфраструктуры"
+              "description": "минимальная реализация без лишней инфраструктуры",
+              "preview": "опциональный markdown-preview для клиентов, которые умеют его показывать"
             }
           ]
         }

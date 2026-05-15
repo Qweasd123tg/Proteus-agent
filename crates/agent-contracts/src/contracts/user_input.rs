@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct UserInputQuestionOption {
     pub label: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 impl UserInputQuestionOption {
@@ -16,7 +18,13 @@ impl UserInputQuestionOption {
         Self {
             label: label.into(),
             description: description.into(),
+            preview: None,
         }
+    }
+
+    pub fn with_preview(mut self, preview: impl Into<String>) -> Self {
+        self.preview = Some(preview.into());
+        self
     }
 }
 
@@ -67,6 +75,8 @@ impl UserInputQuestion {
 pub struct UserInputRequest {
     pub request_id: String,
     pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub questions: Vec<UserInputQuestion>,
 }
 
@@ -79,8 +89,14 @@ impl UserInputRequest {
         Self {
             request_id: request_id.into(),
             cwd,
+            title: None,
             questions,
         }
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 }
 
