@@ -689,6 +689,12 @@ impl AppState {
         }
     }
 
+    pub fn toggle_plan_intake_current_option(&mut self) {
+        if let Some(intake) = &mut self.plan_intake {
+            intake.toggle_current_option();
+        }
+    }
+
     pub fn plan_intake_is_last_question(&self) -> bool {
         self.plan_intake
             .as_ref()

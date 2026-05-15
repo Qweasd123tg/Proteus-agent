@@ -332,7 +332,8 @@ Prompt следует interview-first модели: для широких или
 а финальный staged plan писать только после ответов или явного skip.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`, app-server публикует
 `AppServerEvent::UserInputRequested`, TUI открывает generic bottom-pane form для
-вопросов/options/custom answers и отвечает через `StdioRequest::UserInput`.
+вопросов/single-choice/`multiSelect`/custom answers и отвечает через
+`StdioRequest::UserInput`.
 Turn остаётся открытым, а workflow получает typed `ToolResult` с ответами. После
 обычного plan `TurnOutput` TUI открывает chooser для execute/revise/dismiss.
 `header` каждого вопроса является коротким UI-chip/tab label; TUI использует
@@ -356,6 +357,7 @@ workflow/model через typed tool-call.
           "header": "Approach",
           "question": "Какой подход использовать?",
           "is_other": true,
+          "multi_select": false,
           "options": [
             {
               "label": "minimal",
@@ -371,9 +373,10 @@ workflow/model через typed tool-call.
 ```
 
 TUI не знает domain-specific options; модель формирует вопросы через
-`request_user_input`/`AskUserQuestion`, а клиент рендерит только generic single-choice/custom
-форму. Это повторяет границу Claude/Codex: вопрос-ответ является tool/event
-round-trip, а approval финального плана остаётся отдельным UI-действием.
+`request_user_input`/`AskUserQuestion`, а клиент рендерит только generic
+single-choice, multi-choice и custom форму. Это повторяет границу Claude/Codex:
+вопрос-ответ является tool/event round-trip, а approval финального плана
+остаётся отдельным UI-действием.
 
 `permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
 

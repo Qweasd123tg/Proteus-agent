@@ -124,12 +124,29 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         } else {
             Style::default()
         };
+        let select_prefix = if question.multi_select {
+            if intake.current_option_is_selected(index) {
+                "[x] "
+            } else {
+                "[ ] "
+            }
+        } else {
+            ""
+        };
         let label = option
             .description
             .as_ref()
             .filter(|description| !description.is_empty())
-            .map(|description| format!("{}. {} - {}", index + 1, option.label, description))
-            .unwrap_or_else(|| format!("{}. {}", index + 1, option.label));
+            .map(|description| {
+                format!(
+                    "{}{}. {} - {}",
+                    select_prefix,
+                    index + 1,
+                    option.label,
+                    description
+                )
+            })
+            .unwrap_or_else(|| format!("{}{}. {}", select_prefix, index + 1, option.label));
         lines.push(Line::from(vec![
             Span::styled(marker, style),
             Span::styled(truncate(&label, available_width), style),
@@ -191,7 +208,11 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
         ]));
     }
     lines.push(Line::from(vec![Span::styled(
-        "Up/Down choose · Left/Right question · Enter next/submit · type for custom · Esc cancel",
+        if question.multi_select {
+            "Up/Down move · Space toggle · Left/Right question · Enter next/submit · type custom · Esc cancel"
+        } else {
+            "Up/Down choose · Left/Right question · Enter next/submit · type for custom · Esc cancel"
+        },
         muted_style(),
     )]));
     lines
@@ -1167,6 +1188,72 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Skip interview and plan immediately"))
         );
+    }
+
+    #[test]
+    fn plan_intake_renders_multi_select_checkboxes() {
+        let intake = PlanIntakeState::from_metadata(&json!({
+            "plan_intake": {
+                "id": "shop",
+                "title": "Shop",
+                "questions": [{
+                    "id": "features",
+                    "header": "Features",
+                    "prompt": "Какие функции?",
+                    "multi_select": true,
+                    "options": [
+                        {"id": "catalog", "label": "Catalog"},
+                        {"id": "cart", "label": "Cart"}
+                    ],
+                    "allow_custom": true
+                }]
+            }
+        }))
+        .expect("intake");
+        let state = VisualState {
+            model: "test/model",
+            permission_mode: "plan",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "planning choices",
+            pending_approval: None,
+            pending_model: false,
+            streaming: false,
+            streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: None,
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            plan_intake: Some(&intake),
+            plan_review: None,
+            slash_selection: 0,
+        };
+
+        let rendered = inline_panel_lines(&state, 80)
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.starts_with("› [x] 1. Catalog"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("[ ] 2. Cart")));
+        assert!(rendered.iter().any(|line| line.contains("Space toggle")));
     }
 
     #[test]
