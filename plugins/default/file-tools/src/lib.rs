@@ -146,24 +146,6 @@ mod tests {
             }),
         );
 
-        assert_eq!(result["ok"], false);
-        assert!(
-            result["error"]
-                .as_str()
-                .unwrap()
-                .contains("failed to canonicalize parent")
-        );
-
-        std::fs::create_dir(dir.path().join("notes")).expect("notes dir");
-        let result = invoke(
-            &WriteFileTool,
-            dir.path(),
-            json!({
-                "path": "notes/out.txt",
-                "content": "hello"
-            }),
-        );
-
         assert_eq!(result["ok"], true);
         assert_eq!(
             std::fs::read_to_string(dir.path().join("notes/out.txt")).expect("written file"),

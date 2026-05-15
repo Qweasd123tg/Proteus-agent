@@ -141,7 +141,7 @@ impl PluginTool for WriteTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Write",
-            "description": "Create or fully overwrite a UTF-8 file inside the current workspace. Prefer Edit for modifying existing files. If overwriting an existing file, read it first unless the user explicitly requested a full rewrite.",
+            "description": "Create or fully overwrite a UTF-8 file inside the current workspace. Creates missing parent directories. Prefer Edit for modifying existing files. If overwriting an existing file, read it first unless the user explicitly requested a full rewrite.",
             "input_schema": {
                 "type": "object",
                 "properties": {
