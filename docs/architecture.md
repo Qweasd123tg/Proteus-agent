@@ -234,6 +234,10 @@ keys и не означают Rust-папку `src/modules`.
 - secret loading helpers.
 
 Adapters преобразуют `CanonicalModelRequest` в provider wire format и возвращают `CanonicalModelResponse`.
+Provider-neutral `ReasoningConfig` остаётся в canonical model protocol:
+OpenAI adapter мапит его в `reasoning.effort` / `reasoning.summary`, Anthropic
+adapter — в `output_config.effort` и `thinking` (`adaptive` или manual
+`budget_tokens`). Workflow и TUI не знают provider-specific field names.
 Они реализуют `ModelAdapter`, а runtime вызывает их через `ModelService`, который реализует `ModelClient` и делает обязательный проход через `RequestShaper`.
 
 ### Plugin Boundary

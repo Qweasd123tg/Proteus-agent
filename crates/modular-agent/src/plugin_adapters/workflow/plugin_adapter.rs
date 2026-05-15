@@ -59,6 +59,7 @@ impl Workflow for PluginWorkflowAdapter {
                 thread_id: ctx.thread_id,
                 turn_id: ctx.turn_id,
                 model_ref: ctx.model_ref.clone(),
+                reasoning: ctx.reasoning.clone(),
                 model_timeout_ms: ctx.model_timeout_ms,
                 context_timeout_ms: ctx.context_timeout_ms,
             },
@@ -270,7 +271,10 @@ mod tests {
     use crate::{
         contracts::{EventEmitter, ToolRegistry},
         core::{HeadlessApprovalTransport, InMemoryEventStore},
-        domain::{AgentOutput, Event, ModelRef, new_session_id, new_thread_id, new_turn_id},
+        domain::{
+            AgentOutput, Event, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
+            new_turn_id,
+        },
         model_standard::{CanonicalMessage, ContentPart, MessageRole},
         plugin_adapters::PluginContextBuilderAdapter,
         stubs::{
@@ -364,6 +368,7 @@ mod tests {
             new_thread_id(),
             new_turn_id(),
             ModelRef::new("fake", "fake-tool-model"),
+            ReasoningConfig::default(),
             120_000,
             30_000,
             Arc::new(EventEmitter::new(events.clone())),

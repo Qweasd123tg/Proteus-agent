@@ -1614,6 +1614,7 @@ mod tests {
             provider: "anthropic".to_owned(),
             model: "claude-test".to_owned(),
             stream: false,
+            reasoning: modular_agent::domain::ReasoningConfig::default(),
             provider_config: serde_json::json!({ "api_key_env": ENV_NAME }),
         };
         let mut findings = DoctorFindings::default();

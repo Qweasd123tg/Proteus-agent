@@ -212,6 +212,10 @@ struct AnthropicStreamState {
 
 #[derive(Debug, Clone)]
 enum AnthropicBlock {
+    Thinking {
+        text: String,
+        signature: Option<String>,
+    },
     Text {
         text: String,
     },
@@ -236,6 +240,17 @@ impl AnthropicStreamState {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let new_block = match block_type {
+                    "thinking" => Some(AnthropicBlock::Thinking {
+                        text: block
+                            .and_then(|b| b.get("thinking"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned(),
+                        signature: block
+                            .and_then(|b| b.get("signature"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                    }),
                     "text" => Some(AnthropicBlock::Text {
                         text: String::new(),
                     }),
@@ -279,6 +294,41 @@ impl AnthropicStreamState {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 match delta_type {
+                    "thinking_delta" => {
+                        let text = delta
+                            .and_then(|d| d.get("thinking"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        if let Some(AnthropicBlock::Thinking { text: buf, .. }) =
+                            self.blocks.get_mut(index)
+                        {
+                            buf.push_str(&text);
+                        }
+                        if text.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![ModelStreamEvent::ReasoningSummaryDelta { text }]
+                        }
+                    }
+                    "signature_delta" => {
+                        let partial = delta
+                            .and_then(|d| d.get("signature"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if let Some(AnthropicBlock::Thinking { signature, .. }) =
+                            self.blocks.get_mut(index)
+                        {
+                            match signature {
+                                Some(signature) => signature.push_str(partial),
+                                None if !partial.is_empty() => {
+                                    *signature = Some(partial.to_owned());
+                                }
+                                None => {}
+                            }
+                        }
+                        Vec::new()
+                    }
                     "text_delta" => {
                         let text = delta
                             .and_then(|d| d.get("text"))
@@ -387,6 +437,11 @@ impl AnthropicStreamState {
         let mut tool_calls = Vec::new();
         for block in self.blocks.drain(..) {
             match block {
+                AnthropicBlock::Thinking { text, signature } => {
+                    if !text.trim().is_empty() || signature.is_some() {
+                        parts.push(ContentPart::Reasoning { text, signature });
+                    }
+                }
                 AnthropicBlock::Text { text } => {
                     let text = sanitize_provider_text(&text);
                     if text.is_empty() {
@@ -453,6 +508,24 @@ fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
         body["temperature"] = json!(temperature);
     } else if let Some(top_p) = request.sampling.top_p {
         body["top_p"] = json!(top_p);
+    }
+
+    if let Some(effort) = &request.reasoning.effort {
+        body["output_config"] = json!({ "effort": effort });
+    }
+
+    if request.reasoning.budget_tokens.is_some() || request.reasoning.summary {
+        let mut thinking = serde_json::Map::new();
+        if let Some(budget_tokens) = request.reasoning.budget_tokens {
+            thinking.insert("type".to_owned(), Value::String("enabled".to_owned()));
+            thinking.insert("budget_tokens".to_owned(), json!(budget_tokens));
+        } else {
+            thinking.insert("type".to_owned(), Value::String("adaptive".to_owned()));
+        }
+        if request.reasoning.summary {
+            thinking.insert("display".to_owned(), Value::String("summarized".to_owned()));
+        }
+        body["thinking"] = Value::Object(thinking);
     }
 
     Ok(body)
@@ -550,6 +623,11 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
                 "type": "text",
                 "text": format!("Reasoning summary: {text}")
             })),
+            ContentPart::Reasoning { text, signature } => blocks.push(json!({
+                "type": "thinking",
+                "thinking": text,
+                "signature": signature.clone().unwrap_or_default(),
+            })),
             ContentPart::FileRef { path, content } => blocks.push(json!({
                 "type": "text",
                 "text": format!(
@@ -626,6 +704,20 @@ fn from_anthropic_response(response: Value) -> Result<CanonicalModelResponse> {
         .ok_or_else(|| anyhow!("Anthropic response did not contain content array"))?
     {
         match item.get("type").and_then(Value::as_str) {
+            Some("thinking") => {
+                if let Some(text) = item.get("thinking").and_then(Value::as_str) {
+                    let signature = item
+                        .get("signature")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    if !text.trim().is_empty() || signature.is_some() {
+                        parts.push(ContentPart::Reasoning {
+                            text: text.to_owned(),
+                            signature,
+                        });
+                    }
+                }
+            }
             Some("text") => {
                 if let Some(text) = item.get("text").and_then(Value::as_str) {
                     let text = sanitize_provider_text(text);
@@ -835,6 +927,106 @@ fn strip_dsml_tags(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ReasoningConfig;
+
+    #[test]
+    fn request_serializes_reasoning_effort_and_thinking_budget() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-sonnet-4-6"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_reasoning(
+            ReasoningConfig::new(Some("max".to_owned()), true).with_budget_tokens(Some(8192)),
+        );
+
+        let body = to_anthropic_request(&request).unwrap();
+
+        assert_eq!(body["output_config"], json!({ "effort": "max" }));
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "enabled",
+                "budget_tokens": 8192,
+                "display": "summarized"
+            })
+        );
+    }
+
+    #[test]
+    fn request_serializes_summary_as_adaptive_thinking() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-opus-4-7"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_reasoning(ReasoningConfig::new(Some("xhigh".to_owned()), true));
+
+        let body = to_anthropic_request(&request).unwrap();
+
+        assert_eq!(body["output_config"], json!({ "effort": "xhigh" }));
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "adaptive",
+                "display": "summarized"
+            })
+        );
+    }
+
+    #[test]
+    fn stream_thinking_delta_becomes_reasoning_summary_delta() {
+        let mut state = AnthropicStreamState::default();
+
+        assert!(
+            state
+                .translate(
+                    "content_block_start",
+                    &json!({
+                        "index": 0,
+                        "content_block": { "type": "thinking", "thinking": "" }
+                    })
+                    .to_string()
+                )
+                .is_empty()
+        );
+        let events = state.translate(
+            "content_block_delta",
+            &json!({
+                "index": 0,
+                "delta": { "type": "thinking_delta", "thinking": "checked constraints" }
+            })
+            .to_string(),
+        );
+
+        assert_eq!(
+            events,
+            vec![ModelStreamEvent::ReasoningSummaryDelta {
+                text: "checked constraints".to_owned()
+            }]
+        );
+        assert!(
+            state
+                .translate(
+                    "content_block_delta",
+                    &json!({
+                        "index": 0,
+                        "delta": { "type": "signature_delta", "signature": "sig" }
+                    })
+                    .to_string()
+                )
+                .is_empty()
+        );
+        let final_events = state.translate("message_stop", &json!({}).to_string());
+        match &final_events[0] {
+            ModelStreamEvent::Response { response } => {
+                assert!(matches!(
+                    &response.message.parts[0],
+                    ContentPart::Reasoning { text, signature }
+                        if text == "checked constraints" && signature.as_deref() == Some("sig")
+                ));
+            }
+            other => panic!("expected Response, got {other:?}"),
+        }
+    }
 
     #[test]
     fn max_tokens_tool_use_is_not_returned_as_executable_call() {

@@ -9,7 +9,10 @@ use crate::{
         HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure,
         ToolRegistry, UserInputTransport,
     },
-    domain::{AgentOutput, AgentTask, Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
+    domain::{
+        AgentOutput, AgentTask, Event, EventContext, ModelRef, ReasoningConfig, SessionId,
+        ThreadId, TurnId,
+    },
     model_standard::CanonicalMessage,
 };
 
@@ -20,6 +23,7 @@ pub struct RuntimeContext {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    pub reasoning: ReasoningConfig,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
     pub cancellation: CancellationToken,
@@ -44,6 +48,7 @@ impl RuntimeContext {
         thread_id: ThreadId,
         turn_id: TurnId,
         model_ref: ModelRef,
+        reasoning: ReasoningConfig,
         model_timeout_ms: u64,
         context_timeout_ms: u64,
         events: Arc<EventEmitter>,
@@ -64,6 +69,7 @@ impl RuntimeContext {
             thread_id,
             turn_id,
             model_ref,
+            reasoning,
             model_timeout_ms,
             context_timeout_ms,
             cancellation: CancellationToken::new(),

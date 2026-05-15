@@ -50,6 +50,10 @@ pub enum ContentPart {
     ReasoningSummary {
         text: String,
     },
+    Reasoning {
+        text: String,
+        signature: Option<String>,
+    },
 }
 
 impl CanonicalMessage {

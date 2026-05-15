@@ -125,7 +125,9 @@ non-contiguous `seq`. `seq` относится к полному runtime event s
 `agent-tui` по умолчанию скрывает `AssistantReasoningDelta`. Команда
 `/reasoning` открывает последний reasoning summary, полученный в текущей
 TUI-сессии; `/reasoning summary` и `/reasoning expanded` включают live-preview
-режимы для provider-supplied summary. Это не raw chain-of-thought и без
+режимы для provider-supplied summary. Summary приходит только если provider
+вернул reasoning/thinking delta и/или config запросил такой режим через
+provider profile `reasoning`. Это не raw chain-of-thought и без
 `event_log.persist_deltas = true` не восстанавливается после restart/resume.
 
 Ключевые события текущего workflow:

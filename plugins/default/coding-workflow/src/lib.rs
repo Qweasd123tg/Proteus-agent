@@ -373,7 +373,8 @@ fn run_plan_execute_review(
                     90,
                 ),
             ])
-            .with_tool_choice(ToolChoice::None);
+            .with_tool_choice(ToolChoice::None)
+            .with_reasoning(input.runtime.reasoning.clone());
     review_request.tools.clear();
     emit_event(
         host,
@@ -443,7 +444,8 @@ fn request_from_state(
     Ok(
         CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
             .with_instructions(instructions)
-            .with_tools(tools),
+            .with_tools(tools)
+            .with_reasoning(input.runtime.reasoning.clone()),
     )
 }
 
@@ -664,7 +666,9 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
         message_bytes += 4;
         for part in &message.parts {
             match part {
-                ContentPart::Text { text } | ContentPart::ReasoningSummary { text } => {
+                ContentPart::Text { text }
+                | ContentPart::ReasoningSummary { text }
+                | ContentPart::Reasoning { text, .. } => {
                     message_bytes += text.len();
                 }
                 ContentPart::Context { chunk } => {
@@ -798,7 +802,7 @@ fn part_text_len(part: &ContentPart) -> usize {
                 + result.metadata.to_string().len()
         }
         ContentPart::Patch { patch } => patch.content.len(),
-        ContentPart::ReasoningSummary { text } => text.len(),
+        ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => text.len(),
         _ => 0,
     }
 }
@@ -859,7 +863,10 @@ mod tests {
 
     use agent_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
-        domain::{AgentTask, ContextChunk, ModelRef, new_session_id, new_thread_id, new_turn_id},
+        domain::{
+            AgentTask, ContextChunk, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
+            new_turn_id,
+        },
         plugin::{
             PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
             PluginWorkflowRuntimeInfo,
@@ -997,6 +1004,7 @@ mod tests {
                 thread_id: new_thread_id(),
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
+                reasoning: ReasoningConfig::default(),
                 model_timeout_ms: 120_000,
                 context_timeout_ms: 30_000,
             },
@@ -1067,6 +1075,7 @@ mod tests {
                 thread_id: new_thread_id(),
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
+                reasoning: ReasoningConfig::new(Some("high".to_owned()), true),
                 model_timeout_ms: 120_000,
                 context_timeout_ms: 30_000,
             },
@@ -1133,6 +1142,10 @@ mod tests {
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].tool_choice, ToolChoice::Auto);
+        assert_eq!(
+            requests[0].reasoning,
+            ReasoningConfig::new(Some("high".to_owned()), true)
+        );
         assert!(
             requests[0]
                 .tools
