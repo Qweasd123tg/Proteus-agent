@@ -54,11 +54,11 @@ instructions over this behavior pack when they conflict.";
 const EXPLORE_INSTRUCTIONS: &str = "\
 Explore phase: orient with read-only tools. Prefer list_dir, read_file, grep, \
 and search. Do not edit yet unless the user explicitly gave a tiny direct edit \
-and the relevant file is already known. If you have enough context, either make \
-a concise plan in text or request the next needed tool. If important user \
-choices remain, use request_user_input with 1-3 concise multiple-choice \
-questions before writing the plan; do not list those choices only as prose open \
-questions when request_user_input is available.";
+and the relevant file is already known. Use AskUserQuestion/request_user_input \
+for broad or underspecified tasks before writing a plan; ask one focused \
+multiple-choice question at a time when later questions depend on earlier \
+answers. Only write the plan once material requirements are clear or the user \
+explicitly skips the interview. Do not ask whether the plan is approved.";
 
 const EDIT_INSTRUCTIONS: &str = "\
 Edit phase: make the smallest coherent change using apply_patch or write_file. \

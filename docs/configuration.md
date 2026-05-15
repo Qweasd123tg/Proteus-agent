@@ -430,7 +430,10 @@ CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют
 `agent-tui` поддерживает те же startup overrides и profile key
 `permission_mode = "plan" | "normal" | "auto"`. Внутри TUI slash-команды
 `/plan`, `/normal` и `/auto` переключают режим для следующих turns через
-app-server control-plane request без restart процесса. После ответа в `/plan`
+app-server control-plane request без restart процесса. `/plan` формулирует
+следующий user request как interview-first planning turn: при нехватке
+существенных решений модель должна сначала вызвать typed question tool и только
+после ответов писать финальный план. После ответа в `/plan`
 TUI показывает bottom-pane chooser: execute в `auto`, execute через approvals,
 revise plan или dismiss. Workflow-плагин может вставить перед этим шагом
 typed question round-trip через tool `request_user_input` или alias

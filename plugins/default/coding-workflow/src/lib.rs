@@ -54,13 +54,14 @@ asks you to remember a stable preference or durable project fact. Do not invent 
 dates or times; omit them unless the user supplied them or you verified them with \
 a tool.";
 const PLAN_DEVELOPER_INSTRUCTIONS: &str = "\
-Planning phase: produce a short actionable plan for the user's task. You may \
-use read-only tools to discover facts. If high-impact user preferences or \
-tradeoffs remain after reasonable read-only exploration, use request_user_input \
-with 1-3 concise multiple-choice questions before finalizing the plan. Do not \
-write unresolved choices as prose-only open questions when request_user_input is \
-available. Do not use write, shell, network, or mutation-oriented tools in this \
-phase.";
+Interview-first planning phase: clarify material requirements before writing \
+the final plan. You may use read-only tools to discover facts. For broad or \
+underspecified tasks, call request_user_input with one focused multiple-choice \
+question before writing a staged plan; ask follow-up questions only after prior \
+answers when the next question depends on them. If all material requirements \
+are already clear, produce a concise actionable plan. Do not ask whether the \
+plan is approved; the client handles approval after the final plan. Do not use \
+write, shell, network, or mutation-oriented tools in this phase.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
 

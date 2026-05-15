@@ -416,7 +416,7 @@ fn is_handled_key_event(kind: KeyEventKind) -> bool {
 
 fn plan_mode_prompt(task: &str) -> String {
     format!(
-        "Plan this task before making changes. Inspect only what is needed with read-only tools. Do not modify files, run write tools, or execute shell/network commands. If important choices remain, do not list them as open questions in prose; call request_user_input first, wait for the user's answers, then return a concise staged plan with risks.\n\nTask:\n{task}"
+        "Start a plan-mode requirements interview for this task. Inspect only what is needed with read-only tools. Do not modify files, run write tools, or execute shell/network commands. Do not write the implementation plan yet if any material requirement, preference, stack, scope, output format, or deployment choice is missing. For broad or underspecified tasks, first call AskUserQuestion or request_user_input with one focused multiple-choice question, wait for the user's answer, then ask the next dependent question or produce the final concise staged plan. Ask only questions that materially affect the result. Do not ask whether the plan is approved; the UI handles plan approval after the final plan.\n\nTask:\n{task}"
     )
 }
 
@@ -435,9 +435,11 @@ mod tests {
     fn plan_mode_prompt_wraps_task_as_read_only_planning_request() {
         let prompt = plan_mode_prompt("fix the TUI");
 
-        assert!(prompt.contains("Plan this task before making changes"));
+        assert!(prompt.contains("Start a plan-mode requirements interview"));
         assert!(prompt.contains("Do not modify files"));
-        assert!(prompt.contains("call request_user_input first"));
+        assert!(prompt.contains("Do not write the implementation plan yet"));
+        assert!(prompt.contains("AskUserQuestion"));
+        assert!(prompt.contains("request_user_input"));
         assert!(prompt.contains("Task:\nfix the TUI"));
     }
 }
