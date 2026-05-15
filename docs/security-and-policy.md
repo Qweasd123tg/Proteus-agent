@@ -100,6 +100,9 @@ Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir
 `grep`), `git-tools` (`git_status` / `git_diff`) и `shell-tool` применяют свои
 собственные проверки workspace-boundary. Core не гарантирует эту проверку за
 плагины — это обязанность автора плагина.
+`write_file` может создавать недостающие parent directories, но только после
+лексической проверки пути, запрета `..` и проверки symlink parents, чтобы
+создание не уходило за пределы workspace.
 
 ## ask_write
 

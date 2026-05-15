@@ -16,7 +16,7 @@ impl PluginTool for WriteFileTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "write_file",
-            "description": "Write UTF-8 content to a file inside the current workspace. Overwrites existing files.",
+            "description": "Write UTF-8 content to a file inside the current workspace. Creates missing parent directories and overwrites existing files.",
             "input_schema": {
                 "type": "object",
                 "properties": {

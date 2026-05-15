@@ -1,7 +1,7 @@
 //! Общие утилиты для всех file-tools: workspace containment, парсинг аргументов,
 //! сериализация результатов.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::PluginToolError;
@@ -91,24 +91,28 @@ pub(crate) fn workspace_path(cwd: &Path, path: &Path) -> Result<PathBuf, String>
     Ok(canonical)
 }
 
-/// Как `workspace_path`, но для операций создания/записи: родительская
-/// директория должна существовать и быть внутри workspace, сам файл может
-/// не существовать.
+/// Как `workspace_path`, но для операций создания/записи: недостающие
+/// родительские директории создаются внутри workspace, сам файл может не
+/// существовать.
 pub(crate) fn workspace_path_for_write(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
     let base = std::fs::canonicalize(cwd)
         .map_err(|e| format!("failed to canonicalize cwd {}: {e}", cwd.display()))?;
-    let target = if path.is_absolute() {
-        path.to_path_buf()
+    let relative = if path.is_absolute() {
+        path.strip_prefix(&base)
+            .map_err(|_| format!("path escapes workspace: {}", path.display()))?
     } else {
-        base.join(path)
+        path
     };
+    let safe_relative = safe_relative_path(relative)?;
+    let target = base.join(&safe_relative);
     let parent = target
         .parent()
         .ok_or_else(|| format!("no parent for {}", target.display()))?;
-    let canonical_parent = std::fs::canonicalize(parent)
-        .map_err(|e| format!("failed to canonicalize parent {}: {e}", parent.display()))?;
-    if !canonical_parent.starts_with(&base) {
-        return Err(format!("path escapes workspace: {}", path.display()));
+    ensure_workspace_dirs(&base, parent)?;
+    if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+        if !canonical_parent.starts_with(&base) {
+            return Err(format!("path escapes workspace: {}", path.display()));
+        }
     }
     if let Ok(metadata) = std::fs::symlink_metadata(&target) {
         if metadata.file_type().is_symlink() {
@@ -123,10 +127,64 @@ pub(crate) fn workspace_path_for_write(cwd: &Path, path: &Path) -> Result<PathBu
             return Err(format!("path escapes workspace: {}", path.display()));
         }
     }
-    let file_name = target
-        .file_name()
-        .ok_or_else(|| format!("no file name in {}", target.display()))?;
-    Ok(canonical_parent.join(file_name))
+    if target.file_name().is_none() {
+        return Err(format!("no file name in {}", target.display()));
+    }
+    Ok(target)
+}
+
+fn safe_relative_path(path: &Path) -> Result<PathBuf, String> {
+    let mut safe = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => safe.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("path escapes workspace: {}", path.display()));
+            }
+        }
+    }
+    if safe.as_os_str().is_empty() {
+        return Err(format!("no file name in {}", path.display()));
+    }
+    Ok(safe)
+}
+
+fn ensure_workspace_dirs(base: &Path, parent: &Path) -> Result<(), String> {
+    let relative_parent = parent
+        .strip_prefix(base)
+        .map_err(|_| format!("path escapes workspace: {}", parent.display()))?;
+    let mut current = base.to_path_buf();
+    for component in relative_parent.components() {
+        let Component::Normal(part) = component else {
+            return Err(format!("path escapes workspace: {}", parent.display()));
+        };
+        current.push(part);
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "refusing to create directory through symlink: {}",
+                    current.display()
+                ));
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(format!(
+                    "path parent is not a directory: {}",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&current).map_err(|e| {
+                    format!("failed to create directory {}: {e}", current.display())
+                })?;
+            }
+            Err(error) => {
+                return Err(format!("failed to inspect {}: {error}", current.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn required_string<'a>(
@@ -170,6 +228,16 @@ mod tests {
         assert!(error.contains("escapes workspace"), "{error}");
     }
 
+    #[test]
+    fn write_path_creates_missing_parent_dirs() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let path =
+            workspace_path_for_write(dir.path(), Path::new("a/b/out.txt")).expect("write path");
+
+        assert_eq!(path, dir.path().join("a/b/out.txt"));
+        assert!(dir.path().join("a/b").is_dir());
+    }
+
     #[cfg(unix)]
     #[test]
     fn write_path_rejects_existing_symlink() {
@@ -183,6 +251,21 @@ mod tests {
             .expect_err("symlink target must be rejected");
         assert!(
             error.contains("refusing to write through symlink"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_path_rejects_symlink_parent() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::tempdir().expect("outside");
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("link_dir")).expect("symlink");
+
+        let error = workspace_path_for_write(dir.path(), Path::new("link_dir/out.txt"))
+            .expect_err("symlink parent must be rejected");
+        assert!(
+            error.contains("refusing to create directory through symlink"),
             "{error}"
         );
     }
