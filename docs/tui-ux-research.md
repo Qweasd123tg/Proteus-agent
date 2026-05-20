@@ -31,7 +31,8 @@ footer/status и resize. У нас сейчас гибрид:
 - live tool lifecycle в текущем гибриде живёт в нижней panel: `running`
   карточка показывается до `ToolFinished`, а финальный `ran`/`failed` card
   коммитится в scrollback. Уже напечатанный scrollback не мутируется до
-  retained renderer rewrite.
+  retained renderer rewrite. `ToolCallRequested` принудительно вызывает
+  redraw, чтобы старт tool не терялся между 33ms frame ticks.
 - fullscreen overlays используют отдельный alternate screen;
 - часть состояния scroll/streaming/footer существует в `AppState`, но не всегда
   соответствует реальному terminal viewport.
