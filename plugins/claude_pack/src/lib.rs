@@ -40,6 +40,7 @@ use tools::{BashTool, EditTool, GlobTool, GrepTool, ReadTool, TodoWriteTool, Wri
 const WORKFLOW_ID: &str = "claude.explore_edit_verify";
 const TOOL_EXPOSURE_ID: &str = "claude_phased";
 const MAX_TOOL_ROUNDS: usize = 10;
+const MAX_DISCOVERY_RECOVERY_ATTEMPTS: usize = 1;
 
 const SYSTEM_INSTRUCTIONS: &str = "\
 You are a Claude-Code-like coding agent running inside Modular Agent. \
@@ -52,8 +53,10 @@ small targeted checks and report exactly what worked. Follow repository \
 instructions over this behavior pack when they conflict.";
 
 const EXPLORE_INSTRUCTIONS: &str = "\
-Explore phase: orient with read-only tools. Prefer list_dir, read_file, grep, \
-and search. Do not edit yet unless the user explicitly gave a tiny direct edit \
+Explore phase: orient with read-only tools. Prefer Read, Glob, and Grep. \
+Do not chain broad file-discovery attempts: after a not-found/no-match result, \
+make at most one focused recovery attempt, then answer with what is known or \
+ask for the exact path. Do not edit yet unless the user explicitly gave a tiny direct edit \
 and the relevant file is already known. Use AskUserQuestion/request_user_input \
 for broad or underspecified tasks before writing a plan; ask one focused \
 multiple-choice question at a time when later questions depend on earlier \
@@ -182,6 +185,8 @@ fn run_workflow(
     let mut phase = Phase::Explore;
     let mut phases = vec![phase.reason()];
     let mut tool_round_limit_reached = true;
+    let mut discovery_dead_ends = 0usize;
+    let mut discovery_recovery_limit_reached = false;
     let mut terminal_response = None;
     for _round in 0..MAX_TOOL_ROUNDS {
         let request = request_from_state(&input, host, &model_messages, phase)?;
@@ -213,13 +218,24 @@ fn run_workflow(
         persistent_messages.push(response.message.clone());
 
         let mut next_phase = phase;
+        let mut force_final_after_tools = false;
         for call in response.tool_calls {
-            next_phase = next_phase_after_tool(next_phase, &call);
-            let result = execute_tool(host, &input, &call)?;
+            let result = if should_skip_discovery_call(&call, discovery_dead_ends) {
+                skipped_discovery_result(&call, discovery_dead_ends)
+            } else {
+                execute_tool(host, &input, &call)?
+            };
             let call_id = result.call_id.clone();
-            if !result.ok {
-                next_phase = Phase::Edit;
+            if is_unsuccessful_discovery_result(&call, &result) {
+                discovery_dead_ends += 1;
+                if discovery_budget_exhausted(discovery_dead_ends) {
+                    discovery_recovery_limit_reached = true;
+                    force_final_after_tools = true;
+                }
+            } else if is_discovery_tool(&call) && result.ok {
+                discovery_dead_ends = 0;
             }
+            next_phase = next_phase_after_tool_result(next_phase, &call, &result);
             let tool_result_message =
                 CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
                     .with_tool_call_id(call_id);
@@ -228,6 +244,10 @@ fn run_workflow(
         }
         phase = next_phase;
         phases.push(phase.reason());
+        if force_final_after_tools {
+            tool_round_limit_reached = false;
+            break;
+        }
     }
 
     let final_response = if let Some(response) = terminal_response {
@@ -247,6 +267,9 @@ fn run_workflow(
             context_token_estimate,
             json!({
                 "max_tool_rounds": MAX_TOOL_ROUNDS,
+                "max_discovery_recovery_attempts": MAX_DISCOVERY_RECOVERY_ATTEMPTS,
+                "discovery_dead_ends": discovery_dead_ends,
+                "discovery_recovery_limit_reached": discovery_recovery_limit_reached,
                 "tool_round_limit_reached": tool_round_limit_reached,
                 "phases": phases,
             }),
@@ -264,13 +287,22 @@ fn run_workflow(
     })
 }
 
-fn next_phase_after_tool(current: Phase, call: &ToolCall) -> Phase {
+fn next_phase_after_tool_result(current: Phase, call: &ToolCall, result: &ToolResult) -> Phase {
     match call.name.as_str() {
-        "Edit" | "Write" | "apply_patch" | "write_file" => Phase::Verify,
+        "Edit" | "Write" | "apply_patch" | "write_file" => {
+            if result.ok {
+                Phase::Verify
+            } else {
+                Phase::Edit
+            }
+        }
         "Bash" | "shell" if current == Phase::Verify => Phase::Verify,
         "Bash" | "shell" => current,
         "Read" | "Glob" | "Grep" | "read_file" | "list_dir" | "grep" | "search" => {
-            if current == Phase::Explore {
+            if current == Phase::Explore
+                && result.ok
+                && !is_unsuccessful_discovery_result(call, result)
+            {
                 Phase::Edit
             } else {
                 current
@@ -278,6 +310,56 @@ fn next_phase_after_tool(current: Phase, call: &ToolCall) -> Phase {
         }
         _ => current,
     }
+}
+
+fn is_discovery_tool(call: &ToolCall) -> bool {
+    matches!(
+        call.name.as_str(),
+        "Read" | "Glob" | "Grep" | "read_file" | "list_dir" | "grep" | "search"
+    )
+}
+
+fn is_unsuccessful_discovery_result(call: &ToolCall, result: &ToolResult) -> bool {
+    if !is_discovery_tool(call) {
+        return false;
+    }
+    if !result.ok {
+        return true;
+    }
+    let output = result.output.trim();
+    if output == "(no matches)" {
+        return true;
+    }
+    result
+        .metadata
+        .get("match_count")
+        .or_else(|| result.metadata.get("results"))
+        .and_then(Value::as_u64)
+        == Some(0)
+}
+
+fn discovery_budget_exhausted(discovery_dead_ends: usize) -> bool {
+    discovery_dead_ends > MAX_DISCOVERY_RECOVERY_ATTEMPTS
+}
+
+fn should_skip_discovery_call(call: &ToolCall, discovery_dead_ends: usize) -> bool {
+    is_discovery_tool(call) && discovery_budget_exhausted(discovery_dead_ends)
+}
+
+fn skipped_discovery_result(call: &ToolCall, discovery_dead_ends: usize) -> ToolResult {
+    ToolResult::error(
+        call.id.clone(),
+        format!(
+            "skipped discovery tool after {discovery_dead_ends} not-found/no-match results; do not guess more path variants, answer with what is known or ask for the exact path"
+        ),
+    )
+    .with_metadata(json!({
+        "tool": call.name,
+        "skipped_by_workflow": true,
+        "reason": "discovery_recovery_limit_reached",
+        "discovery_dead_ends": discovery_dead_ends,
+        "max_discovery_recovery_attempts": MAX_DISCOVERY_RECOVERY_ATTEMPTS,
+    }))
 }
 
 fn request_from_state(
@@ -357,7 +439,6 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
             "read_file",
             "Grep",
             "grep",
-            "search",
             "Glob",
             "list_dir",
             "Edit",
@@ -372,7 +453,6 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
             "read_file",
             "Grep",
             "grep",
-            "search",
             "Glob",
             "list_dir",
             "Edit",
@@ -388,7 +468,6 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
             "list_dir",
             "Grep",
             "grep",
-            "search",
             "AskUserQuestion",
             "request_user_input",
             "TodoWrite",
@@ -775,7 +854,6 @@ mod tests {
                 "list_dir",
                 "Grep",
                 "grep",
-                "search",
                 "AskUserQuestion",
                 "request_user_input",
                 "TodoWrite"
@@ -800,7 +878,6 @@ mod tests {
                 "read_file",
                 "Grep",
                 "grep",
-                "search",
                 "Glob",
                 "list_dir",
                 "Edit",
@@ -827,7 +904,6 @@ mod tests {
                 "read_file",
                 "Grep",
                 "grep",
-                "search",
                 "Glob",
                 "list_dir",
                 "Edit",
@@ -839,8 +915,52 @@ mod tests {
     #[test]
     fn tool_call_transitions_toward_verify_after_edit() {
         let call = ToolCall::new("call-1", "apply_patch", json!({}));
-        assert_eq!(next_phase_after_tool(Phase::Edit, &call), Phase::Verify);
+        let result = ToolResult::ok(call.id.clone(), "patched");
+        assert_eq!(
+            next_phase_after_tool_result(Phase::Edit, &call, &result),
+            Phase::Verify
+        );
         let call = ToolCall::new("call-2", "Edit", json!({}));
-        assert_eq!(next_phase_after_tool(Phase::Edit, &call), Phase::Verify);
+        let result = ToolResult::ok(call.id.clone(), "edited");
+        assert_eq!(
+            next_phase_after_tool_result(Phase::Edit, &call, &result),
+            Phase::Verify
+        );
+    }
+
+    #[test]
+    fn failed_discovery_does_not_move_to_edit() {
+        let call = ToolCall::new("call-1", "Read", json!({ "file_path": "missing.rs" }));
+        let result = ToolResult::error(call.id.clone(), "file does not exist");
+        assert_eq!(
+            next_phase_after_tool_result(Phase::Explore, &call, &result),
+            Phase::Explore
+        );
+    }
+
+    #[test]
+    fn no_match_discovery_does_not_move_to_edit() {
+        let call = ToolCall::new("call-1", "Glob", json!({ "pattern": "**/*.png" }));
+        let result = ToolResult::ok(call.id.clone(), "(no matches)").with_metadata(json!({
+            "match_count": 0
+        }));
+        assert_eq!(
+            next_phase_after_tool_result(Phase::Explore, &call, &result),
+            Phase::Explore
+        );
+        assert!(is_unsuccessful_discovery_result(&call, &result));
+    }
+
+    #[test]
+    fn discovery_recovery_budget_allows_one_retry() {
+        let call = ToolCall::new("call-1", "Grep", json!({ "pattern": "missing" }));
+        assert!(!should_skip_discovery_call(
+            &call,
+            MAX_DISCOVERY_RECOVERY_ATTEMPTS
+        ));
+        assert!(should_skip_discovery_call(
+            &call,
+            MAX_DISCOVERY_RECOVERY_ATTEMPTS + 1
+        ));
     }
 }
