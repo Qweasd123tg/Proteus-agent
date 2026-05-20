@@ -32,7 +32,9 @@ footer/status и resize. У нас сейчас гибрид:
   карточка показывается до `ToolFinished`, а финальный `ran`/`failed` card
   коммитится в scrollback. Уже напечатанный scrollback не мутируется до
   retained renderer rewrite. `ToolCallRequested` принудительно вызывает
-  redraw, чтобы старт tool не терялся между 33ms frame ticks.
+  redraw, чтобы старт tool не терялся между 33ms frame ticks; resolved
+  approval/user-input prompt тоже вызывает redraw, чтобы долгий tool стал виден
+  сразу после закрытия prompt.
 - fullscreen overlays используют отдельный alternate screen;
 - часть состояния scroll/streaming/footer существует в `AppState`, но не всегда
   соответствует реальному terminal viewport.

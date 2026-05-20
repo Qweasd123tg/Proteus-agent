@@ -207,9 +207,10 @@ fn should_redraw_immediately(event: &AppServerEvent) -> bool {
         AppServerEvent::Runtime { envelope } => {
             matches!(envelope.event, Event::ToolCallRequested { .. })
         }
-        AppServerEvent::ApprovalRequested { .. } | AppServerEvent::UserInputRequested { .. } => {
-            true
-        }
+        AppServerEvent::ApprovalRequested { .. }
+        | AppServerEvent::ApprovalResolved { .. }
+        | AppServerEvent::UserInputRequested { .. }
+        | AppServerEvent::UserInputResolved { .. } => true,
         _ => false,
     }
 }
@@ -273,5 +274,19 @@ mod tests {
         };
 
         assert!(should_redraw_immediately(&approval));
+    }
+
+    #[test]
+    fn redraws_immediately_after_prompt_resolution() {
+        let approval_resolved = AppServerEvent::ApprovalResolved {
+            approval_id: "approval-1".to_owned(),
+            approved: true,
+        };
+        let user_input_resolved = AppServerEvent::UserInputResolved {
+            request_id: "request-1".to_owned(),
+        };
+
+        assert!(should_redraw_immediately(&approval_resolved));
+        assert!(should_redraw_immediately(&user_input_resolved));
     }
 }
