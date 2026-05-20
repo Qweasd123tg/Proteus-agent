@@ -22,8 +22,8 @@ mod scrollback;
 pub(crate) use overlay::VisualSurface;
 pub(crate) use scrollback::{
     ToolCard, ToolStatus, VisualMessage, VisualRole, compact_value, render_scrollback_message,
-    tool_action_body, tool_invocation_summary, tool_output_prefix_style, tool_output_style,
-    tool_status_style, truncate, wrap_text,
+    render_tool_card_lines, tool_action_body, tool_invocation_summary, tool_output_prefix_style,
+    tool_output_style, tool_status_style, truncate, wrap_text,
 };
 
 pub(crate) const STATUS_MARKER: &str = "•";
@@ -218,6 +218,17 @@ pub(crate) fn plan_intake_lines(state: &VisualState<'_>, width: usize) -> Vec<Li
     lines
 }
 
+pub(crate) fn active_tool_lines(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for (index, card) in state.active_tools.iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::raw(""));
+        }
+        lines.extend(render_tool_card_lines(card, width));
+    }
+    lines
+}
+
 pub(crate) struct VisualState<'a> {
     pub model: &'a str,
     pub permission_mode: &'a str,
@@ -229,6 +240,7 @@ pub(crate) struct VisualState<'a> {
     pub status: &'a str,
     pub pending_approval: Option<&'a AppApprovalRequest>,
     pub pending_model: bool,
+    pub active_tools: &'a [ToolCard],
     pub streaming: bool,
     pub streaming_message: Option<&'a VisualMessage>,
     pub reasoning_mode: ReasoningDisplayMode,
@@ -677,6 +689,7 @@ mod tests {
             status: "ready",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -737,6 +750,7 @@ mod tests {
             status: "calling model...",
             pending_approval: None,
             pending_model: true,
+            active_tools: &[],
             streaming: true,
             streaming_message: messages.last(),
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -780,6 +794,7 @@ mod tests {
             status: "calling model...",
             pending_approval: None,
             pending_model: true,
+            active_tools: &[],
             streaming: true,
             streaming_message: messages.first(),
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -841,6 +856,7 @@ mod tests {
             status: "reasoning...",
             pending_approval: None,
             pending_model: true,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Summary,
@@ -901,7 +917,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(lines[0], "● Ran uname -sr");
+        assert_eq!(lines[0], "● ran uname -sr");
         assert_eq!(lines[1], "  └ Linux 6.19.9");
         assert_eq!(lines[2], "    extra");
 
@@ -930,7 +946,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert_eq!(first_line, r#"● Error {"patch":"bad"}"#);
+        assert_eq!(first_line, r#"● failed {"patch":"bad"}"#);
         assert!(!first_line.contains('✗'));
         assert_eq!(styled_lines[0].spans[0].style.fg, Some(Color::Red));
         assert_eq!(styled_lines[0].spans[1].style.fg, Some(Color::Red));
@@ -954,7 +970,67 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert_eq!(line, r#"● Running {"path":"."}"#);
+        assert_eq!(line, r#"● running {"path":"."}"#);
+    }
+
+    #[test]
+    fn active_tool_card_renders_above_composer_before_finish() {
+        let active_tools = vec![ToolCard {
+            call_id: agent_contracts::domain::new_call_id(),
+            name: "read_file".to_owned(),
+            args_summary: "Read Cargo.toml".to_owned(),
+            status: ToolStatus::Running,
+            output_preview: String::new(),
+        }];
+        let state = VisualState {
+            model: "test/model",
+            permission_mode: "normal",
+            cwd: Path::new("/tmp/workspace"),
+            session_label: "1",
+            input: "",
+            input_paste_ranges: &[],
+            footer: "enter send",
+            status: "tool: read_file",
+            pending_approval: None,
+            pending_model: true,
+            active_tools: &active_tools,
+            streaming: false,
+            streaming_message: None,
+            reasoning_mode: ReasoningDisplayMode::Hidden,
+            reasoning_summary: "",
+            active_context_tokens: None,
+            active_output_tokens: None,
+            thinking_elapsed: Some(Duration::from_secs(3)),
+            resume_picker: None,
+            context_report: None,
+            context_report_scroll: 0,
+            plan_intake: None,
+            plan_review: None,
+            slash_selection: 0,
+        };
+
+        let panel = inline_panel_lines(&state, 80);
+        let rendered = panel
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(rendered[0], "● running Read Cargo.toml");
+        assert!(rendered.iter().any(|line| line.contains("tool: read_file")));
+        assert_eq!(
+            panel.lines[0].spans[0].style.fg,
+            Some(Color::Rgb(255, 149, 0))
+        );
+        assert_eq!(
+            panel.lines[0].spans[1].style.fg,
+            Some(Color::Rgb(255, 149, 0))
+        );
     }
 
     #[test]
@@ -985,6 +1061,7 @@ mod tests {
             status: "calling model...",
             pending_approval: None,
             pending_model: true,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1029,6 +1106,7 @@ mod tests {
             status: "ready",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1074,6 +1152,7 @@ mod tests {
             status: "plan ready",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1143,6 +1222,7 @@ mod tests {
             status: "planning choices",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1221,6 +1301,7 @@ mod tests {
             status: "planning choices",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1270,6 +1351,7 @@ mod tests {
                 status: "ready",
                 pending_approval: None,
                 pending_model: false,
+                active_tools: &[],
                 streaming: false,
                 streaming_message: None,
                 reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1313,6 +1395,7 @@ mod tests {
             status: "calling model...",
             pending_approval: None,
             pending_model: true,
+            active_tools: &[],
             streaming: true,
             streaming_message: messages.first(),
             reasoning_mode: ReasoningDisplayMode::Hidden,
@@ -1388,6 +1471,7 @@ mod tests {
             status: "done · 7s",
             pending_approval: None,
             pending_model: false,
+            active_tools: &[],
             streaming: false,
             streaming_message: None,
             reasoning_mode: ReasoningDisplayMode::Hidden,

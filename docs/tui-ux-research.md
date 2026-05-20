@@ -28,6 +28,10 @@ footer/status и resize. У нас сейчас гибрид:
 
 - завершённый transcript пишется напрямую в normal terminal scrollback;
 - нижняя inline panel переписывается относительными `MoveUp`/`MoveDown`;
+- live tool lifecycle в текущем гибриде живёт в нижней panel: `running`
+  карточка показывается до `ToolFinished`, а финальный `ran`/`failed` card
+  коммитится в scrollback. Уже напечатанный scrollback не мутируется до
+  retained renderer rewrite.
 - fullscreen overlays используют отдельный alternate screen;
 - часть состояния scroll/streaming/footer существует в `AppState`, но не всегда
   соответствует реальному terminal viewport.
