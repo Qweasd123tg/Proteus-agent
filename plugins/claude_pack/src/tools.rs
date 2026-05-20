@@ -1,6 +1,6 @@
 use std::{
-    io::{BufRead, BufReader, Read},
-    path::Path,
+    io::{BufRead, BufReader, ErrorKind, Read},
+    path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -33,7 +33,7 @@ impl PluginTool for ReadTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Read",
-            "description": "Read a UTF-8 file from the current workspace. Prefer this over Bash cat/head/tail/sed. Use start_line and limit when you already know the relevant range. Results can include 1-based line numbers for precise edits.",
+            "description": "Read a UTF-8 text file from the current workspace. Prefer this over Bash cat/head/tail/sed. Use start_line and limit when you already know the relevant range. Results can include 1-based line numbers for precise edits. If a path is not found, do not guess repeated variants; make at most one focused Glob/Grep recovery attempt, then ask for the exact path or report that it was not found.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -59,7 +59,8 @@ impl PluginTool for ReadTool {
             Ok(path) => path,
             Err(e) => return err_result(&call.id, &call.name, e),
         };
-        let target = match workspace_path(Path::new(cwd.as_str()), Path::new(path)) {
+        let cwd_path = Path::new(cwd.as_str());
+        let target = match read_workspace_path(cwd_path, Path::new(path)) {
             Ok(path) => path,
             Err(e) => return err_result(&call.id, &call.name, e),
         };
@@ -78,13 +79,23 @@ impl PluginTool for ReadTool {
                 &call.id,
                 &call.name,
                 format!(
-                    "path is a directory; use Glob or Bash ls: {}",
+                    "path is a directory, not a file: {}. Provide a concrete file path; do not run Bash to list it.",
                     target.display()
                 ),
             );
         }
         let content = match std::fs::read_to_string(&target) {
             Ok(content) => content,
+            Err(e) if e.kind() == ErrorKind::InvalidData => {
+                return err_result(
+                    &call.id,
+                    &call.name,
+                    format!(
+                        "file is not UTF-8 text: {}. Read in claude_pack only handles text files; do not search for alternate paths unless the user asked for a different file.",
+                        target.display()
+                    ),
+                );
+            }
             Err(e) => {
                 return err_result(
                     &call.id,
@@ -307,7 +318,7 @@ impl PluginTool for GrepTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Grep",
-            "description": "Search file contents using ripgrep. Always prefer this over Bash grep/rg for workspace content search because it is permission-aware and returns reviewable output.",
+            "description": "Search file contents using ripgrep. Always prefer this over Bash grep/rg for workspace content search because it is permission-aware and returns reviewable output. Do not chain broad searches after no matches; make one focused refinement, then ask or report that nothing was found.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -392,7 +403,7 @@ impl PluginTool for GlobTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Glob",
-            "description": "Find files by glob pattern in the current workspace. Prefer this over Bash find/ls for file discovery. Returns paths sorted by ripgrep's traversal order.",
+            "description": "Find files by glob pattern in the current workspace. Prefer this over Bash find/ls for file discovery. Returns paths sorted by ripgrep's traversal order. Do not chain broad glob variants after no matches; make one focused refinement, then ask or report that nothing was found.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -460,6 +471,99 @@ impl PluginTool for GlobTool {
             }),
         )
     }
+}
+
+fn read_workspace_path(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
+    let base = std::fs::canonicalize(cwd)
+        .map_err(|e| format!("failed to canonicalize cwd {}: {e}", cwd.display()))?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    if candidate.exists() {
+        let canonical = std::fs::canonicalize(&candidate)
+            .map_err(|e| format!("failed to canonicalize {}: {e}", candidate.display()))?;
+        if !canonical.starts_with(&base) {
+            return Err(format!("path escapes workspace: {}", path.display()));
+        }
+        return Ok(canonical);
+    }
+
+    let safe_missing = missing_candidate_inside_workspace(&base, path)?;
+    Err(missing_file_message(&base, &safe_missing))
+}
+
+fn missing_candidate_inside_workspace(base: &Path, path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        let relative = path
+            .strip_prefix(base)
+            .map_err(|_| format!("path escapes workspace: {}", path.display()))?;
+        return Ok(base.join(safe_relative_read_path(relative)?));
+    }
+    Ok(base.join(safe_relative_read_path(path)?))
+}
+
+fn safe_relative_read_path(path: &Path) -> Result<PathBuf, String> {
+    let mut safe = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => safe.push(part),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err(format!("path escapes workspace: {}", path.display()));
+            }
+        }
+    }
+    if safe.as_os_str().is_empty() {
+        return Err(format!("no file name in {}", path.display()));
+    }
+    Ok(safe)
+}
+
+fn missing_file_message(base: &Path, target: &Path) -> String {
+    let mut message = format!(
+        "file does not exist: {}. Current workspace: {}.",
+        target.display(),
+        base.display()
+    );
+    if let Some(suggestion) = suggest_similar_file(target) {
+        message.push_str(&format!(" Did you mean {}?", suggestion.display()));
+    }
+    message.push_str(
+        " Do not guess repeated path variants or use Bash for file discovery; make at most one focused Glob/Grep recovery attempt if necessary.",
+    );
+    message
+}
+
+fn suggest_similar_file(target: &Path) -> Option<PathBuf> {
+    let parent = target.parent()?;
+    let requested_name = target.file_name()?.to_str()?;
+    let requested_stem = target.file_stem()?.to_str()?;
+    let entries = std::fs::read_dir(parent)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+
+    entries
+        .iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.eq_ignore_ascii_case(requested_name))
+        })
+        .cloned()
+        .or_else(|| {
+            entries.into_iter().find(|path| {
+                path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .is_some_and(|stem| stem == requested_stem)
+            })
+        })
 }
 
 impl PluginTool for BashTool {
@@ -812,4 +916,72 @@ fn relative_display(path: &Path, base: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_contracts::abi_stable::std_types::RResult;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_workspace() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "claude-pack-tools-test-{}-{suffix}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp workspace");
+        dir
+    }
+
+    fn invoke_read(cwd: &Path, file_path: &str) -> Value {
+        let call = json!({
+            "id": "call-1",
+            "name": "Read",
+            "args": { "file_path": file_path }
+        });
+        match ReadTool.invoke_json(
+            RString::from(call.to_string()),
+            RString::from(cwd.display().to_string()),
+        ) {
+            RResult::ROk(result) => serde_json::from_str(result.as_str()).expect("ToolResult json"),
+            RResult::RErr(error) => panic!("plugin error: {}", error.message),
+        }
+    }
+
+    #[test]
+    fn read_directory_error_does_not_suggest_bash_or_glob_fallback() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(workspace.join("src")).expect("create src");
+
+        let result = invoke_read(&workspace, "src");
+        let error = result["error"].as_str().expect("error string");
+        assert!(!result["ok"].as_bool().expect("ok"));
+        assert!(error.contains("directory, not a file"));
+        assert!(!error.contains("Bash ls"));
+        assert!(!error.contains("use Glob"));
+
+        std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn read_missing_file_gives_cwd_and_did_you_mean_without_bash_discovery() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(workspace.join("src")).expect("create src");
+        std::fs::write(workspace.join("src/main.ts"), "fn main() {}\n").expect("write file");
+
+        let result = invoke_read(&workspace, "src/main.rs");
+        let error = result["error"].as_str().expect("error string");
+        assert!(!result["ok"].as_bool().expect("ok"));
+        assert!(error.contains("file does not exist"));
+        assert!(error.contains("Current workspace"));
+        assert!(error.contains("Did you mean"));
+        assert!(error.contains("src/main.ts"));
+        assert!(!error.contains("Bash ls"));
+
+        std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
 }
