@@ -1,6 +1,9 @@
 use std::{collections::HashSet, path::PathBuf, time::Duration};
 
-use agent_contracts::app_protocol::StdioOutput;
+use agent_contracts::{
+    app_protocol::{AppServerEvent, StdioOutput},
+    domain::Event,
+};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event as CTerm},
@@ -75,6 +78,7 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
                 match output {
                     Some(StdioOutput::Event { event }) => {
                         startup_ready = true;
+                        let redraw_now = should_redraw_immediately(event.as_ref());
                         let header_before = state.header_identity();
                         state.ingest(*event);
                         if scrollback_header_printed && state.header_identity() != header_before {
@@ -90,6 +94,17 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
                             }
                         }
                         dirty = true;
+                        if redraw_now {
+                            redraw(
+                                terminal,
+                                &surface,
+                                &mut state,
+                                &mut scrollback_header_printed,
+                                &mut inline_terminal,
+                                &mut picker_alt_screen,
+                            )?;
+                            dirty = false;
+                        }
                     }
                     Some(StdioOutput::Response { id, ok, error, .. }) => {
                         startup_ready = true;
@@ -185,4 +200,78 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
         let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
     }
     Ok(())
+}
+
+fn should_redraw_immediately(event: &AppServerEvent) -> bool {
+    match event {
+        AppServerEvent::Runtime { envelope } => {
+            matches!(envelope.event, Event::ToolCallRequested { .. })
+        }
+        AppServerEvent::ApprovalRequested { .. } | AppServerEvent::UserInputRequested { .. } => {
+            true
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_contracts::{
+        app_protocol::{AppApprovalRequest, AppServerEvent},
+        domain::{Event, EventContext, EventEnvelope, ToolCall, ToolResult},
+    };
+
+    use super::should_redraw_immediately;
+
+    fn runtime_event(event: Event) -> AppServerEvent {
+        AppServerEvent::Runtime {
+            envelope: EventEnvelope::new(
+                EventContext::new(
+                    agent_contracts::domain::new_session_id(),
+                    agent_contracts::domain::new_thread_id(),
+                    Some(agent_contracts::domain::new_turn_id()),
+                ),
+                1,
+                event,
+            ),
+        }
+    }
+
+    #[test]
+    fn redraws_immediately_when_tool_starts() {
+        let event = runtime_event(Event::ToolCallRequested {
+            call: ToolCall::new(
+                "call-1",
+                "Read",
+                serde_json::json!({"file_path":"Cargo.toml"}),
+            ),
+        });
+
+        assert!(should_redraw_immediately(&event));
+    }
+
+    #[test]
+    fn does_not_force_immediate_redraw_for_tool_finish() {
+        let event = runtime_event(Event::ToolFinished {
+            result: ToolResult::ok("call-1".to_owned(), "done"),
+        });
+
+        assert!(!should_redraw_immediately(&event));
+    }
+
+    #[test]
+    fn redraws_immediately_for_app_prompts() {
+        let call = ToolCall::new("call-1", "Bash", serde_json::json!({"command":"sleep 5"}));
+        let approval = AppServerEvent::ApprovalRequested {
+            request: AppApprovalRequest::new(
+                "approval-1".to_owned(),
+                call,
+                std::path::PathBuf::from("."),
+                "requires approval".to_owned(),
+                None,
+            ),
+        };
+
+        assert!(should_redraw_immediately(&approval));
+    }
 }
