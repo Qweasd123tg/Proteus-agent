@@ -138,6 +138,7 @@ impl AppState {
             status: &self.status,
             pending_approval: self.pending_approval.as_ref(),
             pending_model: self.pending_model,
+            active_tools: &self.active_tools,
             streaming: self.transcript.is_streaming(),
             streaming_message: self.transcript.active_message(),
             reasoning_mode: self.reasoning_mode,
@@ -1732,6 +1733,10 @@ mod tests {
                 .iter()
                 .any(|message| message.tool.is_some())
         );
+        let active_tools = state.visual_state().active_tools;
+        assert_eq!(active_tools.len(), 1);
+        assert_eq!(active_tools[0].status, ToolStatus::Running);
+        assert_eq!(active_tools[0].args_summary, "Read main.py");
         assert_eq!(state.visual_state().status, "tool: read_file");
 
         state.ingest(AppServerEvent::Runtime {
@@ -1751,6 +1756,7 @@ mod tests {
             .map(|tool| (tool.status, tool.output_preview.as_str()))
             .collect::<Vec<_>>();
         assert_eq!(tool_statuses, vec![(ToolStatus::Ok, "file contents")]);
+        assert!(state.visual_state().active_tools.is_empty());
 
         state.ingest(AppServerEvent::TurnOutput {
             output: agent_contracts::domain::AgentOutput::text("Итоговый ответ"),

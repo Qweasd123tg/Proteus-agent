@@ -211,6 +211,12 @@ fn append_tool_card_lines(lines: &mut Vec<Line<'static>>, card: &ToolCard, width
     }
 }
 
+pub(crate) fn render_tool_card_lines(card: &ToolCard, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    append_tool_card_lines(&mut lines, card, width);
+    lines
+}
+
 pub(crate) struct ToolStatusStyle {
     pub marker: &'static str,
     pub marker_style: Style,
@@ -223,22 +229,22 @@ pub(crate) fn tool_status_style(status: ToolStatus) -> ToolStatusStyle {
     match status {
         ToolStatus::Running => ToolStatusStyle {
             marker: "●",
-            marker_style: Style::default().fg(Color::Yellow),
-            label: "Running",
-            label_style: Style::default().fg(Color::Yellow),
+            marker_style: Style::default().fg(Color::Rgb(255, 149, 0)),
+            label: "running",
+            label_style: Style::default().fg(Color::Rgb(255, 149, 0)),
             action_style: Style::default().fg(Color::LightCyan),
         },
         ToolStatus::Ok => ToolStatusStyle {
             marker: "●",
             marker_style: Style::default().fg(Color::Green),
-            label: "Ran",
+            label: "ran",
             label_style: Style::default().fg(Color::Green),
             action_style: Style::default().fg(Color::LightCyan),
         },
         ToolStatus::Err => ToolStatusStyle {
             marker: "●",
             marker_style: Style::default().fg(Color::Red),
-            label: "Error",
+            label: "failed",
             label_style: Style::default().fg(Color::Red),
             action_style: Style::default().fg(Color::LightRed),
         },
