@@ -259,7 +259,7 @@ fn run_workflow(
     };
     persistent_messages.push(final_response.message.clone());
     let output = AgentOutput::new(
-        message_text(&final_response.message),
+        output_text(&final_response.message, &model_messages),
         output_metadata(
             &input,
             &model_messages,
@@ -756,6 +756,59 @@ fn from_json_string<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, Pl
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
 }
 
+fn output_text(message: &CanonicalMessage, messages: &[CanonicalMessage]) -> String {
+    let text = message_text(message);
+    if text != "<empty model response>" {
+        return text;
+    }
+
+    let Some(result) = latest_tool_result(messages) else {
+        return text;
+    };
+    let summary = tool_result_summary(result);
+    if summary.is_empty() {
+        return text;
+    }
+    format!(
+        "Model returned an empty final response after the last tool call.\n\nLast tool result:\n{}",
+        truncate_chars(&summary, 2_000)
+    )
+}
+
+fn latest_tool_result(messages: &[CanonicalMessage]) -> Option<&ToolResult> {
+    messages.iter().rev().find_map(|message| {
+        message.parts.iter().rev().find_map(|part| match part {
+            ContentPart::ToolResult { result } => Some(result),
+            _ => None,
+        })
+    })
+}
+
+fn tool_result_summary(result: &ToolResult) -> String {
+    let mut parts = Vec::new();
+    let output = result.output.trim();
+    if !output.is_empty() {
+        parts.push(output.to_owned());
+    }
+    if let Some(error) = result
+        .error
+        .as_deref()
+        .map(str::trim)
+        .filter(|error| !error.is_empty())
+    {
+        parts.push(error.to_owned());
+    }
+    parts.join("\n")
+}
+
+fn truncate_chars(text: &str, limit: usize) -> String {
+    let mut truncated = text.chars().take(limit).collect::<String>();
+    if text.chars().count() > limit {
+        truncated.push_str("\n[truncated]");
+    }
+    truncated
+}
+
 fn workflow_err<T>(error: impl ToString) -> RResult<T, PluginWorkflowError> {
     RResult::RErr(PluginWorkflowError::new(error.to_string()))
 }
@@ -936,6 +989,29 @@ mod tests {
             next_phase_after_tool_result(Phase::Explore, &call, &result),
             Phase::Explore
         );
+    }
+
+    #[test]
+    fn empty_final_output_falls_back_to_latest_tool_result() {
+        let result = ToolResult::new(
+            agent_contracts::domain::new_call_id(),
+            false,
+            "skatewind: not found".to_owned(),
+            Vec::new(),
+            Some("process exited with code 127".to_owned()),
+            json!({}),
+        );
+        let messages = vec![CanonicalMessage::new(
+            MessageRole::Tool,
+            vec![ContentPart::ToolResult { result }],
+        )];
+        let message = CanonicalMessage::new(MessageRole::Assistant, Vec::new());
+
+        let text = output_text(&message, &messages);
+
+        assert!(text.contains("Model returned an empty final response"));
+        assert!(text.contains("skatewind: not found"));
+        assert!(text.contains("process exited with code 127"));
     }
 
     #[test]
