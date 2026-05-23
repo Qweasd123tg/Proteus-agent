@@ -40,7 +40,7 @@ impl PluginTool for ReadFileTool {
                 "required": ["path"]
             },
             "safety": "ReadOnly",
-            "timeout_ms": 5000,
+            "timeout_ms": 60000,
             "metadata": null
         });
         RString::from(spec.to_string())

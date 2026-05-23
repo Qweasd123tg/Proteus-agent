@@ -31,7 +31,7 @@ use agent_contracts::{
 use serde_json::json;
 
 struct RgSearchPlugin;
-const RG_TIMEOUT: Duration = Duration::from_secs(15);
+const RG_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl PluginSearchBackend for RgSearchPlugin {
     fn search_json(&self, query_json: RString) -> RResult<RString, PluginSearchError> {
@@ -251,6 +251,11 @@ mod tests {
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn rg_backend_timeout_allows_large_workspaces() {
+        assert!(RG_TIMEOUT >= Duration::from_secs(60));
+    }
 
     #[test]
     fn parse_rg_line_extracts_path_line_and_content() {

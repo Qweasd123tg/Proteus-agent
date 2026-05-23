@@ -23,7 +23,7 @@ use crate::util::{
 };
 
 pub struct GrepTool;
-const RG_TIMEOUT: Duration = Duration::from_secs(15);
+const RG_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl PluginTool for GrepTool {
     fn spec_json(&self) -> RString {
@@ -50,7 +50,7 @@ impl PluginTool for GrepTool {
                 "required": ["pattern"]
             },
             "safety": "ReadOnly",
-            "timeout_ms": 15000,
+            "timeout_ms": RG_TIMEOUT.as_millis() as u64,
             "metadata": null
         });
         RString::from(spec.to_string())

@@ -51,7 +51,7 @@ impl Tool for SearchTool {
             }),
             ToolSafety::ReadOnly,
         )
-        .with_timeout(20_000)
+        .with_timeout(60_000)
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -173,7 +173,7 @@ mod tests {
             chunks: Vec::new(),
         }));
 
-        assert_eq!(tool.spec().timeout_ms, Some(20_000));
+        assert_eq!(tool.spec().timeout_ms, Some(60_000));
     }
 
     #[tokio::test]

@@ -26,7 +26,7 @@ impl PluginTool for ListDirTool {
                 "required": []
             },
             "safety": "ReadOnly",
-            "timeout_ms": 5000,
+            "timeout_ms": 60000,
             "metadata": null
         });
         RString::from(spec.to_string())
