@@ -218,7 +218,7 @@ pub(crate) async fn handle_term_event(
                         return Ok(true);
                     }
                     KeyCode::Char(' ') => {
-                        state.toggle_plan_intake_current_option();
+                        state.handle_plan_intake_space();
                         return Ok(true);
                     }
                     KeyCode::Char(ch) => {

@@ -692,9 +692,13 @@ impl AppState {
         }
     }
 
-    pub fn toggle_plan_intake_current_option(&mut self) {
+    pub fn handle_plan_intake_space(&mut self) {
         if let Some(intake) = &mut self.plan_intake {
-            intake.toggle_current_option();
+            if intake.current_selection_is_custom() {
+                intake.type_custom_char(' ');
+            } else {
+                intake.toggle_current_option();
+            }
         }
     }
 
@@ -1438,6 +1442,42 @@ mod tests {
         assert!(answer.contains("Planning intake answers for: Telegram bot"));
         assert!(answer.contains("- Stack?: aiogram"));
         assert!(!state.has_plan_intake());
+    }
+
+    #[test]
+    fn plan_intake_custom_answer_accepts_spaces() {
+        let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
+        state.ingest(AppServerEvent::TurnOutput {
+            output: agent_contracts::domain::AgentOutput::new(
+                "Need choices.",
+                json!({
+                    "plan_intake": {
+                        "id": "telegram-bot",
+                        "title": "Telegram bot",
+                        "questions": [{
+                            "id": "stack",
+                            "prompt": "Stack?",
+                            "options": [{"id": "aiogram", "label": "aiogram"}],
+                            "allow_custom": true
+                        }]
+                    }
+                }),
+            ),
+        });
+
+        for ch in "type".chars() {
+            state.type_plan_intake_custom_char(ch);
+        }
+        state.handle_plan_intake_space();
+        for ch in "something".chars() {
+            state.type_plan_intake_custom_char(ch);
+        }
+
+        let answer = state
+            .take_plan_intake_answer_prompt()
+            .expect("answer prompt");
+
+        assert!(answer.contains("- Stack?: type something"));
     }
 
     #[test]
