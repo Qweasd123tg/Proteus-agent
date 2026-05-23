@@ -29,8 +29,13 @@ fn render_preview_output(result: &ToolResult) -> String {
     } else {
         160
     };
+    let output = if result.output.is_empty() {
+        result.text_or_status()
+    } else {
+        result.output.clone()
+    };
     let mut out = String::new();
-    for ch in result.output.chars() {
+    for ch in output.chars() {
         match ch {
             '\t' => out.push_str("  "),
             '\r' => {}

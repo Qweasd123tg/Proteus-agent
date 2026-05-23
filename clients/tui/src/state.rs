@@ -1561,6 +1561,13 @@ mod tests {
     }
 
     #[test]
+    fn empty_successful_tool_preview_shows_status() {
+        let result = ToolResult::ok(agent_contracts::domain::new_call_id(), "");
+
+        assert_eq!(preview(&result), "(no output)");
+    }
+
+    #[test]
     fn user_input_preview_keeps_all_answer_lines() {
         let output = [
             "User answered:",

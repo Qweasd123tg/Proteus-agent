@@ -85,6 +85,45 @@ impl ToolResult {
         self.content = content;
         self
     }
+
+    /// Text representation for model/UI boundaries where an empty result would
+    /// otherwise disappear.
+    pub fn text_or_status(&self) -> String {
+        if let Some(error) = &self.error
+            && !error.is_empty()
+        {
+            return error.clone();
+        }
+
+        if !self.output.is_empty() {
+            return self.output.clone();
+        }
+
+        let mut content_text = Vec::new();
+        for content in &self.content {
+            match content {
+                ToolContent::Text { text } if !text.is_empty() => content_text.push(text.clone()),
+                ToolContent::Json { value } => content_text.push(value.to_string()),
+                ToolContent::Image { mime_type, .. } => {
+                    content_text.push(format!("[image tool content: {mime_type}]"));
+                }
+                ToolContent::Binary { mime_type, .. } => {
+                    content_text.push(format!("[binary tool content: {mime_type}]"));
+                }
+                _ => {}
+            }
+        }
+
+        if !content_text.is_empty() {
+            return content_text.join("\n");
+        }
+
+        if self.ok {
+            "(no output)".to_owned()
+        } else {
+            "(tool failed without an error message)".to_owned()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -95,6 +134,34 @@ pub enum ToolContent {
     Json { value: serde_json::Value },
     Image { mime_type: String, data: String },
     Binary { mime_type: String, data: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn successful_empty_tool_result_has_status_text() {
+        let result = ToolResult::ok("call-1".to_owned(), "");
+
+        assert_eq!(result.text_or_status(), "(no output)");
+    }
+
+    #[test]
+    fn empty_output_uses_structured_text_content() {
+        let result = ToolResult::ok("call-1".to_owned(), "").with_content(vec![
+            ToolContent::Text {
+                text: "structured text".to_owned(),
+            },
+            ToolContent::Json {
+                value: json!({"ok": true}),
+            },
+        ]);
+
+        assert_eq!(result.text_or_status(), "structured text\n{\"ok\":true}");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
