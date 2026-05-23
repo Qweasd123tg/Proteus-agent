@@ -312,6 +312,10 @@ impl AgentRuntime {
             .map(|store| store.session_dir())
     }
 
+    pub fn cwd(&self) -> &Path {
+        &self.services.cwd
+    }
+
     /// MemoryStore активной конфигурации. Используется REPL для
     /// `/remember`-команды — запись идёт напрямую в store, минуя
     /// Workflow (это не turn, а side-channel ручной записи).
@@ -391,7 +395,13 @@ impl AgentRuntimeBuilder {
         session_id: SessionId,
         thread_id: ThreadId,
     ) -> Self {
-        self.session_dir = Some(session_dir.into());
+        let session_dir = session_dir.into();
+        if let Ok(Some(workspace_path)) =
+            crate::core::session_workspace_from_session_dir(&session_dir)
+        {
+            self.cwd = workspace_path;
+        }
+        self.session_dir = Some(session_dir);
         self.session_id = Some(session_id);
         self.thread_id = Some(thread_id);
         self.resume_history = true;

@@ -525,10 +525,12 @@ impl AppState {
     pub fn reset_after_resume_with_history(
         &mut self,
         session_dir: PathBuf,
+        cwd: PathBuf,
         mut history: Vec<VisualMessage>,
     ) {
         self.transcript.clear_committed();
         self.active_tools.clear();
+        self.cwd = cwd;
         self.session_dir = Some(session_dir.clone());
         self.session_label = session_label_from_dir(&session_dir);
         self.pending_model = false;
