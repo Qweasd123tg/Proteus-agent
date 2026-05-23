@@ -65,7 +65,7 @@ pub(crate) fn append_approval_lines(
         Span::styled("1. Yes, proceed", Style::default().fg(Color::Green)),
         Span::raw("  "),
         Span::styled(
-            "2. Yes, remember exact call",
+            "2. Yes, remember tool in cwd",
             Style::default().fg(Color::Green),
         ),
         Span::raw("  "),

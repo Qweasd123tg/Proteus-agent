@@ -73,7 +73,7 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `./install.sh`. Плюс configured native/process/MCP wrappers через
   main config.
 - Permission modes: `plan` / `normal` / `auto`.
-- Session approval cache (ExactCall scope).
+- Session approval cache (`exact_call` и `tool_in_cwd` scopes).
 - Event log и session resume.
 
 **Плагины (Wave 2):**
@@ -162,7 +162,7 @@ Profile-файлы лежат в `~/.config/agent-qweasd123tg/profiles/<name>.to
 Клавиши TUI: **Enter** отправить, **Ctrl+C** очистить текущий ввод; если ввод
 уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
 отменяет активный turn или отклоняет approval. **1/y/н** approve, **2/p/з**
-approve + exact-call cache, **3/n/т/Esc** deny. Основной transcript вставляется
+approve + cache для этого tool в текущем cwd, **3/n/т/Esc** deny. Основной transcript вставляется
 в область над закреплённой нижней панелью через terminal scroll-region и
 обычный перевод строки у границы history-region; нижняя панель рисуется по
 абсолютным координатам, без cursor-relative `MoveUp`.

@@ -46,8 +46,10 @@ impl ApprovalTransport for CachedApprovalTransport {
 impl CachedApprovalTransport {
     async fn is_cached(&self, request: &ApprovalRequest) -> bool {
         let approved = self.approved.lock().await;
-        ApprovalCacheKey::from_request(request, ApprovalCacheScope::ExactCall)
-            .is_some_and(|key| approved.contains(&key))
+        [ApprovalCacheScope::ExactCall, ApprovalCacheScope::ToolInCwd]
+            .into_iter()
+            .filter_map(|scope| ApprovalCacheKey::from_request(request, scope))
+            .any(|key| approved.contains(&key))
     }
 }
 
@@ -66,6 +68,11 @@ impl ApprovalCacheKey {
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
+            }),
+            ApprovalCacheScope::ToolInCwd => Some(Self {
+                tool_name: request.call.name.clone(),
+                cwd: request.cwd.clone(),
+                args: None,
             }),
             _ => None,
         }
@@ -163,6 +170,54 @@ mod tests {
 
         transport.request_approval(request("a.txt")).await.unwrap();
         transport.request_approval(request("b.txt")).await.unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn tool_in_cwd_cache_reuses_different_args_for_same_tool_and_cwd() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ToolInCwd,
+        }));
+
+        transport.request_approval(request("a.txt")).await.unwrap();
+        let cached = transport.request_approval(request("b.txt")).await.unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(cached.approved);
+        assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn tool_in_cwd_cache_does_not_reuse_different_tool() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ToolInCwd,
+        }));
+
+        transport.request_approval(request("a.txt")).await.unwrap();
+        let mut second = request("b.txt");
+        second.call.name = "shell".to_owned();
+        transport.request_approval(second).await.unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn tool_in_cwd_cache_does_not_reuse_different_cwd() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ToolInCwd,
+        }));
+
+        transport.request_approval(request("a.txt")).await.unwrap();
+        let mut second = request("b.txt");
+        second.cwd = PathBuf::from("/other-workspace");
+        transport.request_approval(second).await.unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }

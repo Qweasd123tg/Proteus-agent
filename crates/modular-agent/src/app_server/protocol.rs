@@ -90,6 +90,14 @@ mod tests {
             "cache": "exact_call"
         }))
         .expect("approval request with cache deserializes");
+        let with_tool_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+            "type": "approval",
+            "approval_id": "a1",
+            "approved": true,
+            "note": null,
+            "cache": "tool_in_cwd"
+        }))
+        .expect("approval request with tool cache deserializes");
 
         match without_cache {
             StdioRequest::Approval { cache, .. } => assert_eq!(cache, ApprovalCacheScope::None),
@@ -98,6 +106,12 @@ mod tests {
         match with_cache {
             StdioRequest::Approval { cache, .. } => {
                 assert_eq!(cache, ApprovalCacheScope::ExactCall)
+            }
+            other => panic!("expected approval request, got {other:?}"),
+        }
+        match with_tool_cache {
+            StdioRequest::Approval { cache, .. } => {
+                assert_eq!(cache, ApprovalCacheScope::ToolInCwd)
             }
             other => panic!("expected approval request, got {other:?}"),
         }
