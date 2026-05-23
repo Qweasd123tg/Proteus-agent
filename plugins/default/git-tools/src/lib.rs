@@ -31,7 +31,7 @@ use agent_contracts::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-const TIMEOUT_MS: u64 = 10_000;
+const TIMEOUT_MS: u64 = 60_000;
 const DEFAULT_MAX_BYTES: usize = 64 * 1024;
 const MAX_MAX_BYTES: usize = 200 * 1024;
 
@@ -450,6 +450,18 @@ mod tests {
             .status()
             .expect("run git");
         assert!(status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn git_tool_specs_allow_large_repositories() {
+        let status_spec: Value =
+            serde_json::from_str(GitStatusTool.spec_json().as_str()).expect("status spec json");
+        let diff_spec: Value =
+            serde_json::from_str(GitDiffTool.spec_json().as_str()).expect("diff spec json");
+
+        assert_eq!(status_spec["timeout_ms"], TIMEOUT_MS);
+        assert_eq!(diff_spec["timeout_ms"], TIMEOUT_MS);
+        assert!(TIMEOUT_MS >= 60_000);
     }
 
     #[test]

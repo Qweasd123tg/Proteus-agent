@@ -19,6 +19,8 @@ use crate::util::{
 };
 
 const SHELL_TIMEOUT_MS: u64 = 600_000;
+const FILE_TOOL_TIMEOUT_MS: u64 = 60_000;
+const SEARCH_TOOL_TIMEOUT_MS: u64 = 60_000;
 const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 
 pub(crate) struct ReadTool;
@@ -45,7 +47,7 @@ impl PluginTool for ReadTool {
                 "required": ["file_path"]
             },
             "safety": "ReadOnly",
-            "timeout_ms": 5000,
+            "timeout_ms": FILE_TOOL_TIMEOUT_MS,
             "metadata": { "claude_pack": true, "alias_for": "read_file" }
         }).to_string())
     }
@@ -162,7 +164,7 @@ impl PluginTool for WriteTool {
                 "required": ["file_path", "content"]
             },
             "safety": "WritesFiles",
-            "timeout_ms": 5000,
+            "timeout_ms": FILE_TOOL_TIMEOUT_MS,
             "metadata": { "claude_pack": true, "alias_for": "write_file" }
         }).to_string())
     }
@@ -221,7 +223,7 @@ impl PluginTool for EditTool {
                 "required": ["file_path", "old_string", "new_string"]
             },
             "safety": "WritesFiles",
-            "timeout_ms": 5000,
+            "timeout_ms": FILE_TOOL_TIMEOUT_MS,
             "metadata": { "claude_pack": true, "alias_for": "apply_patch" }
         }).to_string())
     }
@@ -330,7 +332,7 @@ impl PluginTool for GrepTool {
                 "required": ["pattern"]
             },
             "safety": "ReadOnly",
-            "timeout_ms": 15000,
+            "timeout_ms": SEARCH_TOOL_TIMEOUT_MS,
             "metadata": { "claude_pack": true, "alias_for": "grep" }
         }).to_string())
     }
@@ -370,7 +372,11 @@ impl PluginTool for GrepTool {
             .arg(pattern)
             .arg(&target)
             .stdin(Stdio::null());
-        let lines = match run_lines_limited(command, max_results, Duration::from_secs(15)) {
+        let lines = match run_lines_limited(
+            command,
+            max_results,
+            Duration::from_millis(SEARCH_TOOL_TIMEOUT_MS),
+        ) {
             Ok(lines) => lines,
             Err(e) => {
                 return err_result(
@@ -414,7 +420,7 @@ impl PluginTool for GlobTool {
                 "required": ["pattern"]
             },
             "safety": "ReadOnly",
-            "timeout_ms": 15000,
+            "timeout_ms": SEARCH_TOOL_TIMEOUT_MS,
             "metadata": { "claude_pack": true }
         }).to_string())
     }
@@ -444,7 +450,11 @@ impl PluginTool for GlobTool {
             .arg(pattern)
             .arg(&target)
             .stdin(Stdio::null());
-        let lines = match run_lines_limited(command, max_results, Duration::from_secs(15)) {
+        let lines = match run_lines_limited(
+            command,
+            max_results,
+            Duration::from_millis(SEARCH_TOOL_TIMEOUT_MS),
+        ) {
             Ok(lines) => lines,
             Err(e) => {
                 return err_result(
@@ -967,12 +977,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bash_spec_allows_long_running_commands() {
-        let spec: Value =
-            serde_json::from_str(BashTool.spec_json().as_str()).expect("tool spec json");
+    fn spec<T: PluginTool>(tool: &T) -> Value {
+        serde_json::from_str(tool.spec_json().as_str()).expect("tool spec json")
+    }
 
-        assert_eq!(spec["timeout_ms"], SHELL_TIMEOUT_MS);
+    #[test]
+    fn tool_specs_allow_real_workspace_latency() {
+        assert_eq!(spec(&ReadTool)["timeout_ms"], FILE_TOOL_TIMEOUT_MS);
+        assert_eq!(spec(&WriteTool)["timeout_ms"], FILE_TOOL_TIMEOUT_MS);
+        assert_eq!(spec(&EditTool)["timeout_ms"], FILE_TOOL_TIMEOUT_MS);
+        assert_eq!(spec(&GrepTool)["timeout_ms"], SEARCH_TOOL_TIMEOUT_MS);
+        assert_eq!(spec(&GlobTool)["timeout_ms"], SEARCH_TOOL_TIMEOUT_MS);
+        assert_eq!(spec(&BashTool)["timeout_ms"], SHELL_TIMEOUT_MS);
+        assert!(FILE_TOOL_TIMEOUT_MS >= 60_000);
+        assert!(SEARCH_TOOL_TIMEOUT_MS >= 60_000);
         assert!(SHELL_TIMEOUT_MS >= 600_000);
     }
 

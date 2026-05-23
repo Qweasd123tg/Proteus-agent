@@ -110,6 +110,18 @@ mod tests {
         }
     }
 
+    fn spec<T: PluginTool>(tool: &T) -> Value {
+        serde_json::from_str(tool.spec_json().as_str()).expect("spec json")
+    }
+
+    #[test]
+    fn file_tool_specs_allow_slow_filesystems_and_searches() {
+        assert_eq!(spec(&ReadFileTool)["timeout_ms"], 60_000);
+        assert_eq!(spec(&WriteFileTool)["timeout_ms"], 60_000);
+        assert_eq!(spec(&ListDirTool)["timeout_ms"], 60_000);
+        assert_eq!(spec(&GrepTool)["timeout_ms"], 60_000);
+    }
+
     #[test]
     fn read_file_supports_line_ranges_and_line_numbers() {
         let dir = tempfile::tempdir().expect("workspace");
