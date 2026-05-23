@@ -43,9 +43,9 @@ use serde_json::{Value, json};
 /// после лимита, но сохраняет только первые байты.
 const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 
-/// Timeout на выполнение команды. Совпадает с builtin-значением из ядра,
-/// чтобы замена была прозрачной.
-const TIMEOUT_MS: u64 = 30_000;
+/// Timeout на выполнение команды. Shell-команды часто запускают тесты,
+/// сборки или генерацию артефактов, поэтому 30 секунд слишком агрессивны.
+const TIMEOUT_MS: u64 = 600_000;
 
 struct ShellTool;
 
@@ -298,6 +298,15 @@ mod tests {
         });
         let result = invoke_impl(&call.to_string(), &cwd.display().to_string()).expect("invoke");
         serde_json::from_str(&result).expect("tool result")
+    }
+
+    #[test]
+    fn shell_spec_allows_long_running_commands() {
+        let spec: Value =
+            serde_json::from_str(ShellTool.spec_json().as_str()).expect("tool spec json");
+
+        assert_eq!(spec["timeout_ms"], TIMEOUT_MS);
+        assert!(TIMEOUT_MS >= 600_000);
     }
 
     #[test]
