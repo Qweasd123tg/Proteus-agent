@@ -13,9 +13,17 @@ pub(super) fn format_duration_short(duration: Duration) -> String {
 
 pub(super) fn preview(result: &ToolResult) -> String {
     if let Some(error) = &result.error {
-        return error.clone();
+        let output = render_preview_output(result);
+        if output.is_empty() {
+            return error.clone();
+        }
+        return format!("{output}\n{error}");
     }
 
+    render_preview_output(result)
+}
+
+fn render_preview_output(result: &ToolResult) -> String {
     let limit = if is_user_input_result(result) {
         2_000
     } else {

@@ -104,7 +104,7 @@
     "mode": "normal"
   },
   "app_server": {
-    "approval_timeout_ms": 300000
+    "approval_timeout_ms": 0
   },
   "runtime": {
     "model_timeout_ms": 10800000,

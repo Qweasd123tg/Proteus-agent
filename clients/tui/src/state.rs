@@ -1544,6 +1544,23 @@ mod tests {
     }
 
     #[test]
+    fn failed_tool_preview_keeps_output_before_error_summary() {
+        let result = ToolResult::new(
+            agent_contracts::domain::new_call_id(),
+            false,
+            "usage: skatewind --place NAME\nerror: missing argument".to_owned(),
+            Vec::new(),
+            Some("process exited with code 1".to_owned()),
+            serde_json::json!({"tool": "Bash"}),
+        );
+
+        assert_eq!(
+            preview(&result),
+            "usage: skatewind --place NAME\nerror: missing argument\nprocess exited with code 1"
+        );
+    }
+
+    #[test]
     fn user_input_preview_keeps_all_answer_lines() {
         let output = [
             "User answered:",
