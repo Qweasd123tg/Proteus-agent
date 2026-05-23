@@ -170,9 +170,7 @@ fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
         .rev()
         .flat_map(|message| message.parts.iter().rev())
         .find_map(|part| match part {
-            ContentPart::ToolResult { result } => {
-                result.error.clone().or_else(|| Some(result.output.clone()))
-            }
+            ContentPart::ToolResult { result } => Some(result.text_or_status()),
             _ => None,
         })
 }

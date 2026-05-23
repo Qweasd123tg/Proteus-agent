@@ -661,14 +661,10 @@ fn tool_result_blocks(message: &CanonicalMessage) -> Vec<Value> {
 }
 
 fn tool_result_block(result: &crate::domain::ToolResult) -> Value {
-    let content = result
-        .error
-        .clone()
-        .unwrap_or_else(|| result.output.clone());
     json!({
         "type": "tool_result",
         "tool_use_id": result.call_id,
-        "content": content,
+        "content": result.text_or_status(),
         "is_error": !result.ok,
     })
 }
