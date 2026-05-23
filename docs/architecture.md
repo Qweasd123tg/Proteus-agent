@@ -310,8 +310,9 @@ task
 - Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим; для provider profiles `stream` по умолчанию включён и прокидывается в `provider_config.stream`. Если SSE transport/body decode ломается до финального ответа, adapter один раз повторяет тот же запрос через non-stream path и возвращает финальный `CanonicalModelResponse`; если fallback тоже не удался, ошибка уходит в `ModelStreamEvent::Error`. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`; text-only stream без финального `Response` завершается синтезированным response, а tool-call stream без `Response` считается ошибкой. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. TUI клиент `agent-tui` вставляет completed-line assistant deltas в normal scrollback; незавершённый partial tail не рендерится отдельным live-preview.
 - Approval transport подключён для CLI single-run, line REPL и app-server
   clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если
-  запрос не доставлен, timed out или app-server shutdown, approval закрывается
-  как отказ.
+  запрос не доставлен, сработал явно настроенный timeout или app-server
+  shutdown, approval закрывается как отказ. По умолчанию timeout отключён для
+  интерактивного TUI.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
 - Session resume реализован через session store и `--resume-session`; TUI `/resume`
   открывает picker по sessions текущего workspace/profile. Полный replay/index

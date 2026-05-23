@@ -317,9 +317,10 @@ review answer.
 Если approval требуется, `ToolOrchestrator` отправляет запрос через
 `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в
 терминале; app-server transport публикует approval request и ждёт ответ
-UI-клиента. App-server ограничивает ожидание через
-`app_server.approval_timeout_ms`: timeout или shutdown закрывает pending
-approval как отказ.
+UI-клиента. App-server может ограничивать ожидание через
+`app_server.approval_timeout_ms`: ненулевой timeout или shutdown закрывает
+pending approval как отказ. По умолчанию approval timeout отключён, чтобы
+интерактивный TUI ждал явного решения пользователя.
 
 Approval cache находится в transport-слое текущей runtime session. Если UI
 ответил `cache = "exact_call"`, следующий identical request с тем же `cwd`, tool

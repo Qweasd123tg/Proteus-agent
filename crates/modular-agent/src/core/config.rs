@@ -616,7 +616,7 @@ fn default_event_log_path() -> PathBuf {
 }
 
 fn default_approval_timeout_ms() -> u64 {
-    300_000
+    0
 }
 
 fn default_model_timeout_ms() -> u64 {

@@ -327,12 +327,14 @@ fn spawn_approval_forwarder(
                 continue;
             }
 
-            spawn_approval_timeout(
-                approval_id,
-                pending_approvals.clone(),
-                events.clone(),
-                approval_timeout,
-            );
+            if !approval_timeout.is_zero() {
+                spawn_approval_timeout(
+                    approval_id,
+                    pending_approvals.clone(),
+                    events.clone(),
+                    approval_timeout,
+                );
+            }
         }
     });
 }
@@ -608,6 +610,48 @@ mod tests {
                 approved: false,
             } if id == approval_id
         ));
+    }
+
+    #[tokio::test]
+    async fn approval_forwarder_waits_without_timeout_when_timeout_is_zero() {
+        let (approval_tx, approval_rx) = mpsc::channel(1);
+        let (events, _) = broadcast::channel(8);
+        let mut event_rx = events.subscribe();
+        let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+        spawn_approval_forwarder(
+            approval_rx,
+            events,
+            pending_approvals.clone(),
+            Duration::ZERO,
+        );
+
+        let (responder, mut response_rx) = oneshot::channel();
+        approval_tx
+            .send(PendingApproval {
+                request: ApprovalRequest::new(
+                    ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
+                    PathBuf::from("."),
+                    "test approval",
+                    None,
+                ),
+                responder,
+            })
+            .await
+            .unwrap();
+
+        let request_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("approval request event should arrive")
+            .expect("event stream should stay open");
+        let approval_id = match request_event {
+            AppServerEvent::ApprovalRequested { request } => request.approval_id,
+            other => panic!("expected approval request, got {other:?}"),
+        };
+
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        assert!(pending_approvals.lock().await.contains_key(&approval_id));
+        assert!(response_rx.try_recv().is_err());
     }
 
     #[tokio::test]
