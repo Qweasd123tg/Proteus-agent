@@ -293,6 +293,7 @@ agent doctor
 - [docs/runtime-and-events.md](docs/runtime-and-events.md) — REPL, session store, event log, AppServer protocol.
 - [docs/security-and-policy.md](docs/security-and-policy.md) — tool safety, approval policy, workspace boundary.
 - [docs/testing.md](docs/testing.md) — тестирование модульности.
+- [docs/dogfood-gate.md](docs/dogfood-gate.md) — минимальный v0 dogfood loop и TUI non-goals.
 - [docs/roadmap.md](docs/roadmap.md) — направление проекта и следующие волны.
 - [docs/memory-research.md](docs/memory-research.md) — research и blueprint для memory плагинов (FFI callbacks).
 - [AGENTS.md](AGENTS.md) — правила работы для агентов/контрибьюторов.

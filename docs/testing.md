@@ -129,6 +129,12 @@ canonical DTO не ломаются.
 контрактов, evals измеряют качество coding loop и показывают, выдерживают ли
 эти контракты будущий plugin-style swapping.
 
+Практический v0-критерий описан в `docs/dogfood-gate.md`: сначала нужен один
+manual dogfood loop, где после прогона можно локализовать сбой в `core`,
+`workflow`, `context`, `tools`, `policy`, `patch`, provider adapter, app-server
+или TUI. Evals и отчёты должны усиливать этот loop, а не превращаться в
+отдельную платформенную цель.
+
 Минимальный набор eval cases:
 
 - repo understanding: найти runtime boundary, policy path, model adapter flow;
