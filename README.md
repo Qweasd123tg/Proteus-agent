@@ -204,7 +204,10 @@ TUI его не переопределял, header показывает `config`
 через `--profile` или `--config`, список берётся из соответствующего config
 root, чтобы разные profiles не смешивали истории; с аргументом принимает путь к
 session directory или к `messages.jsonl` внутри неё и перезапускает app-server
-stdio на этой истории.
+stdio на этой истории. При resume workspace берётся из `session.json`, поэтому
+tools продолжают работать в исходной папке проекта даже если TUI запущен из
+другого cwd; для старых sessions без этого поля TUI пробует восстановить путь
+из encoded workspace directory.
 
 TUI рендерит assistant markdown на стороне клиента:
 headings, списки, tables, quotes, fenced code blocks, horizontal rules, links,

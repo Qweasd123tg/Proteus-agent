@@ -227,7 +227,14 @@ turn асинхронно, поэтому UI может отправить `appr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Полный UUID `SessionId` остаётся runtime/DTO
 идентификатором и пишется в `session.json`; короткий numeric id нужен только
-для человекочитаемого имени папки. Resume требует `session.json`; старые
+для человекочитаемого имени папки.
+
+`session.json` также хранит `workspace_path`. Resume использует его как
+источник cwd до создания runtime services, event log sink и tool registry,
+чтобы tools работали в исходном проекте, а не в cwd процесса, который вызвал
+resume. Для старых session metadata без `workspace_path` runtime и TUI
+пытаются восстановить путь из parent directory `<encoded-workspace>`, если
+такой путь реально существует. Resume требует `session.json`; старые
 экспериментальные форматы папок core не поддерживает.
 
 ## History
@@ -245,8 +252,8 @@ Conversation history хранит persistent сообщения: user prompts, a
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
 существующую session directory через `resume_from_session_dir`. При resume
-runtime загружает `messages.jsonl` в in-memory history и следующие turns
-дописывают только новые сообщения.
+runtime восстанавливает cwd из `session.json`, загружает `messages.jsonl` в
+in-memory history и следующие turns дописывают только новые сообщения.
 
 Во внешнем TUI `/resume [session-dir]` является app-client командой, а не
 visual-layer логикой. Без аргумента TUI открывает fullscreen picker sessions
@@ -257,9 +264,9 @@ visual-layer логикой. Без аргумента TUI открывает fu
 `--resume-session <session-dir>`; runtime вызывает `resume_from_session_dir`,
 загружает `messages.jsonl` и продолжает дописывать новые сообщения в эту же
 session directory. TUI также читает тот же `messages.jsonl` перед
-перезапуском, чтобы восстановить transcript на экране. Команда принимает путь
-прямо к `messages.jsonl`, тогда TUI использует parent directory как session
-dir.
+перезапуском, чтобы восстановить transcript на экране, и сразу переключает
+свой текущий workspace на сохранённый cwd. Команда принимает путь прямо к
+`messages.jsonl`, тогда TUI использует parent directory как session dir.
 
 CLI тоже принимает `--resume-session <session-dir-or-messages.jsonl>` для
 single-turn и interactive mode; это тот же runtime builder path, без отдельной

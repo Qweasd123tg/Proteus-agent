@@ -193,11 +193,21 @@ impl AgentAppServer {
 
     fn launch_inner(
         config: AppConfig,
-        cwd: PathBuf,
+        mut cwd: PathBuf,
         config_path: Option<&Path>,
         module_catalog: Option<BuiltinModuleCatalog>,
         resume_session_dir: Option<PathBuf>,
     ) -> Result<AppServerHandle> {
+        let resume_session_dir = resume_session_dir
+            .map(normalize_session_dir_path)
+            .transpose()?;
+        if let Some(session_dir) = resume_session_dir.as_deref()
+            && let Some(workspace_path) =
+                crate::core::session_workspace_from_session_dir(session_dir)?
+        {
+            cwd = workspace_path;
+        }
+
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
         let event_log_path =
             crate::core::runtime::event_log_path(&config.event_log.path, config_path, &cwd);
@@ -224,7 +234,6 @@ impl AgentAppServer {
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
         if let Some(session_dir) = resume_session_dir {
-            let session_dir = normalize_session_dir_path(session_dir)?;
             let session_id = session_id_from_session_dir(&session_dir)?;
             builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id());
         }

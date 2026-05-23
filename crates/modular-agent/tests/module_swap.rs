@@ -2090,6 +2090,43 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
     assert_eq!(lines, 4);
 }
 
+#[tokio::test]
+async fn runtime_resume_uses_workspace_from_session_metadata() {
+    let original_dir = temp_workspace();
+    let wrong_dir = temp_workspace();
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    std::fs::write(&config_path, "").expect("config file");
+    let first_runtime = AgentRuntime::builder(test_config(), original_dir.path().to_path_buf())
+        .with_config_path(Some(&config_path))
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
+
+    let first = first_runtime
+        .run("create persisted session".to_owned())
+        .await
+        .unwrap();
+    let session_dir = first_runtime.session_dir().unwrap().to_path_buf();
+    let session_id = first.metadata["session_id"]
+        .as_str()
+        .expect("session id")
+        .parse()
+        .expect("session uuid");
+    let thread_id = first.metadata["thread_id"]
+        .as_str()
+        .expect("thread id")
+        .parse()
+        .expect("thread uuid");
+    let resumed = AgentRuntime::builder(test_config(), wrong_dir.path().to_path_buf())
+        .resume_from_session_dir(session_dir, session_id, thread_id)
+        .with_module_catalog(test_catalog())
+        .build()
+        .unwrap();
+
+    assert_eq!(resumed.cwd(), original_dir.path());
+}
+
 // list_dir/read_file workspace-escape and error-message tests moved to
 // the file-tools plugin alongside the implementations themselves. Direct patch
 // algorithm tests live in plugins/default/direct-patch; core tests keep only the tool

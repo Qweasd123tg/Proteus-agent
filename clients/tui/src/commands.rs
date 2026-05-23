@@ -138,18 +138,26 @@ pub(crate) async fn resume_session_dir(
     session_dir: PathBuf,
 ) -> Result<()> {
     let history = load_session_history(&session_dir)?;
+    let resume_cwd = session_workspace_from_session_dir(&session_dir)?.unwrap_or_else(|| {
+        state
+            .cwd()
+            .canonicalize()
+            .unwrap_or_else(|_| state.cwd().to_path_buf())
+    });
     let context_usage = load_session_context_usage(
         &session_dir,
         driver_config.config_path.as_deref(),
-        state.cwd(),
+        &resume_cwd,
     )?;
     let mut resumed_config = driver_config.clone();
     resumed_config.resume_session = Some(session_dir.clone());
+    resumed_config.cwd = Some(resume_cwd.clone());
 
     driver.shutdown().await?;
     *driver = AgentDriver::spawn(resumed_config).await?;
     driver_config.resume_session = Some(session_dir.clone());
-    state.reset_after_resume_with_history(session_dir, history);
+    driver_config.cwd = Some(resume_cwd.clone());
+    state.reset_after_resume_with_history(session_dir, resume_cwd, history);
     state.restore_context_usage(context_usage);
     Ok(())
 }
@@ -309,6 +317,38 @@ fn read_session_id_string(session_dir: &Path) -> Result<Option<String>> {
         .get("session_id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned))
+}
+
+fn session_workspace_from_session_dir(session_dir: &Path) -> Result<Option<PathBuf>> {
+    let metadata_path = session_dir.join("session.json");
+    let content = match std::fs::read_to_string(&metadata_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", metadata_path.display()));
+        }
+    };
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
+    if let Some(workspace_path) = value
+        .get("workspace_path")
+        .and_then(serde_json::Value::as_str)
+    {
+        return Ok(Some(PathBuf::from(workspace_path)));
+    }
+    Ok(infer_workspace_path_from_session_dir(session_dir))
+}
+
+fn infer_workspace_path_from_session_dir(session_dir: &Path) -> Option<PathBuf> {
+    let encoded = session_dir.parent()?.file_name()?.to_str()?;
+    let mut path = PathBuf::from("/");
+    let mut saw_part = false;
+    for part in encoded.split('|').filter(|part| !part.is_empty()) {
+        saw_part = true;
+        path.push(part);
+    }
+    (saw_part && path.exists()).then_some(path)
 }
 
 fn candidate_event_log_paths(config_path: Option<&Path>, cwd: &Path) -> Vec<PathBuf> {
