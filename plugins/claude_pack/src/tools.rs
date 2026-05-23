@@ -18,7 +18,7 @@ use crate::util::{
     workspace_path, workspace_path_for_write,
 };
 
-const SHELL_TIMEOUT_MS: u64 = 30_000;
+const SHELL_TIMEOUT_MS: u64 = 600_000;
 const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 
 pub(crate) struct ReadTool;
@@ -965,6 +965,15 @@ mod tests {
             RResult::ROk(result) => serde_json::from_str(result.as_str()).expect("ToolResult json"),
             RResult::RErr(error) => panic!("plugin error: {}", error.message),
         }
+    }
+
+    #[test]
+    fn bash_spec_allows_long_running_commands() {
+        let spec: Value =
+            serde_json::from_str(BashTool.spec_json().as_str()).expect("tool spec json");
+
+        assert_eq!(spec["timeout_ms"], SHELL_TIMEOUT_MS);
+        assert!(SHELL_TIMEOUT_MS >= 600_000);
     }
 
     #[test]
