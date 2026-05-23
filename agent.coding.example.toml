@@ -45,7 +45,7 @@ project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
 
 [app_server]
-approval_timeout_ms = 300000
+approval_timeout_ms = 0
 
 [runtime]
 model_timeout_ms = 10800000

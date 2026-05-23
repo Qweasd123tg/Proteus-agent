@@ -952,6 +952,21 @@ mod tests {
         }
     }
 
+    fn invoke_bash_tool(cwd: &Path, command: &str) -> Value {
+        let call = json!({
+            "id": "call-1",
+            "name": "Bash",
+            "args": { "command": command }
+        });
+        match BashTool.invoke_json(
+            RString::from(call.to_string()),
+            RString::from(cwd.display().to_string()),
+        ) {
+            RResult::ROk(result) => serde_json::from_str(result.as_str()).expect("ToolResult json"),
+            RResult::RErr(error) => panic!("plugin error: {}", error.message),
+        }
+    }
+
     #[test]
     fn read_directory_error_does_not_suggest_bash_or_glob_fallback() {
         let workspace = temp_workspace();
@@ -981,6 +996,20 @@ mod tests {
         assert!(error.contains("Did you mean"));
         assert!(error.contains("src/main.ts"));
         assert!(!error.contains("Bash ls"));
+
+        std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn bash_failed_command_keeps_stderr_in_output() {
+        let workspace = temp_workspace();
+
+        let result = invoke_bash_tool(&workspace, "printf 'bad usage\\n' >&2; exit 2");
+
+        assert!(!result["ok"].as_bool().expect("ok"));
+        assert_eq!(result["output"], "bad usage\n");
+        assert_eq!(result["error"], "process exited with code 2");
+        assert_eq!(result["metadata"]["stderr_bytes"], 10);
 
         std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
     }
