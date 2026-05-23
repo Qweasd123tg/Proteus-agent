@@ -82,6 +82,7 @@ pub enum ApprovalCacheScope {
     #[default]
     None,
     ExactCall,
+    ToolInCwd,
 }
 
 #[async_trait]

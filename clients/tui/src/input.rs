@@ -151,7 +151,7 @@ pub(crate) async fn handle_term_event(
                                     approval_id: id,
                                     approved: true,
                                     note: None,
-                                    cache: ApprovalCacheScope::ExactCall,
+                                    cache: ApprovalCacheScope::ToolInCwd,
                                 })
                                 .await?;
                             return Ok(true);
