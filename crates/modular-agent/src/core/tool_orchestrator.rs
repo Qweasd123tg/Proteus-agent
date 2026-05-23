@@ -14,6 +14,8 @@ use crate::{
     domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
 };
 
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
+
 #[derive(Debug, Clone)]
 pub struct ToolOrchestrator {
     default_timeout_ms: u64,
@@ -24,7 +26,7 @@ impl Default for ToolOrchestrator {
     fn default() -> Self {
         Self {
             default_timeout_ms: 30_000,
-            max_output_bytes: 20_000,
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
         }
     }
 }
@@ -216,12 +218,12 @@ impl ToolOrchestrator {
 
     fn truncate_result(&self, mut result: ToolResult) -> ToolResult {
         let (output, output_truncated, output_original_bytes) =
-            truncate_utf8(result.output, self.max_output_bytes);
+            truncate_utf8(result.output, self.max_output_bytes, "output");
         result.output = output;
 
         let (error, error_truncated, error_original_bytes) = result
             .error
-            .map(|error| truncate_utf8(error, self.max_output_bytes))
+            .map(|error| truncate_utf8(error, self.max_output_bytes, "error"))
             .map(|(error, truncated, original_bytes)| (Some(error), truncated, original_bytes))
             .unwrap_or((None, false, 0));
         result.error = error;
@@ -252,17 +254,51 @@ impl ToolOrchestrator {
     }
 }
 
-fn truncate_utf8(value: String, max_bytes: usize) -> (String, bool, usize) {
+fn truncate_utf8(value: String, max_bytes: usize, kind: &str) -> (String, bool, usize) {
     let original_bytes = value.len();
     if original_bytes <= max_bytes {
         return (value, false, original_bytes);
     }
 
+    let mut prefix_limit = max_bytes;
+    loop {
+        let prefix = utf8_prefix(&value, prefix_limit);
+        let notice = truncation_notice(kind, prefix.len(), original_bytes);
+        let combined_len = prefix.len() + notice.len();
+        if combined_len <= max_bytes {
+            return (format!("{prefix}{notice}"), true, original_bytes);
+        }
+
+        if prefix_limit == 0 {
+            return (
+                utf8_prefix(&notice, max_bytes).to_owned(),
+                true,
+                original_bytes,
+            );
+        }
+
+        let overflow = combined_len - max_bytes;
+        prefix_limit = prefix_limit.saturating_sub(overflow.max(1));
+    }
+}
+
+fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+
     let mut end = max_bytes;
-    while !value.is_char_boundary(end) {
+    while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    (value[..end].to_owned(), true, original_bytes)
+    &value[..end]
+}
+
+fn truncation_notice(kind: &str, shown_bytes: usize, original_bytes: usize) -> String {
+    format!(
+        "\n\n[tool {kind} truncated: showing first {shown_bytes} of {original_bytes} bytes. \
+Re-run the tool with a narrower range or explicit limit for the remaining content.]"
+    )
 }
 
 fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
@@ -332,4 +368,35 @@ fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) 
         return format!("tool '{tool_name}' requires arg '{arg_name}'");
     };
     format!("tool '{tool_name}' requires {expected_type} arg '{arg_name}'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_utf8_adds_visible_notice_within_limit() {
+        let original = "a".repeat(120);
+
+        let (output, truncated, original_bytes) = truncate_utf8(original, 80, "output");
+
+        assert!(truncated);
+        assert_eq!(original_bytes, 120);
+        assert!(output.len() <= 80);
+        assert!(output.contains("[tool output truncated:"));
+        assert!(output.contains("of 120 bytes"));
+    }
+
+    #[test]
+    fn truncate_utf8_preserves_character_boundaries() {
+        let original = "й".repeat(80);
+
+        let (output, truncated, original_bytes) = truncate_utf8(original, 96, "error");
+
+        assert!(truncated);
+        assert_eq!(original_bytes, 160);
+        assert!(output.len() <= 96);
+        assert!(output.is_char_boundary(output.len()));
+        assert!(output.contains("[tool error truncated:"));
+    }
 }
