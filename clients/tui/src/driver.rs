@@ -64,6 +64,7 @@ impl AgentDriver {
             cmd.arg("--permission-mode").arg(permission_mode_arg(mode));
         }
         cmd.arg("server").arg("stdio");
+        cmd.env("AGENT_SHELL_EXTERNAL_TERMINAL", "ptyxis");
         // stderr ядра → /tmp/agent-tui-core.log (append).
         // Никаких eprintln здесь — мы уже можем быть в alternate screen,
         // и вывод поверх ratatui ломает кадр. Путь к логу фиксирован:
