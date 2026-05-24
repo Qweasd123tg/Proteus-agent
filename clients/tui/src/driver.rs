@@ -9,7 +9,11 @@
 //! - Stderr child'а просто форвардится в наш stderr — это ядро логирует
 //!   загрузку плагинов и т.п., видно в терминале если TUI запущен из него.
 
-use std::path::PathBuf;
+use std::{
+    io::{BufRead, BufReader as StdBufReader},
+    path::PathBuf,
+    process::{Child as StdChild, Command as StdCommand, Stdio},
+};
 
 use agent_contracts::{
     app_protocol::{StdioOutput, StdioRequest},
@@ -21,6 +25,75 @@ use tokio::{
     process::{Child, ChildStdin, Command},
     sync::mpsc,
 };
+
+const EXTERNAL_TERMINAL_ENV: &str = "AGENT_SHELL_EXTERNAL_TERMINAL";
+const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "AGENT_SHELL_EXTERNAL_DBUS_ADDRESS";
+
+pub struct ExternalTerminalSession {
+    dbus_daemon: StdChild,
+    address: String,
+}
+
+impl ExternalTerminalSession {
+    pub fn ptyxis() -> Result<Self> {
+        let mut dbus_daemon = StdCommand::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1", "--nopidfile"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("failed to start private D-Bus session for Ptyxis tools")?;
+        let stdout = dbus_daemon
+            .stdout
+            .take()
+            .context("private D-Bus session did not expose its address")?;
+        let mut address = String::new();
+        StdBufReader::new(stdout)
+            .read_line(&mut address)
+            .context("failed to read private D-Bus address for Ptyxis tools")?;
+        let address = address.trim().to_owned();
+        if address.is_empty() {
+            let _ = dbus_daemon.kill();
+            anyhow::bail!("private D-Bus session returned an empty Ptyxis address");
+        }
+        let service_ready = StdCommand::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.gnome.Ptyxis",
+                "--object-path",
+                "/org/gnome/Ptyxis",
+                "--method",
+                "org.freedesktop.DBus.Peer.Ping",
+            ])
+            .env("DBUS_SESSION_BUS_ADDRESS", &address)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("failed to activate dedicated Ptyxis service for terminal tools")?;
+        if !service_ready.success() {
+            let _ = dbus_daemon.kill();
+            anyhow::bail!("dedicated Ptyxis service did not start for terminal tools");
+        }
+        Ok(Self {
+            dbus_daemon,
+            address,
+        })
+    }
+
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+}
+
+impl Drop for ExternalTerminalSession {
+    fn drop(&mut self) {
+        let _ = self.dbus_daemon.kill();
+        let _ = self.dbus_daemon.wait();
+    }
+}
 
 pub struct AgentDriver {
     child: Child,
@@ -40,6 +113,8 @@ pub struct DriverConfig {
     pub resume_session: Option<PathBuf>,
     /// Optional override for core permission mode.
     pub permission_mode: Option<PermissionMode>,
+    /// Private D-Bus address used only when launching visible Ptyxis tool tabs.
+    pub external_terminal_dbus_address: Option<String>,
 }
 
 impl AgentDriver {
@@ -64,7 +139,10 @@ impl AgentDriver {
             cmd.arg("--permission-mode").arg(permission_mode_arg(mode));
         }
         cmd.arg("server").arg("stdio");
-        cmd.env("AGENT_SHELL_EXTERNAL_TERMINAL", "ptyxis");
+        if let Some(address) = &cfg.external_terminal_dbus_address {
+            cmd.env(EXTERNAL_TERMINAL_ENV, "ptyxis");
+            cmd.env(EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV, address);
+        }
         // stderr ядра → /tmp/agent-tui-core.log (append).
         // Никаких eprintln здесь — мы уже можем быть в alternate screen,
         // и вывод поверх ratatui ломает кадр. Путь к логу фиксирован:
