@@ -50,6 +50,7 @@ const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 /// сборки или генерацию артефактов, поэтому 30 секунд слишком агрессивны.
 const TIMEOUT_MS: u64 = 600_000;
 const EXTERNAL_TERMINAL_ENV: &str = "AGENT_SHELL_EXTERNAL_TERMINAL";
+const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "AGENT_SHELL_EXTERNAL_DBUS_ADDRESS";
 const PTYXIS_TERMINAL: &str = "ptyxis";
 
 struct ShellTool;
@@ -58,7 +59,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Agent TUI launches commands in a visible Ptyxis tab that remains open after completion. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Agent TUI launches commands in a visible tab of its dedicated Ptyxis tool window; tabs remain open after completion. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -223,28 +224,60 @@ exec bash --noprofile --norc -i
 }
 
 fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<()> {
-    let status = Command::new(PTYXIS_TERMINAL)
+    let mut launcher = Command::new(PTYXIS_TERMINAL);
+    if let Some(address) = std::env::var_os(EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV) {
+        launcher.env("DBUS_SESSION_BUS_ADDRESS", address);
+    }
+    let mut child = launcher
         .arg("--tab")
         .arg("--working-directory")
         .arg(cwd)
         .arg("--title")
         .arg(format!("agent shell · {}", command_summary(command)))
-        .arg("--")
-        .arg("bash")
-        .arg(&paths.wrapper)
-        .arg(command)
-        .arg(&paths.stdout)
-        .arg(&paths.stderr)
-        .arg(&paths.status)
-        .arg(&paths.pid)
+        .arg("--execute")
+        .arg(ptyxis_execute_command(
+            command,
+            paths,
+            std::env::var("DBUS_SESSION_BUS_ADDRESS").ok().as_deref(),
+        ))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .with_context(|| "failed to open Ptyxis terminal")?;
-    if !status.success() {
-        return Err(anyhow!("Ptyxis failed to open a terminal tab: {status}"));
-    }
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
+}
+
+fn ptyxis_execute_command(
+    command: &str,
+    paths: &PtyxisCapturePaths,
+    original_dbus: Option<&str>,
+) -> String {
+    let mut execute = match original_dbus {
+        Some(address) => format!("env DBUS_SESSION_BUS_ADDRESS={} ", shell_quote(address)),
+        None => "env -u DBUS_SESSION_BUS_ADDRESS ".to_owned(),
+    };
+    execute.push_str("bash ");
+    let arguments = [
+        paths.wrapper.display().to_string(),
+        command.to_owned(),
+        paths.stdout.display().to_string(),
+        paths.stderr.display().to_string(),
+        paths.status.display().to_string(),
+        paths.pid.display().to_string(),
+    ];
+    for argument in &arguments {
+        execute.push_str(&shell_quote(argument));
+        execute.push(' ');
+    }
+    execute.pop();
+    execute
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn command_summary(command: &str) -> String {
@@ -581,5 +614,17 @@ mod tests {
         assert!(wrapper.contains("printf '%s\\n' \"$status\""));
         assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
         assert!(wrapper.contains("exec bash --noprofile --norc -i"));
+    }
+
+    #[test]
+    fn ptyxis_execute_command_restores_desktop_bus_and_quotes_command() {
+        let capture_dir = tempfile::tempdir().expect("capture dir");
+        let paths = PtyxisCapturePaths::new(capture_dir.path());
+        let execute =
+            ptyxis_execute_command("printf '%s' done", &paths, Some("unix:path=/tmp/user bus"));
+        assert!(
+            execute.starts_with("env DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/user bus' bash ")
+        );
+        assert!(execute.contains("'printf '\"'\"'%s'\"'\"' done'"));
     }
 }

@@ -12,7 +12,7 @@ use crossterm::{
 };
 
 use crate::{
-    driver::{AgentDriver, DriverConfig},
+    driver::{AgentDriver, DriverConfig, ExternalTerminalSession},
     inline_terminal::InlineTerminalState,
     input::handle_term_event,
     profiles::Cli,
@@ -25,6 +25,7 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 const ACTIVITY_STATUS_INTERVAL: Duration = Duration::from_millis(200);
 
 pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> {
+    let external_terminal_session = ExternalTerminalSession::ptyxis().ok();
     let cwd = cli
         .cwd
         .clone()
@@ -35,7 +36,11 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
         cwd: Some(cwd.clone()),
         resume_session: None,
         permission_mode: cli.permission_mode,
+        external_terminal_dbus_address: external_terminal_session
+            .as_ref()
+            .map(|session| session.address().to_owned()),
     };
+    let _external_terminal_session = external_terminal_session;
     let mut driver_config = driver_config;
     let mut driver = AgentDriver::spawn(driver_config.clone()).await?;
 
