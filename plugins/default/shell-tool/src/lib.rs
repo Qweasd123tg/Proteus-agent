@@ -58,7 +58,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Agent TUI launches commands in a visible Ptyxis window. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Agent TUI launches commands in a visible Ptyxis tab that remains open after completion. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -215,13 +215,16 @@ command_pid=$!
 printf '%s\n' "$command_pid" > "$pid_path"
 wait "$command_pid"
 status=$?
-finish "$status"
+trap - HUP INT TERM
+printf '%s\n' "$status" > "$status_path"
+printf '\n[agent] command finished with exit code %s; this tab remains open.\n' "$status"
+exec bash --noprofile --norc -i
 "#
 }
 
 fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<()> {
     let status = Command::new(PTYXIS_TERMINAL)
-        .arg("--new-window")
+        .arg("--tab")
         .arg("--working-directory")
         .arg(cwd)
         .arg("--title")
@@ -239,7 +242,7 @@ fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<
         .status()
         .with_context(|| "failed to open Ptyxis terminal")?;
     if !status.success() {
-        return Err(anyhow!("Ptyxis failed to open a terminal window: {status}"));
+        return Err(anyhow!("Ptyxis failed to open a terminal tab: {status}"));
     }
     Ok(())
 }
@@ -571,11 +574,12 @@ mod tests {
     }
 
     #[test]
-    fn ptyxis_wrapper_streams_output_and_records_status() {
+    fn ptyxis_wrapper_streams_output_records_status_and_stays_open() {
         let wrapper = ptyxis_wrapper_script();
         assert!(wrapper.contains("tee \"$stdout_path\""));
         assert!(wrapper.contains("tee \"$stderr_path\""));
         assert!(wrapper.contains("printf '%s\\n' \"$status\""));
         assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
+        assert!(wrapper.contains("exec bash --noprofile --norc -i"));
     }
 }

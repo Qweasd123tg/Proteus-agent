@@ -584,7 +584,7 @@ impl PluginTool for BashTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Bash",
-            "description": "Run a bash-compatible shell command in the workspace. When used from agent-tui the command opens in a visible Ptyxis window. Reserve this for terminal/system operations. Do not use it for reading, writing, editing, finding files, or searching contents when Read, Write, Edit, Glob, or Grep can do the job. Be careful with destructive git/filesystem commands.",
+            "description": "Run a bash-compatible shell command in the workspace. When used from agent-tui the command opens in a visible Ptyxis tab that remains open after completion. Reserve this for terminal/system operations. Do not use it for reading, writing, editing, finding files, or searching contents when Read, Write, Edit, Glob, or Grep can do the job. Be careful with destructive git/filesystem commands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -826,13 +826,16 @@ command_pid=$!
 printf '%s\n' "$command_pid" > "$pid_path"
 wait "$command_pid"
 status=$?
-finish "$status"
+trap - HUP INT TERM
+printf '%s\n' "$status" > "$status_path"
+printf '\n[agent] command finished with exit code %s; this tab remains open.\n' "$status"
+exec bash --noprofile --norc -i
 "#
 }
 
 fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<(), String> {
     let status = Command::new(PTYXIS_TERMINAL)
-        .arg("--new-window")
+        .arg("--tab")
         .arg("--working-directory")
         .arg(cwd)
         .arg("--title")
@@ -850,7 +853,7 @@ fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<
         .status()
         .map_err(|error| format!("failed to open Ptyxis terminal: {error}"))?;
     if !status.success() {
-        return Err(format!("Ptyxis failed to open a terminal window: {status}"));
+        return Err(format!("Ptyxis failed to open a terminal tab: {status}"));
     }
     Ok(())
 }
@@ -1242,9 +1245,10 @@ mod tests {
     }
 
     #[test]
-    fn ptyxis_wrapper_streams_output_and_records_status() {
+    fn ptyxis_wrapper_streams_output_records_status_and_stays_open() {
         let wrapper = ptyxis_wrapper_script();
         assert!(wrapper.contains("tee \"$stdout_path\""));
         assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
+        assert!(wrapper.contains("exec bash --noprofile --norc -i"));
     }
 }
