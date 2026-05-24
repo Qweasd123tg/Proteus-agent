@@ -431,7 +431,16 @@ fn phase_tools(
 
 fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
     let reason = input.request.reason.as_deref().unwrap_or_default();
-    let preferred = if reason.contains("verify") {
+    let query = input
+        .request
+        .query
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let explicitly_requests_shell = ["bash", "shell", "команд", "терминал"]
+        .iter()
+        .any(|needle| query.contains(needle));
+    let preferred = if reason.contains("verify") || explicitly_requests_shell {
         &[
             "Bash",
             "shell",
@@ -963,6 +972,17 @@ mod tests {
                 "apply_patch"
             ]
         );
+    }
+
+    #[test]
+    fn explicit_shell_request_exposes_bash_during_explore() {
+        let mut input = input("claude.explore");
+        input.request.query = Some("выполни команду через shell".to_owned());
+        let names = select_tools(input)
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names.first().map(String::as_str), Some("Bash"));
     }
 
     #[test]
