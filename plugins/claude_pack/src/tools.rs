@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{BufRead, BufReader, ErrorKind, Read},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -12,6 +13,7 @@ use std::os::unix::process::CommandExt;
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::{PluginTool, PluginToolError};
 use serde_json::{Value, json};
+use tempfile::TempDir;
 
 use crate::util::{
     err_result, ok_result, optional_positive_usize, parse_call, plugin_error, required_string,
@@ -22,6 +24,8 @@ const SHELL_TIMEOUT_MS: u64 = 600_000;
 const FILE_TOOL_TIMEOUT_MS: u64 = 60_000;
 const SEARCH_TOOL_TIMEOUT_MS: u64 = 60_000;
 const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
+const EXTERNAL_TERMINAL_ENV: &str = "AGENT_SHELL_EXTERNAL_TERMINAL";
+const PTYXIS_TERMINAL: &str = "ptyxis";
 
 pub(crate) struct ReadTool;
 pub(crate) struct WriteTool;
@@ -580,7 +584,7 @@ impl PluginTool for BashTool {
     fn spec_json(&self) -> RString {
         RString::from(json!({
             "name": "Bash",
-            "description": "Run a bash-compatible shell command in the workspace. Reserve this for terminal/system operations. Do not use it for reading, writing, editing, finding files, or searching contents when Read, Write, Edit, Glob, or Grep can do the job. Be careful with destructive git/filesystem commands.",
+            "description": "Run a bash-compatible shell command in the workspace. When used from agent-tui the command opens in a visible Ptyxis window. Reserve this for terminal/system operations. Do not use it for reading, writing, editing, finding files, or searching contents when Read, Write, Edit, Glob, or Grep can do the job. Be careful with destructive git/filesystem commands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -704,9 +708,16 @@ impl PluginTool for TodoWriteTool {
 fn invoke_bash(call_json: &str, cwd: &str) -> Result<String, String> {
     let call = parse_call(call_json)?;
     let command = required_string(&call.args, "command", &call.name)?;
-    let child = spawn_shell(command, cwd).map_err(|e| format!("failed to spawn shell: {e}"))?;
-    let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(SHELL_TIMEOUT_MS))
-        .map_err(|e| format!("failed to wait for shell: {e}"))?;
+    let (output, timed_out, external_terminal) = if should_use_ptyxis() {
+        let (output, timed_out) =
+            run_in_ptyxis(command, cwd, Duration::from_millis(SHELL_TIMEOUT_MS))?;
+        (output, timed_out, Some(PTYXIS_TERMINAL))
+    } else {
+        let child = spawn_shell(command, cwd).map_err(|e| format!("failed to spawn shell: {e}"))?;
+        let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(SHELL_TIMEOUT_MS))
+            .map_err(|e| format!("failed to wait for shell: {e}"))?;
+        (output, timed_out, None)
+    };
     let stdout = String::from_utf8_lossy(&output.stdout.bytes).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr.bytes).into_owned();
     let mut rendered = stdout;
@@ -743,9 +754,190 @@ fn invoke_bash(call_json: &str, cwd: &str) -> Result<String, String> {
             "stderr_truncated": output.stderr.truncated,
             "timed_out": timed_out,
             "timeout_ms": SHELL_TIMEOUT_MS,
+            "external_terminal": external_terminal,
         }
     })
     .to_string())
+}
+
+fn should_use_ptyxis() -> bool {
+    std::env::var(EXTERNAL_TERMINAL_ENV)
+        .ok()
+        .is_some_and(|value| value.eq_ignore_ascii_case(PTYXIS_TERMINAL))
+}
+
+fn run_in_ptyxis(
+    command: &str,
+    cwd: &str,
+    timeout: Duration,
+) -> Result<(ShellOutput, bool), String> {
+    let capture_dir = tempfile::Builder::new()
+        .prefix("agent-bash-ptyxis-")
+        .tempdir()
+        .map_err(|error| format!("failed to create Ptyxis capture directory: {error}"))?;
+    let paths = PtyxisCapturePaths::new(capture_dir.path());
+    fs::write(&paths.wrapper, ptyxis_wrapper_script())
+        .map_err(|error| format!("failed to write Ptyxis wrapper: {error}"))?;
+    spawn_ptyxis(command, cwd, &paths)?;
+    wait_for_ptyxis_result(capture_dir, paths, timeout)
+}
+
+struct PtyxisCapturePaths {
+    wrapper: PathBuf,
+    stdout: PathBuf,
+    stderr: PathBuf,
+    status: PathBuf,
+    pid: PathBuf,
+}
+
+impl PtyxisCapturePaths {
+    fn new(dir: &Path) -> Self {
+        Self {
+            wrapper: dir.join("run.sh"),
+            stdout: dir.join("stdout.log"),
+            stderr: dir.join("stderr.log"),
+            status: dir.join("status"),
+            pid: dir.join("pid"),
+        }
+    }
+}
+
+fn ptyxis_wrapper_script() -> &'static str {
+    r#"#!/usr/bin/env bash
+set +e
+command_text="$1"
+stdout_path="$2"
+stderr_path="$3"
+status_path="$4"
+pid_path="$5"
+command_pid=""
+finish() {
+    local status="$1"
+    trap - EXIT HUP INT TERM
+    if [ -n "$command_pid" ]; then
+        kill -- "-$command_pid" 2>/dev/null || true
+    fi
+    printf '%s\n' "$status" > "$status_path"
+    exit "$status"
+}
+trap 'finish 130' HUP INT TERM
+setsid sh -lc "$command_text" > >(tee "$stdout_path") 2> >(tee "$stderr_path" >&2) &
+command_pid=$!
+printf '%s\n' "$command_pid" > "$pid_path"
+wait "$command_pid"
+status=$?
+finish "$status"
+"#
+}
+
+fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<(), String> {
+    let status = Command::new(PTYXIS_TERMINAL)
+        .arg("--new-window")
+        .arg("--working-directory")
+        .arg(cwd)
+        .arg("--title")
+        .arg(format!("agent Bash · {}", command_summary(command)))
+        .arg("--")
+        .arg("bash")
+        .arg(&paths.wrapper)
+        .arg(command)
+        .arg(&paths.stdout)
+        .arg(&paths.stderr)
+        .arg(&paths.status)
+        .arg(&paths.pid)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("failed to open Ptyxis terminal: {error}"))?;
+    if !status.success() {
+        return Err(format!("Ptyxis failed to open a terminal window: {status}"));
+    }
+    Ok(())
+}
+
+fn command_summary(command: &str) -> String {
+    const MAX_TITLE_CHARS: usize = 60;
+    let line = command.lines().next().unwrap_or_default().trim();
+    if line.chars().count() <= MAX_TITLE_CHARS {
+        return line.to_owned();
+    }
+    let mut result = line.chars().take(MAX_TITLE_CHARS - 1).collect::<String>();
+    result.push('…');
+    result
+}
+
+fn wait_for_ptyxis_result(
+    _capture_dir: TempDir,
+    paths: PtyxisCapturePaths,
+    timeout: Duration,
+) -> Result<(ShellOutput, bool), String> {
+    let started = Instant::now();
+    loop {
+        if let Ok(status_text) = fs::read_to_string(&paths.status) {
+            let code = status_text
+                .trim()
+                .parse::<i32>()
+                .map_err(|error| format!("failed to parse Ptyxis status: {error}"))?;
+            return Ok((read_ptyxis_output(&paths, code)?, false));
+        }
+        if started.elapsed() >= timeout {
+            kill_ptyxis_command(&paths.pid);
+            return Ok((read_ptyxis_output(&paths, 124)?, true));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+fn read_ptyxis_output(paths: &PtyxisCapturePaths, code: i32) -> Result<ShellOutput, String> {
+    Ok(ShellOutput {
+        status: exit_status_from_code(code),
+        stdout: read_bounded_file(&paths.stdout)?,
+        stderr: read_bounded_file(&paths.stderr)?,
+    })
+}
+
+fn read_bounded_file(path: &Path) -> Result<BoundedBuffer, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error.to_string()),
+    };
+    let original_len = bytes.len();
+    Ok(BoundedBuffer {
+        bytes: bytes.into_iter().take(OUTPUT_LIMIT_BYTES).collect(),
+        original_len,
+        truncated: original_len > OUTPUT_LIMIT_BYTES,
+    })
+}
+
+#[cfg(unix)]
+fn kill_ptyxis_command(pid_path: &Path) {
+    let Ok(pid_text) = fs::read_to_string(pid_path) else {
+        return;
+    };
+    let Ok(pgid) = pid_text.trim().parse::<i32>() else {
+        return;
+    };
+    unsafe {
+        let _ = libc::kill(-pgid, libc::SIGKILL);
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_ptyxis_command(_pid_path: &Path) {}
+
+#[cfg(unix)]
+fn exit_status_from_code(code: i32) -> ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+
+    ExitStatus::from_raw(code << 8)
+}
+
+#[cfg(windows)]
+fn exit_status_from_code(code: i32) -> ExitStatus {
+    use std::os::windows::process::ExitStatusExt;
+
+    ExitStatus::from_raw(code as u32)
 }
 
 fn spawn_shell(command: &str, cwd: &str) -> std::io::Result<Child> {
@@ -1039,5 +1231,20 @@ mod tests {
         assert_eq!(result["metadata"]["stderr_bytes"], 10);
 
         std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn ptyxis_command_title_is_single_line_and_bounded() {
+        assert_eq!(command_summary("cargo test\nignored"), "cargo test");
+        let title = command_summary(&"x".repeat(100));
+        assert!(title.ends_with('…'));
+        assert!(title.chars().count() <= 60);
+    }
+
+    #[test]
+    fn ptyxis_wrapper_streams_output_and_records_status() {
+        let wrapper = ptyxis_wrapper_script();
+        assert!(wrapper.contains("tee \"$stdout_path\""));
+        assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
     }
 }
