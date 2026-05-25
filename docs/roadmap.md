@@ -198,8 +198,8 @@ Scope:
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, `renderer = "text"`.
-  `install.sh` собирает и копирует стандартные плагины в `~/.agent/plugins/`
-  автоматически; experimental packs ставятся opt-in.
+  `install.sh` собирает и копирует runtime-плагины в `~/.agent/plugins/`
+  автоматически; ABI-примеры `hello-*` остаются только в workspace/tests.
 
 Следующий scope:
 
@@ -260,9 +260,9 @@ Scope:
 ### Best-Of Packs
 
 - Эксперименты с чужими agent-shape должны оставаться вне active profile и
-  quality gate, пока не доказали практическую пользу. Старый Claude-like
-  baseline убран в `archive/claude_pack`; если понадобится вернуться к идее,
-  сначала выделить минимальные полезные части в существующие slots.
+  quality gate, пока не доказали практическую пользу. Если понадобится
+  вернуться к таким идеям, сначала выделить минимальные полезные части в
+  существующие slots.
 - Deferred tool exposure через `ToolExposure`: модель видит минимальный набор
   tools и может получить дополнительные tools через searchable catalog.
 - Fuzzy file path search как `SearchBackend`/tool provider, без

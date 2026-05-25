@@ -27,10 +27,7 @@ crates/
 clients/
   tui/              — внешний terminal-клиент: normal scrollback + bottom pane + overlays
 plugins/
-  default/             — стандартные плагины, которые ставит install.sh
-    hello-renderer/      — демо: декоративная рамка вокруг ответа
-    hello-tool/          — демо: tool current_time
-    hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
+  default/             — стандартные плагины и ABI-примеры
     direct-patch/        — PatchApplier internal patch format под id "direct"
     file-tools/          — реальный набор: read_file / write_file / list_dir / grep / find_files / read_many_files
     git-tools/           — read-only git_status / git_diff
@@ -42,8 +39,9 @@ plugins/
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
     renderer-pack/       — Renderer плагины "plain" и "statusline"
-archive/
-  claude_pack/        — снятый с active path экспериментальный behavior pack
+    hello-renderer/      — ABI-пример renderer-плагина, не ставится install.sh
+    hello-tool/          — ABI-пример tool-плагина, не ставится install.sh
+    hello-policy-patch/  — ABI-пример нескольких slot-ов, не ставится install.sh
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -221,18 +219,33 @@ strikethrough и inline `code`/bold/italic.
 
 ### Плагины
 
-Быстрый способ — `./install.sh`: собирает workspace в release и копирует
+Быстрый способ — `./install.sh`: собирает runtime-пакеты в release и копирует
 стандартные плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
 `direct-patch`, `file-tools`, `git-tools`, `shell-tool`, `coding-workflow`,
-`context-pack`, `memory-pack`, `policy-pack`, `renderer-pack` и демо-плагины
-подхватываются автоматически.
+`context-pack`, `memory-pack`, `policy-pack`, `renderer-pack` и `sqlite-memory`
+подхватываются автоматически. `hello-*` плагины остаются ABI-примерами и не
+ставятся в обычный runtime path.
 
 Ручной способ:
 
 ```bash
-cargo build --release --workspace --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+cargo build --release \
+  -p modular-agent \
+  -p agent-tui \
+  -p file-tools \
+  -p git-tools \
+  -p shell-tool \
+  -p rg-search \
+  -p direct-patch \
+  -p coding-workflow \
+  -p context-pack \
+  -p memory-pack \
+  -p policy-pack \
+  -p renderer-pack \
+  -p sqlite-memory \
+  --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
-for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack sqlite-memory; do
   mkdir -p ~/.agent/plugins/$p
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/default/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true

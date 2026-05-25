@@ -20,6 +20,3 @@ members = [
     "plugins/default/renderer-pack",
     "plugins/default/tool-output-artifacts",
 ]
-exclude = [
-    "archive/claude_pack/plugin",
-]

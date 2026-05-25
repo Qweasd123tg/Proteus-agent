@@ -7,7 +7,21 @@ bin_path="${bin_dir}/agent"
 tui_bin_path="${bin_dir}/agent-tui"
 plugins_dir="${HOME}/.agent/plugins"
 
-cargo build --release --manifest-path "${project_dir}/Cargo.toml" --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
+  -p modular-agent \
+  -p agent-tui \
+  -p file-tools \
+  -p git-tools \
+  -p shell-tool \
+  -p rg-search \
+  -p direct-patch \
+  -p coding-workflow \
+  -p context-pack \
+  -p memory-pack \
+  -p policy-pack \
+  -p renderer-pack \
+  -p sqlite-memory \
+  --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
 cat > "${bin_path}" <<EOF
@@ -40,7 +54,7 @@ install_plugin() {
   fi
 }
 
-for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
+for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack sqlite-memory; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
 
