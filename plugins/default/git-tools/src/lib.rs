@@ -415,6 +415,8 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 mod tests {
     use super::*;
 
+    const _: () = assert!(TIMEOUT_MS >= 60_000);
+
     fn invoke(tool_name: &str, cwd: &Path, args: Value) -> Value {
         let command = if tool_name == "git_status" {
             GitCommand::Status
@@ -461,7 +463,6 @@ mod tests {
 
         assert_eq!(status_spec["timeout_ms"], TIMEOUT_MS);
         assert_eq!(diff_spec["timeout_ms"], TIMEOUT_MS);
-        assert!(TIMEOUT_MS >= 60_000);
     }
 
     #[test]

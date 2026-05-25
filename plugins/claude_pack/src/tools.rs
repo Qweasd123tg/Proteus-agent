@@ -1161,6 +1161,10 @@ fn relative_display(path: &Path, base: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const _: () = assert!(FILE_TOOL_TIMEOUT_MS >= 60_000);
+    const _: () = assert!(SEARCH_TOOL_TIMEOUT_MS >= 60_000);
+    const _: () = assert!(SHELL_TIMEOUT_MS >= 600_000);
     use agent_contracts::abi_stable::std_types::RResult;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1219,9 +1223,6 @@ mod tests {
         assert_eq!(spec(&GrepTool)["timeout_ms"], SEARCH_TOOL_TIMEOUT_MS);
         assert_eq!(spec(&GlobTool)["timeout_ms"], SEARCH_TOOL_TIMEOUT_MS);
         assert_eq!(spec(&BashTool)["timeout_ms"], SHELL_TIMEOUT_MS);
-        assert!(FILE_TOOL_TIMEOUT_MS >= 60_000);
-        assert!(SEARCH_TOOL_TIMEOUT_MS >= 60_000);
-        assert!(SHELL_TIMEOUT_MS >= 600_000);
     }
 
     #[test]

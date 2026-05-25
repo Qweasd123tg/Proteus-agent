@@ -515,6 +515,8 @@ mod tests {
 
     use super::*;
 
+    const _: () = assert!(TIMEOUT_MS >= 600_000);
+
     fn invoke(cwd: &std::path::Path, command: &str) -> Value {
         let call = json!({
             "id": "call_shell",
@@ -533,7 +535,6 @@ mod tests {
             serde_json::from_str(ShellTool.spec_json().as_str()).expect("tool spec json");
 
         assert_eq!(spec["timeout_ms"], TIMEOUT_MS);
-        assert!(TIMEOUT_MS >= 600_000);
     }
 
     #[test]
