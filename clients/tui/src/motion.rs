@@ -34,10 +34,12 @@ pub(crate) fn shimmer_spans(text: &str) -> Vec<Span<'static>> {
 }
 
 fn shimmer_style(intensity: f32) -> Style {
-    let (r, g, b) = blend_rgb((120, 150, 170), (230, 250, 255), intensity);
+    let (r, g, b) = blend_rgb((90, 120, 140), (245, 255, 255), intensity);
     let style = Style::default().fg(Color::Rgb(r, g, b));
     if intensity > 0.55 {
         style.add_modifier(Modifier::BOLD)
+    } else if intensity < 0.12 {
+        style.add_modifier(Modifier::DIM)
     } else {
         style
     }
@@ -56,12 +58,31 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * t).round() as u8
 }
 
-pub(crate) fn running_tool_marker_style() -> Style {
+pub(crate) fn running_tool_marker() -> &'static str {
     let elapsed = elapsed_since_start();
-    let bright = (elapsed.as_millis() / 520).is_multiple_of(2);
-    if bright {
+    if (elapsed.as_millis() / 520).is_multiple_of(2) {
+        "●"
+    } else {
+        "○"
+    }
+}
+
+pub(crate) fn running_tool_marker_style() -> Style {
+    if running_tool_marker() == "●" {
         Style::default()
             .fg(Color::Rgb(255, 149, 0))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
+pub(crate) fn status_marker_style() -> Style {
+    let elapsed = elapsed_since_start();
+    let bright = (elapsed.as_millis() / 620).is_multiple_of(2);
+    if bright {
+        Style::default()
+            .fg(Color::Rgb(140, 220, 255))
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
@@ -92,5 +113,10 @@ mod tests {
             style.fg,
             Some(Color::Rgb(255, 149, 0)) | Some(Color::DarkGray)
         ));
+    }
+
+    #[test]
+    fn running_tool_marker_blinks_between_dot_shapes() {
+        assert!(matches!(running_tool_marker(), "●" | "○"));
     }
 }
