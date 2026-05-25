@@ -140,13 +140,13 @@ mod tests {
             "config_path": "/tmp/configs",
             "config_files": ["/tmp/configs/10.toml"],
             "cwd": "/repo",
-            "profile": "claude-pack-local",
+            "profile": "coding-local",
             "model": { "label": "anthropic/deepseek-v4-pro" },
             "permission_mode": "Normal",
-            "modules": [{ "slot": "workflow", "id": "claude.explore_edit_verify" }],
-            "tools_enabled": ["Read", "Write"],
+            "modules": [{ "slot": "workflow", "id": "coding.plan_execute_review" }],
+            "tools_enabled": ["read_file", "write_file"],
             "registered_tools": [{
-                "name": "Write",
+                "name": "write_file",
                 "source": "dynamic:plugin:dylib",
                 "safety": "WritesFiles",
                 "description": "Create files"
@@ -160,9 +160,9 @@ mod tests {
         }))
         .expect("summary");
 
-        assert_eq!(summary.profile, "claude-pack-local");
+        assert_eq!(summary.profile, "coding-local");
         assert_eq!(summary.modules[0].slot, "workflow");
-        assert_eq!(summary.registered_tools[0].name, "Write");
+        assert_eq!(summary.registered_tools[0].name, "write_file");
         assert_eq!(summary.plugins[0].name, "file-tools");
     }
 }

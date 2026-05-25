@@ -42,7 +42,8 @@ plugins/
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
     renderer-pack/       — Renderer плагины "plain" и "statusline"
-  claude_pack/         — experimental behavior pack под Claude-like агентный стиль
+archive/
+  claude_pack/        — снятый с active path экспериментальный behavior pack
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -157,20 +158,6 @@ agent-tui --plan
 agent-tui --permission-mode auto
 ```
 
-Для named launcher profiles можно использовать:
-
-```bash
-agent-tui --profile claude
-```
-
-`claude` profile опирается на experimental `plugins/claude_pack`. Он не входит
-в обычный workspace test/build path; для установки через `install.sh` включите
-его явно:
-
-```bash
-AGENT_INSTALL_EXPERIMENTAL=1 ./install.sh
-```
-
 Profile-файлы лежат в `~/.config/agent-qweasd123tg/profiles/<name>.toml` и
 могут задавать `agent_bin`, `config`, `cwd`, `permission_mode`; явные CLI flags
 перекрывают profile.
@@ -250,11 +237,6 @@ for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow 
   cp target/release/lib${p//-/_}.so ~/.agent/plugins/$p/
   cp plugins/default/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
 done
-
-cargo build --release --manifest-path plugins/claude_pack/Cargo.toml --target-dir target --locked
-mkdir -p ~/.agent/plugins/claude_pack
-cp target/release/libclaude_pack.so ~/.agent/plugins/claude_pack/
-cp plugins/claude_pack/plugin.toml ~/.agent/plugins/claude_pack/ 2>/dev/null || true
 
 # проверить что подхватились
 cargo run --bin modular-agent -- modules list

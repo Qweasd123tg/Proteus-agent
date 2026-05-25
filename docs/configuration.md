@@ -51,20 +51,20 @@ agent init full
 и может запускаться без `--cwd`. Для коротких запусков есть launcher profiles:
 
 ```bash
-agent-tui --profile claude
+agent-tui --profile work
 ```
 
 Профиль читается из:
 
 ```text
-~/.config/agent-qweasd123tg/profiles/claude.toml
+~/.config/agent-qweasd123tg/profiles/work.toml
 ```
 
 Минимальный пример:
 
 ```toml
 agent_bin = "~/.local/bin/agent"
-config = "~/.config/agent-qweasd123tg/claude/configs"
+config = "~/.config/agent-qweasd123tg/configs"
 ```
 
 Поддерживаемые поля: `agent_bin`, `config`, `cwd`. CLI flags
@@ -96,7 +96,7 @@ config = "~/.config/agent-qweasd123tg/claude/configs"
 include = "00-provider.toml"
 
 [profile]
-name = "claude-pack-local"
+name = "coding-local"
 ```
 
 `include` принимает строку или массив строк. Относительные пути считаются от
@@ -125,14 +125,6 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 плагина `direct-patch`, `repo_aware` приходит из `context-pack`, файловые
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
-
-`agent.claude-pack.example.toml` - behavioral profile для `claude-pack`:
-подключает общий provider через `include`, выбирает workflow
-`claude.explore_edit_verify`, phased tool exposure `claude_phased` и
-Claude-like tools (`Read`, `Glob`, `Grep`, `Edit`, `Write`, `Bash`,
-`TodoWrite`). Сам pack экспериментальный и исключён из root workspace; для
-установки через общий installer используйте `AGENT_INSTALL_EXPERIMENTAL=1
-./install.sh`.
 
 `agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
 `context = "simple"`, `module_config.*` payloads и core tools. `simple`
