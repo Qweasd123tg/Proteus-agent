@@ -822,6 +822,8 @@ finish() {
     exit "$status"
 }
 trap 'finish 130' HUP INT TERM
+printf '[agent] command:\n'
+printf '%s\n\n' "$command_text"
 setsid sh -lc "$command_text" > >(tee "$stdout_path") 2> >(tee "$stderr_path" >&2) &
 command_pid=$!
 printf '%s\n' "$command_pid" > "$pid_path"
@@ -1281,6 +1283,9 @@ mod tests {
     fn ptyxis_wrapper_streams_output_records_status_and_stays_open() {
         let wrapper = ptyxis_wrapper_script();
         assert!(wrapper.contains("tee \"$stdout_path\""));
+        assert!(wrapper.contains("tee \"$stderr_path\""));
+        assert!(wrapper.contains("printf '[agent] command:\\n'"));
+        assert!(wrapper.contains("printf '%s\\n\\n' \"$command_text\""));
         assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
         assert!(wrapper.contains("exec bash --noprofile --norc -i"));
     }
