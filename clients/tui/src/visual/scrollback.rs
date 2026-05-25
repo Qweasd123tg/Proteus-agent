@@ -229,7 +229,7 @@ pub(crate) fn tool_status_style(status: ToolStatus) -> ToolStatusStyle {
     match status {
         ToolStatus::Running => ToolStatusStyle {
             marker: "●",
-            marker_style: Style::default().fg(Color::Rgb(255, 149, 0)),
+            marker_style: crate::motion::running_tool_marker_style(),
             label: "running",
             label_style: Style::default().fg(Color::Rgb(255, 149, 0)),
             action_style: Style::default().fg(Color::LightCyan),

@@ -14,6 +14,7 @@ mod history_insert;
 mod inline_terminal;
 mod input;
 mod markdown;
+mod motion;
 mod plan_intake;
 mod profiles;
 mod session_picker;
