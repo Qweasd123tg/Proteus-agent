@@ -129,32 +129,8 @@ impl ResumePickerComponent {
 impl ConfigSummaryComponent {
     fn render(&self, frame: &mut Frame, full: Rect, summary: &ConfigSummary, scroll: usize) {
         frame.render_widget(Clear, full);
-        let width = full.width as usize;
-        let content_height = full.height.saturating_sub(2) as usize;
-        let content_width = width.saturating_sub(1).max(1);
-        let mut body = Vec::<Line<'static>>::new();
-        body.push(Line::from(vec![
-            Span::styled("Active Configuration", Style::default().fg(Color::Reset)),
-            Span::raw("  "),
-            Span::styled(
-                "Esc close · Up/Down scroll",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]));
-        body.push(Line::raw(""));
-        body.extend(config_summary_lines(summary, content_width));
-
-        let max_scroll = body.len().saturating_sub(full.height as usize);
-        let start = scroll.min(max_scroll);
-        frame.render_widget(
-            Paragraph::new(
-                body.into_iter()
-                    .skip(start)
-                    .take(content_height + 2)
-                    .collect::<Vec<_>>(),
-            ),
-            full,
-        );
+        let body = config_summary_overlay_lines(summary, full.width as usize, full.height, scroll);
+        frame.render_widget(Paragraph::new(body), full);
     }
 }
 
@@ -318,6 +294,81 @@ fn config_summary_lines(summary: &ConfigSummary, width: usize) -> Vec<Line<'stat
     lines
 }
 
+fn config_summary_overlay_lines(
+    summary: &ConfigSummary,
+    width: usize,
+    height: u16,
+    scroll: usize,
+) -> Vec<Line<'static>> {
+    if height == 0 {
+        return Vec::new();
+    }
+
+    let content_width = width.saturating_sub(1).max(1);
+    let content_height = height.saturating_sub(2) as usize;
+    let content = config_summary_lines(summary, content_width);
+    let max_scroll = content.len().saturating_sub(content_height);
+    let start = scroll.min(max_scroll);
+    let end = if content_height == 0 {
+        start
+    } else {
+        (start + content_height).min(content.len())
+    };
+
+    let mut lines = Vec::with_capacity(height as usize);
+    lines.push(config_summary_header_line(
+        width,
+        start,
+        end,
+        content.len(),
+        max_scroll,
+    ));
+    if height > 1 {
+        lines.push(Line::raw(""));
+    }
+    if content_height > 0 {
+        lines.extend(content.into_iter().skip(start).take(content_height));
+    }
+    lines
+}
+
+fn config_summary_header_line(
+    width: usize,
+    start: usize,
+    end: usize,
+    total: usize,
+    max_scroll: usize,
+) -> Line<'static> {
+    let position = if total == 0 {
+        "0 / 0".to_owned()
+    } else if max_scroll == 0 {
+        format!("{total} lines")
+    } else {
+        format!("{}-{} / {}", start + 1, end, total)
+    };
+    let hint = format!("Esc close · Up/Down scroll · {position}");
+    let title = "Active Configuration";
+    let title_len = title.chars().count();
+    if width <= title_len + 2 {
+        return Line::from(Span::styled(
+            truncate(title, width.max(1)),
+            Style::default().fg(Color::Reset),
+        ));
+    }
+    let gap = width
+        .saturating_sub(title.chars().count() + hint.chars().count())
+        .max(2);
+    let hint_width = width.saturating_sub(title_len + gap).max(1);
+    Line::from(vec![
+        Span::styled(title.to_owned(), Style::default().fg(Color::Reset)),
+        Span::raw(" ".repeat(gap)),
+        Span::styled(
+            truncate(&hint, hint_width),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ])
+}
+
 fn section(title: &str) -> Vec<Line<'static>> {
     vec![Line::from(Span::styled(
         title.to_owned(),
@@ -368,7 +419,40 @@ mod tests {
 
     #[test]
     fn config_summary_lines_render_core_sections() {
-        let summary = ConfigSummary {
+        let summary = sample_config_summary();
+
+        let rendered = config_summary_lines(&summary, 100)
+            .into_iter()
+            .map(line_to_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Launch"));
+        assert!(rendered.contains("Modules"));
+        assert!(rendered.contains("Registered Tools"));
+        assert!(rendered.contains("file-tools"));
+    }
+
+    #[test]
+    fn config_summary_overlay_keeps_header_fixed_while_scrolling() {
+        let summary = sample_config_summary();
+
+        let top = config_summary_overlay_lines(&summary, 100, 8, 0)
+            .into_iter()
+            .map(line_to_text)
+            .collect::<Vec<_>>();
+        let scrolled = config_summary_overlay_lines(&summary, 100, 8, 4)
+            .into_iter()
+            .map(line_to_text)
+            .collect::<Vec<_>>();
+
+        assert!(top[0].starts_with("Active Configuration"));
+        assert!(scrolled[0].starts_with("Active Configuration"));
+        assert_ne!(top[2], scrolled[2]);
+    }
+
+    fn sample_config_summary() -> ConfigSummary {
+        ConfigSummary {
             config_path: "/tmp/configs".to_owned(),
             config_files: vec!["/tmp/configs/10-coding.toml".to_owned()],
             cwd: "/repo".to_owned(),
@@ -393,22 +477,13 @@ mod tests {
                 description: "Basic file tools".to_owned(),
             }],
             fallback_text: String::new(),
-        };
+        }
+    }
 
-        let rendered = config_summary_lines(&summary, 100)
+    fn line_to_text(line: Line<'static>) -> String {
+        line.spans
             .into_iter()
-            .map(|line| {
-                line.spans
-                    .into_iter()
-                    .map(|span| span.content.into_owned())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(rendered.contains("Launch"));
-        assert!(rendered.contains("Modules"));
-        assert!(rendered.contains("Registered Tools"));
-        assert!(rendered.contains("file-tools"));
+            .map(|span| span.content.into_owned())
+            .collect::<String>()
     }
 }
