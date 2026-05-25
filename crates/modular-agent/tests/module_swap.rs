@@ -2494,7 +2494,7 @@ enabled = ["read_file", "search"]
 async fn config_file_include_loads_shared_provider_first() {
     let dir = tempfile::tempdir().expect("config dir");
     let shared = dir.path().join("provider.toml");
-    let profile = dir.path().join("claude-pack.toml");
+    let profile = dir.path().join("behavior.toml");
     std::fs::write(
         &shared,
         r#"
@@ -2519,7 +2519,7 @@ name = "behavior-only"
 model = "profile-overrides-model"
 
 [modules]
-workflow = "claude.explore_edit_verify"
+workflow = "coding.plan_execute_review"
 "#,
     )
     .expect("profile config");
@@ -2534,31 +2534,7 @@ workflow = "claude.explore_edit_verify"
     assert_eq!(model.provider, "anthropic");
     assert_eq!(model.model, "profile-overrides-model");
     assert_eq!(model.provider_config["api_key_env"], "ANTHROPIC_API_KEY");
-    assert_eq!(config.modules.workflow, "claude.explore_edit_verify");
-}
-
-#[tokio::test]
-async fn claude_pack_config_uses_shared_provider_include() {
-    let config = modular_agent::core::AppConfig::load(Some(&workspace_root_file(
-        "agent.claude-pack.example.toml",
-    )))
-    .await
-    .unwrap();
-    let model = config.active_model_config().unwrap();
-
-    assert_eq!(config.profile.name, "claude-pack-local");
-    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
-    assert_eq!(model.provider, "anthropic");
-    assert_eq!(model.provider_config["api_key_env"], "ANTHROPIC_API_KEY");
-    assert_eq!(config.modules.workflow, "claude.explore_edit_verify");
-    assert!(config.tools.enabled.iter().any(|tool| tool == "TodoWrite"));
-    assert!(
-        config
-            .tools
-            .enabled
-            .iter()
-            .any(|tool| tool == "AskUserQuestion")
-    );
+    assert_eq!(config.modules.workflow, "coding.plan_execute_review");
 }
 
 #[tokio::test]

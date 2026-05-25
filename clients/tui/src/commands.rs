@@ -361,10 +361,8 @@ fn infer_workspace_path_from_session_dir(session_dir: &Path) -> Option<PathBuf> 
 fn candidate_event_log_paths(config_path: Option<&Path>, cwd: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for root in candidate_config_roots(config_path) {
-        paths.push(root.join(".agent-claude-pack/events.jsonl"));
         paths.push(root.join(".agent/events.jsonl"));
     }
-    paths.push(cwd.join(".agent-claude-pack/events.jsonl"));
     paths.push(cwd.join(".agent/events.jsonl"));
     dedup_paths(paths)
 }

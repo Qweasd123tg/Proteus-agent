@@ -223,13 +223,6 @@ Scope:
 
 - Golden coding profile: один рекомендуемый профиль, который стабильно проходит
   реальные coding tasks, а не только демонстрирует plugin architecture.
-- Claude-Code-like workflow baseline pack: контрольный профиль, который
-  повторяет близкий workflow/prompt/tool/search/approval/editing shape, чтобы
-  проверить архитектурный потолок проекта. Это не обещание копии Claude Code и
-  не новый slot. Первый MVP живёт в `plugins/claude_pack` как experimental
-  pack вне root workspace: `claude.explore_edit_verify` + `claude_phased`, без
-  hooks/slash/subagents. Он проверяется отдельной командой, чтобы baseline не
-  удорожал обычный `cargo test --workspace`.
 - Eval harness поверх event log: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
@@ -264,18 +257,12 @@ Scope:
 - Исследовать generic `BudgetTracker` / `UsageMeter`, `ArtifactStore` и
   `ToolResultProcessor`, но добавлять contract только после второго use case.
 
-### Claude-Code-Like Baseline И Best-Of Packs
+### Best-Of Packs
 
-- Сделать экспериментальный profile/pack вместо копирования чужого агента
-  целиком: `Workflow` + `ContextBuilder` + `SearchBackend` + `ToolExposure` +
-  `ApprovalPolicy` + `PatchApplier`.
-- Первый смысл pack-а - baseline для сравнения. Если Claude-Code-like
-  composition плохо работает при похожих подсистемах, искать узкое место в
-  core/protocol/contracts; если работает приемлемо, дальше улучшать отдельные
-  plugin implementations и собирать best-of profile.
-- Копировать нужно operational shape, а не бренд: planning style, prompts/tool
-  assumptions, read/edit/check loop, approval behavior, context discipline и
-  history/compaction assumptions.
+- Эксперименты с чужими agent-shape должны оставаться вне active profile и
+  quality gate, пока не доказали практическую пользу. Старый Claude-like
+  baseline убран в `archive/claude_pack`; если понадобится вернуться к идее,
+  сначала выделить минимальные полезные части в существующие slots.
 - Deferred tool exposure через `ToolExposure`: модель видит минимальный набор
   tools и может получить дополнительные tools через searchable catalog.
 - Fuzzy file path search как `SearchBackend`/tool provider, без

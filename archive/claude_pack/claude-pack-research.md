@@ -1,5 +1,8 @@
 # Claude Pack Research
 
+Архивный документ. `claude_pack` снят с active plugin path и лежит в
+`archive/claude_pack`; команды и пути ниже сохранены как исторический контекст.
+
 Этот документ фиксирует MVP-подход к Claude-Code-like behavior pack без
 копирования UI, slash commands, hooks или subagents.
 
