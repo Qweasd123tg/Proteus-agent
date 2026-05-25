@@ -182,7 +182,7 @@ fn run_workflow(
         );
     }
 
-    let mut phase = initial_phase(&input.task.text);
+    let mut phase = Phase::Explore;
     let mut phases = vec![phase.reason()];
     let mut tool_round_limit_reached = true;
     let mut discovery_dead_ends = 0usize;
@@ -312,39 +312,6 @@ fn next_phase_after_tool_result(current: Phase, call: &ToolCall, result: &ToolRe
     }
 }
 
-fn initial_phase(task: &str) -> Phase {
-    let query = task.to_ascii_lowercase();
-    let asks_for_file_change = [
-        "созда",
-        "наклеп",
-        "сгенер",
-        "напиши",
-        "запиши",
-        "добав",
-        "измен",
-        "исправ",
-        "редакт",
-        "обнов",
-        "удал",
-        "create",
-        "generate",
-        "write",
-        "add",
-        "modify",
-        "edit",
-        "fix",
-        "update",
-        "delete",
-    ]
-    .iter()
-    .any(|needle| query.contains(needle));
-    if asks_for_file_change {
-        Phase::Edit
-    } else {
-        Phase::Explore
-    }
-}
-
 fn is_discovery_tool(call: &ToolCall) -> bool {
     matches!(
         call.name.as_str(),
@@ -464,29 +431,47 @@ fn phase_tools(
 
 fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
     let reason = input.request.reason.as_deref().unwrap_or_default();
-    let query = input
-        .request
-        .query
-        .as_deref()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let explicitly_requests_shell = ["bash", "shell", "команд", "терминал"]
-        .iter()
-        .any(|needle| query.contains(needle));
-    let explicitly_requests_tool_inventory = [
-        "какие тул",
-        "какие инструмент",
-        "список тул",
-        "список инструмент",
-        "что умеешь",
-        "tools",
-        "tool list",
-        "available tools",
-        "what tools",
-    ]
-    .iter()
-    .any(|needle| query.contains(needle));
-    let preferred = if explicitly_requests_tool_inventory {
+    let preferred = if reason.contains("verify") {
+        &[
+            "Bash",
+            "shell",
+            "Read",
+            "read_file",
+            "Grep",
+            "grep",
+            "Glob",
+            "list_dir",
+            "Edit",
+            "apply_patch",
+            "Write",
+            "write_file",
+            "AskUserQuestion",
+            "request_user_input",
+            "TodoWrite",
+            "search",
+            "remember_fact",
+        ][..]
+    } else if reason.contains("edit") {
+        &[
+            "AskUserQuestion",
+            "request_user_input",
+            "TodoWrite",
+            "Read",
+            "read_file",
+            "Grep",
+            "grep",
+            "Glob",
+            "list_dir",
+            "Edit",
+            "apply_patch",
+            "Write",
+            "write_file",
+            "Bash",
+            "shell",
+            "search",
+            "remember_fact",
+        ][..]
+    } else {
         &[
             "Read",
             "read_file",
@@ -506,50 +491,9 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
             "search",
             "remember_fact",
         ][..]
-    } else if reason.contains("verify") || explicitly_requests_shell {
-        &[
-            "Bash",
-            "shell",
-            "Read",
-            "read_file",
-            "Grep",
-            "grep",
-            "Glob",
-            "list_dir",
-            "Edit",
-            "apply_patch",
-        ][..]
-    } else if reason.contains("edit") {
-        &[
-            "AskUserQuestion",
-            "request_user_input",
-            "TodoWrite",
-            "Read",
-            "read_file",
-            "Grep",
-            "grep",
-            "Glob",
-            "list_dir",
-            "Edit",
-            "apply_patch",
-            "Write",
-            "write_file",
-        ][..]
-    } else {
-        &[
-            "Read",
-            "read_file",
-            "Glob",
-            "list_dir",
-            "Grep",
-            "grep",
-            "AskUserQuestion",
-            "request_user_input",
-            "TodoWrite",
-        ][..]
     };
 
-    let max_tools = input.request.max_tools.unwrap_or(preferred.len());
+    let max_tools = input.request.max_tools.unwrap_or(input.candidates.len());
     let mut selected = Vec::new();
     for name in preferred {
         if let Some(tool) = input.candidates.iter().find(|tool| tool.name == *name) {
@@ -558,6 +502,15 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
         if selected.len() >= max_tools {
             break;
         }
+    }
+    for tool in input.candidates {
+        if selected.len() >= max_tools {
+            break;
+        }
+        if selected.iter().any(|selected| selected.name == tool.name) {
+            continue;
+        }
+        selected.push(tool);
     }
     selected
 }
@@ -967,7 +920,7 @@ mod tests {
     }
 
     #[test]
-    fn explore_exposes_only_read_tools() {
+    fn explore_prefers_read_tools_but_keeps_write_tools_visible() {
         let tools = select_tools(input("claude.explore"));
         let names = tools
             .iter()
@@ -984,13 +937,21 @@ mod tests {
                 "grep",
                 "AskUserQuestion",
                 "request_user_input",
-                "TodoWrite"
+                "TodoWrite",
+                "Edit",
+                "apply_patch",
+                "Write",
+                "write_file",
+                "Bash",
+                "shell",
+                "search",
+                "remember_fact"
             ]
         );
     }
 
     #[test]
-    fn edit_exposes_patch_and_write_but_not_shell() {
+    fn edit_prefers_patch_and_write_before_shell() {
         let tools = select_tools(input("claude.edit"));
         let names = tools
             .iter()
@@ -1011,7 +972,11 @@ mod tests {
                 "Edit",
                 "apply_patch",
                 "Write",
-                "write_file"
+                "write_file",
+                "Bash",
+                "shell",
+                "search",
+                "remember_fact"
             ]
         );
     }
@@ -1035,45 +1000,27 @@ mod tests {
                 "Glob",
                 "list_dir",
                 "Edit",
-                "apply_patch"
+                "apply_patch",
+                "Write",
+                "write_file",
+                "AskUserQuestion",
+                "request_user_input",
+                "TodoWrite",
+                "search",
+                "remember_fact"
             ]
         );
     }
 
     #[test]
-    fn explicit_shell_request_exposes_bash_during_explore() {
+    fn max_tools_keeps_phase_ordering() {
         let mut input = input("claude.explore");
-        input.request.query = Some("выполни команду через shell".to_owned());
+        input.request.max_tools = Some(3);
         let names = select_tools(input)
             .into_iter()
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
-        assert_eq!(names.first().map(String::as_str), Some("Bash"));
-    }
-
-    #[test]
-    fn tool_inventory_request_exposes_write_tools_too() {
-        let mut input = input("claude.explore");
-        input.request.query = Some("какие тулы у тебя есть?".to_owned());
-        let names = select_tools(input)
-            .into_iter()
-            .map(|tool| tool.name)
-            .collect::<Vec<_>>();
-
-        assert!(names.iter().any(|name| name == "Read"));
-        assert!(names.iter().any(|name| name == "Write"));
-        assert!(names.iter().any(|name| name == "Edit"));
-        assert!(names.iter().any(|name| name == "Bash"));
-    }
-
-    #[test]
-    fn explicit_file_creation_starts_in_edit_phase() {
-        assert_eq!(
-            initial_phase("папка пустая, наклепай рандомный проект"),
-            Phase::Edit
-        );
-        assert_eq!(initial_phase("создай пару файлов"), Phase::Edit);
-        assert_eq!(initial_phase("привет какие тулы есть"), Phase::Explore);
+        assert_eq!(names, ["Read", "read_file", "Glob"]);
     }
 
     #[test]
