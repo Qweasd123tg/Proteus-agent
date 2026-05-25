@@ -182,7 +182,7 @@ fn run_workflow(
         );
     }
 
-    let mut phase = Phase::Explore;
+    let mut phase = initial_phase(&input.task.text);
     let mut phases = vec![phase.reason()];
     let mut tool_round_limit_reached = true;
     let mut discovery_dead_ends = 0usize;
@@ -309,6 +309,39 @@ fn next_phase_after_tool_result(current: Phase, call: &ToolCall, result: &ToolRe
             }
         }
         _ => current,
+    }
+}
+
+fn initial_phase(task: &str) -> Phase {
+    let query = task.to_ascii_lowercase();
+    let asks_for_file_change = [
+        "созда",
+        "наклеп",
+        "сгенер",
+        "напиши",
+        "запиши",
+        "добав",
+        "измен",
+        "исправ",
+        "редакт",
+        "обнов",
+        "удал",
+        "create",
+        "generate",
+        "write",
+        "add",
+        "modify",
+        "edit",
+        "fix",
+        "update",
+        "delete",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle));
+    if asks_for_file_change {
+        Phase::Edit
+    } else {
+        Phase::Explore
     }
 }
 
@@ -983,6 +1016,16 @@ mod tests {
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(names.first().map(String::as_str), Some("Bash"));
+    }
+
+    #[test]
+    fn explicit_file_creation_starts_in_edit_phase() {
+        assert_eq!(
+            initial_phase("папка пустая, наклепай рандомный проект"),
+            Phase::Edit
+        );
+        assert_eq!(initial_phase("создай пару файлов"), Phase::Edit);
+        assert_eq!(initial_phase("привет какие тулы есть"), Phase::Explore);
     }
 
     #[test]
