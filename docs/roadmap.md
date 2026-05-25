@@ -67,6 +67,13 @@ UI/business logic в CLI.
 - `repo_aware` context вынесен в `context-pack` и добавляет provider pipeline
   за `ContextBuilder` slot.
 
+Оставшийся cleanup:
+
+- Довести `cargo clippy --all-targets -- -D warnings` до зелёного состояния.
+  Сейчас точечно очищены затронутые tool/plugin crates, но полный проход ещё
+  падает на TUI/core предупреждениях вроде `collapsible_match`,
+  `unnecessary_sort_by`, `clone_on_copy` и одном API с `too_many_arguments`.
+
 ### v0.1: Repo-Aware Context
 
 Цель - агент лучше понимает проект и тратит меньше токенов.
