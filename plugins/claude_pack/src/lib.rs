@@ -473,7 +473,40 @@ fn select_tools(input: ToolExposureInput) -> Vec<ToolSpec> {
     let explicitly_requests_shell = ["bash", "shell", "команд", "терминал"]
         .iter()
         .any(|needle| query.contains(needle));
-    let preferred = if reason.contains("verify") || explicitly_requests_shell {
+    let explicitly_requests_tool_inventory = [
+        "какие тул",
+        "какие инструмент",
+        "список тул",
+        "список инструмент",
+        "что умеешь",
+        "tools",
+        "tool list",
+        "available tools",
+        "what tools",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle));
+    let preferred = if explicitly_requests_tool_inventory {
+        &[
+            "Read",
+            "read_file",
+            "Glob",
+            "list_dir",
+            "Grep",
+            "grep",
+            "AskUserQuestion",
+            "request_user_input",
+            "TodoWrite",
+            "Edit",
+            "apply_patch",
+            "Write",
+            "write_file",
+            "Bash",
+            "shell",
+            "search",
+            "remember_fact",
+        ][..]
+    } else if reason.contains("verify") || explicitly_requests_shell {
         &[
             "Bash",
             "shell",
@@ -1016,6 +1049,21 @@ mod tests {
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(names.first().map(String::as_str), Some("Bash"));
+    }
+
+    #[test]
+    fn tool_inventory_request_exposes_write_tools_too() {
+        let mut input = input("claude.explore");
+        input.request.query = Some("какие тулы у тебя есть?".to_owned());
+        let names = select_tools(input)
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+
+        assert!(names.iter().any(|name| name == "Read"));
+        assert!(names.iter().any(|name| name == "Write"));
+        assert!(names.iter().any(|name| name == "Edit"));
+        assert!(names.iter().any(|name| name == "Bash"));
     }
 
     #[test]
