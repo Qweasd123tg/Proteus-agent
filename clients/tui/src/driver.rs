@@ -31,6 +31,7 @@ const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "AGENT_SHELL_EXTERNAL_DBUS_ADDR
 
 pub struct ExternalTerminalSession {
     dbus_daemon: StdChild,
+    ptyxis_service: StdChild,
     address: String,
 }
 
@@ -56,29 +57,18 @@ impl ExternalTerminalSession {
             let _ = dbus_daemon.kill();
             anyhow::bail!("private D-Bus session returned an empty Ptyxis address");
         }
-        let service_ready = StdCommand::new("gdbus")
-            .args([
-                "call",
-                "--session",
-                "--dest",
-                "org.gnome.Ptyxis",
-                "--object-path",
-                "/org/gnome/Ptyxis",
-                "--method",
-                "org.freedesktop.DBus.Peer.Ping",
-            ])
+        let ptyxis_service = StdCommand::new("ptyxis")
+            .arg("--gapplication-service")
             .env("DBUS_SESSION_BUS_ADDRESS", &address)
+            .env("GTK_A11Y", "none")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
-            .context("failed to activate dedicated Ptyxis service for terminal tools")?;
-        if !service_ready.success() {
-            let _ = dbus_daemon.kill();
-            anyhow::bail!("dedicated Ptyxis service did not start for terminal tools");
-        }
+            .spawn()
+            .context("failed to start dedicated Ptyxis service for terminal tools")?;
         Ok(Self {
             dbus_daemon,
+            ptyxis_service,
             address,
         })
     }
@@ -90,6 +80,8 @@ impl ExternalTerminalSession {
 
 impl Drop for ExternalTerminalSession {
     fn drop(&mut self) {
+        let _ = self.ptyxis_service.kill();
+        let _ = self.ptyxis_service.wait();
         let _ = self.dbus_daemon.kill();
         let _ = self.dbus_daemon.wait();
     }
