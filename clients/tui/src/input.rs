@@ -26,7 +26,9 @@ pub(crate) async fn handle_term_event(
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 match key.code {
                     KeyCode::Char('c') => {
-                        if state.has_context_report() {
+                        if state.has_config_summary() {
+                            state.close_config_summary();
+                        } else if state.has_context_report() {
                             state.close_context_report();
                         } else if state.has_plan_intake() {
                             state.clear_plan_intake();
@@ -40,6 +42,32 @@ pub(crate) async fn handle_term_event(
                         return Ok(true);
                     }
                     _ => {}
+                }
+            }
+
+            if state.has_config_summary() {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                        state.close_config_summary();
+                        return Ok(true);
+                    }
+                    KeyCode::Up => {
+                        state.scroll_config_summary_up(1);
+                        return Ok(true);
+                    }
+                    KeyCode::Down => {
+                        state.scroll_config_summary_down(1);
+                        return Ok(true);
+                    }
+                    KeyCode::PageUp => {
+                        state.scroll_config_summary_up(8);
+                        return Ok(true);
+                    }
+                    KeyCode::PageDown => {
+                        state.scroll_config_summary_down(8);
+                        return Ok(true);
+                    }
+                    _ => return Ok(false),
                 }
             }
 

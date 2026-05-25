@@ -17,6 +17,7 @@ use agent_contracts::{
 };
 
 use crate::{
+    config_summary::ConfigSummary,
     plan_intake::PlanIntakeState,
     session_picker::{ResumePicker, ResumePickerItem},
     slash_commands::{is_exact_slash_command, matching_slash_commands},
@@ -69,6 +70,8 @@ pub struct AppState {
     resume_picker: Option<ResumePicker>,
     context_report: Option<String>,
     context_report_scroll: usize,
+    config_summary: Option<ConfigSummary>,
+    config_summary_scroll: usize,
     slash_selection: usize,
     token_usage: Option<TokenUsageSnapshot>,
     usage_turn_id: Option<TurnId>,
@@ -114,6 +117,8 @@ impl AppState {
             resume_picker: None,
             context_report: None,
             context_report_scroll: 0,
+            config_summary: None,
+            config_summary_scroll: 0,
             slash_selection: 0,
             token_usage: None,
             usage_turn_id: None,
@@ -154,6 +159,8 @@ impl AppState {
             resume_picker: self.resume_picker.as_ref(),
             context_report: self.context_report.as_deref(),
             context_report_scroll: self.context_report_scroll,
+            config_summary: self.config_summary.as_ref(),
+            config_summary_scroll: self.config_summary_scroll,
             plan_intake: self.plan_intake.as_ref(),
             plan_review: self
                 .plan_review_selection
@@ -438,12 +445,16 @@ impl AppState {
     }
 
     pub fn open_context_report(&mut self) {
+        self.config_summary = None;
+        self.config_summary_scroll = 0;
         self.context_report = Some(self.context_report());
         self.context_report_scroll = 0;
         self.status = "context".to_owned();
     }
 
     pub fn open_reasoning_report(&mut self) {
+        self.config_summary = None;
+        self.config_summary_scroll = 0;
         self.context_report = Some(self.reasoning_report());
         self.context_report_scroll = 0;
         self.status = "reasoning".to_owned();
@@ -479,6 +490,21 @@ impl AppState {
         self.status = "ready".to_owned();
     }
 
+    pub fn open_config_summary(&mut self, summary: ConfigSummary) {
+        self.resume_picker = None;
+        self.context_report = None;
+        self.context_report_scroll = 0;
+        self.config_summary = Some(summary);
+        self.config_summary_scroll = 0;
+        self.status = "configs".to_owned();
+    }
+
+    pub fn close_config_summary(&mut self) {
+        self.config_summary = None;
+        self.config_summary_scroll = 0;
+        self.status = "ready".to_owned();
+    }
+
     pub fn restore_context_usage(
         &mut self,
         snapshots: impl IntoIterator<Item = (TokenUsageSnapshot, Option<TurnId>)>,
@@ -497,8 +523,12 @@ impl AppState {
         self.context_report.is_some()
     }
 
+    pub fn has_config_summary(&self) -> bool {
+        self.config_summary.is_some()
+    }
+
     pub fn has_fullscreen_overlay(&self) -> bool {
-        self.has_resume_picker() || self.has_context_report()
+        self.has_resume_picker() || self.has_context_report() || self.has_config_summary()
     }
 
     pub fn scroll_context_report_up(&mut self, by: usize) {
@@ -507,6 +537,14 @@ impl AppState {
 
     pub fn scroll_context_report_down(&mut self, by: usize) {
         self.context_report_scroll = self.context_report_scroll.saturating_add(by);
+    }
+
+    pub fn scroll_config_summary_up(&mut self, by: usize) {
+        self.config_summary_scroll = self.config_summary_scroll.saturating_sub(by);
+    }
+
+    pub fn scroll_config_summary_down(&mut self, by: usize) {
+        self.config_summary_scroll = self.config_summary_scroll.saturating_add(by);
     }
 
     pub fn clear_transcript(&mut self) {
@@ -544,6 +582,8 @@ impl AppState {
         self.resume_picker = None;
         self.context_report = None;
         self.context_report_scroll = 0;
+        self.config_summary = None;
+        self.config_summary_scroll = 0;
         self.token_usage = None;
         self.usage_turn_id = None;
         self.turn_usage = UsageTotals::default();
@@ -567,6 +607,10 @@ impl AppState {
     }
 
     pub fn open_resume_picker(&mut self, items: Vec<ResumePickerItem>) {
+        self.context_report = None;
+        self.context_report_scroll = 0;
+        self.config_summary = None;
+        self.config_summary_scroll = 0;
         self.resume_picker = Some(ResumePicker::new(items));
         self.status = "select session".to_owned();
     }
@@ -1882,6 +1926,36 @@ mod tests {
 
         state.close_context_report();
         assert!(!state.has_context_report());
+        assert!(!state.has_fullscreen_overlay());
+    }
+
+    #[test]
+    fn config_summary_overlay_state_opens_scrolls_and_closes() {
+        let mut state = AppState::new(PathBuf::from("."), None, None);
+
+        state.open_config_summary(crate::config_summary::ConfigSummary {
+            config_path: "/tmp/configs".to_owned(),
+            config_files: vec!["/tmp/configs/10.toml".to_owned()],
+            cwd: "/repo".to_owned(),
+            profile: "coding".to_owned(),
+            model: "fake/model".to_owned(),
+            permission_mode: "Normal".to_owned(),
+            modules: vec![],
+            enabled_tools: vec!["Read".to_owned()],
+            registered_tools: vec![],
+            plugins: vec![],
+            fallback_text: String::new(),
+        });
+        assert!(state.has_config_summary());
+        assert!(state.has_fullscreen_overlay());
+
+        state.scroll_config_summary_down(8);
+        assert_eq!(state.config_summary_scroll, 8);
+        state.scroll_config_summary_up(3);
+        assert_eq!(state.config_summary_scroll, 5);
+
+        state.close_config_summary();
+        assert!(!state.has_config_summary());
         assert!(!state.has_fullscreen_overlay());
     }
 

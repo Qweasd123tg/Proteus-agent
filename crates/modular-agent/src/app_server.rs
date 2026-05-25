@@ -104,15 +104,46 @@ impl AppServerHandle {
 
     pub async fn config_summary(&self) -> Value {
         let mode = self.permission_mode().await;
+        let tools = self.runtime.tool_entries();
+        let config_files = config_files(self.config_path.as_deref());
+        let model = self.config.active_model_config().ok();
         json!({
             "display_text": render_config_summary(
                 &self.config,
                 self.config_path.as_deref(),
                 &self.cwd,
                 mode,
-                &self.runtime.tool_entries(),
+                &tools,
                 &self.plugin_reports,
-            )
+            ),
+            "config_path": self
+                .config_path
+                .as_deref()
+                .map(|path| path.display().to_string()),
+            "config_files": config_files
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "cwd": self.cwd.display().to_string(),
+            "profile": self.config.profile.name,
+            "model": model.as_ref().map(|model| json!({
+                "provider": model.provider,
+                "name": model.model,
+                "label": format!("{}/{}", model.provider, model.model),
+            })),
+            "permission_mode": format!("{mode:?}"),
+            "modules": module_summary(&self.config),
+            "tools_enabled": self.config.tools.enabled,
+            "registered_tools": tools
+                .iter()
+                .map(|(source, spec)| json!({
+                    "name": spec.name,
+                    "source": source.label(),
+                    "safety": format!("{:?}", spec.safety),
+                    "description": spec.description,
+                }))
+                .collect::<Vec<_>>(),
+            "plugins": plugin_summary(&self.plugin_reports),
         })
     }
 
@@ -376,25 +407,7 @@ fn render_config_summary(
         lines.push("  (none found)".to_owned());
     } else {
         for report in plugin_reports {
-            let (name, version, description) = match report.manifest.as_ref() {
-                Some(manifest) => (
-                    manifest.name.clone(),
-                    manifest.version.clone(),
-                    manifest.description.clone().unwrap_or_default(),
-                ),
-                None => match report.result.as_ref() {
-                    Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
-                    Err(_) => (
-                        report
-                            .path
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| report.path.display().to_string()),
-                        "-".to_owned(),
-                        String::new(),
-                    ),
-                },
-            };
+            let (name, version, description) = plugin_display_fields(report);
             let status = match &report.result {
                 Ok(_) => "loaded".to_owned(),
                 Err(error) => format!("error: {}", first_line(&error.to_string())),
@@ -408,6 +421,24 @@ fn render_config_summary(
     }
 
     lines.join("\n")
+}
+
+fn module_summary(config: &AppConfig) -> Vec<Value> {
+    [
+        ("workflow", config.modules.workflow.as_str()),
+        ("context", config.modules.context.as_str()),
+        ("tool_exposure", config.modules.tool_exposure.as_str()),
+        ("policy", config.modules.policy.as_str()),
+        ("search", config.modules.search.as_str()),
+        ("patch", config.modules.patch.as_str()),
+        ("memory", config.modules.memory.as_str()),
+        ("memory_policy", config.modules.memory_policy.as_str()),
+        ("compactor", config.modules.compactor.as_str()),
+        ("renderer", config.modules.renderer.as_str()),
+    ]
+    .into_iter()
+    .map(|(slot, id)| json!({ "slot": slot, "id": id }))
+    .collect()
 }
 
 fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
@@ -433,6 +464,47 @@ fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     }
     files.sort();
     files
+}
+
+fn plugin_summary(reports: &[crate::core::PluginLoadReport]) -> Vec<Value> {
+    reports
+        .iter()
+        .map(|report| {
+            let (name, version, description) = plugin_display_fields(report);
+            let status = match &report.result {
+                Ok(_) => "loaded".to_owned(),
+                Err(error) => format!("error: {}", first_line(&error.to_string())),
+            };
+            json!({
+                "name": name,
+                "version": version,
+                "status": status,
+                "description": description,
+            })
+        })
+        .collect()
+}
+
+fn plugin_display_fields(report: &crate::core::PluginLoadReport) -> (String, String, String) {
+    match report.manifest.as_ref() {
+        Some(manifest) => (
+            manifest.name.clone(),
+            manifest.version.clone(),
+            manifest.description.clone().unwrap_or_default(),
+        ),
+        None => match report.result.as_ref() {
+            Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
+            Err(_) => (
+                report
+                    .path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| report.path.display().to_string()),
+                "-".to_owned(),
+                String::new(),
+            ),
+        },
+    }
 }
 
 fn first_line(text: &str) -> String {
