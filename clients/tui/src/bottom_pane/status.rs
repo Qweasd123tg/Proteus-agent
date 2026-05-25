@@ -1,7 +1,7 @@
 use ratatui::text::{Line, Span};
 
 use crate::{
-    motion::shimmer_spans,
+    motion::{shimmer_spans, status_marker_style},
     visual::{STATUS_MARKER, VisualState, format_elapsed, format_token_count, muted_style},
 };
 
@@ -20,7 +20,10 @@ pub(crate) fn active_status_line(state: &VisualState<'_>, include_marker: bool) 
     let label = activity_label(state);
     let mut spans = Vec::new();
     if include_marker {
-        spans.push(Span::styled(STATUS_MARKER.to_owned(), muted_style()));
+        spans.push(Span::styled(
+            STATUS_MARKER.to_owned(),
+            status_marker_style(),
+        ));
         spans.push(Span::raw(" "));
     }
     spans.extend(shimmer_spans(&label));
