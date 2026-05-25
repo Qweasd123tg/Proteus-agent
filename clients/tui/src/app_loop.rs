@@ -12,6 +12,7 @@ use crossterm::{
 };
 
 use crate::{
+    config_summary::ConfigSummary,
     driver::{AgentDriver, DriverConfig, ExternalTerminalSession},
     inline_terminal::InlineTerminalState,
     input::handle_term_event,
@@ -140,6 +141,15 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
 
                         if !ok {
                             state.push_error(error.unwrap_or_else(|| "request failed".into()));
+                            dirty = true;
+                        } else if id.as_deref() == Some("configs") {
+                            if let Some(output) = output.as_ref()
+                                && let Some(summary) = ConfigSummary::from_output(output)
+                            {
+                                state.open_config_summary(summary);
+                            } else if let Some(text) = response_display_text(output.as_ref()) {
+                                state.push_system(text.to_owned());
+                            }
                             dirty = true;
                         } else if let Some(text) = response_display_text(output.as_ref()) {
                             state.push_system(text.to_owned());

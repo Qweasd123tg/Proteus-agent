@@ -9,6 +9,7 @@ mod app_loop;
 mod bottom_pane;
 mod cards;
 mod commands;
+mod config_summary;
 mod driver;
 mod history_insert;
 mod inline_terminal;

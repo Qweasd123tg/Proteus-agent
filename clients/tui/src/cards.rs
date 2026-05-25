@@ -94,6 +94,8 @@ pub(crate) fn footer_left_text(state: &VisualState<'_>) -> String {
         "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
     } else if state.resume_picker.is_some() {
         "type search · enter resume · esc close · up/down select".to_owned()
+    } else if state.config_summary.is_some() {
+        "configs · esc close · up/down scroll".to_owned()
     } else if !crate::slash_commands::matching_slash_commands(state.input).is_empty() {
         "enter/tab complete · up/down select · enter run exact".to_owned()
     } else if state.pending_model {
