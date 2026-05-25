@@ -40,7 +40,7 @@ plugin tools после `./install.sh`, `safe` использует fake model.
 module ids, активный model provider, наличие секрета провайдера, внешние
 команды вроде `rg`, runtime timeout'ы, event log path и tool registry. Команда
 также подсвечивает старые configured native tools
-(`read_file`/`write_file`/`list_dir`/`shell`), которые теперь должны приходить
+(`read_file`/`write_file`/`list_dir`/`grep`/`find_files`/`read_many_files`/`shell`), которые теперь должны приходить
 через plugin tools в `tools.enabled`.
 
 Явный рабочий каталог:

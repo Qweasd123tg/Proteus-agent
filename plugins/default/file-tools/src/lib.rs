@@ -1,4 +1,5 @@
-//! File tools plugin: read_file, write_file, list_dir, grep.
+//! File tools plugin: read_file, write_file, list_dir, grep, find_files,
+//! read_many_files.
 //!
 //! Плагин-версия базовых файловых tools. Логика та же что у builtin-версий
 //! в ядре, но через sync `PluginTool` + `std::fs` (не `tokio::fs`).
@@ -18,15 +19,17 @@
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,
-//! `grep`) в `tools.enabled`. Установленный плагин расширяет namespace, но
-//! tools остаются opt-in через config.
+//! `grep`, `find_files`, `read_many_files`) в `tools.enabled`. Установленный
+//! плагин расширяет namespace, но tools остаются opt-in через config.
 
 #![allow(non_local_definitions)]
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
+mod find;
 mod list;
 mod read;
+mod read_many;
 mod search;
 mod util;
 mod write;
@@ -44,7 +47,10 @@ use agent_contracts::{
     },
 };
 
-use crate::{list::ListDirTool, read::ReadFileTool, search::GrepTool, write::WriteFileTool};
+use crate::{
+    find::FindFilesTool, list::ListDirTool, read::ReadFileTool, read_many::ReadManyFilesTool,
+    search::GrepTool, write::WriteFileTool,
+};
 
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
@@ -69,6 +75,16 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
+    let find_files: PluginToolObject = PluginTool_TO::from_value(FindFilesTool, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_tool(find_files) {
+        return RResult::RErr(err);
+    }
+
+    let read_many: PluginToolObject = PluginTool_TO::from_value(ReadManyFilesTool, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_tool(read_many) {
+        return RResult::RErr(err);
+    }
+
     RResult::ROk(())
 }
 
@@ -76,7 +92,9 @@ extern "C" fn register_modules(
 pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("file-tools"),
-        description: RStr::from_str("Basic file tools: read_file, write_file, list_dir, grep"),
+        description: RStr::from_str(
+            "Basic file tools: read_file, write_file, list_dir, grep, find_files, read_many_files",
+        ),
         register_modules,
     }
     .leak_into_prefix()
@@ -91,6 +109,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+    use crate::{find::FindFilesTool, read_many::ReadManyFilesTool};
 
     fn invoke<T: PluginTool>(tool: &T, cwd: &std::path::Path, args: Value) -> Value {
         let call = json!({
@@ -120,6 +139,8 @@ mod tests {
         assert_eq!(spec(&WriteFileTool)["timeout_ms"], 60_000);
         assert_eq!(spec(&ListDirTool)["timeout_ms"], 60_000);
         assert_eq!(spec(&GrepTool)["timeout_ms"], 60_000);
+        assert_eq!(spec(&FindFilesTool)["timeout_ms"], 60_000);
+        assert_eq!(spec(&ReadManyFilesTool)["timeout_ms"], 60_000);
     }
 
     #[test]
@@ -180,6 +201,76 @@ mod tests {
     }
 
     #[test]
+    fn read_many_files_reads_multiple_files_with_line_numbers() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("a.txt"), "one\ntwo\n").expect("a");
+        std::fs::write(dir.path().join("b.txt"), "three\n").expect("b");
+
+        let result = invoke(
+            &ReadManyFilesTool,
+            dir.path(),
+            json!({
+                "paths": ["a.txt", "b.txt"],
+                "line_numbers": true,
+                "max_bytes_total": 200
+            }),
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["file_count"], 2);
+        let output = result["output"].as_str().unwrap();
+        assert!(output.contains("== a.txt ==\n1\tone\n2\ttwo"), "{output}");
+        assert!(output.contains("== b.txt ==\n1\tthree"), "{output}");
+    }
+
+    #[test]
+    fn read_many_files_enforces_shared_budget() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("a.txt"), "abcdef").expect("a");
+
+        let result = invoke(
+            &ReadManyFilesTool,
+            dir.path(),
+            json!({
+                "paths": ["a.txt"],
+                "max_bytes_total": 3
+            }),
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["truncated"], true);
+        assert_eq!(result["metadata"]["files"][0]["returned_bytes"], 3);
+    }
+
+    #[test]
+    fn find_files_returns_glob_matches() {
+        if std::process::Command::new("rg")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::create_dir(dir.path().join("src")).expect("src");
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn ok() {}\n").expect("lib");
+        std::fs::write(dir.path().join("src/skip.txt"), "skip\n").expect("skip");
+
+        let result = invoke(
+            &FindFilesTool,
+            dir.path(),
+            json!({
+                "pattern": "**/*.rs",
+                "max_results": 10
+            }),
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["output"], "src/lib.rs");
+        assert_eq!(result["metadata"]["match_count"], 1);
+    }
+
+    #[test]
     fn read_file_rejects_parent_escape() {
         let dir = tempfile::tempdir().expect("workspace");
 
@@ -187,6 +278,20 @@ mod tests {
             &ReadFileTool,
             dir.path(),
             json!({ "path": "../secret.txt" }),
+        );
+
+        assert_eq!(result["ok"], false);
+        assert!(result["error"].as_str().unwrap().contains("canonicalize"));
+    }
+
+    #[test]
+    fn read_many_files_rejects_parent_escape() {
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let result = invoke(
+            &ReadManyFilesTool,
+            dir.path(),
+            json!({ "paths": ["../secret.txt"] }),
         );
 
         assert_eq!(result["ok"], false);

@@ -5,13 +5,7 @@
 //! видит осмысленное сообщение "rg is not installed" вместо того чтобы
 //! плагин молчал.
 
-use std::{
-    io::{BufRead, BufReader},
-    path::Path,
-    process::{Command, Stdio},
-    sync::mpsc::{self, TryRecvError},
-    time::{Duration, Instant},
-};
+use std::{path::Path, process::Command, time::Duration};
 
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::{PluginTool, PluginToolError};
@@ -19,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::util::{
     err_result, ok_result, optional_positive_usize, parse_call, plugin_error, required_string,
-    workspace_path,
+    run_lines_limited, workspace_path,
 };
 
 pub struct GrepTool;
@@ -89,9 +83,9 @@ impl PluginTool for GrepTool {
             .arg("--")
             .arg(&pattern)
             .arg(&search_path)
-            .stdin(Stdio::null());
+            .stdin(std::process::Stdio::null());
 
-        let lines = match run_rg_limited(command, max_results, RG_TIMEOUT) {
+        let lines = match run_lines_limited(command, max_results, RG_TIMEOUT) {
             Ok(lines) => lines,
             Err(e) => {
                 return err_result(
@@ -118,66 +112,5 @@ impl PluginTool for GrepTool {
             "truncated": truncated,
         });
         ok_result(&call.id, &call.name, output_text, metadata)
-    }
-}
-
-fn run_rg_limited(
-    mut command: Command,
-    max_results: usize,
-    timeout: Duration,
-) -> std::io::Result<Vec<String>> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| std::io::Error::other("failed to open rg stdout"))?;
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        let mut lines = Vec::new();
-        for line in reader.lines() {
-            let line = line?;
-            lines.push(line);
-            if lines.len() >= max_results {
-                break;
-            }
-        }
-        let _ = tx.send(std::io::Result::Ok(lines));
-        std::io::Result::Ok(())
-    });
-
-    let started = Instant::now();
-    loop {
-        match rx.try_recv() {
-            Ok(lines) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return lines;
-            }
-            Err(TryRecvError::Disconnected) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(std::io::Error::other("rg stdout reader stopped"));
-            }
-            Err(TryRecvError::Empty) => {}
-        }
-
-        if let Some(_status) = child.try_wait()? {
-            return rx
-                .recv_timeout(Duration::from_secs(1))
-                .unwrap_or_else(|_| Ok(Vec::new()));
-        }
-        if started.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "rg timed out",
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(10));
     }
 }

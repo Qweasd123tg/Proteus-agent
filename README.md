@@ -32,7 +32,7 @@ plugins/
     hello-tool/          — демо: tool current_time
     hello-policy-patch/  — демо: ApprovalPolicy + PatchApplier + SearchBackend + provider/policy/workflow
     direct-patch/        — PatchApplier internal patch format под id "direct"
-    file-tools/          — реальный набор: read_file / write_file / list_dir / grep
+    file-tools/          — реальный набор: read_file / write_file / list_dir / grep / find_files / read_many_files
     git-tools/           — read-only git_status / git_diff
     rg-search/           — SearchBackend на ripgrep под id "rg"
     shell-tool/          — tool shell (sh -lc)
@@ -67,7 +67,7 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `request_user_input`/`AskUserQuestion`. Search backend `rg` поставляется плагином `rg-search`,
   patch backend `direct` — плагином
   `direct-patch`. File I/O
-  (`read_file`/`write_file`/`list_dir`/`grep`), git helpers
+  (`read_file`/`write_file`/`list_dir`/`grep`/`find_files`/`read_many_files`), git helpers
   (`git_status`/`git_diff`) и `shell` поставляются плагинами
   `file-tools`, `git-tools` и `shell-tool` — устанавливаются через
   `./install.sh`. Плюс configured native/process/MCP wrappers через
