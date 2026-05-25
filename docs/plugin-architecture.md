@@ -305,7 +305,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - `crates/modular-agent/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
   NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoCompactor,
   AllVisibleToolExposure, NoWorkflow, TextRenderer, FakeModelClient.
-- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`). Остальные базовые tools (read_file, write_file, list_dir, grep, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
+- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
   стартовать без plugin pack; для полноценного runtime нужен workflow plugin,

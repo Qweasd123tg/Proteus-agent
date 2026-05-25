@@ -223,7 +223,7 @@ enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Четыре host-side capability остаются в ядре: `apply_patch`, `search`, `remember_fact`, user-input tool (`request_user_input`; Claude-compatible alias `AskUserQuestion`). Остальные базовые tools вынесены в плагины:
 
-- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace;
+- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace;
 - `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);
 - `shell-tool` — `shell` (из `plugins/default/shell-tool/`).
 

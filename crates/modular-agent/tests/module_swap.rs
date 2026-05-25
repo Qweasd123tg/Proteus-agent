@@ -292,7 +292,9 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
     vec![
         "search",
         "read_file",
+        "read_many_files",
         "list_dir",
+        "find_files",
         "grep",
         "git_status",
         "git_diff",
@@ -2127,10 +2129,10 @@ async fn runtime_resume_uses_workspace_from_session_metadata() {
     assert_eq!(resumed.cwd(), original_dir.path());
 }
 
-// list_dir/read_file workspace-escape and error-message tests moved to
-// the file-tools plugin alongside the implementations themselves. Direct patch
-// algorithm tests live in plugins/default/direct-patch; core tests keep only the tool
-// delegation boundary.
+// file-tools workspace-escape and error-message tests moved to the file-tools
+// plugin alongside the implementations themselves. Direct patch algorithm tests
+// live in plugins/default/direct-patch; core tests keep only the tool delegation
+// boundary.
 
 #[tokio::test]
 async fn apply_patch_delegates_to_patch_applier() {

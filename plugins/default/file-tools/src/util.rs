@@ -1,7 +1,13 @@
 //! Общие утилиты для всех file-tools: workspace containment, парсинг аргументов,
 //! сериализация результатов.
 
-use std::path::{Component, Path, PathBuf};
+use std::{
+    io::{BufRead, BufReader},
+    path::{Component, Path, PathBuf},
+    process::{Command, Stdio},
+    sync::mpsc::{self, TryRecvError},
+    time::{Duration, Instant},
+};
 
 use agent_contracts::abi_stable::std_types::{RResult, RString};
 use agent_contracts::plugin::PluginToolError;
@@ -214,6 +220,90 @@ pub(crate) fn optional_positive_usize(
         ));
     }
     Ok(Some(number as usize))
+}
+
+pub(crate) fn optional_string_array(
+    args: &Value,
+    key: &str,
+    tool_name: &str,
+) -> Result<Vec<String>, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(Vec::new());
+    };
+    let Some(values) = value.as_array() else {
+        return Err(format!("tool '{tool_name}' requires array arg '{key}'"));
+    };
+    let mut strings = Vec::with_capacity(values.len());
+    for value in values {
+        let Some(item) = value.as_str() else {
+            return Err(format!(
+                "tool '{tool_name}' requires array arg '{key}' to contain only strings"
+            ));
+        };
+        strings.push(item.to_owned());
+    }
+    Ok(strings)
+}
+
+pub(crate) fn run_lines_limited(
+    mut command: Command,
+    max_results: usize,
+    timeout: Duration,
+) -> std::io::Result<Vec<String>> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("failed to open command stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut lines = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            lines.push(line);
+            if lines.len() >= max_results {
+                break;
+            }
+        }
+        let _ = tx.send(std::io::Result::Ok(lines));
+        std::io::Result::Ok(())
+    });
+
+    let started = Instant::now();
+    loop {
+        match rx.try_recv() {
+            Ok(lines) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return lines;
+            }
+            Err(TryRecvError::Disconnected) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other("command stdout reader stopped"));
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+
+        if let Some(_status) = child.try_wait()? {
+            return rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or_else(|_| Ok(Vec::new()));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "command timed out",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[cfg(test)]

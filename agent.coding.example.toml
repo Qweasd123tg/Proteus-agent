@@ -19,17 +19,17 @@ tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
-# Full local coding toolset. File I/O comes from file-tools, git helpers come
-# from git-tools, shell comes from shell-tool, and search/apply_patch/
-# remember_fact are core slot facade tools.
+# Full local coding toolset. File I/O and repo navigation come from
+# file-tools, git helpers come from git-tools, shell comes from shell-tool,
+# and search/apply_patch/remember_fact are core slot facade tools.
 # Run ./install.sh before using this profile so plugin tools are registered.
-enabled = ["search", "read_file", "list_dir", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-allow = ["search", "read_file", "list_dir", "grep", "git_status", "git_diff", "request_user_input"]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 
 [module_config.context.repo_aware]

@@ -178,7 +178,7 @@ Scope:
   реально наполняется и recall попадает в context через plugin context builder
   `simple`.
 - ✅ Волна 3 (частично) — `read_file` / `write_file` / `list_dir` / `grep` /
-  `git_status` / `git_diff` / `shell` вынесены из ядра в плагины
+  `find_files` / `read_many_files` / `git_status` / `git_diff` / `shell` вынесены из ядра в плагины
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
   `direct-patch`, baseline/staged workflows вынесены как plugin ids
