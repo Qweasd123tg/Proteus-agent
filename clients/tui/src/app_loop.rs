@@ -111,7 +111,12 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
                             dirty = false;
                         }
                     }
-                    Some(StdioOutput::Response { id, ok, error, .. }) => {
+                    Some(StdioOutput::Response {
+                        id,
+                        ok,
+                        output,
+                        error,
+                    }) => {
                         startup_ready = true;
                         if id
                             .as_ref()
@@ -135,6 +140,9 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
 
                         if !ok {
                             state.push_error(error.unwrap_or_else(|| "request failed".into()));
+                            dirty = true;
+                        } else if let Some(text) = response_display_text(output.as_ref()) {
+                            state.push_system(text.to_owned());
                             dirty = true;
                         }
                     }
@@ -218,6 +226,12 @@ fn should_redraw_immediately(event: &AppServerEvent) -> bool {
         | AppServerEvent::UserInputResolved { .. } => true,
         _ => false,
     }
+}
+
+fn response_display_text(output: Option<&serde_json::Value>) -> Option<&str> {
+    output
+        .and_then(|output| output.get("display_text"))
+        .and_then(serde_json::Value::as_str)
 }
 
 #[cfg(test)]

@@ -132,6 +132,9 @@ pub enum StdioRequest {
         id: Option<String>,
         mode: PermissionMode,
     },
+    ConfigSummary {
+        id: Option<String>,
+    },
     Shutdown {
         id: Option<String>,
     },
@@ -146,6 +149,7 @@ impl StdioRequest {
             | Self::UserInput { id, .. }
             | Self::Cancel { id, .. }
             | Self::SetPermissionMode { id, .. }
+            | Self::ConfigSummary { id }
             | Self::Shutdown { id } => id.clone(),
         }
     }

@@ -6,13 +6,14 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
     contracts::{
         ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        UserInputResponse, is_streaming_delta,
+        ToolSource, UserInputResponse, is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
@@ -41,6 +42,10 @@ type PendingUserInputResponders =
 #[derive(Clone)]
 pub struct AppServerHandle {
     runtime: Arc<AgentRuntime>,
+    config: Arc<AppConfig>,
+    config_path: Option<PathBuf>,
+    cwd: PathBuf,
+    plugin_reports: Arc<Vec<crate::core::PluginLoadReport>>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
@@ -95,6 +100,20 @@ impl AppServerHandle {
 
     pub async fn permission_mode(&self) -> PermissionMode {
         self.runtime.permission_mode().await
+    }
+
+    pub async fn config_summary(&self) -> Value {
+        let mode = self.permission_mode().await;
+        json!({
+            "display_text": render_config_summary(
+                &self.config,
+                self.config_path.as_deref(),
+                &self.cwd,
+                mode,
+                &self.runtime.tool_entries(),
+                &self.plugin_reports,
+            )
+        })
     }
 
     pub async fn respond_approval(
@@ -208,6 +227,21 @@ impl AgentAppServer {
             cwd = workspace_path;
         }
 
+        let config_snapshot = Arc::new(config.clone());
+        let config_path_snapshot = config_path.map(Path::to_path_buf);
+        let cwd_snapshot = cwd.clone();
+        let (module_catalog, plugin_reports) = match module_catalog {
+            Some(catalog) => (Some(catalog), Vec::new()),
+            None => {
+                let mut catalog = BuiltinModuleCatalog::new();
+                let reports = crate::core::default_plugins_dir()
+                    .map(|plugins_dir| {
+                        crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
+                    })
+                    .unwrap_or_default();
+                (Some(catalog), reports)
+            }
+        };
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
         let event_log_path =
             crate::core::runtime::event_log_path(&config.event_log.path, config_path, &cwd);
@@ -261,10 +295,153 @@ impl AgentAppServer {
 
         Ok(AppServerHandle {
             runtime,
+            config: config_snapshot,
+            config_path: config_path_snapshot,
+            cwd: cwd_snapshot,
+            plugin_reports: Arc::new(plugin_reports),
             events,
             pending_approvals,
             pending_user_inputs,
         })
+    }
+}
+
+fn render_config_summary(
+    config: &AppConfig,
+    config_path: Option<&Path>,
+    cwd: &Path,
+    mode: PermissionMode,
+    tools: &[(ToolSource, crate::domain::ToolSpec)],
+    plugin_reports: &[crate::core::PluginLoadReport],
+) -> String {
+    let mut lines = Vec::new();
+    lines.push("Config summary".to_owned());
+    lines.push(format!(
+        "config path: {}",
+        config_path
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(default discovery / none)".to_owned())
+    ));
+    let config_files = config_files(config_path);
+    if !config_files.is_empty() {
+        lines.push("config files:".to_owned());
+        for path in config_files {
+            lines.push(format!("  - {}", path.display()));
+        }
+    }
+    lines.push(format!("cwd: {}", cwd.display()));
+    lines.push(format!("profile: {}", config.profile.name));
+    if let Ok(model) = config.active_model_config() {
+        lines.push(format!("model: {}/{}", model.provider, model.model));
+    }
+    lines.push(format!("permission mode: {mode:?}"));
+    lines.push("modules:".to_owned());
+    lines.push(format!("  workflow: {}", config.modules.workflow));
+    lines.push(format!("  context: {}", config.modules.context));
+    lines.push(format!("  tool_exposure: {}", config.modules.tool_exposure));
+    lines.push(format!("  policy: {}", config.modules.policy));
+    lines.push(format!("  search: {}", config.modules.search));
+    lines.push(format!("  patch: {}", config.modules.patch));
+    lines.push(format!("  memory: {}", config.modules.memory));
+    lines.push(format!("  memory_policy: {}", config.modules.memory_policy));
+    lines.push(format!("  compactor: {}", config.modules.compactor));
+    lines.push(format!("  renderer: {}", config.modules.renderer));
+
+    lines.push("tools.enabled:".to_owned());
+    if config.tools.enabled.is_empty() {
+        lines.push("  (none)".to_owned());
+    } else {
+        for tool in &config.tools.enabled {
+            lines.push(format!("  - {tool}"));
+        }
+    }
+
+    lines.push("registered tools:".to_owned());
+    if tools.is_empty() {
+        lines.push("  (none)".to_owned());
+    } else {
+        for (source, spec) in tools {
+            lines.push(format!(
+                "  - {} [{} {:?}] {}",
+                spec.name,
+                source.label(),
+                spec.safety,
+                spec.description
+            ));
+        }
+    }
+
+    lines.push("plugins:".to_owned());
+    if plugin_reports.is_empty() {
+        lines.push("  (none found)".to_owned());
+    } else {
+        for report in plugin_reports {
+            let (name, version, description) = match report.manifest.as_ref() {
+                Some(manifest) => (
+                    manifest.name.clone(),
+                    manifest.version.clone(),
+                    manifest.description.clone().unwrap_or_default(),
+                ),
+                None => match report.result.as_ref() {
+                    Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
+                    Err(_) => (
+                        report
+                            .path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| report.path.display().to_string()),
+                        "-".to_owned(),
+                        String::new(),
+                    ),
+                },
+            };
+            let status = match &report.result {
+                Ok(_) => "loaded".to_owned(),
+                Err(error) => format!("error: {}", first_line(&error.to_string())),
+            };
+            if description.is_empty() {
+                lines.push(format!("  - {name} {version}: {status}"));
+            } else {
+                lines.push(format!("  - {name} {version}: {status} - {description}"));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
+    let Some(path) = config_path else {
+        return Vec::new();
+    };
+    if path.is_file() {
+        return vec![path.to_path_buf()];
+    }
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| matches!(extension, "toml" | "json"))
+            {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+fn first_line(text: &str) -> String {
+    let mut lines = text.lines();
+    let head = lines.next().unwrap_or("").trim_end().to_owned();
+    if lines.next().is_some() {
+        format!("{head} ...")
+    } else {
+        head
     }
 }
 
@@ -456,7 +633,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        contracts::{ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest},
+        contracts::{
+            ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest,
+        },
         core::{PendingApproval, PendingUserInput},
         domain::{Event, PermissionMode, ToolCall, new_call_id},
     };
