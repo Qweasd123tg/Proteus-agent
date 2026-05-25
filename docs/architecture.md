@@ -312,7 +312,8 @@ task
   clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если
   запрос не доставлен, сработал явно настроенный timeout или app-server
   shutdown, approval закрывается как отказ. По умолчанию timeout отключён для
-  интерактивного TUI.
+  интерактивного TUI. Тот же app-server timeout используется для typed
+  `request_user_input`; `0` также отключает его ожидание.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
 - Session resume реализован через session store и `--resume-session`; TUI `/resume`
   открывает picker по sessions текущего workspace/profile. Полный replay/index
