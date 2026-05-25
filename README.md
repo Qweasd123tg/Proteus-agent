@@ -163,6 +163,14 @@ agent-tui --permission-mode auto
 agent-tui --profile claude
 ```
 
+`claude` profile опирается на experimental `plugins/claude_pack`. Он не входит
+в обычный workspace test/build path; для установки через `install.sh` включите
+его явно:
+
+```bash
+AGENT_INSTALL_EXPERIMENTAL=1 ./install.sh
+```
+
 Profile-файлы лежат в `~/.config/agent-qweasd123tg/profiles/<name>.toml` и
 могут задавать `agent_bin`, `config`, `cwd`, `permission_mode`; явные CLI flags
 перекрывают profile.
@@ -226,8 +234,8 @@ strikethrough и inline `code`/bold/italic.
 
 ### Плагины
 
-Быстрый способ — `./install.sh`: собирает workspace в release и копирует все
-плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
+Быстрый способ — `./install.sh`: собирает workspace в release и копирует
+стандартные плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
 `direct-patch`, `file-tools`, `git-tools`, `shell-tool`, `coding-workflow`,
 `context-pack`, `memory-pack`, `policy-pack`, `renderer-pack` и демо-плагины
 подхватываются автоматически.
@@ -243,6 +251,7 @@ for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow 
   cp plugins/default/$p/plugin.toml ~/.agent/plugins/$p/ 2>/dev/null || true
 done
 
+cargo build --release --manifest-path plugins/claude_pack/Cargo.toml --target-dir target --locked
 mkdir -p ~/.agent/plugins/claude_pack
 cp target/release/libclaude_pack.so ~/.agent/plugins/claude_pack/
 cp plugins/claude_pack/plugin.toml ~/.agent/plugins/claude_pack/ 2>/dev/null || true
