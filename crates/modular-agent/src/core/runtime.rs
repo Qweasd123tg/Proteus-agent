@@ -10,14 +10,14 @@ use tokio::time::{Duration, timeout};
 use crate::{
     contracts::{
         ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput,
-        UserInputTransport,
+        ToolSource, UserInputTransport,
     },
     core::{
         AppConfig, BuiltinRegistry, CachedApprovalTransport, HeadlessApprovalTransport,
         HeadlessUserInputTransport, JsonlEventStore, SessionStore,
     },
     domain::{
-        AgentOutput, AgentTask, Event, EventContext, PermissionMode, SessionId, ThreadId,
+        AgentOutput, AgentTask, Event, EventContext, PermissionMode, SessionId, ThreadId, ToolSpec,
         new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::CanonicalMessage,
@@ -253,6 +253,10 @@ impl AgentRuntime {
 
     pub async fn permission_mode(&self) -> PermissionMode {
         *self.services.permission_mode.read().await
+    }
+
+    pub fn tool_entries(&self) -> Vec<(ToolSource, ToolSpec)> {
+        self.services.registry.tools.entries()
     }
 
     pub async fn start_session(&self) -> Result<()> {

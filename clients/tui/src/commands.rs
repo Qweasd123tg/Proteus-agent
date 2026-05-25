@@ -39,7 +39,7 @@ pub(crate) async fn handle_slash_command(
     match name {
         "/help" => {
             state.push_system(
-                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /reasoning [hidden|summary|expanded], /plan, /normal, /auto, /quit",
+                "/help commands: /clear, /cancel, /resume [session-dir], /session, /context, /configs, /reasoning [hidden|summary|expanded], /plan, /normal, /auto, /quit",
             );
         }
         "/clear" => {
@@ -71,6 +71,13 @@ pub(crate) async fn handle_slash_command(
             state.push_system(message);
         }
         "/context" => state.open_context_report(),
+        "/configs" => {
+            driver
+                .send(&StdioRequest::ConfigSummary {
+                    id: Some("configs".to_owned()),
+                })
+                .await?;
+        }
         "/reasoning" => handle_reasoning_command(state, rest),
         "/plan" => {
             switch_permission_mode(state, driver, driver_config, PermissionMode::Plan).await?;

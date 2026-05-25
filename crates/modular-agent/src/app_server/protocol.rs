@@ -57,6 +57,13 @@ mod tests {
             .id(),
             Some("mode".to_owned())
         );
+        assert_eq!(
+            StdioRequest::ConfigSummary {
+                id: Some("configs".to_owned()),
+            }
+            .id(),
+            Some("configs".to_owned())
+        );
     }
 
     #[test]
