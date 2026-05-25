@@ -348,6 +348,9 @@ Prompt следует interview-first модели: для широких или
 `StdioRequest::UserInput`.
 Turn остаётся открытым, а workflow получает typed `ToolResult` с ответами. После
 обычного plan `TurnOutput` TUI открывает chooser для execute/revise/dismiss.
+Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
+пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
+пользователя до cancel или shutdown.
 `header` каждого вопроса является коротким UI-chip/tab label; TUI использует
 эти labels в верхней строке прогресса (`Language`, `Stack`, `Deploy`, ...), но
 не решает сам, какие вопросы задавать. Это остаётся ответственностью
