@@ -21,10 +21,7 @@ crates/
 clients/
     tui/                 - внешний TUI-клиент (бинарник agent-tui)
 plugins/
-    default/             - стандартный набор плагинов
-        hello-renderer/      - референсный renderer-плагин (sabi_trait)
-        hello-tool/          - минимальный tool-плагин
-        hello-policy-patch/  - демо ApprovalPolicy + PatchApplier + SearchBackend под id "hello"
+    default/             - стандартный набор плагинов и ABI-примеры
         file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
         shell-tool/          - tool shell (sh -lc)
         rg-search/           - SearchBackend на ripgrep под id "rg"
@@ -35,8 +32,9 @@ plugins/
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
         policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
         renderer-pack/       - Renderer плагины "plain" и "statusline"
-archive/
-    claude_pack/         - снятый с active path экспериментальный behavior pack
+        hello-renderer/      - референсный renderer-плагин, не ставится install.sh
+        hello-tool/          - минимальный tool-плагин, не ставится install.sh
+        hello-policy-patch/  - демо нескольких slot-ов, не ставится install.sh
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
