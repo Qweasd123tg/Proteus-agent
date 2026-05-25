@@ -1,6 +1,9 @@
 use ratatui::text::{Line, Span};
 
-use crate::visual::{STATUS_MARKER, VisualState, format_elapsed, format_token_count, muted_style};
+use crate::{
+    motion::shimmer_spans,
+    visual::{STATUS_MARKER, VisualState, format_elapsed, format_token_count, muted_style},
+};
 
 pub(crate) fn active_status_visible(state: &VisualState<'_>) -> bool {
     state.pending_model && state.pending_approval.is_none()
@@ -20,7 +23,7 @@ pub(crate) fn active_status_line(state: &VisualState<'_>, include_marker: bool) 
         spans.push(Span::styled(STATUS_MARKER.to_owned(), muted_style()));
         spans.push(Span::raw(" "));
     }
-    spans.push(Span::styled(label, muted_style()));
+    spans.extend(shimmer_spans(&label));
     if let Some(elapsed) = state.thinking_elapsed {
         spans.push(Span::styled(" · ", muted_style()));
         spans.push(Span::styled(format_elapsed(elapsed), muted_style()));

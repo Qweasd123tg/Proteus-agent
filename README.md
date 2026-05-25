@@ -97,7 +97,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 **Клиенты:**
 - `agent-tui` — normal-scrollback terminal UI над `agent server stdio`:
   transcript остаётся в обычном scrollback, ввод/approval живут в закреплённой
-  нижней панели, а resume/context открываются как overlay screens.
+  нижней панели, resume/context открываются как overlay screens, а активные
+  model/tool операции подсвечиваются лёгкими motion-индикаторами.
 
 ## Быстрый запуск
 
