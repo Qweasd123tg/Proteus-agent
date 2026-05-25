@@ -198,8 +198,8 @@ Scope:
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, `renderer = "text"`.
-  `install.sh` собирает и копирует все плагины в `~/.agent/plugins/`
-  автоматически.
+  `install.sh` собирает и копирует стандартные плагины в `~/.agent/plugins/`
+  автоматически; experimental packs ставятся opt-in.
 
 Следующий scope:
 
@@ -226,8 +226,10 @@ Scope:
 - Claude-Code-like workflow baseline pack: контрольный профиль, который
   повторяет близкий workflow/prompt/tool/search/approval/editing shape, чтобы
   проверить архитектурный потолок проекта. Это не обещание копии Claude Code и
-  не новый slot. Первый MVP живёт в `plugins/claude_pack`:
-  `claude.explore_edit_verify` + `claude_phased`, без hooks/slash/subagents.
+  не новый slot. Первый MVP живёт в `plugins/claude_pack` как experimental
+  pack вне root workspace: `claude.explore_edit_verify` + `claude_phased`, без
+  hooks/slash/subagents. Он проверяется отдельной командой, чтобы baseline не
+  удорожал обычный `cargo test --workspace`.
 - Eval harness поверх event log: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,

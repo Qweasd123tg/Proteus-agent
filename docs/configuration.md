@@ -130,7 +130,9 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 подключает общий provider через `include`, выбирает workflow
 `claude.explore_edit_verify`, phased tool exposure `claude_phased` и
 Claude-like tools (`Read`, `Glob`, `Grep`, `Edit`, `Write`, `Bash`,
-`TodoWrite`).
+`TodoWrite`). Сам pack экспериментальный и исключён из root workspace; для
+установки через общий installer используйте `AGENT_INSTALL_EXPERIMENTAL=1
+./install.sh`.
 
 `agent.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
 `context = "simple"`, `module_config.*` payloads и core tools. `simple`

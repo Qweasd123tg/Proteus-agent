@@ -8,7 +8,7 @@
 ```bash
 git clone <repo> Agent
 cd Agent
-./install.sh
+AGENT_INSTALL_EXPERIMENTAL=1 ./install.sh
 agent init coding
 ```
 

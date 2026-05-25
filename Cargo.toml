@@ -14,10 +14,12 @@ members = [
     "plugins/default/rg-search",
     "plugins/default/direct-patch",
     "plugins/default/coding-workflow",
-    "plugins/claude_pack",
     "plugins/default/context-pack",
     "plugins/default/memory-pack",
     "plugins/default/policy-pack",
     "plugins/default/renderer-pack",
     "plugins/default/tool-output-artifacts",
+]
+exclude = [
+    "plugins/claude_pack",
 ]

@@ -18,6 +18,20 @@
 - config example: `agent.claude-pack.example.toml`;
 - отдельный event log path: `.agent-claude-pack/events.jsonl` под config root.
 
+`claude_pack` исключён из root Cargo workspace. Это экспериментальный baseline,
+а не часть стандартного quality gate: обычный `cargo test --workspace` не
+должен платить за его duplicated Claude-like tool surface. Проверка pack-а:
+
+```bash
+cargo test --manifest-path plugins/claude_pack/Cargo.toml --target-dir target --locked
+```
+
+Установка через общий installer тоже opt-in:
+
+```bash
+AGENT_INSTALL_EXPERIMENTAL=1 ./install.sh
+```
+
 Отдельная история чатов достигается отдельным config root. Если запускать agent
 через `--config ~/.config/agent-claude-pack/configs`, session history будет жить
 рядом с этим config root, то есть в `~/.config/agent-claude-pack/sessions`, и не

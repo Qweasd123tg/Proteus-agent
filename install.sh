@@ -8,6 +8,9 @@ tui_bin_path="${bin_dir}/agent-tui"
 plugins_dir="${HOME}/.agent/plugins"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+if [ "${AGENT_INSTALL_EXPERIMENTAL:-0}" = "1" ]; then
+  cargo build --release --manifest-path "${project_dir}/plugins/claude_pack/Cargo.toml" --target-dir "${project_dir}/target" --locked
+fi
 
 mkdir -p "${bin_dir}"
 cat > "${bin_path}" <<EOF
@@ -43,7 +46,9 @@ install_plugin() {
 for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack hello-renderer hello-tool hello-policy-patch sqlite-memory; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
-install_plugin "claude_pack" "plugins/claude_pack"
+if [ "${AGENT_INSTALL_EXPERIMENTAL:-0}" = "1" ]; then
+  install_plugin "claude_pack" "plugins/claude_pack"
+fi
 
 echo "Installed: ${bin_path}"
 echo "Installed: ${tui_bin_path}"
