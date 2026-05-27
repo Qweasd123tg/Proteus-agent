@@ -233,7 +233,7 @@ plugin tool совпадает с builtin/configured tool, builtin/configured р
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это
-`~/.config/proteus-qweasd123tg/tools`, а configs лежат в соседней директории
+`~/.config/Proteus-agent/tools`, а configs лежат в соседней директории
 `configs`.
 
 Текущий registry можно посмотреть командой:

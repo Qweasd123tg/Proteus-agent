@@ -10,15 +10,15 @@
 
 ```bash
 cargo run --bin proteus -- --config config.example.json
-cargo run --bin proteus -- --config "$HOME/.config/proteus-qweasd123tg/configs"
+cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 ```
 
 Если `--config` не передан, путь ищется так:
 
 1. `PROTEUS_CONFIG_PATH`;
 2. `PROTEUS_CONFIG_HOME/configs/config.toml`;
-3. `$HOME/.config/proteus-qweasd123tg/configs/config.toml`;
-4. `$XDG_CONFIG_HOME/proteus-qweasd123tg/configs/config.toml`, если `HOME` недоступен.
+3. `$HOME/.config/Proteus-agent/configs/config.toml`;
+4. `$XDG_CONFIG_HOME/Proteus-agent/configs/config.toml`, если `HOME` недоступен.
 
 Если путь не найден, используется `AppConfig::default()`: безопасная
 заглушечная конфигурация без plugin-зависимостей (`workflow = "none"`,
@@ -39,7 +39,7 @@ proteus init full
 ```
 
 Без `--config` команда пишет profile в
-`$HOME/.config/proteus-qweasd123tg/configs/config.toml`. Если передать
+`$HOME/.config/Proteus-agent/configs/config.toml`. Если передать
 `--config /path/config.toml`, файл будет записан ровно туда; если передать
 `--config /path/configs`, `config.toml` будет создан внутри этой директории.
 `coding` и `full` используют рабочий coding profile, `safe` использует
@@ -57,14 +57,14 @@ proteus-tui --profile work
 Профиль читается из:
 
 ```text
-~/.config/proteus-qweasd123tg/profiles/work.toml
+~/.config/Proteus-agent/profiles/work.toml
 ```
 
 Минимальный пример:
 
 ```toml
 proteus_bin = "~/.local/bin/proteus"
-config = "~/.config/proteus-qweasd123tg/configs/config.toml"
+config = "~/.config/Proteus-agent/configs/config.toml"
 ```
 
 Поддерживаемые поля: `proteus_bin`, `config`, `cwd`. CLI flags
@@ -81,7 +81,7 @@ config = "~/.config/proteus-qweasd123tg/configs/config.toml"
 Рекомендуемый пользовательский формат - один TOML-файл в config dir:
 
 ```text
-~/.config/proteus-qweasd123tg/
+~/.config/Proteus-agent/
   configs/
     config.toml
 ```
@@ -338,7 +338,7 @@ User-facing output `search` форматируется как grep-like стро
 runtime ищет tools в config root:
 
 ```text
-~/.config/proteus-qweasd123tg/
+~/.config/Proteus-agent/
   configs/
   tools/
 ```
@@ -669,8 +669,8 @@ Event log пишется относительно config store root, если ag
 а session history хранится рядом в `sessions`. Для default layout это:
 
 ```text
-$HOME/.config/proteus-qweasd123tg/.proteus/events.jsonl
-$HOME/.config/proteus-qweasd123tg/sessions/...
+$HOME/.config/Proteus-agent/.proteus/events.jsonl
+$HOME/.config/Proteus-agent/sessions/...
 ```
 
 Если config path неизвестен, fallback остаётся относительно `cwd`.

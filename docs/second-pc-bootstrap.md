@@ -14,7 +14,7 @@ proteus init coding
 После `proteus init coding` проверь provider/key config:
 
 ```text
-~/.config/proteus-qweasd123tg/configs/config.toml
+~/.config/Proteus-agent/configs/config.toml
 ```
 
 `config.toml` хранит `active_provider`, `providers.*`, рабочий coding profile,
@@ -58,6 +58,6 @@ proteus-tui
 История и event log будут лежать под основным config root:
 
 ```text
-~/.config/proteus-qweasd123tg/sessions/...
-~/.config/proteus-qweasd123tg/.proteus/events.jsonl
+~/.config/Proteus-agent/sessions/...
+~/.config/Proteus-agent/.proteus/events.jsonl
 ```

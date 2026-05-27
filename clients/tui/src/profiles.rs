@@ -91,7 +91,7 @@ fn print_help() {
            proteus-tui [--profile NAME] [--proteus-bin PATH] [--config PATH] [--cwd PATH] [--plan|--auto|--permission-mode MODE]\n\
          \n\
          options:\n\
-           --profile, -p NAME  load ~/.config/proteus-qweasd123tg/profiles/NAME.toml\n\
+           --profile, -p NAME  load ~/.config/Proteus-agent/profiles/NAME.toml\n\
            --proteus-bin PATH  path to the Proteus binary (default: sibling proteus, then PATH)\n\
            --config PATH       path to Proteus config (toml or json)\n\
            --cwd PATH          workspace directory for Proteus (default: current dir)\n\
@@ -176,7 +176,7 @@ fn profile_path(profile: &str) -> Result<PathBuf> {
     }
     let home = std::env::var_os("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home)
-        .join(".config/proteus-qweasd123tg/profiles")
+        .join(".config/Proteus-agent/profiles")
         .join(format!("{profile}.toml")))
 }
 
