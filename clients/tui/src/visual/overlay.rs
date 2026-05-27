@@ -454,7 +454,7 @@ mod tests {
     fn sample_config_summary() -> ConfigSummary {
         ConfigSummary {
             config_path: "/tmp/configs".to_owned(),
-            config_files: vec!["/tmp/configs/10-coding.toml".to_owned()],
+            config_files: vec!["/tmp/configs/config.toml".to_owned()],
             cwd: "/repo".to_owned(),
             profile: "coding-local".to_owned(),
             model: "anthropic/deepseek-v4-pro".to_owned(),

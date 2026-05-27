@@ -138,7 +138,7 @@ mod tests {
         let summary = ConfigSummary::from_output(&json!({
             "display_text": "fallback",
             "config_path": "/tmp/configs",
-            "config_files": ["/tmp/configs/10.toml"],
+            "config_files": ["/tmp/configs/config.toml"],
             "cwd": "/repo",
             "profile": "coding-local",
             "model": { "label": "anthropic/deepseek-v4-pro" },

@@ -2009,7 +2009,7 @@ mod tests {
 
         state.open_config_summary(crate::config_summary::ConfigSummary {
             config_path: "/tmp/configs".to_owned(),
-            config_files: vec!["/tmp/configs/10.toml".to_owned()],
+            config_files: vec!["/tmp/configs/configconfig.toml".to_owned()],
             cwd: "/repo".to_owned(),
             profile: "coding".to_owned(),
             model: "fake/model".to_owned(),

@@ -39,9 +39,9 @@ agent init full
 ```
 
 Без `--config` команда пишет profile в
-`$HOME/.config/agent-qweasd123tg/configs/10-<profile>.toml`. Если передать
+`$HOME/.config/agent-qweasd123tg/configs/config.toml`. Если передать
 `--config /path/config.toml`, файл будет записан ровно туда; если передать
-`--config /path/configs`, profile будет создан внутри этой директории.
+`--config /path/configs`, `config.toml` будет создан внутри этой директории.
 `coding` и `full` используют рабочий coding profile, `safe` использует
 `agent.example.toml` с fake model.
 
@@ -83,17 +83,19 @@ config = "~/.config/agent-qweasd123tg/configs"
 ```text
 ~/.config/agent-qweasd123tg/
   configs/
-    00-provider.toml
-    10-coding.toml
+    config.toml
 ```
 
-Порядок важен: более поздний файл может переопределить значения из более раннего. Object/table values merge-ятся рекурсивно, arrays/scalars заменяются целиком.
+Для обычного запуска держите один явный `config.toml`: provider, profile,
+modules, tools, policy и event log видны в одном месте без скрытых override по
+именам файлов.
 
-Файл config-а может подключать общий config через top-level `include`.
-Подключённые config-и merge-ятся первыми, а текущий файл перекрывает их:
+Файл config-а при необходимости может подключать общий config через top-level
+`include`. Подключённые config-и merge-ятся первыми, а текущий файл
+перекрывает их:
 
 ```toml
-include = "00-provider.toml"
+include = "shared-provider.toml"
 
 [profile]
 name = "coding-local"
@@ -101,15 +103,13 @@ name = "coding-local"
 
 `include` принимает строку или массив строк. Относительные пути считаются от
 файла, где объявлен `include`; абсолютные пути и `~/...` тоже поддерживаются.
-Это основной способ держать provider/key config отдельно от поведенческих
-profiles: `agent init coding` создаёт `00-provider.toml` с `active_provider` и
-`providers.*`, а `10-coding.toml` описывает workflow, modules, tools, policy и
-event log. Репозиторные examples используют `agent.provider.example.toml` как
-исходный shared-provider шаблон.
+Это полезно для нескольких profiles, но не требуется для обычного bootstrap:
+`agent init coding` создаёт один `config.toml` с `active_provider`,
+`providers.*`, workflow, modules, tools, policy и event log.
 
 `config.example.json` - полный single-file пример/schema surface с
 `active_provider` и `providers`; для обычной локальной работы предпочтительнее
-directory-based TOML через `agent init`.
+`configs/config.toml`, созданный через `agent init`.
 
 `agent.provider.example.toml` - общий пример provider profile: real provider
 через env key. Его можно подключать из разных behavioral profiles через
