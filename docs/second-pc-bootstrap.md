@@ -14,14 +14,12 @@ agent init coding
 После `agent init coding` проверь provider/key config:
 
 ```text
-~/.config/agent-qweasd123tg/configs/00-provider.toml
-~/.config/agent-qweasd123tg/configs/10-coding.toml
+~/.config/agent-qweasd123tg/configs/config.toml
 ```
 
-`00-provider.toml` хранит `active_provider` и `providers.*`; `10-coding.toml`
-подключает его через `include = "00-provider.toml"` и содержит рабочий coding
-profile. На новом ПК проверь `api_key_env` / `api_key_file` в provider config
-и выставь соответствующий secret.
+`config.toml` хранит `active_provider`, `providers.*`, рабочий coding profile,
+modules, tools, policy и event log. На новом ПК проверь `api_key_env` /
+`api_key_file` в provider config и выставь соответствующий secret.
 
 ## Проверка
 

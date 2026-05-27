@@ -27,7 +27,7 @@ use tokio::time::sleep;
 const CODING_PROFILE_CONFIG: &str = include_str!("../../../agent.coding.example.toml");
 const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../agent.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../agent.example.toml");
-const INIT_PROVIDER_FILE: &str = "00-provider.toml";
+const INIT_CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "CLI-first modular agent skeleton")]
@@ -198,14 +198,6 @@ impl InitProfile {
         }
     }
 
-    fn file_stem(self) -> &'static str {
-        match self {
-            Self::Coding => "coding",
-            Self::Full => "full",
-            Self::Safe => "safe",
-        }
-    }
-
     fn config_body(self) -> &'static str {
         match self {
             Self::Coding | Self::Full => CODING_PROFILE_CONFIG,
@@ -239,17 +231,7 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
     }
-    if profile.uses_shared_provider() {
-        let provider_destination = provider_destination_path(&destination);
-        fs::write(&provider_destination, PROVIDER_PROFILE_CONFIG)?;
-        fs::write(&destination, profile.config_body_for_init())?;
-        println!(
-            "Initialized provider config: {}",
-            provider_destination.display()
-        );
-    } else {
-        fs::write(&destination, profile.config_body())?;
-    }
+    fs::write(&destination, profile.config_body_for_init())?;
 
     println!(
         "Initialized {} profile: {}",
@@ -261,40 +243,30 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
 }
 
 impl InitProfile {
-    fn uses_shared_provider(self) -> bool {
-        matches!(self, Self::Coding | Self::Full)
-    }
-
     fn config_body_for_init(self) -> String {
-        if self.uses_shared_provider() {
-            rewrite_profile_include(self.config_body(), INIT_PROVIDER_FILE)
-        } else {
-            self.config_body().to_owned()
+        match self {
+            Self::Coding | Self::Full => {
+                let profile_body = strip_profile_include(self.config_body()).trim_start();
+                format!("{}\n\n{}", PROVIDER_PROFILE_CONFIG.trim_end(), profile_body)
+            }
+            Self::Safe => self.config_body().to_owned(),
         }
     }
 }
 
-fn rewrite_profile_include(config: &str, include_path: &str) -> String {
-    let replacement = format!("include = \"{include_path}\"");
+fn strip_profile_include(config: &str) -> &str {
     if let Some(rest) = config.strip_prefix("include = \"agent.provider.example.toml\"") {
-        format!("{replacement}{rest}")
+        rest
     } else {
-        format!("{replacement}\n\n{config}")
+        config
     }
 }
 
-fn provider_destination_path(profile_destination: &Path) -> PathBuf {
-    profile_destination
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(INIT_PROVIDER_FILE)
-}
-
-fn init_destination_path(config_path: &Path, profile: InitProfile) -> PathBuf {
+fn init_destination_path(config_path: &Path, _profile: InitProfile) -> PathBuf {
     if is_config_file_path(config_path) {
         config_path.to_path_buf()
     } else {
-        config_path.join(format!("10-{}.toml", profile.file_stem()))
+        config_path.join(INIT_CONFIG_FILE)
     }
 }
 
@@ -1536,22 +1508,21 @@ mod tests {
         );
         assert_eq!(
             init_destination_path(Path::new("/tmp/configs"), InitProfile::Safe),
-            PathBuf::from("/tmp/configs/10-safe.toml")
+            PathBuf::from("/tmp/configs/config.toml")
         );
     }
 
     #[tokio::test]
-    async fn init_coding_writes_loadable_provider_and_profile_files() {
+    async fn init_coding_writes_loadable_single_config_file() {
         let dir = tempfile::tempdir().expect("config dir");
 
         run_init(InitProfile::Coding, Some(dir.path())).expect("init coding");
 
-        let provider = dir.path().join(INIT_PROVIDER_FILE);
-        let profile = dir.path().join("10-coding.toml");
-        assert!(provider.exists());
+        let profile = dir.path().join(INIT_CONFIG_FILE);
         assert!(profile.exists());
         let profile_body = std::fs::read_to_string(&profile).expect("profile body");
-        assert!(profile_body.starts_with("include = \"00-provider.toml\""));
+        assert!(profile_body.starts_with("active_provider = \"anthropic\""));
+        assert!(!profile_body.contains("include = "));
 
         let config = AppConfig::load(Some(dir.path()))
             .await

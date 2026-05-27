@@ -280,8 +280,8 @@ agent doctor
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy). Более тяжёлый `coding.plan_execute_review`
   оставлен в `agent.advanced.example.toml`. `agent init coding` создаёт
-  directory-based пару `00-provider.toml` + `10-coding.toml`, чтобы provider/key
-  config был отделён от behavioral profile и сразу загружался `agent doctor`.
+  `$HOME/.config/agent-qweasd123tg/configs/config.toml`, где provider/key,
+  modules, tools и policy лежат в одном явном файле.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
   предпочтительнее `agent init coding` и TOML config dir.
 
