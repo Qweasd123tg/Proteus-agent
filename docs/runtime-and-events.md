@@ -325,10 +325,10 @@ Approval cache находится в transport-слое текущей runtime s
 ответил `cache = "exact_call"`, следующий identical request с тем же `cwd`, tool
 name и canonical JSON args будет approved без нового pending app-server request.
 Если UI ответил `cache = "tool_in_cwd"`, следующие requests с тем же `cwd` и
-tool name будут approved независимо от args; TUI использует этот scope для
-клавиши `2/p/з`, чтобы один approval для `Edit` покрывал следующие `Edit` в
-том же workspace. Этот cache не пишется в `messages.jsonl` и не
-восстанавливается при resume.
+tool name будут approved независимо от args. TUI-клавиша `2/p/з` использует
+`exact_call` для `shell`, `RunsCommands`, `Network` и `Dangerous`, а
+`tool_in_cwd` оставляет для остальных write-like tools. Этот cache не пишется в
+`messages.jsonl` и не восстанавливается при resume.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
 state: interrupt/cancel, approval queue, diff preview, `/diff`, `/tools`,

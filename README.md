@@ -160,7 +160,8 @@ Profile-файлы лежат в `~/.config/agent-qweasd123tg/profiles/<name>.to
 Клавиши TUI: **Enter** отправить, **Ctrl+C** очистить текущий ввод; если ввод
 уже пустой — подтвердить выход повторным **Ctrl+C**. **Esc** закрывает overlay,
 отменяет активный turn или отклоняет approval. **1/y/н** approve, **2/p/з**
-approve + cache для этого tool в текущем cwd, **3/n/т/Esc** deny. Основной transcript вставляется
+approve + remember: exact call для shell/network/dangerous, tool-in-cwd для
+остальных write-like tools, **3/n/т/Esc** deny. Основной transcript вставляется
 в область над закреплённой нижней панелью через terminal scroll-region и
 обычный перевод строки у границы history-region; нижняя панель рисуется по
 абсолютным координатам, без cursor-relative `MoveUp`.
