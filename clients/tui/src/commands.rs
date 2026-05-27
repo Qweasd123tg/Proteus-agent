@@ -6,6 +6,7 @@ use std::{
 
 use agent_contracts::{
     app_protocol::StdioRequest,
+    contracts::UserInputResponse,
     domain::{
         CallId, Event as DomainEvent, EventEnvelope, PermissionMode, TokenUsageSnapshot, ToolCall,
         ToolResult, TurnId,
@@ -219,6 +220,24 @@ pub(crate) async fn submit_plan_intake_answers(
         })
         .await?;
     state.mark_user_sent(text, Vec::new(), turn_id);
+    Ok(())
+}
+
+pub(crate) async fn dismiss_plan_intake(
+    state: &mut AppState,
+    driver: &mut AgentDriver,
+) -> Result<()> {
+    if let Some(request_id) = state.take_pending_user_input_request_id() {
+        driver
+            .send(&StdioRequest::UserInput {
+                id: None,
+                request_id,
+                response: UserInputResponse::empty(),
+            })
+            .await?;
+    } else {
+        state.clear_plan_intake();
+    }
     Ok(())
 }
 

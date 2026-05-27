@@ -1,4 +1,4 @@
-use agent_contracts::app_protocol::AppApprovalRequest;
+use agent_contracts::{app_protocol::AppApprovalRequest, domain::ToolSafety};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
@@ -60,24 +60,39 @@ pub(crate) fn append_approval_lines(
             Span::styled(seg, muted_style()),
         ]));
     }
+    let (remember_label, remember_hint) = approval_remember_text(request);
     lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled("1. Yes, proceed", Style::default().fg(Color::Green)),
         Span::raw("  "),
-        Span::styled(
-            "2. Yes, remember tool in cwd",
-            Style::default().fg(Color::Green),
-        ),
+        Span::styled(remember_label, Style::default().fg(Color::Green)),
         Span::raw("  "),
         Span::styled("3. No", Style::default().fg(Color::Red)),
     ]));
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            "y/н approve · p/з remember · n/т/esc deny",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(remember_hint, Style::default().fg(Color::DarkGray)),
     ]));
+}
+
+fn approval_remember_text(request: &AppApprovalRequest) -> (&'static str, &'static str) {
+    let safety = request.tool_spec.as_ref().map(|spec| &spec.safety);
+    if request.call.name == "shell"
+        || matches!(
+            safety,
+            Some(ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous)
+        )
+    {
+        (
+            "2. Yes, remember exact call",
+            "y/н approve · p/з remember exact call · n/т/esc deny",
+        )
+    } else {
+        (
+            "2. Yes, remember tool in cwd",
+            "y/н approve · p/з remember · n/т/esc deny",
+        )
+    }
 }
 
 pub(crate) fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String {
@@ -90,8 +105,9 @@ pub(crate) fn footer_plain_line(state: &VisualState<'_>, width: usize) -> String
 }
 
 pub(crate) fn footer_left_text(state: &VisualState<'_>) -> String {
-    if state.pending_approval.is_some() {
-        "1/y approve · 2/p remember · 3/n/esc deny".to_owned()
+    if let Some(request) = state.pending_approval {
+        let (_, hint) = approval_remember_text(request);
+        hint.replace(" · n/т/esc deny", " · 3/n/esc deny")
     } else if state.resume_picker.is_some() {
         "type search · enter resume · esc close · up/down select".to_owned()
     } else if state.config_summary.is_some() {

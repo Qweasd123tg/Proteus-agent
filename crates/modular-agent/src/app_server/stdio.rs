@@ -199,22 +199,10 @@ pub async fn run_stdio_app_server(
         }
     }
 
-    if shutdown_requested {
-        for (_, handle) in keyed_turn_handles {
-            handle.cancel();
-        }
-        for handle in anonymous_turn_handles {
-            handle.cancel();
-        }
-    } else {
-        for (_, handle) in keyed_turn_handles {
-            let _ = handle.join.await;
-        }
-        for handle in anonymous_turn_handles {
-            let _ = handle.join.await;
-        }
+    if !shutdown_requested {
         server.shutdown().await;
     }
+    cancel_and_join_stdio_turns(keyed_turn_handles, anonymous_turn_handles).await;
     drop(output_tx);
     writer.await??;
     Ok(())
@@ -275,11 +263,32 @@ async fn cancel_stdio_turn(
     server
         .cancel_pending_approvals("turn canceled by client".to_owned())
         .await;
+    server
+        .cancel_pending_user_inputs("turn canceled by client".to_owned())
+        .await;
     Ok(())
 }
 
 fn prune_finished_turns(turn_handles: &mut HashMap<String, StdioTurnHandle>) {
     turn_handles.retain(|_, handle| !handle.join.is_finished());
+}
+
+async fn cancel_and_join_stdio_turns(
+    keyed_turn_handles: HashMap<String, StdioTurnHandle>,
+    anonymous_turn_handles: Vec<StdioTurnHandle>,
+) {
+    for handle in keyed_turn_handles.values() {
+        handle.cancel();
+    }
+    for handle in &anonymous_turn_handles {
+        handle.cancel();
+    }
+    for (_, handle) in keyed_turn_handles {
+        let _ = handle.join.await;
+    }
+    for handle in anonymous_turn_handles {
+        let _ = handle.join.await;
+    }
 }
 
 async fn send_stdio_response(

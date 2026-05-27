@@ -154,6 +154,7 @@ fn run_single_loop(
                 .with_name("context"),
         );
     }
+    let current_turn_messages_start = model_messages.len();
 
     for _round in 0..max_tool_rounds {
         let request = request_from_state(&input, host, &model_messages, SYSTEM_INSTRUCTIONS, None)?;
@@ -177,7 +178,10 @@ fn run_single_loop(
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if !should_run_tools {
             let output = AgentOutput::new(
-                output_text(&response.message, &model_messages),
+                output_text(
+                    &response.message,
+                    &model_messages[current_turn_messages_start..],
+                ),
                 output_metadata(
                     SINGLE_LOOP_MODULE_ID,
                     &input,
@@ -229,7 +233,10 @@ fn run_single_loop(
     model_messages.push(response.message.clone());
     persistent_messages.push(response.message.clone());
     let output = AgentOutput::new(
-        output_text(&response.message, &model_messages),
+        output_text(
+            &response.message,
+            &model_messages[current_turn_messages_start..],
+        ),
         output_metadata_with_extra(
             SINGLE_LOOP_MODULE_ID,
             &input,
@@ -287,6 +294,7 @@ fn run_plan_execute_review(
                 .with_name("context"),
         );
     }
+    let current_turn_messages_start = model_messages.len();
 
     let mut plan_request = request_from_state(
         &input,
@@ -393,7 +401,10 @@ fn run_plan_execute_review(
     model_messages.push(final_response.message.clone());
     persistent_messages.push(final_response.message.clone());
     let output = AgentOutput::new(
-        output_text(&final_response.message, &model_messages),
+        output_text(
+            &final_response.message,
+            &model_messages[current_turn_messages_start..],
+        ),
         output_metadata_with_extra(
             PLAN_EXECUTE_REVIEW_MODULE_ID,
             &input,
@@ -954,6 +965,27 @@ mod tests {
         assert!(text.contains("Model returned an empty final response"));
         assert!(text.contains("usage: skatewind --place NAME"));
         assert!(text.contains("process exited with code 1"));
+    }
+
+    #[test]
+    fn empty_final_output_does_not_fall_back_to_previous_turn_tool_result() {
+        let result = ToolResult::new(
+            agent_contracts::domain::new_call_id(),
+            false,
+            "old turn output".to_owned(),
+            Vec::new(),
+            Some("old turn error".to_owned()),
+            json!({}),
+        );
+        let history = vec![CanonicalMessage::new(
+            MessageRole::Tool,
+            vec![ContentPart::ToolResult { result }],
+        )];
+        let message = CanonicalMessage::new(MessageRole::Assistant, Vec::new());
+
+        let text = output_text(&message, &history[history.len()..]);
+
+        assert_eq!(text, "<empty model response>");
     }
 
     #[test]

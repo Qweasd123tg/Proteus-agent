@@ -13,7 +13,7 @@ pub(super) fn format_duration_short(duration: Duration) -> String {
 
 pub(super) fn preview(result: &ToolResult) -> String {
     if let Some(error) = &result.error {
-        let output = render_preview_output(result);
+        let output = render_preview_body(result, false);
         if output.is_empty() {
             return error.clone();
         }
@@ -24,15 +24,21 @@ pub(super) fn preview(result: &ToolResult) -> String {
 }
 
 fn render_preview_output(result: &ToolResult) -> String {
+    render_preview_body(result, true)
+}
+
+fn render_preview_body(result: &ToolResult, status_on_empty: bool) -> String {
     let limit = if is_user_input_result(result) {
         2_000
     } else {
         160
     };
-    let output = if result.output.is_empty() {
+    let output = if !result.output.is_empty() {
+        result.output.clone()
+    } else if status_on_empty {
         result.text_or_status()
     } else {
-        result.output.clone()
+        result_output_content(result)
     };
     let mut out = String::new();
     for ch in output.chars() {
@@ -46,6 +52,28 @@ fn render_preview_output(result: &ToolResult) -> String {
         }
     }
     out
+}
+
+fn result_output_content(result: &ToolResult) -> String {
+    let mut content = Vec::new();
+    for item in &result.content {
+        match item {
+            agent_contracts::domain::ToolContent::Text { text } if !text.is_empty() => {
+                content.push(text.clone());
+            }
+            agent_contracts::domain::ToolContent::Json { value } => {
+                content.push(value.to_string());
+            }
+            agent_contracts::domain::ToolContent::Image { mime_type, .. } => {
+                content.push(format!("[image tool content: {mime_type}]"));
+            }
+            agent_contracts::domain::ToolContent::Binary { mime_type, .. } => {
+                content.push(format!("[binary tool content: {mime_type}]"));
+            }
+            _ => {}
+        }
+    }
+    content.join("\n")
 }
 
 pub(super) fn is_user_input_result(result: &ToolResult) -> bool {

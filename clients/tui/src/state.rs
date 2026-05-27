@@ -13,7 +13,8 @@ use std::{
 
 use agent_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
-    domain::{Event, PermissionMode, TokenUsageSnapshot, ToolResult, TurnId},
+    contracts::ApprovalCacheScope,
+    domain::{Event, PermissionMode, TokenUsageSnapshot, ToolResult, ToolSafety, TurnId},
 };
 
 use crate::{
@@ -655,6 +656,15 @@ impl AppState {
         self.pending_approval.take().map(|r| r.approval_id)
     }
 
+    pub fn take_pending_approval_id_with_remember_cache(
+        &mut self,
+    ) -> Option<(String, ApprovalCacheScope)> {
+        self.pending_approval.take().map(|request| {
+            let cache = approval_remember_cache(&request);
+            (request.approval_id, cache)
+        })
+    }
+
     pub fn type_char(&mut self, ch: char) {
         self.plan_intake = None;
         self.pending_user_input_request_id = None;
@@ -780,6 +790,13 @@ impl AppState {
         let request_id = self.pending_user_input_request_id.take()?;
         let response = self.plan_intake.take()?.user_input_response();
         Some((request_id, response))
+    }
+
+    pub fn take_pending_user_input_request_id(&mut self) -> Option<String> {
+        let request_id = self.pending_user_input_request_id.take()?;
+        self.plan_intake = None;
+        self.status = "thinking...".to_owned();
+        Some(request_id)
     }
 
     pub fn clear_plan_intake(&mut self) {
@@ -1350,6 +1367,20 @@ fn permission_mode_label(mode: Option<PermissionMode>) -> &'static str {
     }
 }
 
+fn approval_remember_cache(request: &AppApprovalRequest) -> ApprovalCacheScope {
+    let safety = request.tool_spec.as_ref().map(|spec| &spec.safety);
+    if request.call.name == "shell"
+        || matches!(
+            safety,
+            Some(ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous)
+        )
+    {
+        ApprovalCacheScope::ExactCall
+    } else {
+        ApprovalCacheScope::ToolInCwd
+    }
+}
+
 fn permission_mode_description(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Plan => "Only read-only tools are visible and executable.",
@@ -1578,6 +1609,35 @@ mod tests {
     }
 
     #[test]
+    fn shell_remember_approval_uses_exact_call_cache() {
+        let mut state = AppState::new(PathBuf::from("."), None, None);
+        state.ingest(AppServerEvent::ApprovalRequested {
+            request: AppApprovalRequest::new(
+                "approval-1".to_owned(),
+                agent_contracts::domain::ToolCall::new(
+                    agent_contracts::domain::new_call_id(),
+                    "shell",
+                    json!({"command": "cargo test"}),
+                ),
+                PathBuf::from("."),
+                "run tests".to_owned(),
+                Some(agent_contracts::domain::ToolSpec::new(
+                    "shell",
+                    "Run shell command",
+                    json!({}),
+                    ToolSafety::RunsCommands,
+                )),
+            ),
+        });
+
+        let (_, cache) = state
+            .take_pending_approval_id_with_remember_cache()
+            .expect("pending approval");
+
+        assert_eq!(cache, ApprovalCacheScope::ExactCall);
+    }
+
+    #[test]
     fn preview_normalizes_tab_separated_tool_output() {
         let result = ToolResult::ok(
             agent_contracts::domain::new_call_id(),
@@ -1602,6 +1662,20 @@ mod tests {
             preview(&result),
             "usage: skatewind --place NAME\nerror: missing argument\nprocess exited with code 1"
         );
+    }
+
+    #[test]
+    fn failed_tool_preview_without_output_shows_error_once() {
+        let result = ToolResult::new(
+            agent_contracts::domain::new_call_id(),
+            false,
+            "".to_owned(),
+            Vec::new(),
+            Some("process exited with code 1".to_owned()),
+            serde_json::json!({}),
+        );
+
+        assert_eq!(preview(&result), "process exited with code 1");
     }
 
     #[test]

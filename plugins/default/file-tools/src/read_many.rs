@@ -99,6 +99,7 @@ impl PluginTool for ReadManyFilesTool {
         let mut total_original_bytes = 0usize;
         let mut total_returned_bytes = 0usize;
         let mut stopped_by_budget = false;
+        let mut any_file_truncated = false;
 
         for requested_path in paths {
             if remaining == 0 {
@@ -155,6 +156,8 @@ impl PluginTool for ReadManyFilesTool {
                 };
             }
             let returned_bytes = rendered.len();
+            let file_truncated = file_read.truncated || rendered_truncated_by_budget;
+            any_file_truncated |= file_truncated;
             total_original_bytes += file_read.original_bytes;
             total_returned_bytes += returned_bytes;
             remaining = remaining.saturating_sub(returned_bytes);
@@ -164,9 +167,9 @@ impl PluginTool for ReadManyFilesTool {
                 "path": requested_path,
                 "original_bytes": file_read.original_bytes,
                 "returned_bytes": returned_bytes,
-                "truncated": file_read.truncated || rendered_truncated_by_budget,
+                "truncated": file_truncated,
             }));
-            if (file_read.truncated || rendered_truncated_by_budget) && remaining == 0 {
+            if file_truncated && remaining == 0 {
                 stopped_by_budget = true;
                 break;
             }
@@ -190,7 +193,7 @@ impl PluginTool for ReadManyFilesTool {
                 "line_numbers": line_numbers,
                 "total_original_bytes": total_original_bytes,
                 "total_returned_bytes": total_returned_bytes,
-                "truncated": stopped_by_budget || total_original_bytes > total_returned_bytes,
+                "truncated": stopped_by_budget || any_file_truncated,
             }),
         )
     }
