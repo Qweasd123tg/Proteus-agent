@@ -1,8 +1,8 @@
-//! Terminal UI клиент для modular-agent.
+//! Terminal UI клиент для proteus-core.
 //!
-//! Запускает ядро как subprocess через `agent server stdio`, читает поток
+//! Запускает ядро как subprocess через `proteus server stdio`, читает поток
 //! `AppServerEvent`, шлёт user input как `StdioRequest::Send`. Визуал на
-//! ratatui/crossterm. Клиент depend только на `agent-contracts`, не на
+//! ratatui/crossterm. Клиент depend только на `proteus-contracts`, не на
 //! самом ядре — границa client/core проведена через wire protocol.
 
 mod app_loop;
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     let result = run_app(&mut terminal, cfg).await;
     leave_terminal(&mut terminal)?;
     if let Err(ref err) = result {
-        eprintln!("agent-tui: {err:#}");
+        eprintln!("proteus-tui: {err:#}");
     }
     result
 }

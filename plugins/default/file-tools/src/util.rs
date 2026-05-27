@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) use agent_contracts::tool_support::{
+pub(crate) use proteus_contracts::tool_support::{
     err_result, ok_result, optional_positive_usize, optional_string_array, parse_call,
     plugin_error, required_string, workspace_path, workspace_path_for_write,
 };

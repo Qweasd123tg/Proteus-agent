@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/agent-contracts",
-    "crates/modular-agent",
+    "crates/proteus-contracts",
+    "crates/proteus-core",
     "clients/tui",
     "plugins/default/file-tools",
     "plugins/default/git-tools",

@@ -1,16 +1,16 @@
 [package]
-name = "agent-tui"
+name = "proteus-tui"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Terminal UI client for modular-agent over AppServer stdio"
+description = "Terminal UI client for proteus-core over AppServer stdio"
 
 [[bin]]
-name = "agent-tui"
+name = "proteus-tui"
 path = "src/main.rs"
 
 [dependencies]
-agent-contracts = { path = "../../crates/agent-contracts" }
+proteus-contracts = { path = "../../crates/proteus-contracts" }
 anyhow = "1"
 crossterm = "0.28"
 ratatui = "0.29"

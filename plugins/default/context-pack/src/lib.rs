@@ -17,14 +17,14 @@ use abi_stable::std_types::{RResult, RString};
 #[cfg(feature = "plugin-entrypoint")]
 use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
     plugin::{
         ContextBuilderObject, PluginContextBuilder_TO, PluginRegisterError, PluginRegistryMut,
         PluginRoot, PluginRoot_Ref,
     },
 };
-use agent_contracts::{
+use proteus_contracts::{
     contracts::SearchQuery,
     domain::{ContextBundle, ContextChunk, MemoryItem, MemoryQuery},
     plugin::{
@@ -784,7 +784,7 @@ fn default_repo_tree_skip_entries() -> Vec<String> {
         ".git",
         "target",
         "node_modules",
-        ".agent",
+        ".proteus",
         ".next",
         "dist",
         "build",

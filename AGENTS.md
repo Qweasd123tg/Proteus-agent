@@ -16,10 +16,10 @@ Core не должен знать детали конкретного поиск
 
 ```text
 crates/
-    agent-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
-    modular-agent/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
+    proteus-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
+    proteus-core/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
 clients/
-    tui/                 - внешний TUI-клиент (бинарник agent-tui)
+    tui/                 - внешний TUI-клиент (бинарник proteus-tui)
 plugins/
     default/             - стандартный набор плагинов и ABI-примеры
         file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
@@ -34,27 +34,27 @@ plugins/
         renderer-pack/       - Renderer плагины "plain" и "statusline"
 ```
 
-Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
+Плагины живут в `~/.proteus/plugins/` и зависят только от `proteus-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
 
 ## Что Нельзя Ломать
 
 - Не связывать модули напрямую друг с другом.
-- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/modular-agent/src/adapters` и model shaping слоя.
+- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/proteus-core/src/adapters` и model shaping слоя.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
-- Не превращать `docs/MODULAR_AGENT_SPEC_RU.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
+- Не превращать `docs/MODULAR_PROTEUS_SPEC_RU.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
 
 ## Как Добавлять Модуль
 
-1. Найти подходящий trait в `crates/agent-contracts/src/contracts`.
-2. Реализовать модуль как dylib-плагин в `plugins/default/<name>` для стандартного набора или в отдельном pack-каталоге вроде `plugins/experimental/<name>`; core-owned fallback размещать в `crates/modular-agent/src/stubs`, provider adapter — в `crates/modular-agent/src/adapters`, ABI glue нового plugin slot — в `crates/modular-agent/src/plugin_adapters`.
+1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
+2. Реализовать модуль как dylib-плагин в `plugins/default/<name>` для стандартного набора или в отдельном pack-каталоге вроде `plugins/experimental/<name>`; core-owned fallback размещать в `crates/proteus-core/src/stubs`, provider adapter — в `crates/proteus-core/src/adapters`, ABI glue нового plugin slot — в `crates/proteus-core/src/plugin_adapters`.
 3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить или обновить конфиг-пример.
 5. Добавить тест на заменяемость, если модуль относится к slot.
 6. Обновить `docs/modules.md` и при необходимости `docs/configuration.md`.
 
-Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.agent/plugins/`, depends только на `agent-contracts`. См. `docs/plugin-architecture.md`.
+Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.proteus/plugins/`, depends только на `proteus-contracts`. См. `docs/plugin-architecture.md`.
 
 Для v0 модульность означает либо выбор встроенной реализации через config, либо загрузку dylib-плагина. Marketplace, WASM runtime, hot-reload и sandbox не являются текущей целью.
 
@@ -72,7 +72,7 @@ plugins/
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
-- vision/spec: `docs/MODULAR_AGENT_SPEC_RU.md`;
+- vision/spec: `docs/MODULAR_PROTEUS_SPEC_RU.md`;
 - roadmap: `docs/roadmap.md`;
 - memory plugin blueprint (research): `docs/memory-research.md`.
 
@@ -94,7 +94,7 @@ plugins/
 Если в текущем заходе делается только часть списка, явно скажите, какие пункты
 закрыты, какие отложены и почему. Отложенные идеи, UX-наблюдения и будущие
 задачи фиксируйте в ближайшем подходящем markdown-документе (`docs/roadmap.md`,
-`docs/MODULAR_AGENT_SPEC_RU.md`, профильный документ в `docs/` или отдельный
+`docs/MODULAR_PROTEUS_SPEC_RU.md`, профильный документ в `docs/` или отдельный
 research/notes doc), чтобы их можно было закрыть позже.
 
 ## Проверка Перед Завершением

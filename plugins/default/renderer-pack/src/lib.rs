@@ -4,15 +4,16 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
+use anyhow::{Result, bail};
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
-use agent_contracts::{
+use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
+use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{RenderError, Renderer, parse_output_json},
     domain::AgentOutput,
 };
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         sabi_trait::TD_Opaque,
         std_types::{RStr, RString as AbiRString},
@@ -20,7 +21,6 @@ use agent_contracts::{
     contracts::{Renderer_TO, RendererObject},
     plugin::{PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref},
 };
-use anyhow::{Result, bail};
 use serde_json::Value;
 
 #[derive(Default)]

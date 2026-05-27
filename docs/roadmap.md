@@ -19,11 +19,11 @@ module implementations без переписывания core или форка 
 
 ## Приоритеты
 
-1. Core-first: `crates/modular-agent/src/core` остаётся lifecycle/wiring слоем.
+1. Core-first: `crates/proteus-core/src/core` остаётся lifecycle/wiring слоем.
 2. Config-driven behavior: спорные режимы поведения должны выноситься в config,
    policy или workflow settings, а не хардкодиться в CLI.
 3. External UI: terminal/TUI/web/desktop клиенты живут поверх app-server
-   boundary. `crates/modular-agent/src/main.rs` остаётся dev shell и transport launcher.
+   boundary. `crates/proteus-core/src/main.rs` остаётся dev shell и transport launcher.
 4. Token discipline: context/workflow должны уметь экономить контекст, а не
    просто читать всё подряд.
 5. Tests before platform claims: каждый новый slot/module behavior получает
@@ -35,7 +35,7 @@ module implementations без переписывания core или форка 
 `docs/direction-checkpoint-20260507.md`.
 
 Короткая позиция на 2026-05-07 после ответов владельца: ближайший этап -
-`Quality-first harness`. `agent-tui` нужен как dogfood/test client, но не должен
+`Quality-first harness`. `proteus-tui` нужен как dogfood/test client, но не должен
 съесть весь roadmap. Сначала нужно добиться качества coding-agent на уровне
 существующих агентов, затем оптимизировать token/context usage. Для сравнения
 делаем `claude-code-like workflow baseline` pack на DeepSeek через
@@ -151,7 +151,7 @@ Scope:
 - стабилизировать app-server JSONL DTO;
 - добавить protocol tests;
 - описать commands/events как client contract;
-- оставить `crates/modular-agent/src/main.rs` тонким launcher-ом;
+- оставить `crates/proteus-core/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
 ### v0.5: Расширение plugin boundary
@@ -161,7 +161,7 @@ Scope:
 
 Статус (см. `plugin-architecture.md` по волнам):
 
-- ✅ Волна 1 — `agent-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
+- ✅ Волна 1 — `proteus-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
   Renderer через sabi_trait.
 - ✅ Волна 2 (частично) — dylib loader; PluginRegistry с `register_renderer`,
   `register_tool`, `register_approval_policy`, `register_patch_applier`,
@@ -173,7 +173,7 @@ Scope:
   показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
   `stream = true`; ModelService транслирует TextDelta/ToolArgsDelta/
-  ReasoningDelta как runtime events; `agent-tui` вставляет completed-line text
+  ReasoningDelta как runtime events; `proteus-tui` вставляет completed-line text
   deltas в normal scrollback и не рисует partial tail отдельным live-preview.
   `FilteredEventSink` не пишет дельты в durable JSONL по умолчанию.
 - ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
@@ -199,7 +199,7 @@ Scope:
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, `renderer = "text"`.
-  `install.sh` собирает и копирует runtime-плагины в `~/.agent/plugins/`
+  `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`
   автоматически.
 
 Следующий scope:
@@ -228,7 +228,7 @@ Scope:
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
   changed files, diff size, tests и failure reason.
-- Первый слой отчёта реализован командой `agent eval report <event-log-path>`:
+- Первый слой отчёта реализован командой `proteus eval report <event-log-path>`:
   она читает durable JSONL event log и считает turns, model/tool calls,
   approvals, token usage, duration, changed files и failure reason. Следующий
   шаг — runner для фиксированных eval cases и добавление tests/diff/cost
@@ -275,7 +275,7 @@ Scope:
 
 ### TUI / Control Plane
 
-- Продолжать доводить `agent-tui` как внешний client: slash autocomplete,
+- Продолжать доводить `proteus-tui` как внешний client: slash autocomplete,
   fullscreen `/resume`, `/context` overlay, `/plan`/`/normal`/`/auto`
   permission control, markdown renderer, paste UX, stopwatch и streaming
   readability остаются client concerns.
@@ -312,7 +312,7 @@ Scope:
 - multi-agent DAG;
 - полноценный RAG/index daemon;
 - продуктовый UI внутри core repo;
-- provider-specific DTO вне `crates/modular-agent/src/adapters` и model shaping слоя.
+- provider-specific DTO вне `crates/proteus-core/src/adapters` и model shaping слоя.
 
 ## Как Выбирать Следующую Задачу
 

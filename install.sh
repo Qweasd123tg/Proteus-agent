@@ -3,13 +3,13 @@ set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
-bin_path="${bin_dir}/agent"
-tui_bin_path="${bin_dir}/agent-tui"
-plugins_dir="${HOME}/.agent/plugins"
+bin_path="${bin_dir}/proteus"
+tui_bin_path="${bin_dir}/proteus-tui"
+plugins_dir="${HOME}/.proteus/plugins"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
-  -p modular-agent \
-  -p agent-tui \
+  -p proteus-core \
+  -p proteus-tui \
   -p file-tools \
   -p git-tools \
   -p shell-tool \
@@ -26,13 +26,13 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
 mkdir -p "${bin_dir}"
 cat > "${bin_path}" <<EOF
 #!/usr/bin/env sh
-exec "${project_dir}/target/release/modular-agent" "\$@"
+exec "${project_dir}/target/release/proteus" "\$@"
 EOF
 chmod 755 "${bin_path}"
 
 cat > "${tui_bin_path}" <<EOF
 #!/usr/bin/env sh
-exec "${project_dir}/target/release/agent-tui" "\$@"
+exec "${project_dir}/target/release/proteus-tui" "\$@"
 EOF
 chmod 755 "${tui_bin_path}"
 

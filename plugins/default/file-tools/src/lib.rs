@@ -13,9 +13,9 @@
 //!
 //! ```bash
 //! cargo build --release -p file-tools
-//! mkdir -p ~/.agent/plugins/file-tools
-//! cp target/release/libfile_tools.so ~/.agent/plugins/file-tools/
-//! cp plugins/default/file-tools/plugin.toml ~/.agent/plugins/file-tools/
+//! mkdir -p ~/.proteus/plugins/file-tools
+//! cp target/release/libfile_tools.so ~/.proteus/plugins/file-tools/
+//! cp plugins/default/file-tools/plugin.toml ~/.proteus/plugins/file-tools/
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,
@@ -34,7 +34,7 @@ mod search;
 mod util;
 mod write;
 
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         export_root_module,
         prefix_type::PrefixTypeTrait,
@@ -102,7 +102,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 
 #[cfg(test)]
 mod tests {
-    use agent_contracts::{
+    use proteus_contracts::{
         abi_stable::std_types::{RResult, RString},
         plugin::PluginTool,
     };

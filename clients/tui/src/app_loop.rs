@@ -1,14 +1,14 @@
 use std::{collections::HashSet, path::PathBuf, time::Duration};
 
-use agent_contracts::{
-    app_protocol::{AppServerEvent, StdioOutput},
-    domain::Event,
-};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event as CTerm},
     execute,
     terminal::LeaveAlternateScreen,
+};
+use proteus_contracts::{
+    app_protocol::{AppServerEvent, StdioOutput},
+    domain::Event,
 };
 
 use crate::{
@@ -32,7 +32,7 @@ pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> 
         .clone()
         .unwrap_or(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let driver_config = DriverConfig {
-        agent_bin: cli.agent_bin.clone(),
+        proteus_bin: cli.proteus_bin.clone(),
         config_path: cli.config_path.clone(),
         cwd: Some(cwd.clone()),
         resume_session: None,
@@ -246,7 +246,7 @@ fn response_display_text(output: Option<&serde_json::Value>) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use agent_contracts::{
+    use proteus_contracts::{
         app_protocol::{AppApprovalRequest, AppServerEvent},
         domain::{Event, EventContext, EventEnvelope, ToolCall, ToolResult},
     };
@@ -257,9 +257,9 @@ mod tests {
         AppServerEvent::Runtime {
             envelope: EventEnvelope::new(
                 EventContext::new(
-                    agent_contracts::domain::new_session_id(),
-                    agent_contracts::domain::new_thread_id(),
-                    Some(agent_contracts::domain::new_turn_id()),
+                    proteus_contracts::domain::new_session_id(),
+                    proteus_contracts::domain::new_thread_id(),
+                    Some(proteus_contracts::domain::new_turn_id()),
                 ),
                 1,
                 event,

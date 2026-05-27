@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agent_contracts::{
+use proteus_contracts::{
     app_protocol::{AppApprovalRequest, AppServerEvent},
     contracts::ApprovalCacheScope,
     domain::{Event, PermissionMode, TokenUsageSnapshot, ToolResult, ToolSafety, TurnId},
@@ -101,7 +101,7 @@ impl AppState {
             status: "ready".to_owned(),
             footer: footer_hint(),
             transcript: TranscriptStore::new(vec![VisualMessage::system(
-                "Connected to modular-agent. Type and press Enter.",
+                "Connected to proteus-core. Type and press Enter.",
             )]),
             active_tools: Vec::new(),
             input: String::new(),
@@ -440,7 +440,7 @@ impl AppState {
         lines.extend([
             String::new(),
             "## Почему это history estimate".to_owned(),
-            "TUI показывает этот режим, когда для текущей сессии ещё не найден live `TokenUsageUpdated` snapshot. При `/resume` клиент пытается восстановить usage из `.agent/events.jsonl`; если snapshot найден, экран сразу переключится на provider totals.".to_owned(),
+            "TUI показывает этот режим, когда для текущей сессии ещё не найден live `TokenUsageUpdated` snapshot. При `/resume` клиент пытается восстановить usage из `.proteus/events.jsonl`; если snapshot найден, экран сразу переключится на provider totals.".to_owned(),
         ]);
         lines.join("\n")
     }
@@ -786,7 +786,7 @@ impl AppState {
 
     pub fn take_user_input_response(
         &mut self,
-    ) -> Option<(String, agent_contracts::contracts::UserInputResponse)> {
+    ) -> Option<(String, proteus_contracts::contracts::UserInputResponse)> {
         let request_id = self.pending_user_input_request_id.take()?;
         let response = self.plan_intake.take()?.user_input_response();
         Some((request_id, response))
@@ -1425,7 +1425,7 @@ mod tests {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text(
+            output: proteus_contracts::domain::AgentOutput::text(
                 "Plan:\n1. Inspect files\n2. Apply patch",
             ),
         });
@@ -1447,12 +1447,12 @@ mod tests {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("<empty model response>"),
+            output: proteus_contracts::domain::AgentOutput::text("<empty model response>"),
         });
         assert!(!state.has_plan_review());
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text(
+            output: proteus_contracts::domain::AgentOutput::text(
                 "Which stack should I use?\n1. React\n2. Next.js",
             ),
         });
@@ -1464,7 +1464,7 @@ mod tests {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::new(
+            output: proteus_contracts::domain::AgentOutput::new(
                 "Need choices.",
                 json!({
                     "ui": {
@@ -1493,7 +1493,7 @@ mod tests {
     fn plan_intake_answers_can_be_serialized_for_followup() {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::new(
+            output: proteus_contracts::domain::AgentOutput::new(
                 "Need choices.",
                 json!({
                     "plan_intake": {
@@ -1523,7 +1523,7 @@ mod tests {
     fn plan_intake_custom_answer_accepts_spaces() {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::new(
+            output: proteus_contracts::domain::AgentOutput::new(
                 "Need choices.",
                 json!({
                     "plan_intake": {
@@ -1559,7 +1559,7 @@ mod tests {
     fn plan_review_selection_wraps_and_revision_clears_selector() {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("Plan"),
+            output: proteus_contracts::domain::AgentOutput::text("Plan"),
         });
 
         state.move_plan_review_prev();
@@ -1584,7 +1584,7 @@ mod tests {
     fn typing_clears_plan_review_selector() {
         let mut state = AppState::new(PathBuf::from("."), None, Some(PermissionMode::Plan));
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("Plan"),
+            output: proteus_contracts::domain::AgentOutput::text("Plan"),
         });
 
         state.type_char('x');
@@ -1614,14 +1614,14 @@ mod tests {
         state.ingest(AppServerEvent::ApprovalRequested {
             request: AppApprovalRequest::new(
                 "approval-1".to_owned(),
-                agent_contracts::domain::ToolCall::new(
-                    agent_contracts::domain::new_call_id(),
+                proteus_contracts::domain::ToolCall::new(
+                    proteus_contracts::domain::new_call_id(),
                     "shell",
                     json!({"command": "cargo test"}),
                 ),
                 PathBuf::from("."),
                 "run tests".to_owned(),
-                Some(agent_contracts::domain::ToolSpec::new(
+                Some(proteus_contracts::domain::ToolSpec::new(
                     "shell",
                     "Run shell command",
                     json!({}),
@@ -1640,7 +1640,7 @@ mod tests {
     #[test]
     fn preview_normalizes_tab_separated_tool_output() {
         let result = ToolResult::ok(
-            agent_contracts::domain::new_call_id(),
+            proteus_contracts::domain::new_call_id(),
             "dir\t1\nfile\tfile.md",
         );
 
@@ -1650,7 +1650,7 @@ mod tests {
     #[test]
     fn failed_tool_preview_keeps_output_before_error_summary() {
         let result = ToolResult::new(
-            agent_contracts::domain::new_call_id(),
+            proteus_contracts::domain::new_call_id(),
             false,
             "usage: skatewind --place NAME\nerror: missing argument".to_owned(),
             Vec::new(),
@@ -1667,7 +1667,7 @@ mod tests {
     #[test]
     fn failed_tool_preview_without_output_shows_error_once() {
         let result = ToolResult::new(
-            agent_contracts::domain::new_call_id(),
+            proteus_contracts::domain::new_call_id(),
             false,
             "".to_owned(),
             Vec::new(),
@@ -1680,7 +1680,7 @@ mod tests {
 
     #[test]
     fn empty_successful_tool_preview_shows_status() {
-        let result = ToolResult::ok(agent_contracts::domain::new_call_id(), "");
+        let result = ToolResult::ok(proteus_contracts::domain::new_call_id(), "");
 
         assert_eq!(preview(&result), "(no output)");
     }
@@ -1694,7 +1694,7 @@ mod tests {
             "Какой стиль/дизайн нужен?: Минималистичный магазин электроники",
         ]
         .join("\n");
-        let result = ToolResult::ok(agent_contracts::domain::new_call_id(), output.clone())
+        let result = ToolResult::ok(proteus_contracts::domain::new_call_id(), output.clone())
             .with_metadata(serde_json::json!({"tool": "AskUserQuestion"}));
 
         assert_eq!(preview(&result), output);
@@ -1762,13 +1762,13 @@ mod tests {
     #[test]
     fn turn_output_replaces_streaming_assistant_text() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let turn_id = agent_contracts::domain::new_turn_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let turn_id = proteus_contracts::domain::new_turn_id();
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 1,
                 Event::AssistantTextDelta {
                     text: "partial".to_owned(),
@@ -1778,7 +1778,7 @@ mod tests {
         assert!(state.visual_state().streaming);
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("canonical final"),
+            output: proteus_contracts::domain::AgentOutput::text("canonical final"),
         });
 
         let assistant_messages = state
@@ -1798,14 +1798,14 @@ mod tests {
     #[test]
     fn activity_tick_redraws_while_text_is_streaming() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let turn_id = agent_contracts::domain::new_turn_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let turn_id = proteus_contracts::domain::new_turn_id();
         state.mark_user_sent("write".to_owned(), Vec::new(), turn_id.to_string());
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 1,
                 Event::AssistantTextDelta {
                     text: "partial".to_owned(),
@@ -1821,14 +1821,14 @@ mod tests {
     #[test]
     fn next_model_request_marks_transient_streaming_draft() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let turn_id = agent_contracts::domain::new_turn_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let turn_id = proteus_contracts::domain::new_turn_id();
         state.mark_user_sent("write".to_owned(), Vec::new(), turn_id.to_string());
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 1,
                 Event::AssistantTextDelta {
                     text: "internal draft".to_owned(),
@@ -1838,11 +1838,11 @@ mod tests {
         assert!(state.visual_state().streaming);
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 2,
                 Event::ModelRequestPrepared {
-                    model: agent_contracts::domain::ModelRef::new("test", "model"),
+                    model: proteus_contracts::domain::ModelRef::new("test", "model"),
                 },
             ),
         });
@@ -1857,7 +1857,7 @@ mod tests {
         assert_eq!(draft_messages[0].text, "internal draft");
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("final answer"),
+            output: proteus_contracts::domain::AgentOutput::text("final answer"),
         });
 
         let assistant_messages = state
@@ -1872,15 +1872,15 @@ mod tests {
     #[test]
     fn tool_call_commits_streaming_preamble_before_tool_card() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let turn_id = agent_contracts::domain::new_turn_id();
-        let call_id = agent_contracts::domain::new_call_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let turn_id = proteus_contracts::domain::new_turn_id();
+        let call_id = proteus_contracts::domain::new_call_id();
         state.mark_user_sent("inspect".to_owned(), Vec::new(), turn_id.to_string());
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 1,
                 Event::AssistantTextDelta {
                     text: "Сейчас посмотрю файл.".to_owned(),
@@ -1888,11 +1888,11 @@ mod tests {
             ),
         });
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 2,
                 Event::ToolCallRequested {
-                    call: agent_contracts::domain::ToolCall::new(
+                    call: proteus_contracts::domain::ToolCall::new(
                         call_id.clone(),
                         "read_file",
                         serde_json::json!({"path": "main.py"}),
@@ -1924,8 +1924,8 @@ mod tests {
         assert_eq!(state.visual_state().status, "tool: read_file");
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
                 3,
                 Event::ToolFinished {
                     result: ToolResult::ok(call_id, "file contents"),
@@ -1943,7 +1943,7 @@ mod tests {
         assert!(state.visual_state().active_tools.is_empty());
 
         state.ingest(AppServerEvent::TurnOutput {
-            output: agent_contracts::domain::AgentOutput::text("Итоговый ответ"),
+            output: proteus_contracts::domain::AgentOutput::text("Итоговый ответ"),
         });
 
         let assistant_texts = state
@@ -2039,11 +2039,11 @@ mod tests {
         state.set_reasoning_mode(ReasoningDisplayMode::Summary);
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(
-                    agent_contracts::domain::new_session_id(),
-                    agent_contracts::domain::new_thread_id(),
-                    Some(agent_contracts::domain::new_turn_id()),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
+                    proteus_contracts::domain::new_session_id(),
+                    proteus_contracts::domain::new_thread_id(),
+                    Some(proteus_contracts::domain::new_turn_id()),
                 ),
                 1,
                 Event::AssistantReasoningDelta {
@@ -2107,17 +2107,17 @@ mod tests {
     #[test]
     fn session_started_updates_header_metadata() {
         let mut state = AppState::new(PathBuf::from("/tmp/old"), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, None),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(session_id, thread_id, None),
                 1,
                 Event::SessionStarted {
                     session_id,
                     cwd: PathBuf::from("/tmp/work"),
-                    model: Some(agent_contracts::domain::ModelRef::new(
+                    model: Some(proteus_contracts::domain::ModelRef::new(
                         "openrouter",
                         "deepseek",
                     )),
@@ -2136,27 +2136,27 @@ mod tests {
     fn context_report_uses_latest_token_usage_event() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
-            agent_contracts::domain::ModelRef::new("test", "model"),
+            proteus_contracts::domain::ModelRef::new("test", "model"),
             100,
             vec![
-                agent_contracts::domain::TokenUsageCategory::new("messages", 40),
-                agent_contracts::domain::TokenUsageCategory::new("tool_schemas", 60),
+                proteus_contracts::domain::TokenUsageCategory::new("messages", 40),
+                proteus_contracts::domain::TokenUsageCategory::new("tool_schemas", 60),
             ],
         )
         .with_phase("execute")
         .with_max_input_tokens(Some(200))
         .with_actual(Some(
-            agent_contracts::model_standard::TokenUsage::new(110, 12)
+            proteus_contracts::model_standard::TokenUsage::new(110, 12)
                 .with_cached_input_tokens(Some(30))
                 .with_reasoning_output_tokens(Some(4)),
         ));
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(
-                    agent_contracts::domain::new_session_id(),
-                    agent_contracts::domain::new_thread_id(),
-                    Some(agent_contracts::domain::new_turn_id()),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
+                    proteus_contracts::domain::new_session_id(),
+                    proteus_contracts::domain::new_thread_id(),
+                    Some(proteus_contracts::domain::new_turn_id()),
                 ),
                 1,
                 Event::TokenUsageUpdated { usage },
@@ -2183,21 +2183,21 @@ mod tests {
     fn context_report_formats_large_token_counts() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
-            agent_contracts::domain::ModelRef::new("test", "large"),
+            proteus_contracts::domain::ModelRef::new("test", "large"),
             37_500,
             vec![
-                agent_contracts::domain::TokenUsageCategory::new("instructions", 8_600),
-                agent_contracts::domain::TokenUsageCategory::new("tool_schemas", 28_000),
+                proteus_contracts::domain::TokenUsageCategory::new("instructions", 8_600),
+                proteus_contracts::domain::TokenUsageCategory::new("tool_schemas", 28_000),
             ],
         )
         .with_max_input_tokens(Some(1_000_000));
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(
-                    agent_contracts::domain::new_session_id(),
-                    agent_contracts::domain::new_thread_id(),
-                    Some(agent_contracts::domain::new_turn_id()),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
+                    proteus_contracts::domain::new_session_id(),
+                    proteus_contracts::domain::new_thread_id(),
+                    Some(proteus_contracts::domain::new_turn_id()),
                 ),
                 1,
                 Event::TokenUsageUpdated { usage },
@@ -2218,19 +2218,19 @@ mod tests {
     fn context_report_infers_window_for_visual_map_when_provider_omits_it() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
         let usage = TokenUsageSnapshot::new(
-            agent_contracts::domain::ModelRef::new("anthropic", "deepseek-v4-pro"),
+            proteus_contracts::domain::ModelRef::new("anthropic", "deepseek-v4-pro"),
             12_700,
-            vec![agent_contracts::domain::TokenUsageCategory::new(
+            vec![proteus_contracts::domain::TokenUsageCategory::new(
                 "messages", 3_800,
             )],
         );
 
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(
-                    agent_contracts::domain::new_session_id(),
-                    agent_contracts::domain::new_thread_id(),
-                    Some(agent_contracts::domain::new_turn_id()),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
+                    proteus_contracts::domain::new_session_id(),
+                    proteus_contracts::domain::new_thread_id(),
+                    Some(proteus_contracts::domain::new_turn_id()),
                 ),
                 1,
                 Event::TokenUsageUpdated { usage },
@@ -2247,44 +2247,48 @@ mod tests {
     #[test]
     fn context_report_accumulates_turn_and_session_usage() {
         let mut state = AppState::new(PathBuf::from("."), None, None);
-        let session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let first_turn = agent_contracts::domain::new_turn_id();
-        let second_turn = agent_contracts::domain::new_turn_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let first_turn = proteus_contracts::domain::new_turn_id();
+        let second_turn = proteus_contracts::domain::new_turn_id();
 
         let first = TokenUsageSnapshot::new(
-            agent_contracts::domain::ModelRef::new("test", "model"),
+            proteus_contracts::domain::ModelRef::new("test", "model"),
             100,
-            vec![agent_contracts::domain::TokenUsageCategory::new(
+            vec![proteus_contracts::domain::TokenUsageCategory::new(
                 "messages", 100,
             )],
         )
         .with_actual(Some(
-            agent_contracts::model_standard::TokenUsage::new(110, 10)
+            proteus_contracts::model_standard::TokenUsage::new(110, 10)
                 .with_cached_input_tokens(Some(20)),
         ));
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(session_id, thread_id, Some(first_turn)),
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
+                    session_id,
+                    thread_id,
+                    Some(first_turn),
+                ),
                 1,
                 Event::TokenUsageUpdated { usage: first },
             ),
         });
 
         let second = TokenUsageSnapshot::new(
-            agent_contracts::domain::ModelRef::new("test", "model"),
+            proteus_contracts::domain::ModelRef::new("test", "model"),
             50,
-            vec![agent_contracts::domain::TokenUsageCategory::new(
+            vec![proteus_contracts::domain::TokenUsageCategory::new(
                 "tool_schemas",
                 50,
             )],
         )
-        .with_actual(Some(agent_contracts::model_standard::TokenUsage::new(
+        .with_actual(Some(proteus_contracts::model_standard::TokenUsage::new(
             55, 5,
         )));
         state.ingest(AppServerEvent::Runtime {
-            envelope: agent_contracts::domain::EventEnvelope::new(
-                agent_contracts::domain::EventContext::new(
+            envelope: proteus_contracts::domain::EventEnvelope::new(
+                proteus_contracts::domain::EventContext::new(
                     session_id,
                     thread_id,
                     Some(second_turn),

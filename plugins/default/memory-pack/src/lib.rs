@@ -15,9 +15,10 @@ use std::{
     sync::Mutex,
 };
 
+use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
-use agent_contracts::{
+use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
+use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     domain::{MemoryItem, MemoryOp, MemoryPolicyPlan, MemoryQuery},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
@@ -27,7 +28,7 @@ use agent_contracts::{
     },
 };
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         sabi_trait::TD_Opaque,
         std_types::{RStr, RString as AbiRString},
@@ -37,7 +38,6 @@ use agent_contracts::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
     },
 };
-use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 
 const CARRY_FORWARD_CONTENT_LIMIT: usize = 500;
@@ -57,10 +57,10 @@ impl JsonlMemoryStorePlugin {
     }
 
     pub fn default_path() -> PathBuf {
-        if let Some(path) = std::env::var_os("AGENT_MEMORY_JSONL_PATH") {
+        if let Some(path) = std::env::var_os("PROTEUS_MEMORY_JSONL_PATH") {
             return PathBuf::from(path);
         }
-        PathBuf::from(".agent/memory.jsonl")
+        PathBuf::from(".proteus/memory.jsonl")
     }
 }
 
@@ -226,7 +226,7 @@ pub fn instantiate_root_module() -> PluginRoot_Ref {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_contracts::{
+    use proteus_contracts::{
         abi_stable::std_types::RResult,
         domain::{AgentOutput, AgentTask},
         model_standard::CanonicalMessage,

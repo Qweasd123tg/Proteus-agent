@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use agent_contracts::abi_stable::std_types::{RResult, RString};
-use agent_contracts::plugin::{PluginTool, PluginToolError};
+use proteus_contracts::abi_stable::std_types::{RResult, RString};
+use proteus_contracts::plugin::{PluginTool, PluginToolError};
 use serde_json::json;
 
 use crate::util::{

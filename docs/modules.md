@@ -1,24 +1,24 @@
 # Модули
 
 Модульность v0 означает выбор реализации через config: встроенный fallback из
-ядра там, где он ещё нужен, или dylib-плагин из `~/.agent/plugins`.
+ядра там, где он ещё нужен, или dylib-плагин из `~/.proteus/plugins`.
 Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
-`crates/modular-agent/src/core/module_catalog.rs`, а
-`crates/modular-agent/src/core/registry.rs` использует catalog для сборки
+`crates/proteus-core/src/core/module_catalog.rs`, а
+`crates/proteus-core/src/core/registry.rs` использует catalog для сборки
 runtime trait-объектов.
 
-`crates/modular-agent/src/plugin_adapters/<slot>` содержит ABI adapters для
+`crates/proteus-core/src/plugin_adapters/<slot>` содержит ABI adapters для
 dylib-плагинов, а не реализации модулей и не DTO. Если рядом существует файл с
-таким же смысловым именем в `crates/agent-contracts/src/domain` или
-`crates/agent-contracts/src/contracts`, это другой слой: например
-`crates/agent-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`,
-`crates/agent-contracts/src/contracts/memory_store.rs` описывает trait
-`MemoryStore`, а `crates/modular-agent/src/plugin_adapters/memory` содержит
+таким же смысловым именем в `crates/proteus-contracts/src/domain` или
+`crates/proteus-contracts/src/contracts`, это другой слой: например
+`crates/proteus-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`,
+`crates/proteus-contracts/src/contracts/memory_store.rs` описывает trait
+`MemoryStore`, а `crates/proteus-core/src/plugin_adapters/memory` содержит
 adapter для plugin `MemoryStore`/`MemoryPolicy`. `jsonl`/`carry_forward` вынесены
 в `plugins/default/memory-pack`, SQLite FTS5 backend — в `plugins/default/sqlite-memory`.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
-`crates/modular-agent/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
+`crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
 `NoMemoryPolicy`, `EmptyContextBuilder`, `DenyAllPolicy`, `NullPatchApplier`,
 `NoCompactor`, `NoWorkflow`, `TextRenderer`. Catalog регистрирует их под безопасными ids
 (`fake`, `null`, `none`, `deny_all`, `text`), но они не лежат рядом с plugin
@@ -27,10 +27,10 @@ adapters.
 Не всё host-side является module. Поэтому runtime support вынесен из этой
 папки:
 
-- `crates/modular-agent/src/core/approval` — transports и cache для approval UI;
-- `crates/modular-agent/src/core/model_service.rs` — shaping wrapper вокруг `ModelAdapter`;
-- `crates/modular-agent/src/core/permission_mode.rs` — mode-aware wrapper для `ApprovalPolicy`;
-- `crates/modular-agent/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`, `request_user_input`/`AskUserQuestion`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
+- `crates/proteus-core/src/core/approval` — transports и cache для approval UI;
+- `crates/proteus-core/src/core/model_service.rs` — shaping wrapper вокруг `ModelAdapter`;
+- `crates/proteus-core/src/core/permission_mode.rs` — mode-aware wrapper для `ApprovalPolicy`;
+- `crates/proteus-core/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`, `request_user_input`/`AskUserQuestion`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
 
 Список встроенных manifests можно посмотреть без запуска runtime:
 
@@ -99,14 +99,14 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 `modules.search = "null"` отключает фактический поиск и возвращает пустой контекст.
 
 `modules.search = "rg"` использует plugin backend `rg-search`, если он установлен
-в `~/.agent/plugins`. Этот backend влияет на два места:
+в `~/.proteus/plugins`. Этот backend влияет на два места:
 
 - context builder `simple`/`repo_aware` из `context-pack` получает search
   chunks при сборке контекста;
 - tool `search` вызывает тот же backend.
 
 `rg-search` всегда передаёт ripgrep явный workspace path и закрывает stdin
-для child process. Это важно для `agent server stdio`: без явного path `rg`
+для child process. Это важно для `proteus server stdio`: без явного path `rg`
 может читать открытый JSON stdin вместо файлов workspace и зависнуть до
 timeout.
 
@@ -128,7 +128,7 @@ Tool `search` возвращает человеку читаемый output (`pa
 
 ## Memory
 
-`modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/agent-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
+`modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/proteus-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
 
 `modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
 
@@ -153,15 +153,15 @@ Plugin-provided `MemoryPolicy` поддерживается декларатив
 умолчанию он использует файл:
 
 ```text
-.agent/memory.jsonl
+.proteus/memory.jsonl
 ```
 
-Путь можно переопределить через env `AGENT_MEMORY_JSONL_PATH` до старта агента.
+Путь можно переопределить через env `PROTEUS_MEMORY_JSONL_PATH` до старта агента.
 
 `modules.memory = "sqlite"` поставляется плагином `sqlite-memory`, а не core.
 Он использует SQLite FTS5 и регистрирует ids `sqlite` и `sqlite_plugin`
 (legacy alias). Для этого backend нужно установить плагин через `install.sh`
-или положить dylib в `~/.agent/plugins/sqlite-memory/`.
+или положить dylib в `~/.proteus/plugins/sqlite-memory/`.
 
 При активной `memory_policy = "none"` автоматической записи нет (но `remember_fact` tool и `/remember` REPL-команда остаются доступны). Context builder `simple` из плагина `context-pack` использует только `recall`.
 
@@ -233,7 +233,7 @@ plugin tool совпадает с builtin/configured tool, builtin/configured р
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это
-`~/.config/agent-qweasd123tg/tools`, а configs лежат в соседней директории
+`~/.config/proteus-qweasd123tg/tools`, а configs лежат в соседней директории
 `configs`.
 
 Текущий registry можно посмотреть командой:
@@ -386,8 +386,8 @@ Workflow не знает о статусной строке. Он публику
 
 ## Как Добавить Новый Модуль
 
-1. Реализовать подходящий trait из `crates/agent-contracts/src/contracts`.
-2. Для внешней функциональности предпочтительно сделать dylib-плагин в `plugins/<name>`. Если нужен core-owned fallback, разместить его в `crates/modular-agent/src/stubs`; provider wire adapter — в `crates/modular-agent/src/adapters`; ABI glue для нового plugin slot — в `crates/modular-agent/src/plugin_adapters`.
+1. Реализовать подходящий trait из `crates/proteus-contracts/src/contracts`.
+2. Для внешней функциональности предпочтительно сделать dylib-плагин в `plugins/<name>`. Если нужен core-owned fallback, разместить его в `crates/proteus-core/src/stubs`; provider wire adapter — в `crates/proteus-core/src/adapters`; ABI glue для нового plugin slot — в `crates/proteus-core/src/plugin_adapters`.
 3. Добавить строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
 4. Добавить config example.
 5. Добавить test, который доказывает заменяемость без изменения `AgentRuntime`.

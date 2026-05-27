@@ -12,7 +12,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         export_root_module,
         prefix_type::PrefixTypeTrait,

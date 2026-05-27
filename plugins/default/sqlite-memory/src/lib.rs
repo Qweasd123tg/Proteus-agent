@@ -1,11 +1,11 @@
 //! SQLite FTS5 memory store как dylib-плагин.
 //!
-//! SQLite backend вынесен из ядра в cdylib чтобы `modular-agent` не зависел
+//! SQLite backend вынесен из ядра в cdylib чтобы `proteus-core` не зависел
 //! от `rusqlite`, а реальное persistent memory подключалось через plugin ABI.
 //!
 //! Регистрируется под id `"sqlite"` и legacy alias `"sqlite_plugin"`.
 //!
-//! Путь к базе: `$HOME/.agent/memory-plugin.sqlite` (создаётся при
+//! Путь к базе: `$HOME/.proteus/memory-plugin.sqlite` (создаётся при
 //! старте, если нет). Hardcoded для простоты первой итерации; в
 //! будущем — через per-plugin manifest/config.
 
@@ -15,7 +15,8 @@
 
 use std::{path::PathBuf, sync::Mutex};
 
-use agent_contracts::{
+use anyhow::{Context, Result, anyhow};
+use proteus_contracts::{
     abi_stable::{
         export_root_module,
         prefix_type::PrefixTypeTrait,
@@ -27,12 +28,11 @@ use agent_contracts::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
     },
 };
-use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Копия `MemoryItem` / `MemoryQuery` из `agent-contracts::domain`.
+/// Копия `MemoryItem` / `MemoryQuery` из `proteus-contracts::domain`.
 /// Плагин не может дёргать domain-типы напрямую (они не в trait
 /// interface), поэтому разбираем JSON вручную.
 #[derive(Serialize, Deserialize)]
@@ -100,7 +100,7 @@ fn plugin_db_path() -> Result<PathBuf> {
     let home = std::env::var_os("HOME")
         .ok_or_else(|| anyhow!("HOME env not set, cannot resolve db path"))?;
     Ok(PathBuf::from(home)
-        .join(".agent")
+        .join(".proteus")
         .join("memory-plugin.sqlite"))
 }
 

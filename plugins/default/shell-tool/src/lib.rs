@@ -26,7 +26,8 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-use agent_contracts::{
+use anyhow::{Context, Result, anyhow};
+use proteus_contracts::{
     abi_stable::{
         export_root_module,
         prefix_type::PrefixTypeTrait,
@@ -38,7 +39,6 @@ use agent_contracts::{
         PluginTool_TO, PluginToolError, PluginToolObject,
     },
 };
-use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -49,8 +49,8 @@ const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 /// Timeout на выполнение команды. Shell-команды часто запускают тесты,
 /// сборки или генерацию артефактов, поэтому 30 секунд слишком агрессивны.
 const TIMEOUT_MS: u64 = 600_000;
-const EXTERNAL_TERMINAL_ENV: &str = "AGENT_SHELL_EXTERNAL_TERMINAL";
-const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "AGENT_SHELL_EXTERNAL_DBUS_ADDRESS";
+const EXTERNAL_TERMINAL_ENV: &str = "PROTEUS_SHELL_EXTERNAL_TERMINAL";
+const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "PROTEUS_SHELL_EXTERNAL_DBUS_ADDRESS";
 const PTYXIS_TERMINAL: &str = "ptyxis";
 
 struct ShellTool;

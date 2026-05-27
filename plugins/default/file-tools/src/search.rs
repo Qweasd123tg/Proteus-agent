@@ -7,8 +7,8 @@
 
 use std::{path::Path, process::Command, time::Duration};
 
-use agent_contracts::abi_stable::std_types::{RResult, RString};
-use agent_contracts::plugin::{PluginTool, PluginToolError};
+use proteus_contracts::abi_stable::std_types::{RResult, RString};
+use proteus_contracts::plugin::{PluginTool, PluginToolError};
 use serde_json::{Value, json};
 
 use crate::util::{
