@@ -153,7 +153,7 @@ proteus-tui --plan
 proteus-tui --permission-mode auto
 ```
 
-Profile-файлы лежат в `~/.config/proteus-qweasd123tg/profiles/<name>.toml` и
+Profile-файлы лежат в `~/.config/Proteus-agent/profiles/<name>.toml` и
 могут задавать `proteus_bin`, `config`, `cwd`, `permission_mode`; явные CLI flags
 перекрывают profile.
 
@@ -268,8 +268,8 @@ proteus doctor
 
 1. `$PROTEUS_CONFIG_PATH`
 2. `$PROTEUS_CONFIG_HOME/configs/config.toml`
-3. `$HOME/.config/proteus-qweasd123tg/configs/config.toml` (default)
-4. `$XDG_CONFIG_HOME/proteus-qweasd123tg/configs/config.toml`
+3. `$HOME/.config/Proteus-agent/configs/config.toml` (default)
+4. `$XDG_CONFIG_HOME/Proteus-agent/configs/config.toml`
 
 Если не найдено — используются безопасные stub defaults из `AppConfig`
 (`workflow = "none"`, `context = "none"`, `policy = "deny_all"`,
@@ -281,7 +281,7 @@ proteus doctor
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy). Более тяжёлый `coding.plan_execute_review`
   оставлен в `proteus.advanced.example.toml`. `proteus init coding` создаёт
-  `$HOME/.config/proteus-qweasd123tg/configs/config.toml`, где provider/key,
+  `$HOME/.config/Proteus-agent/configs/config.toml`, где provider/key,
   modules, tools и policy лежат в одном явном файле.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
   предпочтительнее `proteus init coding` и один TOML config file.
@@ -292,7 +292,7 @@ proteus doctor
 ## Runtime данные
 
 ```text
-~/.config/proteus-qweasd123tg/sessions/<encoded-workspace>/<short-id>/messages.jsonl
+~/.config/Proteus-agent/sessions/<encoded-workspace>/<short-id>/messages.jsonl
 .proteus/events.jsonl   (в workspace'е)
 ```
 

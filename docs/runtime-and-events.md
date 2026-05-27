@@ -32,7 +32,7 @@ cargo run --bin proteus -- doctor
 ```
 
 `init [coding|full|safe]` создаёт TOML profile в default config file
-(`~/.config/proteus-qweasd123tg/configs/config.toml`) или в путь, переданный через
+(`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
 `--config`. `coding` и `full` включают real-provider coding profile с
 plugin tools после `./install.sh`, `safe` использует fake model.
 
@@ -91,10 +91,10 @@ cargo run -- server stdio
 
 Если runtime знает путь config-а, относительный `event_log.path` считается от
 config store root, то есть рядом с `sessions`. Для default layout
-`~/.config/proteus-qweasd123tg/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
+`~/.config/Proteus-agent/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
 
 ```text
-~/.config/proteus-qweasd123tg/.proteus/events.jsonl
+~/.config/Proteus-agent/.proteus/events.jsonl
 ```
 
 Если config path неизвестен, fallback остаётся старым: путь считается от
@@ -203,7 +203,7 @@ turn асинхронно, поэтому UI может отправить `appr
 
 ## Session Store
 
-Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для default layout `~/.config/proteus-qweasd123tg/configs/config.toml` session store живёт в `~/.config/proteus-qweasd123tg/sessions`:
+Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для default layout `~/.config/Proteus-agent/configs/config.toml` session store живёт в `~/.config/Proteus-agent/sessions`:
 
 ```text
 <config-dir>/sessions/<encoded-workspace>/<short-numeric-id>/messages.jsonl
@@ -213,7 +213,7 @@ turn асинхронно, поэтому UI может отправить `appr
 Пример:
 
 ```text
-/home/qweasd123tg/.config/proteus-qweasd123tg/sessions/home|game/1234567890/messages.jsonl
+/home/qweasd123tg/.config/Proteus-agent/sessions/home|game/1234567890/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:

@@ -700,10 +700,10 @@ fn default_config_path() -> Option<PathBuf> {
         return Some(PathBuf::from(config_home).join("configs/config.toml"));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/proteus-qweasd123tg/configs/config.toml"));
+        return Some(PathBuf::from(home).join(".config/Proteus-agent/configs/config.toml"));
     }
     std::env::var_os("XDG_CONFIG_HOME").map(|xdg_config_home| {
-        PathBuf::from(xdg_config_home).join("proteus-qweasd123tg/configs/config.toml")
+        PathBuf::from(xdg_config_home).join("Proteus-agent/configs/config.toml")
     })
 }
 

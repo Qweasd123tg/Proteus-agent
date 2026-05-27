@@ -22,7 +22,7 @@ renderer = "statusline"
 [tools]
 enabled = []
 # path omitted: defaults to the tools directory next to the config root.
-# With the standard layout this is ~/.config/proteus-qweasd123tg/tools.
+# With the standard layout this is ~/.config/Proteus-agent/tools.
 # Keep module_config.policy.ask_write in sync with the names registered by those manifests.
 
 [permissions]
