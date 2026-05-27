@@ -148,8 +148,9 @@ Runtime оборачивает выбранный transport в session-level app
 без `approval_id` и reason. Для `cache = "tool_in_cwd"` ключ строится из
 `cwd + tool name`, поэтому следующие вызовы того же tool в том же workspace
 approved без повторного запроса даже при других args. TUI-клавиша `2/p/з`
-использует `tool_in_cwd`; внешние клиенты могут продолжать отправлять
-`exact_call` для более узкого поведения. Cache хранится только в памяти текущего
+использует `exact_call` для `shell`, `RunsCommands`, `Network` и `Dangerous`;
+для остальных write-like tools она использует `tool_in_cwd`. Внешние клиенты
+могут сами выбирать scope. Cache хранится только в памяти текущего
 runtime/session и не переживает restart или `resume_from_session_dir`.
 
 Ближайшая UX-цель для write approval - diff-first flow. Для `apply_patch`

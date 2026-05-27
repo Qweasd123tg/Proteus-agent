@@ -238,6 +238,9 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
         profile.config_name(),
         destination.display()
     );
+    if let Some(warning) = mixed_config_files_warning(&destination) {
+        println!("warning: {warning}");
+    }
     println!("Next: agent doctor");
     Ok(())
 }
@@ -277,6 +280,52 @@ fn is_config_file_path(path: &Path) -> bool {
     )
 }
 
+fn single_config_file_for_warning(config_path: Option<&Path>) -> Option<PathBuf> {
+    let path = config_path?;
+    if is_config_file_path(path) {
+        return (path.file_name().and_then(|name| name.to_str()) == Some(INIT_CONFIG_FILE))
+            .then(|| path.to_path_buf());
+    }
+    Some(path.join(INIT_CONFIG_FILE)).filter(|path| path.exists())
+}
+
+fn mixed_config_files_warning(config_file: &Path) -> Option<String> {
+    if config_file.file_name().and_then(|name| name.to_str()) != Some(INIT_CONFIG_FILE) {
+        return None;
+    }
+    let siblings = sibling_config_files(config_file);
+    if siblings.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "config dir also contains {}. agent loads every .toml/.json file when given the directory; move old files away or pass --config {} to load only this file.",
+        siblings
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        config_file.display()
+    ))
+}
+
+fn sibling_config_files(config_file: &Path) -> Vec<PathBuf> {
+    let Some(parent) = config_file.parent() else {
+        return Vec::new();
+    };
+    let config_name = config_file.file_name();
+    let mut files = std::fs::read_dir(parent)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file() && is_config_file_path(path) && path.file_name() != config_name
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
 async fn run_doctor(
     explicit_config: Option<&std::path::Path>,
     effective_config: Option<&std::path::Path>,
@@ -309,6 +358,11 @@ async fn run_doctor(
                 legacy_json.display()
             ));
         }
+    }
+    if let Some(path) = single_config_file_for_warning(effective_config)
+        && let Some(warning) = mixed_config_files_warning(&path)
+    {
+        findings.warn(warning);
     }
 
     let config = match AppConfig::load(explicit_config).await {
@@ -1509,6 +1563,35 @@ mod tests {
         assert_eq!(
             init_destination_path(Path::new("/tmp/configs"), InitProfile::Safe),
             PathBuf::from("/tmp/configs/config.toml")
+        );
+    }
+
+    #[test]
+    fn mixed_config_files_warning_lists_sibling_config_files() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config = dir.path().join(INIT_CONFIG_FILE);
+        std::fs::write(&config, "").expect("config");
+        std::fs::write(dir.path().join("00-provider.toml"), "").expect("legacy provider");
+        std::fs::write(dir.path().join("10-coding.toml"), "").expect("legacy profile");
+        std::fs::write(dir.path().join("notes.md"), "").expect("notes");
+
+        let warning = mixed_config_files_warning(&config).expect("warning");
+
+        assert!(warning.contains("00-provider.toml"));
+        assert!(warning.contains("10-coding.toml"));
+        assert!(!warning.contains("notes.md"));
+        assert!(warning.contains("--config"));
+    }
+
+    #[test]
+    fn single_config_file_for_warning_resolves_directory_config_toml() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config = dir.path().join(INIT_CONFIG_FILE);
+        std::fs::write(&config, "").expect("config");
+
+        assert_eq!(
+            single_config_file_for_warning(Some(dir.path())),
+            Some(config)
         );
     }
 

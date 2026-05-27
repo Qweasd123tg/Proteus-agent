@@ -67,9 +67,9 @@
 
 ```
 ~/.agent/plugins/
-    libfoo_toollibfoo_tool.so                        # просто .so, минимальный вариант
+    libfoo_tool.so                        # просто .so, минимальный вариант
     renderer-pack/
-        librenderer_packlibrenderer_pack.so
+        librenderer_pack.so
         plugin.toml           # manifest: name, version, description
 ```
 
@@ -252,7 +252,7 @@ modular-agent/              # root workspace
         agent-contracts/    # публичный crate
         modular-agent/      # ядро
     plugins/
-        filefile-toolstools/                  # отдельныйотдельный plugin crateplugin crate
+        file-tools/         # отдельный plugin crate
         ...
 ```
 
@@ -428,9 +428,8 @@ MCP server процессы (если/когда будет полноценны
 
 ## Решения, зафиксированные по итогам первых экспериментов
 
-Эти решения приняты на основе практики первыхпервых dylibdylib-плагинов и последующего
-переноса runtime-модулей вплагинов и последующего
-переноса runtime-модулей в `plugins/defaultplugins/default`.
+Эти решения приняты на основе практики первых dylib-плагинов и последующего
+переноса runtime-модулей в `plugins/default`.
 
 **Один формат — dylib через abi_stable.** Rust-плагин компактный (~70-100 строк), автор-нейронка справляется за один заход. YAML declarative loader исключён как дублирование кода: `ConfiguredProcessTool` в ядре уже позволяет описывать shell-обёртки в главном config'е без компиляции, дополнительная система не нужна.
 
