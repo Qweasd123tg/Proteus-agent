@@ -769,8 +769,12 @@ fn first_existing_ancestor(path: &Path) -> Option<PathBuf> {
 
 fn config_root_for_doctor(config_path: Option<&std::path::Path>) -> Option<PathBuf> {
     let path = config_path?;
-    if path.is_file() {
-        return path.parent().map(std::path::Path::to_path_buf);
+    if is_config_file_path(path) || path.is_file() {
+        let parent = path.parent()?;
+        if parent.file_name().and_then(|name| name.to_str()) == Some("configs") {
+            return parent.parent().map(std::path::Path::to_path_buf);
+        }
+        return Some(parent.to_path_buf());
     }
     if path.file_name().and_then(|name| name.to_str()) == Some("configs") {
         return path.parent().map(std::path::Path::to_path_buf);
@@ -1592,6 +1596,14 @@ mod tests {
         assert_eq!(
             single_config_file_for_warning(Some(dir.path())),
             Some(config)
+        );
+    }
+
+    #[test]
+    fn doctor_config_root_for_default_config_file_is_config_home() {
+        assert_eq!(
+            config_root_for_doctor(Some(Path::new("/tmp/agent/configs/config.toml"))),
+            Some(PathBuf::from("/tmp/agent"))
         );
     }
 

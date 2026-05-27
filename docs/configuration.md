@@ -16,9 +16,9 @@ cargo run --bin modular-agent -- --config "$HOME/.config/agent-qweasd123tg/confi
 Если `--config` не передан, путь ищется так:
 
 1. `AGENT_CONFIG_PATH`;
-2. `AGENT_CONFIG_HOME/configs`;
-3. `$HOME/.config/agent-qweasd123tg/configs`;
-4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`, если `HOME` недоступен.
+2. `AGENT_CONFIG_HOME/configs/config.toml`;
+3. `$HOME/.config/agent-qweasd123tg/configs/config.toml`;
+4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs/config.toml`, если `HOME` недоступен.
 
 Если путь не найден, используется `AppConfig::default()`: безопасная
 заглушечная конфигурация без plugin-зависимостей (`workflow = "none"`,
@@ -64,7 +64,7 @@ agent-tui --profile work
 
 ```toml
 agent_bin = "~/.local/bin/agent"
-config = "~/.config/agent-qweasd123tg/configs"
+config = "~/.config/agent-qweasd123tg/configs/config.toml"
 ```
 
 Поддерживаемые поля: `agent_bin`, `config`, `cwd`. CLI flags
@@ -78,7 +78,7 @@ config = "~/.config/agent-qweasd123tg/configs"
 
 ## JSON И TOML
 
-Рекомендуемый пользовательский формат - directory-based TOML:
+Рекомендуемый пользовательский формат - один TOML-файл в config dir:
 
 ```text
 ~/.config/agent-qweasd123tg/
@@ -343,9 +343,10 @@ runtime ищет tools в config root:
   tools/
 ```
 
-Для explicit config directory `configs/` config root считается родительская
-директория. Для single-file config root считается директория файла. Относительный
-`tools.path` также считается от config root.
+Для explicit config directory `configs/` и default single-file
+`configs/config.toml` config root считается родительская директория
+`configs/`. Для произвольного single-file config root считается директория
+файла. Относительный `tools.path` также считается от config root.
 
 Runtime читает `*.toml`/`*.json` файлы на первом уровне и подпапки с
 `tool.toml`, `manifest.toml`, `tool.json` или `manifest.json`.

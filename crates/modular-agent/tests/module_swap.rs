@@ -2600,6 +2600,45 @@ handler = "read_file"
 }
 
 #[tokio::test]
+async fn config_file_in_configs_loads_tools_from_config_root_tools_dir_by_default() {
+    let root = tempfile::tempdir().expect("config root");
+    let configs_dir = root.path().join("configs");
+    let tools_dir = root.path().join("tools");
+    std::fs::create_dir(&configs_dir).expect("configs dir");
+    std::fs::create_dir(&tools_dir).expect("tools dir");
+    let config_path = configs_dir.join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[tools]
+enabled = []
+"#,
+    )
+    .expect("runtime config");
+    std::fs::write(
+        tools_dir.join("read-file.toml"),
+        r#"
+name = "read_file"
+description = "Configured read tool from config root"
+safety = "ReadOnly"
+timeout_ms = 1000
+
+[executor]
+kind = "native"
+handler = "read_file"
+"#,
+    )
+    .expect("tool manifest");
+
+    let config = modular_agent::core::AppConfig::load(Some(&config_path))
+        .await
+        .unwrap();
+
+    assert!(config.tools.enabled.is_empty());
+    assert_eq!(configured_tool_names(&config), ["read_file"]);
+}
+
+#[tokio::test]
 async fn json_config_can_switch_to_custom_provider_url() {
     let mut config =
         modular_agent::core::AppConfig::load(Some(&workspace_root_file("config.example.json")))

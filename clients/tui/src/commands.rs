@@ -697,13 +697,14 @@ fn default_config_path() -> Option<PathBuf> {
         return Some(PathBuf::from(path));
     }
     if let Some(config_home) = std::env::var_os("AGENT_CONFIG_HOME") {
-        return Some(PathBuf::from(config_home).join("configs"));
+        return Some(PathBuf::from(config_home).join("configs/config.toml"));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/configs"));
+        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/configs/config.toml"));
     }
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(|xdg_config_home| PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs"))
+    std::env::var_os("XDG_CONFIG_HOME").map(|xdg_config_home| {
+        PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs/config.toml")
+    })
 }
 
 fn config_store_root(path: &Path) -> PathBuf {
