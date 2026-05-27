@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn read_many_files_enforces_shared_budget() {
         let dir = tempfile::tempdir().expect("workspace");
-        std::fs::write(dir.path().join("a.txt"), "abcdef").expect("a");
+        std::fs::write(dir.path().join("a.txt"), "abcd").expect("a");
 
         let result = invoke(
             &ReadManyFilesTool,
@@ -240,6 +240,31 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["metadata"]["truncated"], true);
         assert_eq!(result["metadata"]["files"][0]["returned_bytes"], 3);
+    }
+
+    #[test]
+    fn read_many_files_reports_truncated_with_line_numbers_when_rendered_output_is_longer() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("a.txt"), "abcd").expect("a");
+
+        let result = invoke(
+            &ReadManyFilesTool,
+            dir.path(),
+            json!({
+                "paths": ["a.txt"],
+                "line_numbers": true,
+                "max_bytes_total": 20,
+                "max_bytes_per_file": 3
+            }),
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["files"][0]["truncated"], true);
+        assert_eq!(result["metadata"]["truncated"], true);
+        assert!(
+            result["metadata"]["total_returned_bytes"].as_u64().unwrap()
+                >= result["metadata"]["total_original_bytes"].as_u64().unwrap()
+        );
     }
 
     #[test]

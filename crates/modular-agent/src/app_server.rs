@@ -209,6 +209,10 @@ impl AppServerHandle {
     pub async fn cancel_pending_approvals(&self, note: String) {
         deny_pending_approvals(self.pending_approvals.clone(), self.events.clone(), note).await;
     }
+
+    pub async fn cancel_pending_user_inputs(&self, note: String) {
+        deny_pending_user_inputs(self.pending_user_inputs.clone(), self.events.clone(), note).await;
+    }
 }
 
 pub struct AgentAppServer;
@@ -994,6 +998,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_resolves_pending_user_inputs() {
+        let (events, _) = broadcast::channel(8);
+        let mut event_rx = events.subscribe();
+        let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
+        let (responder, response_rx) = oneshot::channel();
+        let request_id = "input-1".to_owned();
+        pending_user_inputs
+            .lock()
+            .await
+            .insert(request_id.clone(), responder);
+
+        deny_pending_user_inputs(
+            pending_user_inputs.clone(),
+            events,
+            "app-server shutting down".to_owned(),
+        )
+        .await;
+
+        let response = response_rx
+            .await
+            .expect("shutdown should send user input response");
+        assert!(response.answers.is_empty());
+        assert!(pending_user_inputs.lock().await.is_empty());
+
+        let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("user input resolved event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            resolved_event,
+            AppServerEvent::UserInputResolved { request_id: id } if id == request_id
+        ));
+    }
+
+    #[tokio::test]
     async fn cancel_pending_approvals_denies_pending_requests() {
         let cwd = tempfile::tempdir().expect("cwd");
         let mut config = AppConfig::default();
@@ -1038,6 +1077,105 @@ mod tests {
         ));
 
         handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn cancel_pending_user_inputs_resolves_pending_requests() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let handle = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
+        let mut event_rx = handle.subscribe();
+        let (responder, response_rx) = oneshot::channel();
+        let request_id = "input-cancel".to_owned();
+        handle
+            .pending_user_inputs
+            .lock()
+            .await
+            .insert(request_id.clone(), responder);
+
+        handle
+            .cancel_pending_user_inputs("turn canceled by client".to_owned())
+            .await;
+
+        let response = response_rx
+            .await
+            .expect("cancel should send user input response");
+        assert!(response.answers.is_empty());
+        assert!(handle.pending_user_inputs.lock().await.is_empty());
+
+        let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("user input resolved event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            resolved_event,
+            AppServerEvent::UserInputResolved { request_id: id } if id == request_id
+        ));
+
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
+        let (user_input_tx, user_input_rx) = mpsc::channel(1);
+        let (events, _) = broadcast::channel(8);
+        let mut event_rx = events.subscribe();
+        let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
+        spawn_user_input_forwarder(
+            user_input_rx,
+            events.clone(),
+            pending_user_inputs.clone(),
+            Duration::ZERO,
+        );
+
+        let request_id = "question-shutdown".to_owned();
+        let (responder, response_rx) = oneshot::channel();
+        user_input_tx
+            .send(PendingUserInput {
+                request: UserInputRequest::new(
+                    request_id.clone(),
+                    PathBuf::from("."),
+                    vec![UserInputQuestion::new(
+                        "scope",
+                        "Scope",
+                        "Which scope?",
+                        vec![UserInputQuestionOption::new("Small", "Small scope")],
+                    )],
+                ),
+                responder,
+            })
+            .await
+            .unwrap();
+
+        let request_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("user input request event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            request_event,
+            AppServerEvent::UserInputRequested { request } if request.request_id == request_id
+        ));
+
+        deny_pending_user_inputs(
+            pending_user_inputs.clone(),
+            events,
+            "app-server shutting down".to_owned(),
+        )
+        .await;
+
+        let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
+            .await
+            .expect("user input response should not hang")
+            .expect("user input responder should send empty response");
+        assert!(response.answers.is_empty());
+        assert!(pending_user_inputs.lock().await.is_empty());
     }
 
     #[tokio::test]

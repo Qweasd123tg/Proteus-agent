@@ -6,8 +6,8 @@ use crossterm::event::{Event as CTerm, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::{
     commands::{
-        handle_plan_review_action, handle_slash_command, request_cancel, resume_session_dir,
-        submit_plan_intake_answers,
+        dismiss_plan_intake, handle_plan_review_action, handle_slash_command, request_cancel,
+        resume_session_dir, submit_plan_intake_answers,
     },
     driver::{AgentDriver, DriverConfig},
     state::AppState,
@@ -31,7 +31,7 @@ pub(crate) async fn handle_term_event(
                         } else if state.has_context_report() {
                             state.close_context_report();
                         } else if state.has_plan_intake() {
-                            state.clear_plan_intake();
+                            dismiss_plan_intake(state, driver).await?;
                         } else if state.has_plan_review() {
                             state.clear_plan_review();
                         } else if state.input_is_empty() {
@@ -172,14 +172,16 @@ pub(crate) async fn handle_term_event(
                     | KeyCode::Char('2')
                     | KeyCode::Char('з')
                     | KeyCode::Char('З') => {
-                        if let Some(id) = state.take_pending_approval_id() {
+                        if let Some((id, cache)) =
+                            state.take_pending_approval_id_with_remember_cache()
+                        {
                             driver
                                 .send(&StdioRequest::Approval {
                                     id: None,
                                     approval_id: id,
                                     approved: true,
                                     note: None,
-                                    cache: ApprovalCacheScope::ToolInCwd,
+                                    cache,
                                 })
                                 .await?;
                             return Ok(true);
@@ -222,7 +224,7 @@ pub(crate) async fn handle_term_event(
                         return Ok(true);
                     }
                     KeyCode::Esc => {
-                        state.clear_plan_intake();
+                        dismiss_plan_intake(state, driver).await?;
                         return Ok(true);
                     }
                     KeyCode::Tab | KeyCode::Right => {
