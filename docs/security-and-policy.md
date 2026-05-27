@@ -40,7 +40,7 @@ Runtime применяет режим через `ModeAwarePolicy` на гран
 делегирует visibility/execution одному `ApprovalPolicy`.
 
 CLI может переопределить config через `--plan`, `--auto` или
-`--permission-mode plan|normal|auto`. `agent-tui` передаёт эти startup flags в
+`--permission-mode plan|normal|auto`. `proteus-tui` передаёт эти startup flags в
 app-server, показывает активный override в header и умеет переключать режимы
 для следующих turns через `/plan`, `/normal`, `/auto`. Переключение не меняет
 config-файл и не перезапускает app-server: TUI отправляет
@@ -62,7 +62,7 @@ read/write/shell/network ограничений остаётся в core policy.
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` вынесены
 из ядра в плагины `file-tools`, `git-tools` и `shell-tool` соответственно. Подключите их через
-`~/.agent/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого
+`~/.proteus/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого
 плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же
 механизмом, что и ядерные.
 
@@ -105,7 +105,7 @@ Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir
 собственные проверки workspace-boundary. Core не гарантирует эту проверку за
 плагины — это обязанность автора плагина.
 Default/behavior tool-плагины должны использовать общие helper-ы
-`agent_contracts::tool_support::{workspace_path, workspace_path_for_write}`,
+`proteus_contracts::tool_support::{workspace_path, workspace_path_for_write}`,
 чтобы read/write path handling не расходился между packs.
 `write_file` может создавать недостающие parent directories, но только после
 лексической проверки пути, запрета `..` и проверки symlink parents, чтобы

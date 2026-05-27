@@ -75,7 +75,7 @@
           ".git",
           "target",
           "node_modules",
-          ".agent",
+          ".proteus",
           "sessions",
           "dist",
           "build",
@@ -112,6 +112,6 @@
     "workflow_timeout_ms": 14400000
   },
   "event_log": {
-    "path": ".agent/events.jsonl"
+    "path": ".proteus/events.jsonl"
   }
 }

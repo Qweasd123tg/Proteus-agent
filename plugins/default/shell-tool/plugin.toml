@@ -1,7 +1,7 @@
 name = "shell-tool"
 version = "0.1.0"
 description = "Shell tool plugin: runs arbitrary shell commands via sh -lc. Opt-in because it is RunsCommands-safety."
-author = "modular-agent examples"
+author = "proteus-core examples"
 tags = ["tool", "shell", "command"]
 library = "libshell_tool.so"
-requires_agent_contracts = "0.1"
+requires_proteus_contracts = "0.1"

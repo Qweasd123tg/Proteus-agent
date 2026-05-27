@@ -4,7 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use agent_contracts::{
+use anyhow::{Context, Result};
+use proteus_contracts::{
     app_protocol::StdioRequest,
     contracts::UserInputResponse,
     domain::{
@@ -13,7 +14,6 @@ use agent_contracts::{
     },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
-use anyhow::{Context, Result};
 
 use crate::{
     driver::{AgentDriver, DriverConfig},
@@ -380,9 +380,9 @@ fn infer_workspace_path_from_session_dir(session_dir: &Path) -> Option<PathBuf> 
 fn candidate_event_log_paths(config_path: Option<&Path>, cwd: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for root in candidate_config_roots(config_path) {
-        paths.push(root.join(".agent/events.jsonl"));
+        paths.push(root.join(".proteus/events.jsonl"));
     }
-    paths.push(cwd.join(".agent/events.jsonl"));
+    paths.push(cwd.join(".proteus/events.jsonl"));
     dedup_paths(paths)
 }
 
@@ -693,17 +693,17 @@ fn format_time_ago(time: Option<SystemTime>) -> String {
 }
 
 fn default_config_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("AGENT_CONFIG_PATH") {
+    if let Some(path) = std::env::var_os("PROTEUS_CONFIG_PATH") {
         return Some(PathBuf::from(path));
     }
-    if let Some(config_home) = std::env::var_os("AGENT_CONFIG_HOME") {
+    if let Some(config_home) = std::env::var_os("PROTEUS_CONFIG_HOME") {
         return Some(PathBuf::from(config_home).join("configs/config.toml"));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/agent-qweasd123tg/configs/config.toml"));
+        return Some(PathBuf::from(home).join(".config/proteus-qweasd123tg/configs/config.toml"));
     }
     std::env::var_os("XDG_CONFIG_HOME").map(|xdg_config_home| {
-        PathBuf::from(xdg_config_home).join("agent-qweasd123tg/configs/config.toml")
+        PathBuf::from(xdg_config_home).join("proteus-qweasd123tg/configs/config.toml")
     })
 }
 
@@ -907,10 +907,10 @@ mod tests {
     fn load_session_context_usage_reads_token_events_for_session() {
         let session_dir = tempfile::tempdir().expect("session dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let session_id = agent_contracts::domain::new_session_id();
-        let other_session_id = agent_contracts::domain::new_session_id();
-        let thread_id = agent_contracts::domain::new_thread_id();
-        let turn_id = agent_contracts::domain::new_turn_id();
+        let session_id = proteus_contracts::domain::new_session_id();
+        let other_session_id = proteus_contracts::domain::new_session_id();
+        let thread_id = proteus_contracts::domain::new_thread_id();
+        let turn_id = proteus_contracts::domain::new_turn_id();
         std::fs::write(
             session_dir.path().join("session.json"),
             serde_json::json!({
@@ -920,25 +920,29 @@ mod tests {
             .to_string(),
         )
         .expect("metadata");
-        let event_dir = cwd.path().join(".agent");
+        let event_dir = cwd.path().join(".proteus");
         std::fs::create_dir(&event_dir).expect("event dir");
         let wanted = EventEnvelope::new(
-            agent_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            proteus_contracts::domain::EventContext::new(session_id, thread_id, Some(turn_id)),
             1,
             DomainEvent::TokenUsageUpdated {
                 usage: TokenUsageSnapshot::new(
-                    agent_contracts::domain::ModelRef::new("test", "model"),
+                    proteus_contracts::domain::ModelRef::new("test", "model"),
                     123,
                     Vec::new(),
                 ),
             },
         );
         let ignored = EventEnvelope::new(
-            agent_contracts::domain::EventContext::new(other_session_id, thread_id, Some(turn_id)),
+            proteus_contracts::domain::EventContext::new(
+                other_session_id,
+                thread_id,
+                Some(turn_id),
+            ),
             2,
             DomainEvent::TokenUsageUpdated {
                 usage: TokenUsageSnapshot::new(
-                    agent_contracts::domain::ModelRef::new("test", "other"),
+                    proteus_contracts::domain::ModelRef::new("test", "other"),
                     999,
                     Vec::new(),
                 ),

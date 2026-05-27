@@ -7,14 +7,14 @@
 use std::collections::HashSet;
 
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
-use agent_contracts::{
+use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
+use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     domain::{PolicyDecision, ToolCall, ToolSafety, ToolSpec},
     plugin::{PluginApprovalPolicy, PluginPolicyError},
 };
 #[cfg(feature = "plugin-entrypoint")]
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         sabi_trait::TD_Opaque,
         std_types::{RStr, RString as AbiRString},

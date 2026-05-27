@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use agent_contracts::contracts::{
+use proteus_contracts::contracts::{
     UserInputAnswer, UserInputQuestion, UserInputQuestionOption, UserInputRequest,
     UserInputResponse,
 };

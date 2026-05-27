@@ -130,7 +130,7 @@ token-saver pack
    context, deferred tool exposure, verified patch, exec approval rules.
 3. Все новые чужие идеи оформлять как feature pack или research plugin через
    `docs/slot-governance.md`, а не как новые product-named slots.
-4. Вернуться к retained TUI rewrite только если ты решаешь, что `agent-tui`
+4. Вернуться к retained TUI rewrite только если ты решаешь, что `proteus-tui`
    должен стать главным daily-driver продуктом, а не reference-клиентом.
 
 Так мы не бросаем TUI, но перестаём лечить terminal renderer как главный смысл
@@ -148,7 +148,7 @@ Quality-first harness
 + evals before optimization claims
 ```
 
-`agent-tui` нужен не как декоративный клиент, а как способ реально тестировать
+`proteus-tui` нужен не как декоративный клиент, а как способ реально тестировать
 агента, видеть его ответы, tool calls, token usage, approvals, resume и
 streaming. Поэтому TUI нельзя бросать. Но TUI не должен съесть весь roadmap:
 его нужно довести до уровня, где им можно спокойно dogfood-ить агента и

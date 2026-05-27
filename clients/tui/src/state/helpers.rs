@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use agent_contracts::domain::{SessionId, ToolResult};
+use proteus_contracts::domain::{SessionId, ToolResult};
 
 pub(super) fn format_duration_short(duration: Duration) -> String {
     let secs = duration.as_secs();
@@ -58,16 +58,16 @@ fn result_output_content(result: &ToolResult) -> String {
     let mut content = Vec::new();
     for item in &result.content {
         match item {
-            agent_contracts::domain::ToolContent::Text { text } if !text.is_empty() => {
+            proteus_contracts::domain::ToolContent::Text { text } if !text.is_empty() => {
                 content.push(text.clone());
             }
-            agent_contracts::domain::ToolContent::Json { value } => {
+            proteus_contracts::domain::ToolContent::Json { value } => {
                 content.push(value.to_string());
             }
-            agent_contracts::domain::ToolContent::Image { mime_type, .. } => {
+            proteus_contracts::domain::ToolContent::Image { mime_type, .. } => {
                 content.push(format!("[image tool content: {mime_type}]"));
             }
-            agent_contracts::domain::ToolContent::Binary { mime_type, .. } => {
+            proteus_contracts::domain::ToolContent::Binary { mime_type, .. } => {
                 content.push(format!("[binary tool content: {mime_type}]"));
             }
             _ => {}

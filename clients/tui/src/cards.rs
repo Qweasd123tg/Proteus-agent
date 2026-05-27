@@ -1,4 +1,4 @@
-use agent_contracts::{app_protocol::AppApprovalRequest, domain::ToolSafety};
+use proteus_contracts::{app_protocol::AppApprovalRequest, domain::ToolSafety};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
@@ -138,7 +138,7 @@ fn session_card(state: &VisualState<'_>, width: usize) -> Vec<Line<'static>> {
         .unwrap_or(30)
         .max(30)
         .min(width.saturating_sub(4).max(24));
-    let title = ">_ Modular Agent";
+    let title = ">_ Proteus";
     let right = content_width
         .saturating_add(1)
         .saturating_sub(title.chars().count());

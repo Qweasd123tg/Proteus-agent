@@ -8,7 +8,7 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
-use agent_contracts::{
+use proteus_contracts::{
     abi_stable::{
         export_root_module,
         prefix_type::PrefixTypeTrait,
@@ -479,7 +479,7 @@ fn compact_messages(
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
-    let output: agent_contracts::contracts::CompactionOutput =
+    let output: proteus_contracts::contracts::CompactionOutput =
         from_json_string(output_json.as_str())?;
     if output.messages.is_empty() && !messages.is_empty() {
         return Err(PluginWorkflowError::new(
@@ -529,7 +529,7 @@ fn visible_tools(
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
-    let output: agent_contracts::contracts::ToolExposureOutput =
+    let output: proteus_contracts::contracts::ToolExposureOutput =
         from_json_string(tools_json.as_str())?;
     Ok(output.tools)
 }
@@ -751,12 +751,12 @@ fn estimate_tokens_from_bytes(bytes: usize) -> u32 {
     }
 }
 
-fn tool_content_text_len(content: &agent_contracts::domain::ToolContent) -> usize {
+fn tool_content_text_len(content: &proteus_contracts::domain::ToolContent) -> usize {
     match content {
-        agent_contracts::domain::ToolContent::Text { text } => text.len(),
-        agent_contracts::domain::ToolContent::Json { value } => value.to_string().len(),
-        agent_contracts::domain::ToolContent::Image { data, .. }
-        | agent_contracts::domain::ToolContent::Binary { data, .. } => data.len(),
+        proteus_contracts::domain::ToolContent::Text { text } => text.len(),
+        proteus_contracts::domain::ToolContent::Json { value } => value.to_string().len(),
+        proteus_contracts::domain::ToolContent::Image { data, .. }
+        | proteus_contracts::domain::ToolContent::Binary { data, .. } => data.len(),
         _ => 0,
     }
 }
@@ -925,7 +925,7 @@ mod tests {
     use super::*;
     use std::{collections::VecDeque, sync::Mutex};
 
-    use agent_contracts::{
+    use proteus_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
         domain::{
             AgentTask, ContextChunk, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
@@ -947,7 +947,7 @@ mod tests {
     #[test]
     fn empty_final_output_falls_back_to_latest_tool_result() {
         let result = ToolResult::new(
-            agent_contracts::domain::new_call_id(),
+            proteus_contracts::domain::new_call_id(),
             false,
             "usage: skatewind --place NAME".to_owned(),
             Vec::new(),
@@ -970,7 +970,7 @@ mod tests {
     #[test]
     fn empty_final_output_does_not_fall_back_to_previous_turn_tool_result() {
         let result = ToolResult::new(
-            agent_contracts::domain::new_call_id(),
+            proteus_contracts::domain::new_call_id(),
             false,
             "old turn output".to_owned(),
             Vec::new(),
@@ -990,8 +990,8 @@ mod tests {
 
     #[test]
     fn estimates_tokens_from_text_context_and_tool_results() {
-        let result =
-            ToolResult::ok(agent_contracts::domain::new_call_id(), "abcd").with_metadata(json!({}));
+        let result = ToolResult::ok(proteus_contracts::domain::new_call_id(), "abcd")
+            .with_metadata(json!({}));
         let messages = vec![
             CanonicalMessage::text(MessageRole::User, "abcd"),
             CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }]),
@@ -1067,7 +1067,7 @@ mod tests {
         ) -> RResult<RString, PluginWorkflowHostError> {
             let input: CompactionInput =
                 serde_json::from_str(input_json.as_str()).expect("compaction input json");
-            let output = agent_contracts::contracts::CompactionOutput::unchanged(input.messages);
+            let output = proteus_contracts::contracts::CompactionOutput::unchanged(input.messages);
             RResult::ROk(RString::from(
                 serde_json::to_string(&output).expect("compaction output json"),
             ))
@@ -1081,7 +1081,7 @@ mod tests {
             &self,
             _request_json: RString,
         ) -> RResult<RString, PluginWorkflowHostError> {
-            let output = agent_contracts::contracts::ToolExposureOutput::new(Vec::new());
+            let output = proteus_contracts::contracts::ToolExposureOutput::new(Vec::new());
             RResult::ROk(RString::from(
                 serde_json::to_string(&output).expect("tool exposure output json"),
             ))

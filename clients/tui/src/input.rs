@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use agent_contracts::{app_protocol::StdioRequest, contracts::ApprovalCacheScope};
 use anyhow::Result;
 use crossterm::event::{Event as CTerm, KeyCode, KeyEventKind, KeyModifiers};
+use proteus_contracts::{app_protocol::StdioRequest, contracts::ApprovalCacheScope};
 
 use crate::{
     commands::{

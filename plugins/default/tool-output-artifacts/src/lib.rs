@@ -7,8 +7,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use agent_contracts::domain::ToolResult;
 use anyhow::{Context, Result, anyhow};
+use proteus_contracts::domain::ToolResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -36,7 +36,7 @@ fn default_max_preview_bytes() -> usize {
 }
 
 fn default_artifact_root() -> PathBuf {
-    PathBuf::from(".agent").join("tool-outputs")
+    PathBuf::from(".proteus").join("tool-outputs")
 }
 
 #[derive(Debug, Clone)]
@@ -309,7 +309,7 @@ fn metadata_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_contracts::domain::ToolResult;
+    use proteus_contracts::domain::ToolResult;
 
     #[tokio::test]
     async fn saves_truncated_output_as_workspace_artifact() {
@@ -335,7 +335,7 @@ mod tests {
             .expect("artifact path");
         assert_eq!(
             artifact_path,
-            ".agent/tool-outputs/shell_tool/call_1-output.txt"
+            ".proteus/tool-outputs/shell_tool/call_1-output.txt"
         );
         let full_output =
             std::fs::read_to_string(dir.path().join(artifact_path)).expect("artifact");
@@ -347,7 +347,7 @@ mod tests {
     async fn rejects_symlink_artifact_directory() {
         let dir = tempfile::tempdir().expect("workspace");
         let outside = tempfile::tempdir().expect("outside");
-        std::os::unix::fs::symlink(outside.path(), dir.path().join(".agent")).expect("symlink");
+        std::os::unix::fs::symlink(outside.path(), dir.path().join(".proteus")).expect("symlink");
         let store = ArtifactOutputStore::new(ToolOutputArtifactConfig {
             max_preview_bytes: 12,
             ..Default::default()

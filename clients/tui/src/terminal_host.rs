@@ -34,7 +34,7 @@ pub(crate) fn install_panic_hook() {
 
         eprintln!("{msg}");
 
-        let path = std::env::temp_dir().join("agent-tui-panic.log");
+        let path = std::env::temp_dir().join("proteus-tui-panic.log");
         let _ = std::fs::write(&path, &msg);
         eprintln!("panic log: {}", path.display());
     }));

@@ -1,4 +1,4 @@
-//! Subprocess driver: запускает `agent server stdio` и даёт каналы для
+//! Subprocess driver: запускает `proteus server stdio` и даёт каналы для
 //! чтения событий и отправки команд.
 //!
 //! Архитектура:
@@ -15,19 +15,19 @@ use std::{
     process::{Child as StdChild, Command as StdCommand, Stdio},
 };
 
-use agent_contracts::{
+use anyhow::{Context, Result};
+use proteus_contracts::{
     app_protocol::{StdioOutput, StdioRequest},
     domain::PermissionMode,
 };
-use anyhow::{Context, Result};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, Command},
     sync::mpsc,
 };
 
-const EXTERNAL_TERMINAL_ENV: &str = "AGENT_SHELL_EXTERNAL_TERMINAL";
-const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "AGENT_SHELL_EXTERNAL_DBUS_ADDRESS";
+const EXTERNAL_TERMINAL_ENV: &str = "PROTEUS_SHELL_EXTERNAL_TERMINAL";
+const EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV: &str = "PROTEUS_SHELL_EXTERNAL_DBUS_ADDRESS";
 
 pub struct ExternalTerminalSession {
     dbus_daemon: StdChild,
@@ -95,8 +95,8 @@ pub struct AgentDriver {
 
 #[derive(Clone)]
 pub struct DriverConfig {
-    /// Путь к бинарю ядра. Если None — ищем соседний `agent`, затем `agent` в `$PATH`.
-    pub agent_bin: Option<PathBuf>,
+    /// Путь к бинарю ядра. Если None — ищем соседний `proteus`, затем `proteus` в `$PATH`.
+    pub proteus_bin: Option<PathBuf>,
     /// Путь к config-файлу ядра. Передаётся как `--config`.
     pub config_path: Option<PathBuf>,
     /// Рабочая директория, которую ядро должно использовать.
@@ -112,7 +112,7 @@ pub struct DriverConfig {
 impl AgentDriver {
     /// Spawn ядра и подготовка каналов.
     pub async fn spawn(cfg: DriverConfig) -> Result<Self> {
-        let program = cfg.agent_bin.unwrap_or_else(default_agent_bin);
+        let program = cfg.proteus_bin.unwrap_or_else(default_proteus_bin);
 
         let mut cmd = Command::new(&program);
         // Важно: --config / --cwd должны идти ДО positional args
@@ -135,11 +135,11 @@ impl AgentDriver {
             cmd.env(EXTERNAL_TERMINAL_ENV, "ptyxis");
             cmd.env(EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV, address);
         }
-        // stderr ядра → /tmp/agent-tui-core.log (append).
+        // stderr ядра → /tmp/proteus-tui-core.log (append).
         // Никаких eprintln здесь — мы уже можем быть в alternate screen,
         // и вывод поверх ratatui ломает кадр. Путь к логу фиксирован:
-        // используй `tail -f /tmp/agent-tui-core.log` параллельно.
-        let log_path = std::env::temp_dir().join("agent-tui-core.log");
+        // используй `tail -f /tmp/proteus-tui-core.log` параллельно.
+        let log_path = std::env::temp_dir().join("proteus-tui-core.log");
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -231,14 +231,14 @@ pub(crate) fn permission_mode_arg(mode: PermissionMode) -> &'static str {
     }
 }
 
-fn default_agent_bin() -> PathBuf {
+fn default_proteus_bin() -> PathBuf {
     if let Ok(current_exe) = std::env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let sibling = dir.join("agent");
+        let sibling = dir.join("proteus");
         if sibling.is_file() {
             return sibling;
         }
     }
-    PathBuf::from("agent")
+    PathBuf::from("proteus")
 }

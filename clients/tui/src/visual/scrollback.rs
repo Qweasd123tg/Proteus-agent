@@ -91,7 +91,7 @@ pub(crate) enum VisualRole {
 
 #[derive(Clone)]
 pub(crate) struct ToolCard {
-    pub call_id: agent_contracts::domain::CallId,
+    pub call_id: proteus_contracts::domain::CallId,
     pub name: String,
     pub args_summary: String,
     pub status: ToolStatus,

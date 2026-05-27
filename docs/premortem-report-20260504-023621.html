@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Premortem Report - Modular Agent</title>
+        <title>Premortem Report - Proteus</title>
         <style>
             :root {
                 color-scheme: dark;
@@ -173,28 +173,28 @@
                 margin-bottom: 10px;
             }
 
-            .agent-strip {
+            .proteus-strip {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
                 gap: 10px;
                 margin-top: 10px;
             }
 
-            .agent-mini {
+            .proteus-mini {
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 padding: 12px;
                 background: rgba(255, 255, 255, 0.035);
             }
 
-            .agent-mini strong {
+            .proteus-mini strong {
                 display: block;
                 font-size: 1.35rem;
                 line-height: 1;
                 margin-bottom: 6px;
             }
 
-            .agent-mini span {
+            .proteus-mini span {
                 color: var(--muted);
                 font-size: 0.86rem;
             }
@@ -268,7 +268,7 @@
                 .summary-grid,
                 .actions,
                 .failure-grid,
-                .agent-strip {
+                .proteus-strip {
                     grid-template-columns: 1fr;
                 }
 
@@ -283,7 +283,7 @@
         <main>
             <header>
                 <div class="eyebrow">Premortem Report</div>
-                <h1>Modular Agent failed six months from now</h1>
+                <h1>Proteus failed six months from now</h1>
                 <p class="subtitle">
                     This report assumes the Rust-first modular coding-agent did
                     not become a dependable tool or a credible plugin platform,
@@ -479,7 +479,7 @@
                             <h4>Story</h4>
                             <p>
                                 Old and new plugins mixed in global
-                                `~/.agent/plugins`. `install.sh` overwrote
+                                `~/.proteus/plugins`. `install.sh` overwrote
                                 libraries, ABI/layout mismatches produced random
                                 crashes, and recovery became "delete plugins and
                                 rebuild".
@@ -724,7 +724,7 @@
             </section>
 
             <div class="footer">
-                Premortem for Modular Agent. Full transcript:
+                Premortem for Proteus. Full transcript:
                 <code>premortem-transcript-20260504-023621.md</code>.
             </div>
         </main>

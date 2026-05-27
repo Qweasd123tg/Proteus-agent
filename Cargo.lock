@@ -51,39 +51,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent-contracts"
-version = "0.1.0"
-dependencies = [
- "abi_stable",
- "anyhow",
- "async-trait",
- "chrono",
- "futures-core",
- "futures-util",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "agent-tui"
-version = "0.1.0"
-dependencies = [
- "agent-contracts",
- "anyhow",
- "crossterm",
- "ratatui",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "unicode-width 0.2.0",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,7 +295,7 @@ name = "coding-workflow"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde",
  "serde_json",
 ]
@@ -367,8 +334,8 @@ name = "context-pack"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
  "anyhow",
+ "proteus-contracts",
  "serde",
  "serde_json",
  "tempfile",
@@ -474,7 +441,7 @@ name = "direct-patch"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde_json",
  "tempfile",
 ]
@@ -546,7 +513,7 @@ name = "file-tools"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde",
  "serde_json",
  "tempfile",
@@ -687,7 +654,7 @@ name = "git-tools"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde",
  "serde_json",
  "tempfile",
@@ -1147,8 +1114,8 @@ name = "memory-pack"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
  "anyhow",
+ "proteus-contracts",
  "serde_json",
  "tempfile",
 ]
@@ -1169,33 +1136,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "modular-agent"
-version = "0.1.0"
-dependencies = [
- "agent-contracts",
- "anyhow",
- "async-stream",
- "async-trait",
- "clap",
- "coding-workflow",
- "context-pack",
- "eventsource-stream",
- "futures-core",
- "futures-util",
- "libloading 0.8.9",
- "memory-pack",
- "policy-pack",
- "renderer-pack",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "uuid",
 ]
 
 [[package]]
@@ -1281,7 +1221,7 @@ name = "policy-pack"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde",
  "serde_json",
 ]
@@ -1321,6 +1261,66 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proteus-contracts"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "proteus-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "clap",
+ "coding-workflow",
+ "context-pack",
+ "eventsource-stream",
+ "futures-core",
+ "futures-util",
+ "libloading 0.8.9",
+ "memory-pack",
+ "policy-pack",
+ "proteus-contracts",
+ "renderer-pack",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "uuid",
+]
+
+[[package]]
+name = "proteus-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "proteus-contracts",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -1463,8 +1463,8 @@ name = "renderer-pack"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
  "anyhow",
+ "proteus-contracts",
  "serde_json",
 ]
 
@@ -1523,7 +1523,7 @@ name = "rg-search"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
+ "proteus-contracts",
  "serde_json",
 ]
 
@@ -1724,9 +1724,9 @@ name = "shell-tool"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
  "anyhow",
  "libc",
+ "proteus-contracts",
  "serde_json",
  "tempfile",
 ]
@@ -1795,9 +1795,9 @@ name = "sqlite-memory"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "agent-contracts",
  "anyhow",
  "chrono",
+ "proteus-contracts",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2044,8 +2044,8 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 name = "tool-output-artifacts"
 version = "0.1.0"
 dependencies = [
- "agent-contracts",
  "anyhow",
+ "proteus-contracts",
  "serde",
  "serde_json",
  "tempfile",

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use agent_contracts::domain::{TokenUsageSnapshot, TokenUsageSource};
+use proteus_contracts::domain::{TokenUsageSnapshot, TokenUsageSource};
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct UsageTotals {
@@ -46,7 +46,9 @@ impl UsageTotals {
     }
 }
 
-pub(super) fn provider_usage_line(actual: &agent_contracts::model_standard::TokenUsage) -> String {
+pub(super) fn provider_usage_line(
+    actual: &proteus_contracts::model_standard::TokenUsage,
+) -> String {
     let total = actual.input_tokens + actual.output_tokens;
     let mut line = format!(
         "{} input / {} output / {} total",

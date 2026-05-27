@@ -1,4 +1,4 @@
-# Premortem Transcript: Modular Agent
+# Premortem Transcript: Proteus
 
 Timestamp: 2026-05-04 02:36:21 Europe/Moscow
 
@@ -30,13 +30,13 @@ Six months from now, the project is a useful coding-agent for real code work and
 
 ## Premortem Frame
 
-It is six months from now. Modular Agent has failed. It did not become a dependable coding-agent or a credible modular platform. We are looking back and explaining why it died.
+It is six months from now. Proteus has failed. It did not become a dependable coding-agent or a credible modular platform. We are looking back and explaining why it died.
 
 ## Raw Premortem Failure Reasons
 
 1. **Architectural modularity became a tax.** Every useful feature needed a new slot, ABI glue, docs, tests, and config, so development slowed while core still accumulated exceptions for real-world cases.
 
-2. **The dylib plugin boundary was too fragile.** ABI/layout drift, a global `~/.agent/plugins` directory, no package manager, no sandbox, and weak version isolation made plugins a source of breakage instead of modularity.
+2. **The dylib plugin boundary was too fragile.** ABI/layout drift, a global `~/.proteus/plugins` directory, no package manager, no sandbox, and weak version isolation made plugins a source of breakage instead of modularity.
 
 3. **The project built a nice plugin architecture but not a strong coding-agent.** Repo understanding, edit/test loops, diff review, evals, and workflow ergonomics lagged behind the architecture and behind competing tools.
 
@@ -73,11 +73,11 @@ It is six months from now. Modular Agent has failed. It did not become a dependa
 
 **Failure story**
 
-Через 6 месяцев пользователи начали ставить несколько плагинов из разных веток и сборок: старый `sqlite-memory`, новый `renderer-pack`, локально собранный `file-tools`. Формально всё грузилось из `~/.agent/plugins`, но ABI/layout уже слегка разъехались: DTO изменился, `abi_stable` сигнатуры остались похожими, а runtime получал некорректные данные или падал на границе вызова. Ошибки выглядели как случайные: то не открывается сессия, то renderer ломает event stream, то tool call возвращает мусорный статус.
+Через 6 месяцев пользователи начали ставить несколько плагинов из разных веток и сборок: старый `sqlite-memory`, новый `renderer-pack`, локально собранный `file-tools`. Формально всё грузилось из `~/.proteus/plugins`, но ABI/layout уже слегка разъехались: DTO изменился, `abi_stable` сигнатуры остались похожими, а runtime получал некорректные данные или падал на границе вызова. Ошибки выглядели как случайные: то не открывается сессия, то renderer ломает event stream, то tool call возвращает мусорный статус.
 
 Потом выяснилось, что глобальная папка плагинов смешивает окружения разных проектов. Один агент ожидал policy/plugin версии `v0.3`, другой был собран под `v0.5`; `install.sh` перетирал dylib без lockfile, manifest compatibility не проверялся строго. Пользователь обновлял один проект и ломал другой.
 
-Без sandbox и изоляции любой panic, segfault или зависание plugin code валили core или блокировали runtime. Вместо "модульной платформы" получился режим "если что-то сломалось, удали всё из `~/.agent/plugins` и пересобери". Команда начала обходить plugin boundary встроенными fallback-ами, и главный инвариант Core -> Contract -> Module Implementation стал номинальным.
+Без sandbox и изоляции любой panic, segfault или зависание plugin code валили core или блокировали runtime. Вместо "модульной платформы" получился режим "если что-то сломалось, удали всё из `~/.proteus/plugins` и пересобери". Команда начала обходить plugin boundary встроенными fallback-ами, и главный инвариант Core -> Contract -> Module Implementation стал номинальным.
 
 **Underlying assumption**
 
@@ -85,7 +85,7 @@ It is six months from now. Modular Agent has failed. It did not become a dependa
 
 **Early warning signs**
 
-- После `install.sh` или смены ветки тесты проходят, но запуск агента ломается только на машине с уже установленными старыми плагинами в `~/.agent/plugins`.
+- После `install.sh` или смены ветки тесты проходят, но запуск агента ломается только на машине с уже установленными старыми плагинами в `~/.proteus/plugins`.
 - Баг-репорты начинают лечиться советом "очисти plugin dir и пересобери", а не точной диагностикой несовместимой версии или manifest mismatch.
 
 ### 3. Plugin Architecture Outran Coding-Agent Quality
@@ -130,7 +130,7 @@ It is six months from now. Modular Agent has failed. It did not become a dependa
 
 **Failure story**
 
-Через 6 месяцев проект формально жив, но фактически не годится для длительной работы. `agent-tui` и `app-server` остались демонстрационной связкой: короткие запросы проходят, но при реальных coding turns всплывают гонки состояния, потеря фокуса, неконсистентные approvals и ломкая отмена/interrupt. Пользователь видит "вечные спиннеры", зависшие turns и не может уверенно понять, что уже выполнено, что отменено, а что ещё в очереди.
+Через 6 месяцев проект формально жив, но фактически не годится для длительной работы. `proteus-tui` и `app-server` остались демонстрационной связкой: короткие запросы проходят, но при реальных coding turns всплывают гонки состояния, потеря фокуса, неконсистентные approvals и ломкая отмена/interrupt. Пользователь видит "вечные спиннеры", зависшие turns и не может уверенно понять, что уже выполнено, что отменено, а что ещё в очереди.
 
 Контрольная плоскость так и не стала устойчивым контрактом. JSONL/DTO и event-log не были доведены до стабильности, поэтому внешние клиенты и тесты на совместимость постоянно ломаются при мелких изменениях. Durable session metadata, очередь approvals и восстановление после прерываний работают частично, а значит длинные сессии нельзя безопасно продолжать после restart, reconnection или ошибок транспорта.
 
@@ -149,7 +149,7 @@ It is six months from now. Modular Agent has failed. It did not become a dependa
 
 **Failure story**
 
-Через полгода документация проекта стала выглядеть убедительно, но перестала быть надежным источником истины. В `README`, `docs/modules.md`, `docs/configuration.md` и `MODULAR_AGENT_SPEC_RU.md` остались старые списки slots, plugins и примеры конфигов, а новые изменения в коде уже жили отдельно. В результате contributors и агенты начали принимать решения по красивой, но устаревшей картине: добавляли модули не туда, переиспользовали неверные слоты и ссылались на фактически несуществующие или уже измененные механизмы.
+Через полгода документация проекта стала выглядеть убедительно, но перестала быть надежным источником истины. В `README`, `docs/modules.md`, `docs/configuration.md` и `MODULAR_PROTEUS_SPEC_RU.md` остались старые списки slots, plugins и примеры конфигов, а новые изменения в коде уже жили отдельно. В результате contributors и агенты начали принимать решения по красивой, но устаревшей картине: добавляли модули не туда, переиспользовали неверные слоты и ссылались на фактически несуществующие или уже измененные механизмы.
 
 Постепенно смешались `implemented` и `planned`. Спецификация перестала быть контрактом и стала набором пожеланий, а документация по инерции описывала "как должно быть", а не "как есть". Это породило ложную уверенность в совместимости, сломало onboarding и увеличило стоимость изменений: каждую правку приходилось проверять вручную по коду, потому что docs больше не помогали, а мешали.
 
@@ -168,7 +168,7 @@ It is six months from now. Modular Agent has failed. It did not become a dependa
 
 **Failure story**
 
-Через 6 месяцев проект выглядел "зелёным" по CI: `module_swap.rs` подтверждал заменяемость slots, unit-тесты plugin adapters и SSE parsers проходили, plugin crates тестировались изолированно. Но в реальных установках плагины из `~/.agent/plugins/` ломались на ABI/manifest/config несовместимостях, которые не покрывались workspace-тестами. Core формально не знал деталей модулей, но фактическая интеграция разваливалась на границе загрузки, регистрации, policy и tool execution.
+Через 6 месяцев проект выглядел "зелёным" по CI: `module_swap.rs` подтверждал заменяемость slots, unit-тесты plugin adapters и SSE parsers проходили, plugin crates тестировались изолированно. Но в реальных установках плагины из `~/.proteus/plugins/` ломались на ABI/manifest/config несовместимостях, которые не покрывались workspace-тестами. Core формально не знал деталей модулей, но фактическая интеграция разваливалась на границе загрузки, регистрации, policy и tool execution.
 
 Первые пользователи запускали coding workflow и получали нестабильное поведение: лишние правки, бесконечные tool loops, непредсказуемые approval prompts, плохие recovery paths после ошибок модели или shell-tool. Тесты доказывали, что contracts существуют, но не доказывали, что end-to-end сценарий "модель -> контекст -> tool -> patch -> tests -> renderer/UX" пригоден для работы.
 
@@ -218,11 +218,11 @@ The hidden assumption is that **clean modular contracts will naturally produce a
 
 1. **Freeze new slots unless an eval proves the need.** For the next 4-6 weeks, only add a slot/ABI extension when it directly fixes a failing end-to-end coding scenario. Everything else should be a workflow/config/tool improvement inside existing boundaries.
 
-2. **Define one golden coding profile and make it excellent.** Treat `agent.coding.example.toml` plus the standard plugin pack as the product path. It should support: repo-aware context, patching, shell/test execution with approval, readable diff/result reporting, cancellation, and resume.
+2. **Define one golden coding profile and make it excellent.** Treat `proteus.coding.example.toml` plus the standard plugin pack as the product path. It should support: repo-aware context, patching, shell/test execution with approval, readable diff/result reporting, cancellation, and resume.
 
 3. **Build the eval harness before adding more platform surface.** Start with 5 repository tasks: repo understanding, focused edit, failing test repair, approval/security refusal, and long-turn cancel/resume. Record success/fail, changed files, tests, tool calls, approvals, duration, tokens/cost, and failure reason.
 
-4. **Make plugin installation reproducible.** Add strict `doctor` checks for plugin contract version, manifest/library path, duplicate ids, stale global plugins, missing standard plugins, and current config compatibility. Add a per-project or profile-scoped plugin directory option before encouraging multiple projects to share one `~/.agent/plugins`.
+4. **Make plugin installation reproducible.** Add strict `doctor` checks for plugin contract version, manifest/library path, duplicate ids, stale global plugins, missing standard plugins, and current config compatibility. Add a per-project or profile-scoped plugin directory option before encouraging multiple projects to share one `~/.proteus/plugins`.
 
 5. **Move security from promises to enforcement.** Add malicious/misconfigured plugin tests and central host checks where possible: canonicalize workspace paths before file-like operations, protect env secrets by default for process tools, deny network tools unless explicitly enabled, and ensure `auto` cannot be weakened by policy/config.
 
@@ -232,7 +232,7 @@ The hidden assumption is that **clean modular contracts will naturally produce a
 
 ### Pre-Launch Checklist
 
-1. `agent doctor --strict` detects stale, missing, incompatible, duplicate, and globally shadowed plugins on a machine with an old `~/.agent/plugins`.
+1. `proteus doctor --strict` detects stale, missing, incompatible, duplicate, and globally shadowed plugins on a machine with an old `~/.proteus/plugins`.
 
 2. The golden coding profile passes at least 5 end-to-end eval tasks with recorded tool calls, approvals, changed files, test results, duration, tokens/cost, and failure reason.
 

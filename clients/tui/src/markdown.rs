@@ -1375,7 +1375,7 @@ mod tests {
     #[test]
     fn renders_extended_inline_markdown() {
         let lines = render_assistant_markdown(
-            "***Жирный курсив*** ~~Зачёркнутый~~ ==Подсветка== [agent-contracts crate](https://github.com/example/agent-contracts)",
+            "***Жирный курсив*** ~~Зачёркнутый~~ ==Подсветка== [proteus-contracts crate](https://github.com/example/proteus-contracts)",
             "• ",
             Style::default(),
             160,
@@ -1410,13 +1410,13 @@ mod tests {
 
         let link = spans
             .iter()
-            .find(|span| span.content.as_ref() == "agent-contracts crate")
+            .find(|span| span.content.as_ref() == "proteus-contracts crate")
             .expect("link label");
         assert_eq!(link.style.fg, Some(Color::Cyan));
         assert!(link.style.add_modifier.contains(Modifier::UNDERLINED));
         assert!(!spans.iter().any(|span| {
             span.content
-                .contains("https://github.com/example/agent-contracts")
+                .contains("https://github.com/example/proteus-contracts")
         }));
     }
 

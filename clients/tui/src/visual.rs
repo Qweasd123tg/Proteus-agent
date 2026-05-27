@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use agent_contracts::app_protocol::AppApprovalRequest;
+use proteus_contracts::app_protocol::AppApprovalRequest;
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -911,7 +911,7 @@ mod tests {
     #[test]
     fn completed_shell_tool_renders_like_transcript_action() {
         let message = VisualMessage::tool(ToolCard {
-            call_id: agent_contracts::domain::new_call_id(),
+            call_id: proteus_contracts::domain::new_call_id(),
             name: "shell".to_owned(),
             args_summary: "uname -sr".to_owned(),
             status: ToolStatus::Ok,
@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn failed_tool_uses_red_status_without_cross_marker() {
         let message = VisualMessage::tool(ToolCard {
-            call_id: agent_contracts::domain::new_call_id(),
+            call_id: proteus_contracts::domain::new_call_id(),
             name: "apply_patch".to_owned(),
             args_summary: r#"{"patch":"bad"}"#.to_owned(),
             status: ToolStatus::Err,
@@ -968,7 +968,7 @@ mod tests {
     #[test]
     fn running_non_shell_tool_shows_arguments_when_available() {
         let message = VisualMessage::tool(ToolCard {
-            call_id: agent_contracts::domain::new_call_id(),
+            call_id: proteus_contracts::domain::new_call_id(),
             name: "list_dir".to_owned(),
             args_summary: r#"{"path":"."}"#.to_owned(),
             status: ToolStatus::Running,
@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn active_tool_card_renders_above_composer_before_finish() {
         let active_tools = vec![ToolCard {
-            call_id: agent_contracts::domain::new_call_id(),
+            call_id: proteus_contracts::domain::new_call_id(),
             name: "read_file".to_owned(),
             args_summary: "Read Cargo.toml".to_owned(),
             status: ToolStatus::Running,

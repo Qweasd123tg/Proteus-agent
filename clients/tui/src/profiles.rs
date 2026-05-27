@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use agent_contracts::domain::PermissionMode;
 use anyhow::{Context, Result};
+use proteus_contracts::domain::PermissionMode;
 use serde::Deserialize;
 
 pub(crate) struct Cli {
-    pub(crate) agent_bin: Option<PathBuf>,
+    pub(crate) proteus_bin: Option<PathBuf>,
     pub(crate) config_path: Option<PathBuf>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) profile: Option<String>,
@@ -13,7 +13,7 @@ pub(crate) struct Cli {
 }
 
 pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
-    let mut agent_bin = None;
+    let mut proteus_bin = None;
     let mut config_path = None;
     let mut cwd = None;
     let mut profile = None;
@@ -42,11 +42,11 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
                     .context("--profile requires value")
                     .ok();
             }
-            "--agent-bin" => {
-                agent_bin = iter
+            "--proteus-bin" => {
+                proteus_bin = iter
                     .next()
                     .map(PathBuf::from)
-                    .context("--agent-bin requires value")
+                    .context("--proteus-bin requires value")
                     .ok();
             }
             "--config" => {
@@ -75,7 +75,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
         }
     }
     Ok(Cli {
-        agent_bin,
+        proteus_bin,
         config_path,
         cwd,
         profile,
@@ -85,16 +85,16 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Cli> {
 
 fn print_help() {
     eprintln!(
-        "agent-tui — terminal UI for modular-agent\n\
+        "proteus-tui — terminal UI for proteus-core\n\
          \n\
          usage:\n\
-           agent-tui [--profile NAME] [--agent-bin PATH] [--config PATH] [--cwd PATH] [--plan|--auto|--permission-mode MODE]\n\
+           proteus-tui [--profile NAME] [--proteus-bin PATH] [--config PATH] [--cwd PATH] [--plan|--auto|--permission-mode MODE]\n\
          \n\
          options:\n\
-           --profile, -p NAME  load ~/.config/agent-qweasd123tg/profiles/NAME.toml\n\
-           --agent-bin PATH    path to the agent binary (default: sibling agent, then PATH)\n\
-           --config PATH       path to agent config (toml or json)\n\
-           --cwd PATH          workspace directory for the agent (default: current dir)\n\
+           --profile, -p NAME  load ~/.config/proteus-qweasd123tg/profiles/NAME.toml\n\
+           --proteus-bin PATH  path to the Proteus binary (default: sibling proteus, then PATH)\n\
+           --config PATH       path to Proteus config (toml or json)\n\
+           --cwd PATH          workspace directory for Proteus (default: current dir)\n\
            --plan              start in plan mode (planning choices + review chooser)\n\
            --auto              start in auto mode (read/write tools, no command/network)\n\
            --permission-mode   start with explicit mode: plan, normal, or auto\n\
@@ -104,7 +104,7 @@ fn print_help() {
 
 #[derive(Debug, Default, Deserialize)]
 struct TuiProfileConfig {
-    agent_bin: Option<PathBuf>,
+    proteus_bin: Option<PathBuf>,
     config: Option<PathBuf>,
     cwd: Option<PathBuf>,
     permission_mode: Option<PermissionMode>,
@@ -126,9 +126,9 @@ fn apply_profile_file(cli: Cli, profile_path: &Path) -> Result<Cli> {
     let profile_dir = profile_path.parent().unwrap_or_else(|| Path::new("."));
 
     Ok(Cli {
-        agent_bin: cli.agent_bin.or_else(|| {
+        proteus_bin: cli.proteus_bin.or_else(|| {
             profile_config
-                .agent_bin
+                .proteus_bin
                 .map(|path| resolve_profile_path(profile_dir, path))
         }),
         config_path: cli.config_path.or_else(|| {
@@ -176,7 +176,7 @@ fn profile_path(profile: &str) -> Result<PathBuf> {
     }
     let home = std::env::var_os("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home)
-        .join(".config/agent-qweasd123tg/profiles")
+        .join(".config/proteus-qweasd123tg/profiles")
         .join(format!("{profile}.toml")))
 }
 
@@ -217,15 +217,15 @@ mod tests {
         std::fs::write(
             &profile_path,
             r#"
-agent_bin = "bin/agent"
-config = "~/agent-config/configs"
+proteus_bin = "bin/proteus"
+config = "~/proteus-config/configs"
 cwd = "workspace"
 permission_mode = "auto"
 "#,
         )
         .expect("profile");
         let cli = Cli {
-            agent_bin: None,
+            proteus_bin: None,
             config_path: Some(PathBuf::from("/explicit/config")),
             cwd: None,
             profile: Some("claude".to_owned()),
@@ -234,7 +234,7 @@ permission_mode = "auto"
 
         let cli = apply_profile_file(cli, &profile_path).expect("applied profile");
 
-        assert_eq!(cli.agent_bin, Some(dir.path().join("bin/agent")));
+        assert_eq!(cli.proteus_bin, Some(dir.path().join("bin/proteus")));
         assert_eq!(cli.config_path, Some(PathBuf::from("/explicit/config")));
         assert_eq!(cli.cwd, Some(dir.path().join("workspace")));
         assert_eq!(cli.permission_mode, Some(PermissionMode::Auto));
