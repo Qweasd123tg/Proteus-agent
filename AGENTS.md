@@ -32,9 +32,6 @@ plugins/
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
         policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
         renderer-pack/       - Renderer плагины "plain" и "statusline"
-        hello-renderer/      - референсный renderer-плагин, не ставится install.sh
-        hello-tool/          - минимальный tool-плагин, не ставится install.sh
-        hello-policy-patch/  - демо нескольких slot-ов, не ставится install.sh
 ```
 
 Плагины живут в `~/.agent/plugins/` и зависят только от `agent-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.

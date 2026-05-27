@@ -67,9 +67,9 @@
 
 ```
 ~/.agent/plugins/
-    libhello_tool.so          # просто .so, минимальный вариант
-    hello-renderer/
-        libhello_renderer.so
+    libfoo_toollibfoo_tool.so                        # просто .so, минимальный вариант
+    renderer-pack/
+        librenderer_packlibrenderer_pack.so
         plugin.toml           # manifest: name, version, description
 ```
 
@@ -252,7 +252,7 @@ modular-agent/              # root workspace
         agent-contracts/    # публичный crate
         modular-agent/      # ядро
     plugins/
-        hello-world/        # будущие плагины
+        filefile-toolstools/                  # отдельныйотдельный plugin crateplugin crate
         ...
 ```
 
@@ -344,9 +344,6 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, declarative `memory_policy`, `compactor`,
   `tool_exposure` и `workflow`.
-- ✅ Hello-world плагины: `hello-renderer`, `hello-tool`, `hello-policy-patch`
-  (`hello-policy-patch` также демонстрирует `context_provider`, declarative
-  `memory_policy` и `workflow`).
 - ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
 - 📝 Draft plugin pack: `tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
@@ -431,7 +428,9 @@ MCP server процессы (если/когда будет полноценны
 
 ## Решения, зафиксированные по итогам первых экспериментов
 
-Эти решения приняты на основе практики (два работающих плагина: `hello-renderer`, `hello-tool`).
+Эти решения приняты на основе практики первыхпервых dylibdylib-плагинов и последующего
+переноса runtime-модулей вплагинов и последующего
+переноса runtime-модулей в `plugins/defaultplugins/default`.
 
 **Один формат — dylib через abi_stable.** Rust-плагин компактный (~70-100 строк), автор-нейронка справляется за один заход. YAML declarative loader исключён как дублирование кода: `ConfiguredProcessTool` в ядре уже позволяет описывать shell-обёртки в главном config'е без компиляции, дополнительная система не нужна.
 
@@ -453,5 +452,5 @@ MCP server процессы (если/когда будет полноценны
 - `docs/configuration.md` — как выбирается module в slot через `AppConfig`.
 - `crates/agent-contracts/src/plugin.rs` — актуальный интерфейс плагинов (sabi_trait'ы и prefix type).
 - `crates/modular-agent/src/core/plugin_loader.rs` — реализация loader'а.
-- `plugins/default/hello-renderer/src/lib.rs`, `plugins/default/hello-tool/src/lib.rs` — референсные (минимальные) плагины.
 - `plugins/default/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.
+- `plugins/default/renderer-pack/src/lib.rs` — renderer-плагин с production ids.

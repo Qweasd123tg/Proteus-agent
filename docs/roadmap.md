@@ -166,8 +166,9 @@ Scope:
 - ✅ Волна 2 (частично) — dylib loader; PluginRegistry с `register_renderer`,
   `register_tool`, `register_approval_policy`, `register_patch_applier`,
   `register_search_backend`, `register_memory_store`; реальные плагины
-  (`hello-renderer`, `hello-tool`, `hello-policy-patch`, `file-tools`,
-  `git-tools`, `sqlite-memory`); политика дубликатов; `plugin.toml` manifest (видимость
+  (`file-tools`, `git-tools`, `sqlite-memory`, `rg-search`, `direct-patch`,
+  `coding-workflow`, `context-pack`, `memory-pack`, `policy-pack`,
+  `renderer-pack`); политика дубликатов; `plugin.toml` manifest (видимость
   плагина в `modules list` даже при ошибке загрузки); `modules list`
   показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
@@ -199,7 +200,7 @@ Scope:
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, `renderer = "text"`.
   `install.sh` собирает и копирует runtime-плагины в `~/.agent/plugins/`
-  автоматически; ABI-примеры `hello-*` остаются только в workspace/tests.
+  автоматически.
 
 Следующий scope:
 

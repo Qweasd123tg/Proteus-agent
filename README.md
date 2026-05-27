@@ -39,9 +39,6 @@ plugins/
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
     renderer-pack/       — Renderer плагины "plain" и "statusline"
-    hello-renderer/      — ABI-пример renderer-плагина, не ставится install.sh
-    hello-tool/          — ABI-пример tool-плагина, не ставится install.sh
-    hello-policy-patch/  — ABI-пример нескольких slot-ов, не ставится install.sh
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
 
@@ -223,8 +220,7 @@ strikethrough и inline `code`/bold/italic.
 стандартные плагины в `~/.agent/plugins/<plugin>/`. После этого `rg-search`,
 `direct-patch`, `file-tools`, `git-tools`, `shell-tool`, `coding-workflow`,
 `context-pack`, `memory-pack`, `policy-pack`, `renderer-pack` и `sqlite-memory`
-подхватываются автоматически. `hello-*` плагины остаются ABI-примерами и не
-ставятся в обычный runtime path.
+подхватываются автоматически.
 
 Ручной способ:
 

@@ -1,7 +1,0 @@
-name = "hello-tool"
-version = "0.1.0"
-description = "Sample plugin: provides current_time tool"
-author = "modular-agent examples"
-tags = ["demo", "time"]
-library = "libhello_tool.so"
-requires_agent_contracts = "0.1"
