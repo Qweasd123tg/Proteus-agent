@@ -31,8 +31,8 @@ cargo run --bin modular-agent -- init coding
 cargo run --bin modular-agent -- doctor
 ```
 
-`init [coding|full|safe]` создаёт TOML profile в default config dir
-(`~/.config/agent-qweasd123tg/configs`) или в путь, переданный через
+`init [coding|full|safe]` создаёт TOML profile в default config file
+(`~/.config/agent-qweasd123tg/configs/config.toml`) или в путь, переданный через
 `--config`. `coding` и `full` включают real-provider coding profile с
 plugin tools после `./install.sh`, `safe` использует fake model.
 
@@ -91,7 +91,7 @@ cargo run -- server stdio
 
 Если runtime знает путь config-а, относительный `event_log.path` считается от
 config store root, то есть рядом с `sessions`. Для default layout
-`~/.config/agent-qweasd123tg/configs` путь `.agent/events.jsonl` превращается в:
+`~/.config/agent-qweasd123tg/configs/config.toml` путь `.agent/events.jsonl` превращается в:
 
 ```text
 ~/.config/agent-qweasd123tg/.agent/events.jsonl
@@ -203,7 +203,7 @@ turn асинхронно, поэтому UI может отправить `appr
 
 ## Session Store
 
-Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для directory-based layout `~/.config/agent-qweasd123tg/configs` session store живёт в `~/.config/agent-qweasd123tg/sessions`:
+Если runtime знает путь пользовательского конфига, он создаёт session store рядом с config home. Для default layout `~/.config/agent-qweasd123tg/configs/config.toml` session store живёт в `~/.config/agent-qweasd123tg/sessions`:
 
 ```text
 <config-dir>/sessions/<encoded-workspace>/<short-numeric-id>/messages.jsonl

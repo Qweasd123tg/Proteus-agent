@@ -110,7 +110,7 @@ cargo build --workspace
 cargo run --bin modular-agent
 # или single turn
 cargo run --bin modular-agent -- "describe the project layout"
-# создать пользовательский config profile в default config dir
+# создать пользовательский config profile в default config file
 cargo run --bin modular-agent -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin modular-agent -- doctor
@@ -267,9 +267,9 @@ agent doctor
 Без `--config` ядро ищет:
 
 1. `$AGENT_CONFIG_PATH`
-2. `$AGENT_CONFIG_HOME/configs`
-3. `$HOME/.config/agent-qweasd123tg/configs/` (default)
-4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs`
+2. `$AGENT_CONFIG_HOME/configs/config.toml`
+3. `$HOME/.config/agent-qweasd123tg/configs/config.toml` (default)
+4. `$XDG_CONFIG_HOME/agent-qweasd123tg/configs/config.toml`
 
 Если не найдено — используются безопасные stub defaults из `AppConfig`
 (`workflow = "none"`, `context = "none"`, `policy = "deny_all"`,
@@ -284,7 +284,7 @@ agent doctor
   `$HOME/.config/agent-qweasd123tg/configs/config.toml`, где provider/key,
   modules, tools и policy лежат в одном явном файле.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
-  предпочтительнее `agent init coding` и TOML config dir.
+  предпочтительнее `agent init coding` и один TOML config file.
 
 Полная schema, provider profiles, secrets, tools и renderers в
 [docs/configuration.md](docs/configuration.md).
