@@ -59,21 +59,18 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
 }
 
 pub(crate) fn running_tool_marker() -> &'static str {
-    let elapsed = elapsed_since_start();
-    if (elapsed.as_millis() / 520).is_multiple_of(2) {
-        "●"
-    } else {
-        "○"
-    }
+    "●"
 }
 
 pub(crate) fn running_tool_marker_style() -> Style {
-    if running_tool_marker() == "●" {
+    let elapsed = elapsed_since_start();
+    let bright = (elapsed.as_millis() / 520).is_multiple_of(2);
+    if bright {
         Style::default()
             .fg(Color::Rgb(255, 149, 0))
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().add_modifier(Modifier::DIM)
     }
 }
 
@@ -109,14 +106,11 @@ mod tests {
     fn running_tool_marker_uses_activity_color() {
         let style = running_tool_marker_style();
 
-        assert!(matches!(
-            style.fg,
-            Some(Color::Rgb(255, 149, 0)) | Some(Color::DarkGray)
-        ));
+        assert!(matches!(style.fg, Some(Color::Rgb(255, 149, 0)) | None));
     }
 
     #[test]
-    fn running_tool_marker_blinks_between_dot_shapes() {
-        assert!(matches!(running_tool_marker(), "●" | "○"));
+    fn running_tool_marker_keeps_shape_stable() {
+        assert_eq!(running_tool_marker(), "●");
     }
 }

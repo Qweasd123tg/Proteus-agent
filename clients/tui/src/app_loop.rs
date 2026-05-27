@@ -23,7 +23,7 @@ use crate::{
 };
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
-const ACTIVITY_STATUS_INTERVAL: Duration = Duration::from_millis(200);
+const ACTIVITY_STATUS_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(crate) async fn run_app(terminal: &mut TuiTerminal, cli: Cli) -> Result<()> {
     let external_terminal_session = ExternalTerminalSession::ptyxis().ok();
