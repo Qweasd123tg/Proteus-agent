@@ -233,9 +233,11 @@ Plugin ABI пока можно ломать без compatibility fallback-ов. 
 1. Первый eval suite пока не определён. Кандидат для исследования -
    `terminal-bench`, но нужно выбрать маленький локальный набор задач, который
    реально показывает coding quality, tool use и recovery.
-2. Primary dogfood provider/model - DeepSeek через Anthropic-compatible API,
-   потому что он дешевле для частых прогонов. Usage accounting должен считать
-   provider totals из Anthropic-shaped response как source of truth.
+2. Primary dogfood provider/model сейчас может быть DeepSeek, потому что он
+   дешевле для частых прогонов. Это не архитектурная привязка: агент должен
+   работать с любым API, который покрывается текущими OpenAI, Anthropic или
+   OpenAI-compatible adapters. Usage accounting должен считать provider totals
+   из фактического adapter response как source of truth.
 3. Минимальная планка TUI: баги не должны мешать анализу работы агента. Нужно
    видеть, что агент делает: сообщения, streaming, tool calls, approvals,
    context/token usage, errors и resume/history. Всё, что только снижает

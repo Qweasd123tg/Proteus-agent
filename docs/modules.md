@@ -89,6 +89,11 @@ executors, но external process modules и package manager ещё не реал
 - `openai_compatible` - adapter с настраиваемым `base_url`;
 - `anthropic` - Anthropic Messages API adapter.
 
+Конкретный dogfood provider не является архитектурным решением. Например,
+DeepSeek можно использовать как дешёвый текущий provider через совместимый
+Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зависеть только
+от canonical model contract и выбранного adapter-а.
+
 Runtime зависит от единого model contract: `id`, `capabilities`, `stream` и default `complete`.
 `ModelClient` и `ModelAdapter` оставлены как compatibility aliases к тому же trait, чтобы старые call sites мигрировали постепенно. `BuiltinRegistry` по-прежнему использует `ModelService` как shaping wrapper: перед provider call он вызывает `RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри provider-а, а compatibility shaping остаётся единым для всех providers.
 
