@@ -397,9 +397,9 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 UI - не плагин ядра. UI - отдельный проект, который использует AppServer как API.
 
-UI-клиенты (активный Leptos web client, будущий desktop GUI или deferred TUI)
-пишутся отдельно от plugin Registry. Они не грузятся в Registry. Не попадают в
-папку плагинов. Они - **клиенты ядра**, не **модули ядра**.
+UI-клиенты (активный Leptos web client и будущий desktop GUI) пишутся отдельно
+от plugin Registry. Они не грузятся в Registry. Не попадают в папку плагинов.
+Они - **клиенты ядра**, не **модули ядра**.
 
 ---
 

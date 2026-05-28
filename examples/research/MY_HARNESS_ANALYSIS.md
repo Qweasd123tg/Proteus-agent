@@ -38,7 +38,7 @@
 Сильные стороны:
 
 - слои разведены достаточно чисто:
-  - `forge_main` — CLI/TUI entry
+  - `forge_main` — interactive client entry
   - `forge_api` — фасад между UI и приложением
   - `forge_app` — orchestration, prompt assembly, hooks, loop, tools
   - `forge_domain` — доменная модель: `Context`, `Conversation`, `Message`, `Tool*`
@@ -96,7 +96,7 @@
 - хороший event-driven подход;
 - structured state и typed parts, а не просто chat transcript;
 - серьезный взгляд на persistence, replay, sync, workspace restore;
-- естественная многоклиентность: CLI, TUI, web, desktop, SDK.
+- естественная многоклиентность: CLI, web, desktop, SDK.
 
 Где проблема именно для твоей задачи:
 
@@ -342,7 +342,7 @@
    - optional retrieval memory
 
 5. `Transport/UI`
-   - CLI/TUI/API как тонкие поверхности над ядром
+   - CLI/web/API как тонкие поверхности над ядром
 
 Если сделать эти пять слоев аккуратно, у тебя уже будет нормальный harness без платформенного перегруза.
 

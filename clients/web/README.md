@@ -12,5 +12,4 @@ production-клиентом.
 - `proteus-core` остаётся UI-agnostic runtime;
 - `proteus-contracts::app_protocol` остаётся shared DTO/wire contract;
 - web-клиент подключается к app-server transport поверх HTTP/SSE/WebSocket
-  адаптера, не импортируя runtime internals;
-- TUI отложен в `deferred/tui` и не участвует в workspace build.
+  адаптера, не импортируя runtime internals.

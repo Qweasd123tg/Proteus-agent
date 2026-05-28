@@ -1,5 +1,5 @@
 //! Wire protocol для AppServer: события и команды, которыми общаются
-//! ядро (`proteus server stdio`) и внешние клиенты (web, GUI, deferred TUI).
+//! ядро (`proteus server stdio`) и внешние web/desktop-клиенты.
 //!
 //! Клиенты depend на этот модуль (через `proteus-contracts`), **не** на
 //! само ядро (`proteus-core`). Это даёт архитектурную границу: любой
