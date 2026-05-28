@@ -8,9 +8,9 @@ reference snapshots и эксперименты живут в `examples/source/`
 production-клиентом.
 
 Текущий статус: standalone Leptos/Trunk shell с transcript, composer,
-permission mode controls и локальным mock-transport состоянием. Backend
-HTTP/SSE transport уже запускается через `proteus server http`, но shell ещё не
-подключает `/events` и `/send`.
+permission mode controls и HTTP/SSE client. Shell по умолчанию подключается к
+`http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
+через `/mode` и очищает history через `/clear`.
 
 ## Запуск
 
@@ -37,7 +37,8 @@ AppServer HTTP по примеру выше слушает `http://127.0.0.1:878
 - `proteus-core` остаётся UI-agnostic runtime;
 - `proteus-contracts::app_protocol` остаётся shared DTO/wire contract;
 - web-клиент подключается к app-server transport поверх HTTP/SSE/WebSocket
-  адаптера, не импортируя runtime internals.
+  адаптера, не импортируя runtime internals. Сейчас DTO продублированы в
+  client-local serde types, чтобы не тащить `proteus-core` в wasm target.
 
 `clients/web` намеренно исключён из root Cargo workspace: обычные
 `cargo test --workspace` для core/plugins не должны требовать wasm target или
