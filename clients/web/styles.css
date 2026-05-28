@@ -124,6 +124,33 @@ button {
     white-space: nowrap;
 }
 
+.status-value {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 999px;
+    background: var(--muted);
+}
+
+.status-dot.is-connected {
+    background: var(--accent);
+}
+
+.status-dot.is-pending {
+    background: var(--warn);
+}
+
+.status-dot.is-error {
+    background: #b73535;
+}
+
 .mode-list {
     display: grid;
     gap: 8px;
@@ -290,6 +317,11 @@ button {
 
 .composer button:hover {
     background: var(--accent-strong);
+}
+
+.composer button:disabled {
+    cursor: wait;
+    background: #8ba3a1;
 }
 
 @media (max-width: 860px) {

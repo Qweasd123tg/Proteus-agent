@@ -95,9 +95,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 
 **Клиенты:**
 - `clients/web` — standalone Leptos/Trunk shell нового основного клиента:
-  transcript, composer, permission mode controls и локальный mock-transport.
-  Следующий слой — live HTTP/SSE transport поверх app-server boundary без
-  зависимости на runtime internals.
+  transcript, composer, permission mode controls и HTTP/SSE transport client
+  поверх app-server boundary без зависимости на runtime internals.
 
 ## Быстрый запуск
 
@@ -150,9 +149,9 @@ cd clients/web
 trunk serve
 ```
 
-Leptos-клиент уже живёт в `clients/web`. HTTP/SSE app-server transport
-запускается через `proteus server http`; сам web shell ещё хранит composer
-локально и следующим шагом должен подключить `/events` и `/send`. До этого
+Leptos-клиент уже живёт в `clients/web` и по умолчанию подключается к
+`http://127.0.0.1:8787/events` и `/send`. HTTP/SSE app-server transport
+запускается через `proteus server http`; до полной UI-функциональности
 основной интерактивный путь остаётся core CLI, `proteus server stdio` и
 ручные/eval прогоны. Reference snapshots для переезда лежат вне
 production-каталога:
