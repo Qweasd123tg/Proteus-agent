@@ -495,31 +495,32 @@ fn connect_event_stream(
     let output_set_next_message_id = set_next_message_id;
     let output_transport_status = set_transport_status;
     let output_event_count = set_event_count;
-    let on_output = Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event| {
-        let Some(data) = event.data().as_string() else {
-            return;
-        };
-        match serde_json::from_str::<StdioOutput>(&data) {
-            Ok(output) => handle_app_output(
-                output,
-                output_messages,
-                output_next_message_id,
-                output_set_next_message_id,
-                output_transport_status,
-                output_event_count,
-                set_workspace_label,
-                set_session_label,
-                set_is_sending,
-            ),
-            Err(error) => push_message(
-                output_messages,
-                output_next_message_id,
-                output_set_next_message_id,
-                MessageRole::System,
-                format!("Invalid event payload: {error}"),
-            ),
-        }
-    }));
+    let on_output =
+        Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
+            let Some(data) = event.data().as_string() else {
+                return;
+            };
+            match serde_json::from_str::<StdioOutput>(&data) {
+                Ok(output) => handle_app_output(
+                    output,
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    output_transport_status,
+                    output_event_count,
+                    set_workspace_label,
+                    set_session_label,
+                    set_is_sending,
+                ),
+                Err(error) => push_message(
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    MessageRole::System,
+                    format!("Invalid event payload: {error}"),
+                ),
+            }
+        }));
     let _ = source.add_event_listener_with_callback("output", on_output.as_ref().unchecked_ref());
     on_output.forget();
 
