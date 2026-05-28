@@ -47,9 +47,11 @@ proteus init full
 
 ## UI Client Status
 
-Активный UI-направление — Leptos web client в `clients/web`. Он должен
+Активный UI-направление — Leptos web client в `clients/web`. Сейчас это
+standalone shell с локальным mock-transport; live launcher/config surface ещё
+не стабилизирован. Когда AppServer transport будет подключён, клиент должен
 использовать тот же config root, app-server session store и protocol DTO, что и
-другие внешние клиенты, но его launcher/config surface ещё не стабилизирован.
+другие внешние клиенты.
 
 Пошаговый bootstrap для новой машины описан в
 [second-pc-bootstrap.md](second-pc-bootstrap.md).

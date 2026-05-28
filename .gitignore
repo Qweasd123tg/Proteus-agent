@@ -1,4 +1,5 @@
 target/
+/clients/web/dist/
 /.agent/
 /sessions/
 /examples/source/
