@@ -38,11 +38,10 @@ module implementations без переписывания core или форка 
 `Quality-first harness`. `proteus-tui` нужен как dogfood/test client, но не должен
 съесть весь roadmap. Сначала нужно добиться качества coding-agent на уровне
 существующих агентов, затем оптимизировать token/context usage. Для сравнения
-делаем `claude-code-like workflow baseline` pack на DeepSeek через
-Anthropic-compatible API, чтобы проверить, не является ли наша архитектура
-узким местом, а затем собираем `best-of` packs из лучших идей
-Codex/Claude/OpenCode/forgecode. Codex остаётся главным reference для Rust TUI
-и ряда subsystem patterns.
+делаем нейтральный baseline profile/pack на выбранном provider-е, чтобы
+проверить, не является ли наша архитектура узким местом, а затем собираем
+`best-of` packs из лучших идей Codex/Claude/OpenCode/forgecode. Codex остаётся
+главным reference для Rust TUI и ряда subsystem patterns.
 
 Операционный критерий для ближайшего этапа вынесен в
 `docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop,
