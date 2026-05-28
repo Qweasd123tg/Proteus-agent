@@ -1,7 +1,7 @@
 //! Wire protocol re-exports из proteus-contracts.
 //!
 //! Типы `StdioRequest` и `StdioOutput` определены в `proteus-contracts::app_protocol`,
-//! чтобы клиенты (TUI, GUI) могли depend на них без зависимости на ядро.
+//! чтобы клиенты (web, GUI, deferred TUI) могли depend на них без зависимости на ядро.
 //! Здесь — только re-export для обратной совместимости внутреннего кода.
 
 pub use proteus_contracts::app_protocol::{StdioOutput, StdioRequest};

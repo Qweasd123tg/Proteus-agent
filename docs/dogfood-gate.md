@@ -4,7 +4,7 @@
 цель - не доказать, что агент уже хороший продукт, а получить один
 воспроизводимый loop, в котором видно, где именно ломается стек:
 `core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
-app-server или `proteus-tui`.
+app-server или текущий внешний UI-клиент.
 
 ## Цель
 
@@ -22,7 +22,7 @@ app-server или `proteus-tui`.
 
 ## Core Gate
 
-Core gate проверяется отдельно от TUI. Если он красный, `proteus-tui` не является
+Core gate проверяется отдельно от UI. Если он красный, внешний клиент не является
 приоритетным местом для правок.
 
 Минимальные команды:
@@ -42,17 +42,17 @@ cargo run --bin proteus -- eval report .proteus/events.jsonl
 Зелёный core gate означает только то, что module boundaries, config loading,
 doctor и базовый отчёт не сломаны. Он не доказывает quality agent-а.
 
-## Dogfood TUI Gate
+## Dogfood Client Gate
 
-`proteus-tui` в v0 является первичным bundled UI для работы с агентом и главным
-dogfood-клиентом. Он остаётся внешним клиентом поверх app-server boundary:
-любой другой UI может подключиться к той же границе без изменения runtime.
+Первичный dogfood-клиент теперь должен быть внешним UI поверх app-server
+boundary. Активное направление — Leptos web client; прежний TUI сохранён в
+`deferred/tui` и не должен определять ближайший gate.
 
 Минимальный сценарий:
 
 ```text
 proteus doctor
-proteus-tui
+запустить текущий внешний UI или app-server client harness
 отправить маленькую coding-задачу
 увидеть ход выполнения
 увидеть tool call / approval
@@ -76,7 +76,7 @@ Gate зелёный, если сценарий можно пройти без п
 - diff/result теряется до того, как его можно проверить;
 - session/transcript/event log не сохраняется или не читается;
 - `eval report` не может разобрать event log после run-а;
-- TUI зависает так, что непонятно, turn ещё идёт или уже умер.
+- UI зависает так, что непонятно, turn ещё идёт или уже умер.
 
 ## Non-Blocking Irritants
 
@@ -92,7 +92,7 @@ Gate зелёный, если сценарий можно пройти без п
 - неполный onboarding для внешнего пользователя;
 - memory polish и production-ready состояние всех plugin packs.
 
-Такие пункты идут в TUI polish backlog или профильный research doc, а не
+Такие пункты идут в UI polish backlog или профильный research doc, а не
 становятся причиной переписывать UI-контур до завершения dogfood run-а.
 
 ## Первый v0 Manual Test
@@ -106,7 +106,7 @@ Expected artifact: diff, test result или structured explanation
 Success: task completed or failure localized
 ```
 
-Не использовать как первый тест большую фичу, repo split, новый slot или TUI
+Не использовать как первый тест большую фичу, repo split, новый slot или UI
 rewrite. Цель - проверить loop, а не максимальную способность агента.
 
 ## Postmortem Rubric
@@ -119,7 +119,7 @@ Result: success | failed | inconclusive
 Changed files:
 Tests run:
 Event log:
-Main failure bucket: core | workflow | context | tools | policy | patch | provider | app-server | tui
+Main failure bucket: core | workflow | context | tools | policy | patch | provider | app-server | ui
 Observed issue:
 Next smallest fix:
 Non-blocking irritants:
@@ -133,7 +133,7 @@ Non-blocking irritants:
 До первого воспроизводимого dogfood loop не начинать как blocking scope:
 
 - разделение репозиториев;
-- большой retained TUI rewrite;
+- большой retained/native UI rewrite;
 - новые plugin slots без явного blocker-а;
 - новые feature packs ради сравнения идей;
 - memory polish;

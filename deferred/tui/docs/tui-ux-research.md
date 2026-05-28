@@ -1,5 +1,10 @@
 # TUI UX Research
 
+> Historical/deferred note: этот документ относится к прежнему TUI-направлению.
+> На 2026-05-28 код TUI перенесён в `deferred/tui`, активный UI-путь переехал
+> на Leptos web client (`clients/web`). Использовать этот документ только как
+> reference для возможного secondary/native client.
+
 Этот документ фиксирует разбор локальных исходников Codex, Claude Code и
 OpenCode из `examples/`, а также текущих рисков `clients/tui`. Цель - понять,
 почему чужие агенты ощущаются стабильнее, и какие изменения переносить в наш

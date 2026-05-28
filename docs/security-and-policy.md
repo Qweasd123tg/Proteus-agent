@@ -40,16 +40,15 @@ Runtime применяет режим через `ModeAwarePolicy` на гран
 делегирует visibility/execution одному `ApprovalPolicy`.
 
 CLI может переопределить config через `--plan`, `--auto` или
-`--permission-mode plan|normal|auto`. `proteus-tui` передаёт эти startup flags в
-app-server, показывает активный override в header и умеет переключать режимы
-для следующих turns через `/plan`, `/normal`, `/auto`. Переключение не меняет
-config-файл и не перезапускает app-server: TUI отправляет
-`StdioRequest::SetPermissionMode`. В `/plan` TUI просит модель вернуть staged
-read-only plan, а после ответа предлагает execute/revise/dismiss; enforcement
-read/write/shell/network ограничений остаётся в core policy. Если workflow
-возвращает `metadata.ui.plan_intake`, TUI показывает generic form для
-уточняющих выборов; эти ответы являются обычным следующим user turn и не дают
-обхода `ModeAwarePolicy`.
+`--permission-mode plan|normal|auto`. Внешние UI-клиенты могут переключать
+режим для следующих turns через `StdioRequest::SetPermissionMode`.
+Переключение не меняет config-файл и не перезапускает app-server. В client-side
+plan flow UI может просить модель вернуть staged read-only plan, а после ответа
+предлагать execute/revise/dismiss; enforcement read/write/shell/network
+ограничений остаётся в core policy. Если workflow возвращает
+`metadata.ui.plan_intake`, UI показывает generic form для уточняющих выборов;
+эти ответы являются обычным следующим user turn и не дают обхода
+`ModeAwarePolicy`.
 
 ## Встроенные Tools
 
@@ -147,10 +146,10 @@ Runtime оборачивает выбранный transport в session-level app
 `cache = "exact_call"` ключ строится из `cwd + tool name + canonical JSON args`,
 без `approval_id` и reason. Для `cache = "tool_in_cwd"` ключ строится из
 `cwd + tool name`, поэтому следующие вызовы того же tool в том же workspace
-approved без повторного запроса даже при других args. TUI-клавиша `2/p/з`
-использует `exact_call` для `shell`, `RunsCommands`, `Network` и `Dangerous`;
-для остальных write-like tools она использует `tool_in_cwd`. Внешние клиенты
-могут сами выбирать scope. Cache хранится только в памяти текущего
+approved без повторного запроса даже при других args. Внешние клиенты сами
+выбирают scope: обычно `exact_call` уместен для `shell`, `RunsCommands`,
+`Network` и `Dangerous`, а `tool_in_cwd` — для понятных write-like tools в том
+же workspace. Cache хранится только в памяти текущего
 runtime/session и не переживает restart или `resume_from_session_dir`.
 
 Ближайшая UX-цель для write approval - diff-first flow. Для `apply_patch`

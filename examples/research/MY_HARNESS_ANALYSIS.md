@@ -366,6 +366,12 @@
   - мощно, но тяжеловато под "простой harness".
 - `OpenHarness`
   - ближе всего к toolkit-подходу для сборки своего harness.
+- `Leptos`
+  - основной reference для нового Rust web client;
+  - полезен как UI/toolkit слой, а не как часть agent runtime.
+- `Oxide-Agent feature/web-transport`
+  - практический reference для разделения web UI, shared contracts и transport;
+  - смотреть selective patterns, не копировать архитектуру целиком.
 
 ### Как я бы расставил их по полезности
 
@@ -375,6 +381,8 @@
 - `Aider` — легкий practical CLI reference
 - `Goose` — расширяемый open runtime reference
 - `OpenHarness` — toolkit/system-construction reference
+- `Leptos` — primary web UI toolkit reference
+- `Oxide-Agent feature/web-transport` — web transport/client boundary reference
 - `OpenHands` — platform reference
 
 ## Практический итог
@@ -385,6 +393,8 @@
 - `opencode` — сильный, но скорее reference для platform-level thinking;
 - `claude` — библиотека паттернов по критичным подсистемам;
 - `chatgpt/codex` — карта сложных мест, которые нельзя недооценить;
+- `Leptos` + `Oxide-Agent feature/web-transport` — references для текущего
+  переезда primary UI в web-клиент;
 - "делать полный harness с нуля" имеет смысл только если ты сознательно хочешь спроектировать свой kernel и готов вложиться в `state + approvals + subagents + persistence`, а не просто в prompt loop.
 
 Если формулировать совсем прямо:
@@ -405,5 +415,7 @@
 9. `chatgpt/notes/05-multi-agent-i-subagenty.md`
 10. `opencode/OPENCODE_ARCHITECTURE.md`
 11. `opencode/OPENCODE_CORE_ANALYSIS.md`
+12. `web-client-references.md`
 
-Это даст самый полезный порядок: от практической основы к сложным подсистемам, а потом уже к платформенному максимуму.
+Это даст самый полезный порядок: от практической основы к сложным подсистемам,
+потом к платформенному максимуму и отдельно к web-client переезду.

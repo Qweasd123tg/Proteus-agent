@@ -116,17 +116,16 @@ CLI не должен владеть бизнес-логикой runtime.
 
 Visual layer и полноценный CLI не входят в этот crate как runtime layer. Они
 подключаются отдельными процессами через app-server transport или другой
-transport поверх той же boundary. Первичный bundled UI живёт в
-`clients/tui`:
+transport поверх той же boundary. Активное направление внешнего UI теперь
+живёт в `clients/web` как Leptos-клиент. Старый terminal client сохранён в
+`deferred/tui` как reference/native prototype и не является частью активного
+workspace build.
 
-- бинарник `proteus-tui` — интерактивный TUI поверх app-server stdio.
-
-`proteus-tui` — рабочий UI проекта, но не часть ядра. Протокол обмена живёт в
-`proteus-contracts::app_protocol`, так что другие клиенты не depend на
-`proteus-core` и могут подключаться к той же app-server boundary.
-Команды интерфейса (`/help`, `/clear`, `/cancel`, `/resume`, `/session`,
-`/context`, `/configs`, `/plan`, `/normal`, `/auto`, будущие `/sessions`,
-`/model`, `/doctor`) должны жить в app-client/input routing слое.
+Протокол обмена живёт в `proteus-contracts::app_protocol`, так что клиенты не
+depend на `proteus-core` и могут подключаться к той же app-server boundary.
+Команды интерфейса (`clear`, `cancel`, `resume`, `session`, `context`,
+`configs`, `plan`, `normal`, `auto`, будущие `sessions`, `model`, `doctor`)
+должны жить в app-client/input routing слое.
 Если команда требует runtime-действие, клиент вызывает явный
 `StdioRequest`/app protocol command; visual-компоненты только отображают
 состояние и не должны напрямую владеть runtime/business logic.
@@ -242,7 +241,7 @@ Adapters преобразуют `CanonicalModelRequest` в provider wire format 
 Provider-neutral `ReasoningConfig` остаётся в canonical model protocol:
 OpenAI adapter мапит его в `reasoning.effort` / `reasoning.summary`, Anthropic
 adapter — в `output_config.effort` и `thinking` (`adaptive` или manual
-`budget_tokens`). Workflow и TUI не знают provider-specific field names.
+`budget_tokens`). Workflow и UI-клиенты не знают provider-specific field names.
 Они реализуют `ModelAdapter`, а runtime вызывает их через `ModelService`, который реализует `ModelClient` и делает обязательный проход через `RequestShaper`.
 
 ### Plugin Boundary
@@ -308,17 +307,17 @@ task
   `tools/list` discovery и dylib-плагины; полноценный MCP provider/registry
   как persistent host ещё не реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому `recall` работает только если выбранный context builder включает memory provider.
-- Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим; для provider profiles `stream` по умолчанию включён и прокидывается в `provider_config.stream`. Если SSE transport/body decode ломается до финального ответа, adapter один раз повторяет тот же запрос через non-stream path и возвращает финальный `CanonicalModelResponse`; если fallback тоже не удался, ошибка уходит в `ModelStreamEvent::Error`. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`; text-only stream без финального `Response` завершается синтезированным response, а tool-call stream без `Response` считается ошибкой. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. TUI клиент `proteus-tui` вставляет completed-line assistant deltas в normal scrollback; незавершённый partial tail не рендерится отдельным live-preview.
+- Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим; для provider profiles `stream` по умолчанию включён и прокидывается в `provider_config.stream`. Если SSE transport/body decode ломается до финального ответа, adapter один раз повторяет тот же запрос через non-stream path и возвращает финальный `CanonicalModelResponse`; если fallback тоже не удался, ошибка уходит в `ModelStreamEvent::Error`. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`; text-only stream без финального `Response` завершается синтезированным response, а tool-call stream без `Response` считается ошибкой. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. UI-клиент сам решает, как показывать completed deltas, partial tail и reasoning summary, не меняя runtime stream contract.
 - Approval transport подключён для CLI single-run, line REPL и app-server
   clients. UI-клиент app-server должен ответить на `ApprovalRequested`; если
   запрос не доставлен, сработал явно настроенный timeout или app-server
   shutdown, approval закрывается как отказ. По умолчанию timeout отключён для
-  интерактивного TUI. Тот же app-server timeout используется для typed
+  интерактивных UI-клиентов. Тот же app-server timeout используется для typed
   `request_user_input`; `0` также отключает его ожидание.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
-- Session resume реализован через session store и `--resume-session`; TUI `/resume`
-  открывает picker по sessions текущего workspace/profile. Полный replay/index
-  поверх durable event log и derived SQLite/index пока planned.
+- Session resume реализован через session store и `--resume-session`; session
+  picker/search остаётся client feature для web/desktop/TUI. Полный
+  replay/index поверх durable event log и derived SQLite/index пока planned.
 - Базовый eval report реализован как чтение существующего event log
   (`proteus eval report <event-log-path>`). Eval runner/suite, который сам
   запускает задачи и сравнивает workflow/profile variants, пока planned.

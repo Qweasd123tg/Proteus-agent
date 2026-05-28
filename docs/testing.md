@@ -8,7 +8,7 @@ cargo test --workspace
 
 Текущий workspace гоняет unit-тесты `proteus-contracts`, адаптеров и
 plugin-адаптеров в `proteus-core`, интеграционные тесты `module_swap.rs` и
-тесты `clients/tui` + плагинов. Зелёный прогон — минимальное условие для
+тесты плагинов. Зелёный прогон — минимальное условие для
 любого PR.
 
 ## Что Фиксируют Текущие Тесты
@@ -133,7 +133,7 @@ canonical DTO не ломаются.
 Практический v0-критерий описан в `docs/dogfood-gate.md`: сначала нужен один
 manual dogfood loop, где после прогона можно локализовать сбой в `core`,
 `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter, app-server
-или TUI. Evals и отчёты должны усиливать этот loop, а не превращаться в
+или текущем UI-клиенте. Evals и отчёты должны усиливать этот loop, а не превращаться в
 отдельную платформенную цель.
 
 Минимальный набор eval cases:

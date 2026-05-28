@@ -59,7 +59,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Agent TUI launches commands in a visible tab of its dedicated Ptyxis tool window; tabs remain open after completion. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {

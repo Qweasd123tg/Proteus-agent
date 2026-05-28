@@ -19,7 +19,9 @@ crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
     proteus-core/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
 clients/
-    tui/                 - внешний TUI-клиент (бинарник proteus-tui)
+    web/                 - будущий основной Leptos web-клиент
+deferred/
+    tui/                 - отложенный TUI-клиент (бывший clients/tui)
 plugins/
     default/             - стандартный набор плагинов и ABI-примеры
         file-tools/          - полноразмерный tool-плагин (read/write/list/grep)

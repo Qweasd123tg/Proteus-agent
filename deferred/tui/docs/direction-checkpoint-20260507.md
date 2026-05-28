@@ -1,5 +1,9 @@
 # Direction Checkpoint 2026-05-07
 
+> Historical note: этот checkpoint описывает прежнее TUI-first направление.
+> На 2026-05-28 TUI заморожен и перенесён в `deferred/tui`; активный UI-путь
+> переехал на Leptos web client (`clients/web`).
+
 Этот документ фиксирует развилку после серии TUI-фиксов, research-доков по
 Codex/Claude/OpenCode/forgecode и обсуждения token/context discipline. Он нужен
 не как новый roadmap, а как стоп-кадр: куда проект идёт дальше и какие решения
