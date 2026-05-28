@@ -41,7 +41,9 @@ module implementations без переписывания core или форка 
 любой другой клиент должен подключаться через app-server boundary. Сначала
 нужно добиться качества coding-agent на уровне существующих агентов, затем
 оптимизировать token/context usage. Для сравнения делаем нейтральный baseline
-profile/pack на выбранном provider-е, чтобы проверить, не является ли наша
+profile/pack на выбранном для dogfood provider-е; текущий дешёвый provider
+может быть DeepSeek, но agent boundary должен оставаться переносимым между
+OpenAI/Anthropic/OpenAI-compatible API. Так мы проверяем, не является ли наша
 архитектура узким местом, а затем собираем `best-of` packs из лучших идей
 Codex/Claude/OpenCode/forgecode. Codex остаётся главным reference для Rust TUI
 и ряда subsystem patterns.
