@@ -132,7 +132,12 @@ depend на `proteus-core` и могут подключаться к той же
 
 `crates/proteus-core/src/app_server.rs` является границей для внешних UI-клиентов. Он создаёт `AgentRuntime`, публикует `AppServerEvent`, принимает пользовательские сообщения, прокидывает approval requests и умеет очищать history. Это не часть core и не provider-specific adapter: transport-код может меняться, а runtime остаётся за тем же contract/DTO слоем.
 
-Текущий transport подключён командой `proteus server stdio` и живёт в `crates/proteus-core/src/app_server/stdio.rs`; JSONL DTO живут в `crates/proteus-core/src/app_server/protocol.rs`. Он читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Socket/http/ACP можно добавлять поверх этой же границы как planned transport, не связывая core с конкретным UI.
+Текущие transport'ы подключены командами `proteus server stdio` и
+`proteus server http`. `stdio` живёт в `crates/proteus-core/src/app_server/stdio.rs`
+и читает/пишет JSONL. HTTP/SSE живёт в
+`crates/proteus-core/src/app_server/http.rs`: `POST /request` принимает тот же
+command DTO, `GET /events` отдаёт `StdioOutput::Event` как SSE. Socket/ACP можно
+добавлять поверх этой же границы, не связывая core с конкретным UI.
 
 ### Core
 

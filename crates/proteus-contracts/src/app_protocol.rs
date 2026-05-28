@@ -1,5 +1,6 @@
 //! Wire protocol для AppServer: события и команды, которыми общаются
-//! ядро (`proteus server stdio`) и внешние web/desktop-клиенты.
+//! ядро (`proteus server stdio` / `proteus server http`) и внешние
+//! web/desktop-клиенты.
 //!
 //! Клиенты depend на этот модуль (через `proteus-contracts`), **не** на
 //! само ядро (`proteus-core`). Это даёт архитектурную границу: любой
@@ -9,8 +10,10 @@
 //! ## Формат transport
 //!
 //! `proteus server stdio` читает по одной JSONL-строке `StdioRequest` из
-//! stdin и пишет по одной JSONL-строке `StdioOutput` в stdout. Оба —
-//! tagged enum с полем `"type"`.
+//! stdin и пишет по одной JSONL-строке `StdioOutput` в stdout.
+//! `proteus server http` принимает тот же `StdioRequest` через `POST /request`
+//! и публикует `StdioOutput::Event` через `GET /events` как SSE. Оба формата
+//! используют tagged enum с полем `"type"`.
 //!
 //! ## Стабильность
 //!

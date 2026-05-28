@@ -53,9 +53,11 @@ Headless app-server для внешнего UI:
 
 ```bash
 cargo run -- server stdio
+cargo run -- server http --port 8787
 ```
 
 `server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/proteus-core/src/app_server/stdio.rs` поверх `crates/proteus-core/src/app_server.rs`, а не новая runtime-логика.
+`server http` поднимает локальный HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs` поверх той же границы.
 
 ## REPL Commands
 
@@ -168,7 +170,7 @@ durable event log при resume. При смене `turn_id` в `EventEnvelope` 
 
 ## App Server Boundary
 
-`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализован локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs`, а JSONL DTO лежат в `crates/proteus-core/src/app_server/protocol.rs`. Будущие socket/http/ACP-клиенты должны использовать ту же app-server границу.
+`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server/protocol.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
 События app-server:
 
@@ -196,6 +198,20 @@ turn асинхронно, поэтому UI может отправить `appr
 `id` исходного `send`; transport сигналит turn-level `CancellationToken`,
 отклоняет pending approvals, abort-ит active/queued task и отправляет failed
 `response` для отменённого `send`.
+
+HTTP/SSE transport:
+
+- `GET /health` - healthcheck;
+- `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`;
+- `GET /config` - текущий config summary;
+- `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
+- `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode` - короткие
+  endpoint'ы над соответствующими `StdioRequest` вариантами;
+- `POST /clear` и `/shutdown` - control-plane команды без body.
+
+HTTP `send` держит request до завершения turn'а и параллельно публикует
+progress/final события через `/events`. `cancel.target_id` ссылается на `id`
+исходного `send` и сигналит тот же turn-level `CancellationToken`.
 
 ## Session Store
 
