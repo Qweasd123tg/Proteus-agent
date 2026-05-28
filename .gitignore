@@ -1,5 +1,6 @@
 target/
 /clients/web/dist/
+/.proteus/
 /.agent/
 /sessions/
 /examples/source/
