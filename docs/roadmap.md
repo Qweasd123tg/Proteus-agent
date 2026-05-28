@@ -22,9 +22,9 @@ module implementations без переписывания core или форка 
 1. Core-first: `crates/proteus-core/src/core` остаётся lifecycle/wiring слоем.
 2. Config-driven behavior: спорные режимы поведения должны выноситься в config,
    policy или workflow settings, а не хардкодиться в CLI.
-3. External UI: `proteus-tui` является первичным bundled UI для работы с
-   агентом, а terminal/web/desktop/другие клиенты живут поверх app-server
-   boundary. `crates/proteus-core/src/main.rs` остаётся dev shell и transport launcher.
+3. External UI: активное направление — Leptos web client поверх app-server
+   boundary. `crates/proteus-core/src/main.rs` остаётся dev shell и transport
+   launcher, а отложенный TUI не должен влиять на core decisions.
 4. Token discipline: context/workflow должны уметь экономить контекст, а не
    просто читать всё подряд.
 5. Tests before platform claims: каждый новый slot/module behavior получает
@@ -32,26 +32,26 @@ module implementations без переписывания core или форка 
 
 ## Direction Checkpoint
 
-Текущая развилка зафиксирована в
-`docs/direction-checkpoint-20260507.md`.
+Историческая развилка 2026-05-07 перенесена в
+`deferred/tui/docs/direction-checkpoint-20260507.md`, потому что она описывает
+прежнее TUI-first направление.
 
-Короткая позиция на 2026-05-07 после ответов владельца: ближайший этап -
-`Quality-first harness`. `proteus-tui` является первичным UI для работы с
-агентом и основным способом dogfood, но архитектура остаётся UI-agnostic:
-любой другой клиент должен подключаться через app-server boundary. Сначала
+Обновление на 2026-05-28: TUI-направление заморожено, код перенесён в
+`deferred/tui`, а активный UI-путь переводится на Leptos web client. Решение от
+2026-05-07 остаётся историческим контекстом про `Quality-first harness`, но
+текущий dogfood больше не должен завязываться на terminal renderer. Сначала
 нужно добиться качества coding-agent на уровне существующих агентов, затем
 оптимизировать token/context usage. Для сравнения делаем нейтральный baseline
-profile/pack на выбранном для dogfood provider-е; текущий дешёвый provider
-может быть DeepSeek, но agent boundary должен оставаться переносимым между
-OpenAI/Anthropic/OpenAI-compatible API. Так мы проверяем, не является ли наша
-архитектура узким местом, а затем собираем `best-of` packs из лучших идей
-Codex/Claude/OpenCode/forgecode. Codex остаётся главным reference для Rust TUI
-и ряда subsystem patterns.
+profile/pack на выбранном для dogfood provider-е; agent boundary должен
+оставаться переносимым между OpenAI/Anthropic/OpenAI-compatible API. Так мы
+проверяем, не является ли наша архитектура узким местом, а затем собираем
+`best-of` packs из лучших идей Codex/Claude/OpenCode/forgecode и web-client
+references.
 
 Операционный критерий для ближайшего этапа вынесен в
 `docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop через
-первичный UI, который показывает, где ломается стек, а не новый набор feature
-packs или большой UI rewrite.
+текущий внешний клиент или app-server harness, который показывает, где ломается
+стек, а не новый набор feature packs или большой UI rewrite.
 
 ## Этапы
 
@@ -75,7 +75,7 @@ UI/business logic в CLI.
 
 - Довести `cargo clippy --all-targets -- -D warnings` до зелёного состояния.
   Сейчас точечно очищены затронутые tool/plugin crates, но полный проход ещё
-  падает на TUI/core предупреждениях вроде `collapsible_match`,
+  может падать на core предупреждениях вроде `collapsible_match`,
   `unnecessary_sort_by`, `clone_on_copy` и одном API с `too_many_arguments`.
 
 ### v0.1: Repo-Aware Context
@@ -146,14 +146,15 @@ Scope:
 - durable task/session metadata;
 - event-log based debugging.
 
-### v0.4: External Client Protocol
+### v0.4: Web Client Protocol
 
-Цель - сделать нормальную границу для `proteus-tui` и будущих web/desktop/
+Цель - сделать нормальную границу для Leptos web client и будущих desktop/
 других клиентов.
 
 Scope:
 
 - стабилизировать app-server JSONL DTO;
+- добавить HTTP/SSE/WebSocket adapter поверх той же app-server boundary;
 - добавить protocol tests;
 - описать commands/events как client contract;
 - оставить `crates/proteus-core/src/main.rs` тонким launcher-ом;
@@ -178,8 +179,8 @@ Scope:
   показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
   `stream = true`; ModelService транслирует TextDelta/ToolArgsDelta/
-  ReasoningDelta как runtime events; `proteus-tui` вставляет completed-line text
-  deltas в normal scrollback и не рисует partial tail отдельным live-preview.
+  ReasoningDelta как runtime events; UI-клиент сам решает, как показывать
+  completed deltas, partial tail и reasoning summary.
   `FilteredEventSink` не пишет дельты в durable JSONL по умолчанию.
 - ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
   `sqlite-memory` (ids `sqlite`, `sqlite_plugin`) — proof что
@@ -278,20 +279,20 @@ Scope:
 - Exec approval с prefix-rule suggestions через policy/protocol DTO, не через
   отдельный feature-specific slot.
 
-### TUI / Control Plane
+### Web Client / Control Plane
 
-- Продолжать доводить `proteus-tui` как внешний client: slash autocomplete,
-  fullscreen `/resume`, `/context` overlay, `/plan`/`/normal`/`/auto`
-  permission control, markdown renderer, paste UX, stopwatch и streaming
-  readability остаются client concerns.
-- Разбор Codex/Claude/OpenCode и план стабилизации TUI зафиксированы в
-  `docs/tui-ux-research.md`. Основной вывод: сначала нужен единый render model,
-  bottom-pane state machine, generic dialog/picker и paste-burst fallback, а не
-  очередные точечные правки отступов.
-- Позже добавить `tui.render` profile/config для точечной настройки визуальных
-  slots без изменения core: tool cards, markdown links/images/tables/code,
-  blockquotes, status/footer, transcript spacing и reasoning placement/colors.
-  Это должно остаться client-side конфигурацией, не новым core renderer slot.
+- Сделать Leptos web client основным внешним client: session list/resume,
+  transcript, composer, approval queue, typed user-input form, mode control,
+  token/context/debug views и streaming readability остаются client concerns.
+- Reference snapshots для web-переезда лежат в `examples/source/leptos` и
+  `examples/source/oxide-agent-web-transport`; tracked заметка находится в
+  `examples/research/web-client-references.md`.
+- TUI-код и TUI UX research перенесены в `deferred/tui`. Возвращаться к нему
+  только как к secondary/native client после стабилизации web dogfood loop.
+- Позже добавить client-side visual config для web/desktop/TUI без изменения
+  core: tool cards, markdown links/images/tables/code, blockquotes,
+  status/footer, transcript spacing и reasoning placement/colors. Это не новый
+  core renderer slot.
 - App-server protocol tests для submit, stream, tool call, approval
   request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
 - Durable task/session metadata и event-log based debugging для UI/evals.

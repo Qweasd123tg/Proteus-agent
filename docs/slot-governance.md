@@ -55,7 +55,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Нужно решить `allow` / `ask` / `deny`? | `ApprovalPolicy` / approval transport |
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
 | Нужно изменить provider request/streaming/usage? | `ModelAdapter` / model standard |
-| Нужно показать debug/UX? | app-server protocol, client/TUI или `Renderer` |
+| Нужно показать debug/UX? | app-server protocol, UI client или `Renderer` |
 | Нужно обработать tool result перед возвратом модели? | Пока research: кандидат на generic `ToolResultProcessor`, не feature-specific slot |
 | Нужно складывать большие файлы/артефакты? | Пока research: кандидат на generic `ArtifactStore`, не Cursor-specific slot |
 
@@ -67,7 +67,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 |---|---|---|---|
 | Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как plugin/research pack, не добавлять `dynamic_context` slot |
 | Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `plugins/default/tool-output-artifacts`, contract не стабилизирован |
-| Token/context usage breakdown `/context` | event/runtime accounting, app-server, TUI | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
+| Token/context usage breakdown | event/runtime accounting, app-server, UI client | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
 | Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
 | BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` plugin |
 | Codex-like fuzzy file path search | `SearchBackend` | streaming `SearchSession` только если нужен live progress | сначала обычный `SearchBackend` plugin |
@@ -79,9 +79,9 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Long-term memory consolidation jobs | `MemoryStore`, `MemoryPolicy`, `Workflow` | background jobs/mailbox contract может понадобиться | research, не расширять memory slot преждевременно |
 | Subagents / cheaper model delegation | `Workflow`, `ModelAdapter`, tools/app-server | multi-thread/session control contract позже | не v0 slot; сначала workflow experiment |
 | OAuth model provider | `ModelAdapter` | token store/auth helper можно держать provider-owned | provider plugin/adapter, не auth slot |
-| Fullscreen resume picker | app-server protocol + TUI | session listing/search DTO уже protocol-level | client feature, не core slot |
-| Slash command autocomplete | TUI/input routing | runtime request DTO только для команд, требующих runtime action | client feature, не core slot |
-| Markdown/table rendering in TUI | TUI renderer/client | none | client feature, не core slot |
+| Resume/session picker | app-server protocol + UI client | session listing/search DTO уже protocol-level | client feature, не core slot |
+| Command autocomplete | UI/input routing | runtime request DTO только для команд, требующих runtime action | client feature, не core slot |
+| Markdown/table rendering | UI renderer/client | none | client feature, не core slot |
 
 ## Feature Pack Вместо Slot
 

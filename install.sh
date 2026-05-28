@@ -4,12 +4,10 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/proteus"
-tui_bin_path="${bin_dir}/proteus-tui"
 plugins_dir="${HOME}/.proteus/plugins"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
-  -p proteus-tui \
   -p file-tools \
   -p git-tools \
   -p shell-tool \
@@ -29,12 +27,6 @@ cat > "${bin_path}" <<EOF
 exec "${project_dir}/target/release/proteus" "\$@"
 EOF
 chmod 755 "${bin_path}"
-
-cat > "${tui_bin_path}" <<EOF
-#!/usr/bin/env sh
-exec "${project_dir}/target/release/proteus-tui" "\$@"
-EOF
-chmod 755 "${tui_bin_path}"
 
 # Install plugins. File I/O, git helpers, and shell are required for a typical
 # coding workflow; other sample plugins are optional proofs.
@@ -59,7 +51,6 @@ for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-work
 done
 
 echo "Installed: ${bin_path}"
-echo "Installed: ${tui_bin_path}"
 echo "Plugins:   ${plugins_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":\${PATH}:" in

@@ -129,7 +129,8 @@ serde defaults.
 
 Tool `search` возвращает человеку читаемый output (`path:line: content` или
 `(no matches)`), но сохраняет raw `ContextChunk` массив в metadata `chunks`.
-Это оставляет structured данные для eval/debug и не засоряет TUI JSON-массивом.
+Это оставляет structured данные для eval/debug и не засоряет UI текстовым
+JSON-массивом.
 
 ## Memory
 

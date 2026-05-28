@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
-    "clients/tui",
     "plugins/default/file-tools",
     "plugins/default/git-tools",
     "plugins/default/sqlite-memory",

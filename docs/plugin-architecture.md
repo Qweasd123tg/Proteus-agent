@@ -368,7 +368,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   эту границу как рабочий single-loop plugin и как staged plan/execute/review
   workflow.
 - ✅ Workflow-плагины могут отдавать UI-neutral planning intake schema через
-  `AgentOutput.metadata.ui.plan_intake`. Это не TUI plugin: плагин решает,
+  `AgentOutput.metadata.ui.plan_intake`. Это не UI plugin: плагин решает,
   какие вопросы/options нужны, а клиент только рендерит generic selector и
   возвращает ответы следующим turn'ом.
 - ✅ `compactor` добавлен как plugin ABI и host capability для workflow.
@@ -397,7 +397,9 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 UI - не плагин ядра. UI - отдельный проект, который использует AppServer как API.
 
-Будущие UI (TUI, desktop GUI, web dashboard) пишутся как отдельные проекты вне этого workspace. Они не грузятся в Registry. Не попадают в папку плагинов. Они - **клиенты ядра**, не **модули ядра**.
+UI-клиенты (активный Leptos web client, будущий desktop GUI или deferred TUI)
+пишутся отдельно от plugin Registry. Они не грузятся в Registry. Не попадают в
+папку плагинов. Они - **клиенты ядра**, не **модули ядра**.
 
 ---
 

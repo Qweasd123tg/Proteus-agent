@@ -51,11 +51,12 @@ remember_fact
 
 ```bash
 cd /path/to/project
-proteus-tui
+proteus
 ```
 
-`proteus-tui` по умолчанию берёт текущую директорию терминала как workspace.
-История и event log будут лежать под основным config root:
+Активный Leptos web-клиент ещё в переезде; до него используйте core CLI,
+`proteus server stdio` или временный app-server harness. История и event log
+будут лежать под основным config root:
 
 ```text
 ~/.config/Proteus-agent/sessions/...
