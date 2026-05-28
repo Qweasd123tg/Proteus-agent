@@ -116,13 +116,14 @@ CLI не должен владеть бизнес-логикой runtime.
 
 Visual layer и полноценный CLI не входят в этот crate как runtime layer. Они
 подключаются отдельными процессами через app-server transport или другой
-transport поверх той же boundary. Референсные внешние клиенты живут в
+transport поверх той же boundary. Первичный bundled UI живёт в
 `clients/tui`:
 
 - бинарник `proteus-tui` — интерактивный TUI поверх app-server stdio.
 
-Клиент — пример интеграции, а не часть ядра. Протокол обмена живёт в
-`proteus-contracts::app_protocol`, так что клиенты не depend на `proteus-core`.
+`proteus-tui` — рабочий UI проекта, но не часть ядра. Протокол обмена живёт в
+`proteus-contracts::app_protocol`, так что другие клиенты не depend на
+`proteus-core` и могут подключаться к той же app-server boundary.
 Команды интерфейса (`/help`, `/clear`, `/cancel`, `/resume`, `/session`,
 `/context`, `/configs`, `/plan`, `/normal`, `/auto`, будущие `/sessions`,
 `/model`, `/doctor`) должны жить в app-client/input routing слое.

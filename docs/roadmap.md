@@ -22,7 +22,8 @@ module implementations без переписывания core или форка 
 1. Core-first: `crates/proteus-core/src/core` остаётся lifecycle/wiring слоем.
 2. Config-driven behavior: спорные режимы поведения должны выноситься в config,
    policy или workflow settings, а не хардкодиться в CLI.
-3. External UI: terminal/TUI/web/desktop клиенты живут поверх app-server
+3. External UI: `proteus-tui` является первичным bundled UI для работы с
+   агентом, а terminal/web/desktop/другие клиенты живут поверх app-server
    boundary. `crates/proteus-core/src/main.rs` остаётся dev shell и transport launcher.
 4. Token discipline: context/workflow должны уметь экономить контекст, а не
    просто читать всё подряд.
@@ -35,18 +36,20 @@ module implementations без переписывания core или форка 
 `docs/direction-checkpoint-20260507.md`.
 
 Короткая позиция на 2026-05-07 после ответов владельца: ближайший этап -
-`Quality-first harness`. `proteus-tui` нужен как dogfood/test client, но не должен
-съесть весь roadmap. Сначала нужно добиться качества coding-agent на уровне
-существующих агентов, затем оптимизировать token/context usage. Для сравнения
-делаем нейтральный baseline profile/pack на выбранном provider-е, чтобы
-проверить, не является ли наша архитектура узким местом, а затем собираем
-`best-of` packs из лучших идей Codex/Claude/OpenCode/forgecode. Codex остаётся
-главным reference для Rust TUI и ряда subsystem patterns.
+`Quality-first harness`. `proteus-tui` является первичным UI для работы с
+агентом и основным способом dogfood, но архитектура остаётся UI-agnostic:
+любой другой клиент должен подключаться через app-server boundary. Сначала
+нужно добиться качества coding-agent на уровне существующих агентов, затем
+оптимизировать token/context usage. Для сравнения делаем нейтральный baseline
+profile/pack на выбранном provider-е, чтобы проверить, не является ли наша
+архитектура узким местом, а затем собираем `best-of` packs из лучших идей
+Codex/Claude/OpenCode/forgecode. Codex остаётся главным reference для Rust TUI
+и ряда subsystem patterns.
 
 Операционный критерий для ближайшего этапа вынесен в
-`docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop,
-который показывает, где ломается стек, а не polished TUI или новый набор
-feature packs.
+`docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop через
+первичный UI, который показывает, где ломается стек, а не новый набор feature
+packs или большой UI rewrite.
 
 ## Этапы
 
@@ -143,7 +146,8 @@ Scope:
 
 ### v0.4: External Client Protocol
 
-Цель - сделать нормальную границу для будущих TUI/web/desktop клиентов.
+Цель - сделать нормальную границу для `proteus-tui` и будущих web/desktop/
+других клиентов.
 
 Scope:
 
