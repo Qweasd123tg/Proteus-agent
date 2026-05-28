@@ -25,7 +25,7 @@ crates/
   proteus-contracts/  — публичные trait'ы и DTO; плагины и клиенты depend сюда
   proteus-core/    — ядро: runtime, registry, loaders, app-server, CLI
 clients/
-  web/              — будущий основной Leptos web-клиент
+  web/              — standalone Leptos web-клиент
 examples/
   source/           — git-ignored snapshots внешних проектов для research
   research/         — tracked заметки и выводы по references
@@ -94,9 +94,10 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - `PROTEUS_PLUGINS_DISABLE=1` для тестов.
 
 **Клиенты:**
-- `clients/web` — заготовка нового основного клиента на Leptos. Он должен
-  подключаться к app-server boundary через transport adapter и depend только на
-  `proteus-contracts`, не на runtime internals.
+- `clients/web` — standalone Leptos/Trunk shell нового основного клиента:
+  transcript, composer, permission mode controls и локальный mock-transport.
+  Следующий слой — live HTTP/SSE transport поверх app-server boundary без
+  зависимости на runtime internals.
 
 ## Быстрый запуск
 
@@ -137,11 +138,16 @@ approvals, usage tokens, duration, changed files и failure reason. Это пе�
 ./install.sh
 proteus init coding
 proteus doctor
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
+cd clients/web
+trunk serve
 ```
 
-До появления Leptos-клиента основной интерактивный путь остаётся core CLI,
-`proteus server stdio` и ручные/eval прогоны. Новый клиент будет жить в
-`clients/web`; reference snapshots для переезда лежат вне этого каталога:
+Leptos-клиент уже живёт в `clients/web`, но live transport к AppServer ещё не
+подключён. До HTTP/SSE adapter основной интерактивный путь остаётся core CLI,
+`proteus server stdio` и ручные/eval прогоны. Reference snapshots для переезда
+лежат вне production-каталога:
 
 - `examples/source/leptos` — git-ignored clone `leptos-rs/leptos`;
 - `examples/source/oxide-agent-web-transport` — git-ignored clone

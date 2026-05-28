@@ -1,5 +1,8 @@
 [workspace]
 resolver = "2"
+exclude = [
+    "clients/web",
+]
 members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
