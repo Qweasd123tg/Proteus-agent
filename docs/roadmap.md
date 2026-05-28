@@ -24,7 +24,7 @@ module implementations без переписывания core или форка 
    policy или workflow settings, а не хардкодиться в CLI.
 3. External UI: активное направление — Leptos web client поверх app-server
    boundary. `crates/proteus-core/src/main.rs` остаётся dev shell и transport
-   launcher, а отложенный TUI не должен влиять на core decisions.
+   launcher.
 4. Token discipline: context/workflow должны уметь экономить контекст, а не
    просто читать всё подряд.
 5. Tests before platform claims: каждый новый slot/module behavior получает
@@ -32,16 +32,11 @@ module implementations без переписывания core или форка 
 
 ## Direction Checkpoint
 
-Историческая развилка 2026-05-07 перенесена в
-`deferred/tui/docs/direction-checkpoint-20260507.md`, потому что она описывает
-прежнее TUI-first направление.
-
-Обновление на 2026-05-28: TUI-направление заморожено, код перенесён в
-`deferred/tui`, а активный UI-путь переводится на Leptos web client. Решение от
-2026-05-07 остаётся историческим контекстом про `Quality-first harness`, но
-текущий dogfood больше не должен завязываться на terminal renderer. Сначала
-нужно добиться качества coding-agent на уровне существующих агентов, затем
-оптимизировать token/context usage. Для сравнения делаем нейтральный baseline
+Обновление на 2026-05-28: активный UI-путь переводится на Leptos web client.
+Текущий dogfood должен проверять app-server/client contract, а не локальные
+особенности конкретного renderer-а. Сначала нужно добиться качества
+coding-agent на уровне существующих агентов, затем оптимизировать
+token/context usage. Для сравнения делаем нейтральный baseline
 profile/pack на выбранном для dogfood provider-е; agent boundary должен
 оставаться переносимым между OpenAI/Anthropic/OpenAI-compatible API. Так мы
 проверяем, не является ли наша архитектура узким местом, а затем собираем
@@ -287,9 +282,7 @@ Scope:
 - Reference snapshots для web-переезда лежат в `examples/source/leptos` и
   `examples/source/oxide-agent-web-transport`; tracked заметка находится в
   `examples/research/web-client-references.md`.
-- TUI-код и TUI UX research перенесены в `deferred/tui`. Возвращаться к нему
-  только как к secondary/native client после стабилизации web dogfood loop.
-- Позже добавить client-side visual config для web/desktop/TUI без изменения
+- Позже добавить client-side visual config для web/desktop без изменения
   core: tool cards, markdown links/images/tables/code, blockquotes,
   status/footer, transcript spacing и reasoning placement/colors. Это не новый
   core renderer slot.

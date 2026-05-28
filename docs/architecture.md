@@ -117,9 +117,7 @@ CLI не должен владеть бизнес-логикой runtime.
 Visual layer и полноценный CLI не входят в этот crate как runtime layer. Они
 подключаются отдельными процессами через app-server transport или другой
 transport поверх той же boundary. Активное направление внешнего UI теперь
-живёт в `clients/web` как Leptos-клиент. Старый terminal client сохранён в
-`deferred/tui` как reference/native prototype и не является частью активного
-workspace build.
+живёт в `clients/web` как Leptos-клиент.
 
 Протокол обмена живёт в `proteus-contracts::app_protocol`, так что клиенты не
 depend на `proteus-core` и могут подключаться к той же app-server boundary.
@@ -316,7 +314,7 @@ task
   `request_user_input`; `0` также отключает его ожидание.
 - Table-driven `ToolRightsConfig` с `hide`/`deny`/`ask`/`allow`, priority и per-tool limits пока не implemented.
 - Session resume реализован через session store и `--resume-session`; session
-  picker/search остаётся client feature для web/desktop/TUI. Полный
+  picker/search остаётся client feature для web/desktop. Полный
   replay/index поверх durable event log и derived SQLite/index пока planned.
 - Базовый eval report реализован как чтение существующего event log
   (`proteus eval report <event-log-path>`). Eval runner/suite, который сам

@@ -20,8 +20,6 @@ crates/
     proteus-core/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
 clients/
     web/                 - будущий основной Leptos web-клиент
-deferred/
-    tui/                 - отложенный TUI-клиент (бывший clients/tui)
 plugins/
     default/             - стандартный набор плагинов и ABI-примеры
         file-tools/          - полноразмерный tool-плагин (read/write/list/grep)

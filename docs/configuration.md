@@ -51,9 +51,6 @@ proteus init full
 использовать тот же config root, app-server session store и protocol DTO, что и
 другие внешние клиенты, но его launcher/config surface ещё не стабилизирован.
 
-Старые TUI launcher profiles перенесены вместе с TUI-кодом в `deferred/tui` и
-не являются частью активной workspace-конфигурации.
-
 Пошаговый bootstrap для новой машины описан в
 [second-pc-bootstrap.md](second-pc-bootstrap.md).
 

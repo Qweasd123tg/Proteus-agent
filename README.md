@@ -13,8 +13,7 @@ Rust-first coding-agent harness с dylib плагинами.
 
 Ядро почти не обрастает фичами — они приезжают как плагины в папке
 `~/.proteus/plugins/`. Клиенты живут отдельными процессами и общаются с ядром
-через AppServer protocol. Активное направление UI — Leptos web client; прежний
-TUI вынесен в `deferred/tui` и не участвует в workspace build.
+через AppServer protocol. Активное направление UI — Leptos web client.
 
 Высокоуровневая архитектура: [docs/architecture.md](docs/architecture.md).
 Плагинная система: [docs/plugin-architecture.md](docs/plugin-architecture.md).
@@ -27,8 +26,6 @@ crates/
   proteus-core/    — ядро: runtime, registry, loaders, app-server, CLI
 clients/
   web/              — будущий основной Leptos web-клиент
-deferred/
-  tui/              — отложенный terminal-клиент: бывший clients/tui
 examples/
   source/           — git-ignored snapshots внешних проектов для research
   research/         — tracked заметки и выводы по references
@@ -100,9 +97,6 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - `clients/web` — заготовка нового основного клиента на Leptos. Он должен
   подключаться к app-server boundary через transport adapter и depend только на
   `proteus-contracts`, не на runtime internals.
-- `deferred/tui` — отложенный TUI-клиент. Код сохранён как reference/native
-  prototype, но больше не является активной точкой dogfood и не собирается
-  через workspace.
 
 ## Быстрый запуск
 
