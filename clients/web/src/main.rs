@@ -52,11 +52,27 @@ impl MessageRole {
         }
     }
 
-    fn class_name(&self) -> &'static str {
+    fn card_class(&self) -> &'static str {
         match self {
-            Self::User => "message is-user",
-            Self::Assistant => "message is-assistant",
-            Self::System => "message is-system",
+            Self::User => "task-card",
+            Self::Assistant => "task-card success",
+            Self::System => "task-card running",
+        }
+    }
+
+    fn message_class(&self) -> &'static str {
+        match self {
+            Self::User => "message user-message",
+            Self::Assistant => "message assistant-message",
+            Self::System => "message system-message",
+        }
+    }
+
+    fn badge_class(&self) -> &'static str {
+        match self {
+            Self::User => "status-badge idle",
+            Self::Assistant => "status-badge completed",
+            Self::System => "status-badge running",
         }
     }
 }
@@ -89,14 +105,6 @@ impl TransportStatus {
             Self::Connected => "connected".to_owned(),
             Self::Error(message) => format!("error: {message}"),
             Self::Shutdown => "shutdown".to_owned(),
-        }
-    }
-
-    fn class_name(&self) -> &'static str {
-        match self {
-            Self::Connecting => "status-dot is-pending",
-            Self::Connected => "status-dot is-connected",
-            Self::Error(_) | Self::Shutdown => "status-dot is-error",
         }
     }
 }
@@ -170,7 +178,7 @@ fn App() -> impl IntoView {
     let (messages, set_messages) = signal(seed_messages());
     let (draft, set_draft) = signal(String::new());
     let (mode, set_mode) = signal(PermissionMode::Normal);
-    let (next_message_id, set_next_message_id) = signal(3_u64);
+    let (next_message_id, set_next_message_id) = signal(1_u64);
     let (next_request_id, set_next_request_id) = signal(1_u64);
     let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
     let (event_count, set_event_count) = signal(0_u64);
@@ -252,26 +260,58 @@ fn App() -> impl IntoView {
     let activity = move || {
         vec![
             ActivityItem {
-                label: "Endpoint",
+                label: "endpoint",
                 value: APP_SERVER_ORIGIN.to_owned(),
             },
             ActivityItem {
-                label: "Mode",
-                value: format!("{} - {}", mode.get().label(), mode.get().description()),
+                label: "mode",
+                value: mode.get().label().to_owned(),
             },
             ActivityItem {
-                label: "Events",
-                value: format!("{} received", event_count.get()),
+                label: "events",
+                value: event_count.get().to_string(),
             },
             ActivityItem {
-                label: "Request",
+                label: "request",
                 value: if is_sending.get() {
-                    "active".to_owned()
+                    "running".to_owned()
                 } else {
                     "idle".to_owned()
                 },
             },
         ]
+    };
+
+    let latest_preview = move || {
+        messages
+            .get()
+            .last()
+            .map(|message| message.text.clone())
+            .unwrap_or_else(|| "No task yet".to_owned())
+    };
+    let draft_stats = move || {
+        let text = draft.get();
+        let lines = text.lines().count().max(1);
+        format!("{} chars · {} lines", text.len(), lines)
+    };
+    let request_state = move || {
+        if is_sending.get() { "running" } else { "idle" }
+    };
+    let session_dot_class = move || match transport_status.get() {
+        TransportStatus::Connecting => "session-status-dot warning",
+        TransportStatus::Connected => {
+            if is_sending.get() {
+                "session-status-dot running"
+            } else {
+                "session-status-dot success"
+            }
+        }
+        TransportStatus::Error(_) | TransportStatus::Shutdown => "session-status-dot error",
+    };
+    let transport_badge_class = move || match transport_status.get() {
+        TransportStatus::Connecting => "status-badge disconnected",
+        TransportStatus::Connected => "status-badge completed",
+        TransportStatus::Error(_) | TransportStatus::Shutdown => "status-badge failed",
     };
 
     let submit = move |ev: SubmitEvent| {
@@ -335,89 +375,139 @@ fn App() -> impl IntoView {
     };
 
     view! {
-        <div class="app-shell">
+        <div class="app-layout">
             <aside class="sidebar">
-                <div class="brand">
-                    <div class="brand-mark">"P"</div>
-                    <div>
-                        <div class="brand-name">"Proteus"</div>
-                        <div class="brand-subtitle">"Leptos client"</div>
-                    </div>
+                <div class="sidebar-header">
+                    <h2>
+                        "Proteus"
+                        <span>"web"</span>
+                    </h2>
+                    <button type="button" title="New session" on:click=clear_transcript>
+                        "+"
+                    </button>
                 </div>
-                <section class="sidebar-section">
-                    <h2>"Session"</h2>
-                    <div class="session-row">
-                        <span>"Workspace"</span>
-                        <strong>{workspace_label}</strong>
-                    </div>
-                    <div class="session-row">
-                        <span>"Session"</span>
-                        <strong>{session_label}</strong>
-                    </div>
-                    <div class="session-row">
-                        <span>"Status"</span>
-                        <strong class="status-value">
-                            <span class=move || transport_status.get().class_name()></span>
-                            {move || transport_status.get().label()}
-                        </strong>
-                    </div>
-                </section>
-                <section class="sidebar-section">
-                    <h2>"Mode"</h2>
+
+                <div class="sidebar-search">
+                    <input type="text" placeholder="Search sessions" readonly=true />
+                </div>
+
+                <div class="sessions-list">
+                    <ul class="session-list">
+                        <li class="session-list-item">
+                            <div class="session-item active">
+                                <div class="session-item-header">
+                                    <span class="session-id">{move || short_path(&workspace_label.get())}</span>
+                                    <span class=session_dot_class></span>
+                                </div>
+                                <div class="session-preview">{latest_preview}</div>
+                                <div class="session-meta">
+                                    <span class="session-time">{move || session_label.get()}</span>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+
+                <section class="sidebar-panel">
+                    <div class="panel-kicker">"Mode"</div>
                     <div class="mode-list">
                         <ModeButton value=PermissionMode::Plan mode on_select=select_mode />
                         <ModeButton value=PermissionMode::Normal mode on_select=select_mode />
                         <ModeButton value=PermissionMode::Auto mode on_select=select_mode />
                     </div>
                 </section>
+
+                <section class="sidebar-panel">
+                    <div class="panel-kicker">"Runtime"</div>
+                    <For
+                        each=activity
+                        key=|item| item.label
+                        children=move |item| {
+                            view! {
+                                <div class="activity-row">
+                                    <span>{item.label}</span>
+                                    <strong>{item.value}</strong>
+                                </div>
+                            }
+                        }
+                    />
+                </section>
             </aside>
 
-            <main class="workspace">
+            <main class="workspace-main">
                 <header class="topbar">
-                    <div>
-                        <h1>"Agent transcript"</h1>
-                        <p>"Live AppServer transcript over HTTP/SSE."</p>
+                    <div class="topbar-left">
+                        <a class="brand" href="#">"Proteus Agent"</a>
+                        <span class=transport_badge_class>
+                            <span class="dot"></span>
+                            {move || transport_status.get().label()}
+                        </span>
                     </div>
-                    <div class="topbar-actions">
-                        <button type="button" class="secondary-button" on:click=clear_transcript>"Clear"</button>
-                    </div>
+                    <nav class="topnav">
+                        <span>{move || format!("{} events", event_count.get())}</span>
+                        <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                    </nav>
                 </header>
 
-                <section class="content-grid">
-                    <section class="transcript" aria-label="Transcript">
-                        <For
-                            each=move || messages.get()
-                            key=|message| message.id
-                            children=move |message| view! { <MessageView message /> }
-                        />
-                    </section>
-                    <aside class="inspector" aria-label="Activity">
-                        <h2>"Activity"</h2>
-                        <For
-                            each=activity
-                            key=|item| item.label
-                            children=move |item| {
-                                view! {
-                                    <div class="activity-row">
-                                        <span>{item.label}</span>
-                                        <strong>{item.value}</strong>
-                                    </div>
-                                }
-                            }
-                        />
-                    </aside>
+                <section class="session-header">
+                    <div>
+                        <h1>{move || short_path(&workspace_label.get())}</h1>
+                        <p>{move || session_label.get()}</p>
+                    </div>
+                    <div class="session-summary-meta">
+                        <span>
+                            <span class="label">"request"</span>
+                            <span class="value">{request_state}</span>
+                        </span>
+                        <span>
+                            <span class="label">"mode"</span>
+                            <span class="value">{move || mode.get().label()}</span>
+                        </span>
+                    </div>
                 </section>
 
-                <form class="composer" on:submit=submit>
-                    <textarea
-                        prop:value=move || draft.get()
-                        placeholder="Ask Proteus to inspect, edit, or explain code"
-                        on:input:target=move |ev| set_draft.set(ev.target().value())
-                    />
-                    <button type="submit" disabled=move || is_sending.get()>
-                        {move || if is_sending.get() { "Sending" } else { "Send" }}
-                    </button>
-                </form>
+                <section class="session-workspace">
+                    <section class="results-panel" aria-label="Transcript">
+                        {move || {
+                            if messages.get().is_empty() {
+                                view! {
+                                    <div class="empty-state">
+                                        <div class="empty-state-title">"No active task"</div>
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                view! {
+                                    <For
+                                        each=move || messages.get()
+                                        key=|message| message.id
+                                        children=move |message| view! { <MessageView message /> }
+                                    />
+                                }
+                                .into_any()
+                            }
+                        }}
+                    </section>
+
+                    <form class="composer" on:submit=submit>
+                        <div class="composer-label">"Agent Prompt"</div>
+                        <textarea
+                            prop:value=move || draft.get()
+                            placeholder="Ask Proteus to inspect, edit, or explain code"
+                            disabled=move || is_sending.get()
+                            on:input:target=move |ev| set_draft.set(ev.target().value())
+                        />
+                        <div class="composer-actions">
+                            <div class="composer-stats">{draft_stats}</div>
+                            <div class="composer-buttons">
+                                <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                                <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
+                                    {move || if is_sending.get() { "Running" } else { "Run Agent" }}
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </section>
             </main>
         </div>
     }
@@ -448,11 +538,20 @@ where
 
 #[component]
 fn MessageView(message: Message) -> impl IntoView {
-    let class_name = message.role.class_name();
+    let card_class = message.role.card_class();
+    let message_class = message.role.message_class();
+    let badge_class = message.role.badge_class();
     view! {
-        <article class=class_name>
-            <div class="message-meta">{message.role.label()}</div>
-            <p>{message.text}</p>
+        <article class=card_class>
+            <div class="task-card-header">
+                <span class=badge_class>
+                    <span class="dot"></span>
+                    {message.role.label()}
+                </span>
+            </div>
+            <div class=message_class>
+                <p>{message.text}</p>
+            </div>
         </article>
     }
 }
@@ -805,16 +904,5 @@ fn js_error(value: JsValue) -> String {
 }
 
 fn seed_messages() -> Vec<Message> {
-    vec![
-        Message {
-            id: 1,
-            role: MessageRole::System,
-            text: format!("Connecting to {APP_SERVER_ORIGIN}/events"),
-        },
-        Message {
-            id: 2,
-            role: MessageRole::System,
-            text: "Start the backend with: proteus server http --port 8787".to_owned(),
-        },
-    ]
+    Vec::new()
 }
