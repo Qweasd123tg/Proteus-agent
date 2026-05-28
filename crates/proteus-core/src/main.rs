@@ -10,7 +10,10 @@ use std::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use proteus_core::app_server::stdio::run_stdio_app_server;
+use proteus_core::app_server::{
+    http::{HttpServerConfig, run_http_app_server},
+    stdio::run_stdio_app_server,
+};
 use proteus_core::domain::{
     AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
 };
@@ -115,6 +118,10 @@ async fn main() -> Result<()> {
     if is_app_server_stdio_command(&cli.task) {
         return run_stdio_app_server(config, cwd, config_path, cli.resume_session).await;
     }
+    if let Some(http_config) = parse_app_server_http_command(&cli.task)? {
+        return run_http_app_server(config, cwd, config_path, cli.resume_session, http_config)
+            .await;
+    }
     if cli.interactive || cli.task.is_empty() {
         let runtime = build_cli_runtime(
             config.clone(),
@@ -176,6 +183,43 @@ fn is_tools_list_command(task: &[String]) -> bool {
 
 fn is_app_server_stdio_command(task: &[String]) -> bool {
     matches!(task, [server, transport] if server == "server" && transport == "stdio")
+}
+
+fn parse_app_server_http_command(task: &[String]) -> Result<Option<HttpServerConfig>> {
+    let [server, transport, rest @ ..] = task else {
+        return Ok(None);
+    };
+    if server != "server" || transport != "http" {
+        return Ok(None);
+    }
+
+    let mut config = HttpServerConfig::default();
+    let mut host = config.bind.ip();
+    let mut port = config.bind.port();
+    let mut args = rest.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--host" => {
+                let value = args.next().ok_or_else(|| {
+                    anyhow::anyhow!("usage: proteus server http [--host <ip>] [--port <port>]")
+                })?;
+                host = value
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("invalid --host value: {value}"))?;
+            }
+            "--port" => {
+                let value = args.next().ok_or_else(|| {
+                    anyhow::anyhow!("usage: proteus server http [--host <ip>] [--port <port>]")
+                })?;
+                port = value
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("invalid --port value: {value}"))?;
+            }
+            _ => bail!("usage: proteus server http [--host <ip>] [--port <port>]"),
+        }
+    }
+    config.bind = std::net::SocketAddr::new(host, port);
+    Ok(Some(config))
 }
 
 fn is_doctor_command(task: &[String]) -> bool {
@@ -1510,6 +1554,41 @@ mod tests {
             "stdio".to_owned(),
             "extra".to_owned()
         ]));
+    }
+
+    #[test]
+    fn app_server_http_command_parses_defaults_and_bind_options() {
+        let default_config =
+            parse_app_server_http_command(&["server".to_owned(), "http".to_owned()])
+                .expect("parse")
+                .expect("http command");
+        assert_eq!(default_config.bind.to_string(), "127.0.0.1:8787");
+
+        let custom_config = parse_app_server_http_command(&[
+            "server".to_owned(),
+            "http".to_owned(),
+            "--host".to_owned(),
+            "0.0.0.0".to_owned(),
+            "--port".to_owned(),
+            "9000".to_owned(),
+        ])
+        .expect("parse")
+        .expect("http command");
+        assert_eq!(custom_config.bind.to_string(), "0.0.0.0:9000");
+
+        assert!(
+            parse_app_server_http_command(&["server".to_owned(), "web".to_owned()])
+                .expect("parse")
+                .is_none()
+        );
+        assert!(
+            parse_app_server_http_command(&[
+                "server".to_owned(),
+                "http".to_owned(),
+                "--bad".to_owned()
+            ])
+            .is_err()
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ use crate::{
     domain::{AgentOutput, PermissionMode, new_thread_id},
 };
 
+pub mod http;
 pub mod protocol;
 pub mod stdio;
 

@@ -8,8 +8,9 @@ reference snapshots и эксперименты живут в `examples/source/`
 production-клиентом.
 
 Текущий статус: standalone Leptos/Trunk shell с transcript, composer,
-permission mode controls и локальным mock-transport состоянием. Live transport
-к AppServer ещё не подключён.
+permission mode controls и локальным mock-transport состоянием. Backend
+HTTP/SSE transport уже запускается через `proteus server http`, но shell ещё не
+подключает `/events` и `/send`.
 
 ## Запуск
 
@@ -18,11 +19,18 @@ permission mode controls и локальным mock-transport состояние
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
+cargo run --bin proteus -- server http --port 8787
+```
+
+В другом терминале:
+
+```bash
 cd clients/web
 trunk serve
 ```
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.
+AppServer HTTP по примеру выше слушает `http://127.0.0.1:8787`.
 
 ## Граница
 
