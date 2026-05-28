@@ -14,13 +14,13 @@ OpenCode оставляем как UX-ориентиры для `/context`, perm
 ranking, themes и dialog details, но они не должны размывать базовую TUI
 архитектуру.
 
-Стратегическая оговорка: этот документ не означает, что TUI должен стать
-главным продуктом прямо сейчас. Если проект выбирает `Kernel/Harness First`,
-то TUI надо довести до честного usable reference client и остановить глубокую
-полировку до появления evals/golden coding profile. Если проект выбирает
-`Codex-Like TUI Product`, тогда текущий hybrid renderer стоит заменить на
-retained viewport/bottom-pane архитектуру, а не продолжать бесконечно чинить
-симптомы.
+Стратегическая оговорка: `proteus-tui` является первичным bundled UI для работы
+с агентом, но он не должен становиться runtime layer. Если проект выбирает
+`Kernel/Harness First`, то TUI надо довести до честного usable состояния и
+остановить глубокую полировку до появления evals/golden coding profile. Если
+проект выбирает отдельный TUI-focused этап, тогда текущий hybrid renderer стоит
+заменить на retained viewport/bottom-pane архитектуру, а не продолжать
+бесконечно чинить симптомы.
 
 Проблема не в отдельных цветах или отступах. У зрелых TUI есть отдельные
 state machines для terminal frame, composer, streaming, paste, dialogs,
