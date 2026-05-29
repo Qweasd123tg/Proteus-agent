@@ -21,7 +21,7 @@ permission mode controls, approval queue, typed user-input form, cancel action
 plane поверх `/mode` и `/send`, enforcement остаётся в core `ModeAwarePolicy`.
 `Ask Plan` отправляет topic как planning interview: агент должен сам задавать
 typed questions через `request_user_input`/`AskUserQuestion`, а UI показывает
-choices и свободный `Other`.
+пошаговую карточку в transcript с choices и свободным `Other`.
 
 ## Запуск
 

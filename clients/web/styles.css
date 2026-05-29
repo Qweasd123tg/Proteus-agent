@@ -719,6 +719,38 @@ textarea {
     padding-top: var(--space-3);
 }
 
+.input-chat-card {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.input-chat-header {
+    justify-content: space-between;
+}
+
+.input-chat-header strong {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.input-step {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.input-chat-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
 .input-question-header {
     display: grid;
     gap: 2px;

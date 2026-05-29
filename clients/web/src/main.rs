@@ -862,8 +862,7 @@ fn App() -> impl IntoView {
                         view! {
                             {move || {
                                 let approvals = pending_approvals.get();
-                                let user_inputs = pending_user_inputs.get();
-                                if approvals.is_empty() && user_inputs.is_empty() {
+                                if approvals.is_empty() {
                                     view! { <></> }.into_any()
                                 } else {
                                     view! {
@@ -875,13 +874,6 @@ fn App() -> impl IntoView {
                                                     view! { <ApprovalCard request on_resolve=resolve_approval /> }
                                                 }
                                             />
-                                            <For
-                                                each=move || pending_user_inputs.get()
-                                                key=|request| request.request_id.clone()
-                                                children=move |request| {
-                                                    view! { <UserInputCard request on_submit=submit_user_input /> }
-                                                }
-                                            />
                                         </section>
                                     }.into_any()
                                 }
@@ -890,7 +882,8 @@ fn App() -> impl IntoView {
                             <section class="results-panel" aria-label="Transcript">
                                 {move || {
                                     let items = messages.get();
-                                    if items.is_empty() {
+                                    let user_inputs = pending_user_inputs.get();
+                                    if items.is_empty() && user_inputs.is_empty() {
                                         view! {
                                             <div class="empty-state">
                                                 <div class="empty-state-title">"No active task"</div>
@@ -903,6 +896,13 @@ fn App() -> impl IntoView {
                                                 each=move || items.clone()
                                                 key=|message| message.id
                                                 children=move |message| view! { <MessageView message /> }
+                                            />
+                                            <For
+                                                each=move || user_inputs.clone()
+                                                key=|request| request.request_id.clone()
+                                                children=move |request| {
+                                                    view! { <UserInputCard request on_submit=submit_user_input /> }
+                                                }
                                             />
                                         }
                                         .into_any()
@@ -1241,13 +1241,16 @@ where
 {
     let (answers, set_answers) = signal(HashMap::<String, Vec<String>>::new());
     let (custom_answers, set_custom_answers) = signal(HashMap::<String, String>::new());
+    let (current_question, set_current_question) = signal(0usize);
     let request_id = request.request_id.clone();
     let title = request
         .title
         .clone()
         .unwrap_or_else(|| "User input requested".to_owned());
+    let questions = request.questions.clone();
+    let question_count = questions.len();
 
-    let submit = move |_| {
+    let submit_answers = move || {
         let mut merged = answers.get();
         for (question_id, value) in custom_answers.get() {
             let value = value.trim().to_owned();
@@ -1257,109 +1260,144 @@ where
         }
         on_submit(request_id.clone(), merged);
     };
+    let confirm = move |_| {
+        if question_count == 0 || current_question.get() + 1 >= question_count {
+            submit_answers();
+        } else {
+            set_current_question.update(|index| *index += 1);
+        }
+    };
 
     view! {
-        <article class="control-card input-card">
-            <div class="control-card-header">
+        <article class="task-card running input-chat-card">
+            <div class="task-card-header input-chat-header">
                 <span class="status-badge disconnected">
                     <span class="dot"></span>
                     "Input"
                 </span>
                 <strong>{title}</strong>
-                <code>{short_path(&request.cwd)}</code>
+                <span class="input-step">
+                    {move || {
+                        if question_count == 0 {
+                            "0 / 0".to_owned()
+                        } else {
+                            format!("{} / {}", current_question.get() + 1, question_count)
+                        }
+                    }}
+                </span>
             </div>
-            <For
-                each=move || request.questions.clone()
-                key=|question| question.id.clone()
-                children=move |question| {
-                    let question_id = question.id.clone();
-                    let custom_value_question_id = question.id.clone();
-                    let custom_write_question_id = question.id.clone();
-                    let header = question.header.clone();
-                    let question_text = question.question.clone();
-                    let options = question.options.clone();
-                    let multi_select = question.multi_select;
-                    let show_custom = question.is_other || question.options.is_empty();
-                    let input_type = if question.is_secret { "password" } else { "text" };
-
-                    view! {
+            {move || {
+                let Some(question) = questions.get(current_question.get()).cloned() else {
+                    return view! {
                         <section class="input-question">
                             <div class="input-question-header">
-                                <span>{header}</span>
-                                <strong>{question_text}</strong>
+                                <span>"Input"</span>
+                                <strong>"No questions supplied"</strong>
                             </div>
-                            <div class="choice-grid">
-                                <For
-                                    each=move || options.clone()
-                                    key=|option| option.label.clone()
-                                    children=move |option| {
-                                        let selected_question_id = question_id.clone();
-                                        let selected_label = option.label.clone();
-                                        let click_question_id = question_id.clone();
-                                        let click_label = option.label.clone();
-                                        view! {
-                                            <button
-                                                type="button"
-                                                class="choice-button"
-                                                class:active=move || {
-                                                    answers
-                                                        .get()
-                                                        .get(&selected_question_id)
-                                                        .is_some_and(|values| values.contains(&selected_label))
-                                                }
-                                                on:click=move |_| {
-                                                    let question_id = click_question_id.clone();
-                                                    let label = click_label.clone();
-                                                    set_answers.update(|all| {
-                                                        if multi_select {
-                                                            let values = all.entry(question_id).or_default();
-                                                            if let Some(index) = values.iter().position(|value| value == &label) {
-                                                                values.remove(index);
-                                                            } else {
-                                                                values.push(label);
-                                                            }
+                        </section>
+                    }.into_any();
+                };
+                let question_id = question.id.clone();
+                let custom_value_question_id = question.id.clone();
+                let custom_write_question_id = question.id.clone();
+                let header = question.header.clone();
+                let question_text = question.question.clone();
+                let options = question.options.clone();
+                let multi_select = question.multi_select;
+                let show_custom = question.is_other || question.options.is_empty();
+                let input_type = if question.is_secret { "password" } else { "text" };
+
+                view! {
+                    <section class="input-question">
+                        <div class="input-question-header">
+                            <span>{header}</span>
+                            <strong>{question_text}</strong>
+                        </div>
+                        <div class="choice-grid">
+                            <For
+                                each=move || options.clone()
+                                key=|option| option.label.clone()
+                                children=move |option| {
+                                    let selected_question_id = question_id.clone();
+                                    let selected_label = option.label.clone();
+                                    let click_question_id = question_id.clone();
+                                    let click_label = option.label.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="choice-button"
+                                            class:active=move || {
+                                                answers
+                                                    .get()
+                                                    .get(&selected_question_id)
+                                                    .is_some_and(|values| values.contains(&selected_label))
+                                            }
+                                            on:click=move |_| {
+                                                let question_id = click_question_id.clone();
+                                                let label = click_label.clone();
+                                                set_answers.update(|all| {
+                                                    if multi_select {
+                                                        let values = all.entry(question_id).or_default();
+                                                        if let Some(index) = values.iter().position(|value| value == &label) {
+                                                            values.remove(index);
                                                         } else {
-                                                            all.insert(question_id, vec![label]);
+                                                            values.push(label);
                                                         }
-                                                    });
-                                                }
-                                            >
-                                                <span>{option.label}</span>
-                                                <small>{option.description}</small>
-                                            </button>
-                                        }
+                                                    } else {
+                                                        all.insert(question_id, vec![label]);
+                                                    }
+                                                });
+                                            }
+                                        >
+                                            <span>{option.label}</span>
+                                            <small>{option.description}</small>
+                                        </button>
+                                    }
+                                }
+                            />
+                        </div>
+                        {if show_custom {
+                            view! {
+                                <input
+                                    type=input_type
+                                    placeholder="Custom answer"
+                                    prop:value=move || {
+                                        custom_answers
+                                            .get()
+                                            .get(&custom_value_question_id)
+                                            .cloned()
+                                            .unwrap_or_default()
+                                    }
+                                    on:input:target=move |ev| {
+                                        set_custom_answers.update(|answers| {
+                                            answers.insert(custom_write_question_id.clone(), ev.target().value());
+                                        });
                                     }
                                 />
-                            </div>
-                            {if show_custom {
-                                view! {
-                                    <input
-                                        type=input_type
-                                        placeholder="Custom answer"
-                                        prop:value=move || {
-                                            custom_answers
-                                                .get()
-                                                .get(&custom_value_question_id)
-                                                .cloned()
-                                                .unwrap_or_default()
-                                        }
-                                        on:input:target=move |ev| {
-                                            set_custom_answers.update(|answers| {
-                                                answers.insert(custom_write_question_id.clone(), ev.target().value());
-                                            });
-                                        }
-                                    />
-                                }.into_any()
-                            } else {
-                                view! { <></> }.into_any()
-                            }}
-                        </section>
-                    }
-                }
-            />
-            <div class="control-actions">
-                <button type="button" class="btn-primary" on:click=submit>
-                    "Submit Answer"
+                            }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
+                    </section>
+                }.into_any()
+            }}
+            <div class="input-chat-actions">
+                <button
+                    type="button"
+                    class="secondary"
+                    disabled=move || current_question.get() == 0
+                    on:click=move |_| set_current_question.update(|index| *index = index.saturating_sub(1))
+                >
+                    "Back"
+                </button>
+                <button type="button" class="btn-primary" on:click=confirm>
+                    {move || {
+                        if question_count == 0 || current_question.get() + 1 >= question_count {
+                            "Submit Answer"
+                        } else {
+                            "Confirm"
+                        }
+                    }}
                 </button>
             </div>
         </article>
@@ -1594,28 +1632,11 @@ fn handle_app_event(
         }
         AppServerEvent::UserInputRequested { request } => {
             set_pending_user_inputs.update(|items| items.push(request.clone()));
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::System,
-                format!(
-                    "User input requested: {}",
-                    request.title.as_deref().unwrap_or("additional information")
-                ),
-            );
         }
         AppServerEvent::UserInputResolved { request_id } => {
             set_pending_user_inputs.update(|items| {
                 items.retain(|item| item.request_id != request_id);
             });
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::System,
-                format!("User input resolved: {request_id}"),
-            );
         }
         AppServerEvent::Error { message } => {
             set_is_sending.set(false);
