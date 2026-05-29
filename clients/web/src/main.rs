@@ -4,14 +4,20 @@ use leptos::{html, mount::mount_to_body, prelude::*, task::spawn_local};
 use pulldown_cmark::{Event as MarkdownEvent, Options as MarkdownOptions, Parser, html as markdown};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Event, EventSource, Headers, KeyboardEvent, MessageEvent, Request, RequestInit, RequestMode,
-    Response, SubmitEvent, window,
+    Event, EventSource, Headers, KeyboardEvent, MessageEvent, MouseEvent, Request, RequestInit,
+    RequestMode, Response, SubmitEvent, window,
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+
+#[wasm_bindgen]
+unsafe extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = proteusTypesetMath)]
+    fn proteus_typeset_math();
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -464,6 +470,14 @@ fn App() -> impl IntoView {
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
     let results_ref = NodeRef::<html::Section>::new();
+    let (sidebar_width, set_sidebar_width) = signal(260_i32);
+    let (composer_height, set_composer_height) = signal(150_i32);
+    let (dragging_sidebar, set_dragging_sidebar) = signal(false);
+    let (dragging_composer, set_dragging_composer) = signal(false);
+    let (resize_start_x, set_resize_start_x) = signal(0_i32);
+    let (resize_start_y, set_resize_start_y) = signal(0_i32);
+    let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
+    let (resize_start_composer, set_resize_start_composer) = signal(150_i32);
 
     Effect::new(move |_| {
         let _ = (
@@ -474,6 +488,7 @@ fn App() -> impl IntoView {
         if let Some(results) = results_ref.get() {
             results.set_scroll_top(results.scroll_height());
         }
+        proteus_typeset_math();
     });
 
     if route != "/resume" {
@@ -736,7 +751,7 @@ fn App() -> impl IntoView {
     let revise_plan = move |_| {
         let text = draft.get();
         if text.trim().is_empty() {
-            set_draft.set("Revise the latest plan:\n".to_owned());
+            set_draft.set("Уточни последний план:\n".to_owned());
             return;
         }
         if is_sending.get() {
@@ -778,10 +793,49 @@ fn App() -> impl IntoView {
             submit_prompt();
         }
     };
+    let begin_sidebar_resize = move |ev: MouseEvent| {
+        ev.prevent_default();
+        set_dragging_sidebar.set(true);
+        set_resize_start_x.set(ev.client_x());
+        set_resize_start_sidebar.set(sidebar_width.get());
+    };
+    let begin_composer_resize = move |ev: MouseEvent| {
+        ev.prevent_default();
+        set_dragging_composer.set(true);
+        set_resize_start_y.set(ev.client_y());
+        set_resize_start_composer.set(composer_height.get());
+    };
+    let resize_drag = move |ev: MouseEvent| {
+        if dragging_sidebar.get() {
+            let delta = ev.client_x() - resize_start_x.get();
+            set_sidebar_width.set((resize_start_sidebar.get() + delta).clamp(210, 520));
+        }
+        if dragging_composer.get() {
+            let delta = ev.client_y() - resize_start_y.get();
+            set_composer_height.set((resize_start_composer.get() - delta).clamp(96, 420));
+        }
+    };
+    let stop_resize = move |_| {
+        set_dragging_sidebar.set(false);
+        set_dragging_composer.set(false);
+    };
+    let is_resizing = move || dragging_sidebar.get() || dragging_composer.get();
+    let latest_message_is_assistant = move || {
+        messages
+            .get()
+            .last()
+            .is_some_and(|message| message.role == MessageRole::Assistant)
+    };
 
     view! {
-        <div class="app-layout">
-            <aside class="sidebar">
+        <div
+            class="app-layout"
+            class:resizing=is_resizing
+            on:mousemove=resize_drag
+            on:mouseup=stop_resize
+            on:mouseleave=stop_resize
+        >
+            <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
                 <div class="sidebar-header">
                     <h2>
                         "Proteus"
@@ -791,7 +845,11 @@ fn App() -> impl IntoView {
                         "+"
                     </button>
                 </div>
-                <div class="sidebar-resize-hint" aria-hidden="true"></div>
+                <div
+                    class="sidebar-resize-handle"
+                    aria-hidden="true"
+                    on:mousedown=begin_sidebar_resize
+                ></div>
 
                 <div class="sidebar-search">
                     <input type="text" placeholder="Поиск сессий" readonly=true />
@@ -911,6 +969,10 @@ fn App() -> impl IntoView {
                                     let items = messages.get();
                                     let user_inputs = pending_user_inputs.get();
                                     let working = is_sending.get() && user_inputs.is_empty();
+                                    let show_plan_actions = mode.get() == PermissionMode::Plan
+                                        && !is_sending.get()
+                                        && user_inputs.is_empty()
+                                        && latest_message_is_assistant();
                                     if items.is_empty() && user_inputs.is_empty() && !working {
                                         view! {
                                             <div class="empty-state">
@@ -932,6 +994,17 @@ fn App() -> impl IntoView {
                                                     view! { <UserInputCard request on_submit=submit_user_input /> }
                                                 }
                                             />
+                                            {if show_plan_actions {
+                                                view! {
+                                                    <PlanActionsCard
+                                                        on_revise=revise_plan
+                                                        on_execute=execute_plan
+                                                        on_exit=exit_plan
+                                                    />
+                                                }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
                                             {if working {
                                                 view! { <WorkingCard /> }.into_any()
                                             } else {
@@ -943,7 +1016,16 @@ fn App() -> impl IntoView {
                                 }}
                             </section>
 
-                            <form class="composer" on:submit=submit>
+                            <form
+                                class="composer"
+                                style=move || format!("--input-min-height: {}px", composer_height.get())
+                                on:submit=submit
+                            >
+                                <div
+                                    class="composer-resize-handle"
+                                    aria-hidden="true"
+                                    on:mousedown=begin_composer_resize
+                                ></div>
                                 <div class="composer-label">
                                     {move || if mode.get() == PermissionMode::Plan { "Запрос для плана" } else { "Запрос агенту" }}
                                 </div>
@@ -956,7 +1038,6 @@ fn App() -> impl IntoView {
                                             "Попроси Proteus посмотреть, изменить или объяснить код"
                                         }
                                     }
-                                    disabled=move || is_sending.get()
                                     on:input:target=move |ev| set_draft.set(ev.target().value())
                                     on:keydown=submit_shortcut
                                 />
@@ -969,37 +1050,7 @@ fn App() -> impl IntoView {
                                         <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                                         {move || {
                                             if mode.get() == PermissionMode::Plan {
-                                                view! {
-                                                    <>
-                                                        <button
-                                                            type="button"
-                                                            class="secondary"
-                                                            disabled=move || is_sending.get()
-                                                            on:click=revise_plan
-                                                            title="Уточнить последний план текстом из поля ввода"
-                                                        >
-                                                            "Уточнить"
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            class="secondary"
-                                                            disabled=move || is_sending.get()
-                                                            on:click=execute_plan
-                                                            title="Переключиться в обычный режим и выполнить последний план"
-                                                        >
-                                                            "Выполнить"
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            class="secondary"
-                                                            disabled=move || is_sending.get()
-                                                            on:click=exit_plan
-                                                            title="Вернуться в обычный режим"
-                                                        >
-                                                            "Выйти"
-                                                        </button>
-                                                    </>
-                                                }.into_any()
+                                                view! { <></> }.into_any()
                                             } else {
                                                 view! {
                                                     <button
@@ -1480,6 +1531,51 @@ where
 }
 
 #[component]
+fn PlanActionsCard<R, E, X>(on_revise: R, on_execute: E, on_exit: X) -> impl IntoView
+where
+    R: Fn(MouseEvent) + Copy + 'static,
+    E: Fn(MouseEvent) + Copy + 'static,
+    X: Fn(MouseEvent) + Copy + 'static,
+{
+    view! {
+        <article class="task-card running plan-actions-card">
+            <div class="task-card-header">
+                <span class="status-badge running">
+                    <span class="dot"></span>
+                    "План готов"
+                </span>
+            </div>
+            <div class="message system-message plan-actions-message">
+                <button
+                    type="button"
+                    class="secondary"
+                    on:click=on_revise
+                    title="Уточнить последний план текстом из поля ввода"
+                >
+                    "Уточнить"
+                </button>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    on:click=on_execute
+                    title="Переключиться в обычный режим и выполнить последний план"
+                >
+                    "Выполнить"
+                </button>
+                <button
+                    type="button"
+                    class="secondary"
+                    on:click=on_exit
+                    title="Вернуться в обычный режим"
+                >
+                    "Выйти"
+                </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
 fn WorkingCard() -> impl IntoView {
     view! {
         <article class="task-card running working-card">
@@ -1488,10 +1584,6 @@ fn WorkingCard() -> impl IntoView {
                     <span class="spinner-dot"></span>
                     "Работает"
                 </span>
-            </div>
-            <div class="message system-message working-message">
-                <span class="cli-spinner" aria-hidden="true"></span>
-                <span>"Агент думает"</span>
             </div>
         </article>
     }
