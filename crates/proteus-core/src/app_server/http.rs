@@ -173,6 +173,10 @@ async fn route_request(
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
+        (Method::GET, "/history") => {
+            let transcript = state.current_server().await.transcript().await;
+            json_response(StatusCode::OK, &transcript)
+        }
         (Method::POST, "/request") => match read_json::<StdioRequest>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)

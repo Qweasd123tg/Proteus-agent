@@ -169,6 +169,12 @@ struct SessionSummary {
     resumable: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+struct TranscriptMessage {
+    role: String,
+    text: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TransportStatus {
     Connecting,
@@ -307,6 +313,10 @@ fn App() -> impl IntoView {
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+
+    if route != "/resume" {
+        load_transcript(set_messages, set_next_message_id, set_transport_status);
+    }
 
     connect_event_stream(
         set_messages,
@@ -930,6 +940,43 @@ fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: Wri
             Err(error) => set_status.set(format!("failed to load sessions: {error}")),
         }
     });
+}
+
+fn load_transcript(
+    set_messages: WriteSignal<Vec<Message>>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    spawn_local(async move {
+        match get_json::<Vec<TranscriptMessage>>("/history").await {
+            Ok(items) => {
+                let messages = items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, item)| Message {
+                        id: index as u64 + 1,
+                        role: message_role_from_wire(&item.role),
+                        text: item.text,
+                    })
+                    .collect::<Vec<_>>();
+                if !messages.is_empty() {
+                    set_next_message_id.set(messages.len() as u64 + 1);
+                    set_messages.set(messages);
+                }
+            }
+            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
+                "history load failed: {error}"
+            ))),
+        }
+    });
+}
+
+fn message_role_from_wire(role: &str) -> MessageRole {
+    match role {
+        "user" => MessageRole::User,
+        "assistant" => MessageRole::Assistant,
+        _ => MessageRole::System,
+    }
 }
 
 #[component]

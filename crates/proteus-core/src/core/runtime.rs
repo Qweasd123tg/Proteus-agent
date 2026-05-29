@@ -309,6 +309,10 @@ impl AgentRuntime {
         self.session.history.lock().await.len()
     }
 
+    pub async fn history(&self) -> Vec<CanonicalMessage> {
+        self.session.history.lock().await.clone()
+    }
+
     pub fn session_dir(&self) -> Option<&std::path::Path> {
         self.session
             .session_store

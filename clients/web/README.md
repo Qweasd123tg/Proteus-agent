@@ -14,7 +14,9 @@ permission mode controls, approval queue, typed user-input form, cancel action
 через `/mode`, отвечает на approval через `/approval`, отправляет typed input
 через `/user-input`, отменяет turn через `/cancel` и очищает history через
 `/clear`. Страница `/resume` читает прошлые sessions через `/sessions` и
-переключает текущий app-server на выбранную session через `/resume`.
+переключает текущий app-server на выбранную session через `/resume`. После
+перехода обратно в чат клиент подгружает transcript текущей session через
+`/history`.
 
 ## Запуск
 
