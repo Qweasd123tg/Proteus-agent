@@ -1,9 +1,39 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Proteus</title>
+        <script>
+            window.MathJax = {
+                tex: {
+                    inlineMath: [
+                        ["$", "$"],
+                        ["\\(", "\\)"],
+                    ],
+                    displayMath: [
+                        ["$$", "$$"],
+                        ["\\[", "\\]"],
+                    ],
+                    processEscapes: true,
+                },
+                startup: {
+                    ready: () => {
+                        MathJax.startup.defaultReady();
+                        window.proteusTypesetMath();
+                    },
+                },
+            };
+            window.proteusTypesetMath = () => {
+                if (window.MathJax && window.MathJax.typesetPromise) {
+                    window.MathJax.typesetPromise();
+                }
+            };
+        </script>
+        <script
+            async
+            src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
+        ></script>
         <link data-trunk rel="rust" data-wasm-opt="z" />
         <link data-trunk rel="css" href="styles.css" />
     </head>
