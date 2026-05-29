@@ -1087,24 +1087,6 @@ textarea {
     text-transform: uppercase;
 }
 
-.plan-intake {
-    display: grid;
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
-}
-
-.plan-intake-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-}
-
-.plan-intake-header strong {
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 600;
-}
-
 .composer {
     display: grid;
     flex-shrink: 0;
@@ -1241,16 +1223,6 @@ textarea {
         align-items: flex-start;
         flex-direction: column;
         padding: var(--space-3);
-    }
-
-    .plan-intake {
-        padding: var(--space-3);
-    }
-
-    .plan-intake-header {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: var(--space-1);
     }
 
     .plan-panel-actions {
