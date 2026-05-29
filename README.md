@@ -149,6 +149,17 @@ cd clients/web
 trunk serve
 ```
 
+После `./install.sh` короткий локальный запуск доступен из любой папки проекта:
+
+```bash
+proteus
+```
+
+Wrapper использует текущую директорию как workspace, поднимает app-server на
+`http://127.0.0.1:8787` и web-клиент на `http://127.0.0.1:1420`. Для обычных CLI
+команд передайте аргументы, например `proteus doctor` или
+`proteus --plan "inspect project"`.
+
 Leptos-клиент уже живёт в `clients/web` и по умолчанию подключается к
 `http://127.0.0.1:8787/events` и `/send`. HTTP/SSE app-server transport
 запускается через `proteus server http`; до полной UI-функциональности
