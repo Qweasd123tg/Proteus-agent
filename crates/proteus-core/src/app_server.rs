@@ -22,6 +22,7 @@ use crate::{
         normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, new_thread_id},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
 pub mod http;
@@ -35,6 +36,12 @@ pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalRequest, AppServerEvent, AppUserInputRequestId, StdioOutput,
     StdioRequest,
 };
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppTranscriptMessage {
+    pub role: String,
+    pub text: String,
+}
 
 type PendingApprovalResponders =
     Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>;
@@ -156,6 +163,15 @@ impl AppServerHandle {
         list_session_summaries(&config_store_root(config_path))
     }
 
+    pub async fn transcript(&self) -> Vec<AppTranscriptMessage> {
+        self.runtime
+            .history()
+            .await
+            .iter()
+            .filter_map(transcript_message)
+            .collect()
+    }
+
     pub async fn respond_approval(
         &self,
         approval_id: &str,
@@ -222,6 +238,38 @@ impl AppServerHandle {
     pub async fn cancel_pending_user_inputs(&self, note: String) {
         deny_pending_user_inputs(self.pending_user_inputs.clone(), self.events.clone(), note).await;
     }
+}
+
+fn transcript_message(message: &CanonicalMessage) -> Option<AppTranscriptMessage> {
+    let text = transcript_text(message)?;
+    Some(AppTranscriptMessage {
+        role: match message.role {
+            MessageRole::System | MessageRole::Developer => "system",
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::Tool => "system",
+            _ => "system",
+        }
+        .to_owned(),
+        text,
+    })
+}
+
+fn transcript_text(message: &CanonicalMessage) -> Option<String> {
+    let parts = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text }
+            | ContentPart::ReasoningSummary { text }
+            | ContentPart::Reasoning { text, signature: _ } => Some(text.clone()),
+            ContentPart::ToolResult { result } => Some(result.text_or_status()),
+            ContentPart::ToolCall { call } => Some(format!("Tool call: {}", call.name)),
+            _ => None,
+        })
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 pub struct AgentAppServer;
@@ -1239,6 +1287,42 @@ mod tests {
             "expected at least one text delta before TurnOutput"
         );
         assert!(output.text.contains("Fake final answer"));
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn transcript_projects_runtime_history_for_resume_ui() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let mut config = AppConfig::default();
+        config.modules.workflow = "coding.plan_execute_review".to_owned();
+        config.modules.context = "simple".to_owned();
+        config.modules.policy = "ask_write".to_owned();
+        config.modules.renderer = "plain".to_owned();
+        config.modules.patch = "null".to_owned();
+
+        let handle = AgentAppServer::launch_with_module_catalog(
+            config,
+            cwd.path().to_path_buf(),
+            None,
+            test_catalog(),
+        )
+        .expect("app server");
+
+        handle
+            .send_user_message("restore this chat".to_owned())
+            .await
+            .expect("turn output");
+
+        let transcript = handle.transcript().await;
+        assert!(
+            transcript
+                .iter()
+                .any(|message| message.role == "user" && message.text == "restore this chat")
+        );
+        assert!(transcript.iter().any(|message| {
+            message.role == "assistant" && message.text.contains("Fake final answer")
+        }));
+
         handle.shutdown().await;
     }
 }

@@ -273,14 +273,16 @@ runtime восстанавливает cwd из `session.json`, загружае
 in-memory history и следующие turns дописывают только новые сообщения.
 
 Во внешнем UI resume picker является app-client командой, а не visual-layer
-логикой. Клиент может читать директории из
+логикой. HTTP app-server отдаёт список sessions через `GET /sessions`,
+переключает текущий runtime через `POST /resume` и отдаёт transcript текущего
+runtime через `GET /history`, чтобы web-клиент мог сразу восстановить чат после
+resume. Клиент может читать директории из
 `<config-root>/sessions/<encoded-workspace>/`, фильтровать список по
 conversation title/branch/session id и затем перезапускать или переподключать
 transport с `--resume-session <session-dir>`. Runtime вызывает
 `resume_from_session_dir`, загружает `messages.jsonl` и продолжает дописывать
-новые сообщения в эту же session directory. Клиент также может прочитать тот же
-`messages.jsonl`, чтобы восстановить transcript на экране. Путь прямо к
-`messages.jsonl` трактуется как указание на parent session directory.
+новые сообщения в эту же session directory. Путь прямо к `messages.jsonl`
+трактуется как указание на parent session directory.
 
 CLI тоже принимает `--resume-session <session-dir-or-messages.jsonl>` для
 single-turn и interactive mode; это тот же runtime builder path, без отдельной
