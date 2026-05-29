@@ -18,9 +18,10 @@ permission mode controls, approval queue, typed user-input form, cancel action
 перехода обратно в чат клиент подгружает transcript текущей session через
 `/history`. Для `plan` mode web-клиент показывает action bar с кнопками
 `Ask Plan`, `Revise`, `Execute` и `Exit`: это client-side control plane поверх
-`/mode` и `/send`, enforcement остаётся в core `ModeAwarePolicy`. В plan mode
-также есть intake-блок с preset choices и свободным `Other / custom constraints`
-полем; выбранные значения добавляются в planning prompt.
+`/mode` и `/send`, enforcement остаётся в core `ModeAwarePolicy`. `Ask Plan`
+отправляет topic как planning interview: агент должен сам задавать typed
+questions через `request_user_input`/`AskUserQuestion`, а UI показывает choices
+и свободный `Other`.
 
 ## Запуск
 
