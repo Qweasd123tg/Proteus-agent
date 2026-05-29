@@ -113,6 +113,12 @@ struct Message {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct ToastMessage {
+    id: u64,
+    text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ActivityItem {
     label: &'static str,
     value: String,
@@ -458,6 +464,7 @@ fn App() -> impl IntoView {
     let route = current_path();
     let (messages, set_messages) = signal(seed_messages());
     let (draft, set_draft) = signal(String::new());
+    let (queued_prompt, set_queued_prompt) = signal(None::<String>);
     let (mode, set_mode) = signal(PermissionMode::Normal);
     let (next_message_id, set_next_message_id) = signal(1_u64);
     let (next_request_id, set_next_request_id) = signal(1_u64);
@@ -469,9 +476,13 @@ fn App() -> impl IntoView {
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+    let (toasts, set_toasts) = signal(Vec::<ToastMessage>::new());
+    let (next_toast_id, set_next_toast_id) = signal(1_u64);
+    let (last_error_toast, set_last_error_toast) = signal(None::<String>);
     let results_ref = NodeRef::<html::Section>::new();
-    let (sidebar_width, set_sidebar_width) = signal(260_i32);
-    let (composer_height, set_composer_height) = signal(150_i32);
+    let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
+    let (composer_height, set_composer_height) =
+        signal(load_i32_setting("proteus.composerHeight", 150));
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (resize_start_x, set_resize_start_x) = signal(0_i32);
@@ -483,12 +494,37 @@ fn App() -> impl IntoView {
         let _ = (
             messages.get().len(),
             pending_user_inputs.get().len(),
+            queued_prompt.get().is_some(),
             is_sending.get(),
         );
         if let Some(results) = results_ref.get() {
             results.set_scroll_top(results.scroll_height());
         }
         proteus_typeset_math();
+    });
+
+    Effect::new(move |_| {
+        save_i32_setting("proteus.sidebarWidth", sidebar_width.get());
+    });
+
+    Effect::new(move |_| {
+        save_i32_setting("proteus.composerHeight", composer_height.get());
+    });
+
+    Effect::new(move |_| {
+        if let TransportStatus::Error(message) = transport_status.get() {
+            if last_error_toast.get().as_deref() != Some(message.as_str()) {
+                let id = next_toast_id.get();
+                set_next_toast_id.set(id + 1);
+                set_toasts.update(|items| {
+                    items.push(ToastMessage {
+                        id,
+                        text: message.clone(),
+                    });
+                });
+                set_last_error_toast.set(Some(message));
+            }
+        }
     });
 
     if route != "/resume" {
@@ -526,6 +562,7 @@ fn App() -> impl IntoView {
     let clear_transcript = move |_| {
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
+        set_queued_prompt.set(None);
         spawn_local(async move {
             match post_json("/clear", &json!({})).await {
                 Ok(output) => handle_command_response(
@@ -772,11 +809,16 @@ fn App() -> impl IntoView {
 
     let submit_prompt = move || {
         let text = draft.get().trim().to_owned();
-        if text.is_empty() || is_sending.get() {
+        if text.is_empty() {
             return;
         }
 
         set_draft.set(String::new());
+        if is_sending.get() {
+            set_queued_prompt.set(Some(text));
+            return;
+        }
+
         if mode.get() == PermissionMode::Plan {
             actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
         } else {
@@ -826,6 +868,26 @@ fn App() -> impl IntoView {
             .last()
             .is_some_and(|message| message.role == MessageRole::Assistant)
     };
+    let send_queued_prompt = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        let Some(text) = queued_prompt.get() else {
+            return;
+        };
+        set_queued_prompt.set(None);
+        if mode.get() == PermissionMode::Plan {
+            actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
+        } else {
+            actions.send_prompt(text, None);
+        }
+    };
+    let clear_queued_prompt = move |_| {
+        set_queued_prompt.set(None);
+    };
+    let dismiss_toast = move |toast_id: u64| {
+        set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
+    };
 
     view! {
         <div
@@ -835,6 +897,7 @@ fn App() -> impl IntoView {
             on:mouseup=stop_resize
             on:mouseleave=stop_resize
         >
+            <ToastStack toasts on_dismiss=dismiss_toast />
             <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
                 <div class="sidebar-header">
                     <h2>
@@ -968,12 +1031,13 @@ fn App() -> impl IntoView {
                                 {move || {
                                     let items = messages.get();
                                     let user_inputs = pending_user_inputs.get();
+                                    let queued = queued_prompt.get();
                                     let working = is_sending.get() && user_inputs.is_empty();
                                     let show_plan_actions = mode.get() == PermissionMode::Plan
                                         && !is_sending.get()
                                         && user_inputs.is_empty()
                                         && latest_message_is_assistant();
-                                    if items.is_empty() && user_inputs.is_empty() && !working {
+                                    if items.is_empty() && user_inputs.is_empty() && queued.is_none() && !working {
                                         view! {
                                             <div class="empty-state">
                                                 <div class="empty-state-title">"Нет активной задачи"</div>
@@ -1000,6 +1064,18 @@ fn App() -> impl IntoView {
                                                         on_revise=revise_plan
                                                         on_execute=execute_plan
                                                         on_exit=exit_plan
+                                                    />
+                                                }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
+                                            {if let Some(text) = queued {
+                                                view! {
+                                                    <QueuedPromptCard
+                                                        text
+                                                        is_sending=is_sending
+                                                        on_send=send_queued_prompt
+                                                        on_clear=clear_queued_prompt
                                                     />
                                                 }.into_any()
                                             } else {
@@ -1073,10 +1149,10 @@ fn App() -> impl IntoView {
                                         >
                                             "Стоп"
                                         </button>
-                                        <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
+                                        <button type="submit" class="btn-primary" disabled=draft_is_empty>
                                             {move || {
                                                 if is_sending.get() {
-                                                    "Работает"
+                                                    "В очередь"
                                                 } else if mode.get() == PermissionMode::Plan {
                                                     "Спросить план"
                                                 } else {
@@ -1531,6 +1607,77 @@ where
 }
 
 #[component]
+fn ToastStack<F>(toasts: ReadSignal<Vec<ToastMessage>>, on_dismiss: F) -> impl IntoView
+where
+    F: Fn(u64) + Copy + Send + 'static,
+{
+    view! {
+        <div class="toast-stack" aria-live="polite">
+            <For
+                each=move || toasts.get()
+                key=|toast| toast.id
+                children=move |toast| {
+                    let toast_id = toast.id;
+                    view! {
+                        <div class="toast">
+                            <span>{toast.text}</span>
+                            <button
+                                type="button"
+                                class="secondary"
+                                title="Закрыть"
+                                on:click=move |_| on_dismiss(toast_id)
+                            >
+                                "×"
+                            </button>
+                        </div>
+                    }
+                }
+            />
+        </div>
+    }
+}
+
+#[component]
+fn QueuedPromptCard<S, C>(
+    text: String,
+    is_sending: ReadSignal<bool>,
+    on_send: S,
+    on_clear: C,
+) -> impl IntoView
+where
+    S: Fn(MouseEvent) + Copy + 'static,
+    C: Fn(MouseEvent) + Copy + 'static,
+{
+    let preview = text.clone();
+    view! {
+        <article class="task-card running queued-card">
+            <div class="task-card-header">
+                <span class="status-badge disconnected">
+                    <span class="dot"></span>
+                    "В очереди"
+                </span>
+            </div>
+            <div class="message system-message queued-message">
+                <p>{preview}</p>
+                <div class="queued-actions">
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        disabled=move || is_sending.get()
+                        on:click=on_send
+                    >
+                        "Отправить"
+                    </button>
+                    <button type="button" class="secondary" on:click=on_clear>
+                        "Убрать"
+                    </button>
+                </div>
+            </div>
+        </article>
+    }
+}
+
+#[component]
 fn PlanActionsCard<R, E, X>(on_revise: R, on_execute: E, on_exit: X) -> impl IntoView
 where
     R: Fn(MouseEvent) + Copy + 'static,
@@ -1617,7 +1764,17 @@ fn MessageView(message: Message) -> impl IntoView {
     let card_class = message.role.card_class();
     let message_class = message.role.message_class();
     let badge_class = message.role.badge_class();
-    let html = markdown_html(&message.text);
+    let text = message.text.clone();
+    let html = markdown_html(&text);
+    let (collapsed, set_collapsed) = signal(false);
+    let copy_text = text.clone();
+    let toggle_title = move || {
+        if collapsed.get() {
+            "Развернуть"
+        } else {
+            "Свернуть"
+        }
+    };
     view! {
         <article class=card_class>
             <div class="task-card-header">
@@ -1625,8 +1782,38 @@ fn MessageView(message: Message) -> impl IntoView {
                     <span class="dot"></span>
                     {message.role.label()}
                 </span>
+                <div class="message-actions">
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title="Скопировать markdown"
+                        on:click=move |_| copy_to_clipboard(copy_text.clone())
+                    >
+                        "Copy"
+                    </button>
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title=toggle_title
+                        on:click=move |_| set_collapsed.update(|value| *value = !*value)
+                    >
+                        {move || if collapsed.get() { "Open" } else { "Hide" }}
+                    </button>
+                </div>
             </div>
-            <div class=message_class inner_html=html></div>
+            {move || {
+                if collapsed.get() {
+                    view! {
+                        <div class="message collapsed-message">
+                            "Сообщение скрыто"
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class=message_class inner_html=html.clone()></div>
+                    }.into_any()
+                }
+            }}
         </article>
     }
 }
@@ -1951,6 +2138,20 @@ fn current_path() -> String {
         .unwrap_or_else(|| "/".to_owned())
 }
 
+fn load_i32_setting(key: &str, fallback: i32) -> i32 {
+    window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(key).ok().flatten())
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(fallback)
+}
+
+fn save_i32_setting(key: &str, value: i32) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.set_item(key, &value.to_string());
+    }
+}
+
 fn update_session_labels(
     envelope: Value,
     set_workspace_label: WriteSignal<String>,
@@ -2016,6 +2217,13 @@ fn markdown_html(text: &str) -> String {
     let mut output = String::new();
     markdown::push_html(&mut output, parser);
     output
+}
+
+fn copy_to_clipboard(text: String) {
+    if let Some(window) = window() {
+        let clipboard = window.navigator().clipboard();
+        let _ = clipboard.write_text(&text);
+    }
 }
 
 fn short_path(path: &str) -> String {
