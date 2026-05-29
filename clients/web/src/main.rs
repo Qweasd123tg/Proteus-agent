@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Event, EventSource, Headers, MessageEvent, Request, RequestInit, RequestMode, Response,
-    SubmitEvent, window,
+    Event, EventSource, Headers, KeyboardEvent, MessageEvent, Request, RequestInit, RequestMode,
+    Response, SubmitEvent, window,
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
@@ -755,8 +755,7 @@ fn App() -> impl IntoView {
         actions.set_permission_mode(PermissionMode::Normal);
     };
 
-    let submit = move |ev: SubmitEvent| {
-        ev.prevent_default();
+    let submit_prompt = move || {
         let text = draft.get().trim().to_owned();
         if text.is_empty() || is_sending.get() {
             return;
@@ -767,6 +766,16 @@ fn App() -> impl IntoView {
             actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
         } else {
             actions.send_prompt(text, None);
+        }
+    };
+    let submit = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        submit_prompt();
+    };
+    let submit_shortcut = move |ev: KeyboardEvent| {
+        if ev.ctrl_key() && ev.key() == "Enter" {
+            ev.prevent_default();
+            submit_prompt();
         }
     };
 
@@ -949,9 +958,13 @@ fn App() -> impl IntoView {
                                     }
                                     disabled=move || is_sending.get()
                                     on:input:target=move |ev| set_draft.set(ev.target().value())
+                                    on:keydown=submit_shortcut
                                 />
                                 <div class="composer-actions">
-                                    <div class="composer-stats">{draft_stats}</div>
+                                    <div class="composer-stats">
+                                        <span>{draft_stats}</span>
+                                        <span>"Ctrl+Enter отправить"</span>
+                                    </div>
                                     <div class="composer-buttons">
                                         <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                                         {move || {
