@@ -292,6 +292,156 @@ struct ResumeSessionRequest {
     session_dir: String,
 }
 
+#[derive(Clone, Copy)]
+struct AppActions {
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    transport_status: ReadSignal<TransportStatus>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    next_request_id: ReadSignal<u64>,
+    set_next_request_id: WriteSignal<u64>,
+    set_mode: WriteSignal<PermissionMode>,
+    is_sending: ReadSignal<bool>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+}
+
+impl AppActions {
+    fn set_permission_mode(self, new_mode: PermissionMode) {
+        self.set_mode.set(new_mode);
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
+        spawn_local(async move {
+            match post_json(
+                "/mode",
+                &SetPermissionModeRequest {
+                    id: Some(request_id),
+                    mode: new_mode,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Mode update failed", error),
+            }
+        });
+    }
+
+    fn send_prompt(self, text: String, forced_mode: Option<PermissionMode>) {
+        let text = text.trim().to_owned();
+        if text.is_empty() || self.is_sending.get() {
+            return;
+        }
+
+        if let Some(new_mode) = forced_mode {
+            self.set_mode.set(new_mode);
+        }
+
+        self.set_is_sending.set(true);
+        let mode_request_id =
+            forced_mode.map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
+        self.set_active_turn_id.set(Some(request_id.clone()));
+
+        spawn_local(async move {
+            if let Some(new_mode) = forced_mode {
+                match post_json(
+                    "/mode",
+                    &SetPermissionModeRequest {
+                        id: mode_request_id,
+                        mode: new_mode,
+                    },
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let ok = command_succeeded(&output);
+                        handle_command_response(
+                            output,
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            self.set_transport_status,
+                        );
+                        if !ok {
+                            self.finish_turn();
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        self.finish_turn();
+                        self.push_error("Mode update failed", error);
+                        return;
+                    }
+                }
+            }
+
+            match post_json(
+                "/send",
+                &SendRequest {
+                    id: Some(request_id),
+                    text,
+                },
+            )
+            .await
+            {
+                Ok(output) => {
+                    self.finish_turn();
+                    if let StdioOutput::Response {
+                        ok: true,
+                        output: Some(value),
+                        ..
+                    } = &output
+                        && !matches!(self.transport_status.get(), TransportStatus::Connected)
+                    {
+                        push_message(
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            MessageRole::Assistant,
+                            output_text(value),
+                        );
+                    }
+                    handle_command_response(
+                        output,
+                        self.set_messages,
+                        self.next_message_id,
+                        self.set_next_message_id,
+                        self.set_transport_status,
+                    );
+                }
+                Err(error) => {
+                    self.finish_turn();
+                    self.push_error("Send failed", error);
+                }
+            }
+        });
+    }
+
+    fn finish_turn(self) {
+        self.set_is_sending.set(false);
+        self.set_active_turn_id.set(None);
+    }
+
+    fn push_error(self, prefix: &str, error: String) {
+        self.set_transport_status
+            .set(TransportStatus::Error(error.clone()));
+        push_message(
+            self.set_messages,
+            self.next_message_id,
+            self.set_next_message_id,
+            MessageRole::System,
+            format!("{prefix}: {error}"),
+        );
+    }
+}
+
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
@@ -332,6 +482,20 @@ fn App() -> impl IntoView {
         set_pending_user_inputs,
     );
 
+    let actions = AppActions {
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        transport_status,
+        set_transport_status,
+        next_request_id,
+        set_next_request_id,
+        set_mode,
+        is_sending,
+        set_is_sending,
+        set_active_turn_id,
+    };
+
     let clear_transcript = move |_| {
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
@@ -359,37 +523,7 @@ fn App() -> impl IntoView {
     };
 
     let select_mode = move |new_mode: PermissionMode| {
-        set_mode.set(new_mode);
-        let request_id = take_request_id(next_request_id, set_next_request_id, "mode");
-        spawn_local(async move {
-            match post_json(
-                "/mode",
-                &SetPermissionModeRequest {
-                    id: Some(request_id),
-                    mode: new_mode,
-                },
-            )
-            .await
-            {
-                Ok(output) => handle_command_response(
-                    output,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                ),
-                Err(error) => {
-                    set_transport_status.set(TransportStatus::Error(error.clone()));
-                    push_message(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        MessageRole::System,
-                        format!("Mode update failed: {error}"),
-                    );
-                }
-            }
-        });
+        actions.set_permission_mode(new_mode);
     };
 
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
@@ -573,6 +707,43 @@ fn App() -> impl IntoView {
         TransportStatus::Connected => "status-badge completed",
         TransportStatus::Error(_) | TransportStatus::Shutdown => "status-badge failed",
     };
+    let draft_is_empty = move || draft.get().trim().is_empty();
+    let has_assistant_message = move || {
+        messages
+            .get()
+            .iter()
+            .any(|message| message.role == MessageRole::Assistant)
+    };
+
+    let send_plan = move |_| {
+        let text = draft.get();
+        if text.trim().is_empty() || is_sending.get() {
+            return;
+        }
+        set_draft.set(String::new());
+        actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
+    };
+    let revise_plan = move |_| {
+        let text = draft.get();
+        if text.trim().is_empty() {
+            set_draft.set("Revise the latest plan:\n".to_owned());
+            return;
+        }
+        if is_sending.get() {
+            return;
+        }
+        set_draft.set(String::new());
+        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
+    };
+    let execute_plan = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
+    };
+    let exit_plan = move |_| {
+        actions.set_permission_mode(PermissionMode::Normal);
+    };
 
     let submit = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -582,59 +753,7 @@ fn App() -> impl IntoView {
         }
 
         set_draft.set(String::new());
-        set_is_sending.set(true);
-        let request_id = take_request_id(next_request_id, set_next_request_id, "send");
-        set_active_turn_id.set(Some(request_id.clone()));
-        spawn_local(async move {
-            match post_json(
-                "/send",
-                &SendRequest {
-                    id: Some(request_id),
-                    text,
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    set_is_sending.set(false);
-                    set_active_turn_id.set(None);
-                    if let StdioOutput::Response {
-                        ok: true,
-                        output: Some(value),
-                        ..
-                    } = &output
-                        && !matches!(transport_status.get(), TransportStatus::Connected)
-                    {
-                        push_message(
-                            set_messages,
-                            next_message_id,
-                            set_next_message_id,
-                            MessageRole::Assistant,
-                            output_text(value),
-                        );
-                    }
-                    handle_command_response(
-                        output,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                }
-                Err(error) => {
-                    set_is_sending.set(false);
-                    set_active_turn_id.set(None);
-                    set_transport_status.set(TransportStatus::Error(error.clone()));
-                    push_message(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        MessageRole::System,
-                        format!("Send failed: {error}"),
-                    );
-                }
-            }
-        });
+        actions.send_prompt(text, None);
     };
 
     view! {
@@ -793,6 +912,65 @@ fn App() -> impl IntoView {
                                 }}
                             </section>
 
+                            {move || {
+                                if mode.get() == PermissionMode::Plan {
+                                    view! {
+                                        <section class="plan-panel" aria-label="Plan mode controls">
+                                            <div class="plan-panel-main">
+                                                <span class="status-badge running">
+                                                    <span class="dot"></span>
+                                                    "Plan"
+                                                </span>
+                                                <div class="plan-panel-title">
+                                                    <strong>"Plan mode"</strong>
+                                                    <span>"read-only"</span>
+                                                </div>
+                                            </div>
+                                            <div class="plan-panel-actions">
+                                                <button
+                                                    type="button"
+                                                    class="secondary"
+                                                    disabled=move || draft_is_empty() || is_sending.get()
+                                                    on:click=send_plan
+                                                    title="Ask for a read-only staged plan"
+                                                >
+                                                    "Ask Plan"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="secondary"
+                                                    disabled=move || is_sending.get()
+                                                    on:click=revise_plan
+                                                    title="Revise the latest plan with composer text"
+                                                >
+                                                    "Revise"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="btn-primary"
+                                                    disabled=move || !has_assistant_message() || is_sending.get()
+                                                    on:click=execute_plan
+                                                    title="Switch to normal mode and execute the latest plan"
+                                                >
+                                                    "Execute"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="secondary"
+                                                    disabled=move || is_sending.get()
+                                                    on:click=exit_plan
+                                                    title="Switch back to normal mode"
+                                                >
+                                                    "Exit"
+                                                </button>
+                                            </div>
+                                        </section>
+                                    }.into_any()
+                                } else {
+                                    view! { <></> }.into_any()
+                                }
+                            }}
+
                             <form class="composer" on:submit=submit>
                                 <div class="composer-label">"Agent Prompt"</div>
                                 <textarea
@@ -805,6 +983,15 @@ fn App() -> impl IntoView {
                                     <div class="composer-stats">{draft_stats}</div>
                                     <div class="composer-buttons">
                                         <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                                        <button
+                                            type="button"
+                                            class="secondary"
+                                            disabled=move || draft_is_empty() || is_sending.get()
+                                            on:click=send_plan
+                                            title="Switch to plan mode and ask for a read-only plan"
+                                        >
+                                            "Plan"
+                                        </button>
                                         <button
                                             type="button"
                                             class="secondary danger"
@@ -1495,6 +1682,10 @@ fn handle_command_response(
     }
 }
 
+fn command_succeeded(output: &StdioOutput) -> bool {
+    matches!(output, StdioOutput::Response { ok: true, .. })
+}
+
 async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, String> {
     let request_body = serde_json::to_string(body).map_err(|error| error.to_string())?;
     let init = RequestInit::new();
@@ -1586,6 +1777,22 @@ fn output_text(output: &Value) -> String {
         .filter(|text| !text.trim().is_empty())
         .unwrap_or("(empty response)")
         .to_owned()
+}
+
+fn planning_prompt(task: &str) -> String {
+    format!(
+        "Plan mode request:\n\n{task}\n\nReturn a concise staged plan. Stay read-only: inspect first, ask typed questions if essential decisions are missing, and do not write files."
+    )
+}
+
+fn revise_plan_prompt(feedback: &str) -> String {
+    format!(
+        "Revise the latest plan using this feedback:\n\n{feedback}\n\nStay in read-only planning mode and return the updated staged plan."
+    )
+}
+
+fn execute_plan_prompt() -> String {
+    "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
 }
 
 fn compact_json(value: &Value) -> String {

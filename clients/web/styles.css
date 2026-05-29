@@ -1043,6 +1043,45 @@ textarea {
     color: var(--text-muted);
 }
 
+.plan-panel {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-3) var(--space-5);
+}
+
+.plan-panel-main,
+.plan-panel-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.plan-panel-title {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.plan-panel-title strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.plan-panel-title span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
 .composer {
     display: grid;
     flex-shrink: 0;
@@ -1173,6 +1212,22 @@ textarea {
     .resume-item,
     .resume-item button {
         width: 100%;
+    }
+
+    .plan-panel {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: var(--space-3);
+    }
+
+    .plan-panel-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .plan-panel-actions button {
+        flex: 1 1 120px;
+        justify-content: center;
     }
 
     .results-panel {

@@ -16,7 +16,9 @@ permission mode controls, approval queue, typed user-input form, cancel action
 `/clear`. Страница `/resume` читает прошлые sessions через `/sessions` и
 переключает текущий app-server на выбранную session через `/resume`. После
 перехода обратно в чат клиент подгружает transcript текущей session через
-`/history`.
+`/history`. Для `plan` mode web-клиент показывает action bar с кнопками
+`Ask Plan`, `Revise`, `Execute` и `Exit`: это client-side control plane поверх
+`/mode` и `/send`, enforcement остаётся в core `ModeAwarePolicy`.
 
 ## Запуск
 
