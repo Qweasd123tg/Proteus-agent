@@ -506,7 +506,7 @@ pub fn event_log_path(configured_path: &Path, config_path: Option<&Path>, cwd: &
         .join(configured_path)
 }
 
-fn config_store_root(path: &std::path::Path) -> PathBuf {
+pub fn config_store_root(path: &std::path::Path) -> PathBuf {
     if path.is_dir() {
         return path
             .parent()

@@ -157,6 +157,17 @@ struct UserInputRequestInfo {
     questions: Vec<UserInputQuestion>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+struct SessionSummary {
+    session_dir: String,
+    session_id: Option<String>,
+    workspace_path: Option<String>,
+    message_count: usize,
+    updated_at_ms: Option<u64>,
+    preview: Option<String>,
+    resumable: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TransportStatus {
     Connecting,
@@ -268,6 +279,12 @@ struct CancelRequest {
     target_id: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ResumeSessionRequest {
+    id: Option<String>,
+    session_dir: String,
+}
+
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
@@ -275,6 +292,7 @@ fn main() {
 
 #[component]
 fn App() -> impl IntoView {
+    let route = current_path();
     let (messages, set_messages) = signal(seed_messages());
     let (draft, set_draft) = signal(String::new());
     let (mode, set_mode) = signal(PermissionMode::Normal);
@@ -679,6 +697,8 @@ fn App() -> impl IntoView {
                     </div>
                     <nav class="topnav">
                         <span>{move || format!("{} events", event_count.get())}</span>
+                        <a class="topnav-link" href="/">"Session"</a>
+                        <a class="topnav-link" href="/resume">"Resume"</a>
                         <button
                             type="button"
                             class="secondary danger"
@@ -709,85 +729,206 @@ fn App() -> impl IntoView {
                 </section>
 
                 <section class="session-workspace">
-                    {move || {
-                        let approvals = pending_approvals.get();
-                        let user_inputs = pending_user_inputs.get();
-                        if approvals.is_empty() && user_inputs.is_empty() {
-                            view! { <></> }.into_any()
-                        } else {
-                            view! {
-                                <section class="control-plane" aria-label="Pending controls">
-                                    <For
-                                        each=move || pending_approvals.get()
-                                        key=|request| request.approval_id.clone()
-                                        children=move |request| {
-                                            view! { <ApprovalCard request on_resolve=resolve_approval /> }
-                                        }
-                                    />
-                                    <For
-                                        each=move || pending_user_inputs.get()
-                                        key=|request| request.request_id.clone()
-                                        children=move |request| {
-                                            view! { <UserInputCard request on_submit=submit_user_input /> }
-                                        }
-                                    />
-                                </section>
-                            }.into_any()
-                        }
-                    }}
+                    {if route == "/resume" {
+                        view! { <ResumeView /> }.into_any()
+                    } else {
+                        view! {
+                            {move || {
+                                let approvals = pending_approvals.get();
+                                let user_inputs = pending_user_inputs.get();
+                                if approvals.is_empty() && user_inputs.is_empty() {
+                                    view! { <></> }.into_any()
+                                } else {
+                                    view! {
+                                        <section class="control-plane" aria-label="Pending controls">
+                                            <For
+                                                each=move || pending_approvals.get()
+                                                key=|request| request.approval_id.clone()
+                                                children=move |request| {
+                                                    view! { <ApprovalCard request on_resolve=resolve_approval /> }
+                                                }
+                                            />
+                                            <For
+                                                each=move || pending_user_inputs.get()
+                                                key=|request| request.request_id.clone()
+                                                children=move |request| {
+                                                    view! { <UserInputCard request on_submit=submit_user_input /> }
+                                                }
+                                            />
+                                        </section>
+                                    }.into_any()
+                                }
+                            }}
 
-                    <section class="results-panel" aria-label="Transcript">
-                        {move || {
-                            if messages.get().is_empty() {
-                                view! {
-                                    <div class="empty-state">
-                                        <div class="empty-state-title">"No active task"</div>
+                            <section class="results-panel" aria-label="Transcript">
+                                {move || {
+                                    if messages.get().is_empty() {
+                                        view! {
+                                            <div class="empty-state">
+                                                <div class="empty-state-title">"No active task"</div>
+                                            </div>
+                                        }
+                                        .into_any()
+                                    } else {
+                                        view! {
+                                            <For
+                                                each=move || messages.get()
+                                                key=|message| message.id
+                                                children=move |message| view! { <MessageView message /> }
+                                            />
+                                        }
+                                        .into_any()
+                                    }
+                                }}
+                            </section>
+
+                            <form class="composer" on:submit=submit>
+                                <div class="composer-label">"Agent Prompt"</div>
+                                <textarea
+                                    prop:value=move || draft.get()
+                                    placeholder="Ask Proteus to inspect, edit, or explain code"
+                                    disabled=move || is_sending.get()
+                                    on:input:target=move |ev| set_draft.set(ev.target().value())
+                                />
+                                <div class="composer-actions">
+                                    <div class="composer-stats">{draft_stats}</div>
+                                    <div class="composer-buttons">
+                                        <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                                        <button
+                                            type="button"
+                                            class="secondary danger"
+                                            disabled=move || active_turn_id.get().is_none()
+                                            on:click=cancel_turn
+                                        >
+                                            "Cancel"
+                                        </button>
+                                        <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
+                                            {move || if is_sending.get() { "Running" } else { "Run Agent" }}
+                                        </button>
                                     </div>
-                                }
-                                .into_any()
-                            } else {
-                                view! {
-                                    <For
-                                        each=move || messages.get()
-                                        key=|message| message.id
-                                        children=move |message| view! { <MessageView message /> }
-                                    />
-                                }
-                                .into_any()
-                            }
-                        }}
-                    </section>
-
-                    <form class="composer" on:submit=submit>
-                        <div class="composer-label">"Agent Prompt"</div>
-                        <textarea
-                            prop:value=move || draft.get()
-                            placeholder="Ask Proteus to inspect, edit, or explain code"
-                            disabled=move || is_sending.get()
-                            on:input:target=move |ev| set_draft.set(ev.target().value())
-                        />
-                        <div class="composer-actions">
-                            <div class="composer-stats">{draft_stats}</div>
-                            <div class="composer-buttons">
-                                <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
-                                <button
-                                    type="button"
-                                    class="secondary danger"
-                                    disabled=move || active_turn_id.get().is_none()
-                                    on:click=cancel_turn
-                                >
-                                    "Cancel"
-                                </button>
-                                <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
-                                    {move || if is_sending.get() { "Running" } else { "Run Agent" }}
-                                </button>
-                            </div>
-                        </div>
-                    </form>
+                                </div>
+                            </form>
+                        }.into_any()
+                    }}
                 </section>
             </main>
         </div>
     }
+}
+
+#[component]
+fn ResumeView() -> impl IntoView {
+    let (sessions, set_sessions) = signal(Vec::<SessionSummary>::new());
+    let (status, set_status) = signal("loading sessions".to_owned());
+
+    load_sessions(set_sessions, set_status);
+
+    let refresh = move |_| load_sessions(set_sessions, set_status);
+    let resume = move |session_dir: String| {
+        set_status.set("resuming session".to_owned());
+        spawn_local(async move {
+            match post_json(
+                "/resume",
+                &ResumeSessionRequest {
+                    id: Some("resume".to_owned()),
+                    session_dir,
+                },
+            )
+            .await
+            {
+                Ok(StdioOutput::Response { ok: true, .. }) => {
+                    set_status.set("session resumed".to_owned());
+                    if let Some(window) = window() {
+                        let _ = window.location().set_href("/");
+                    }
+                }
+                Ok(StdioOutput::Response { error, .. }) => {
+                    set_status.set(error.unwrap_or_else(|| "resume failed".to_owned()));
+                }
+                Ok(StdioOutput::Event { .. }) => {
+                    set_status.set("unexpected resume event".to_owned());
+                }
+                Err(error) => set_status.set(format!("resume failed: {error}")),
+            }
+        });
+    };
+
+    view! {
+        <section class="resume-page">
+            <div class="resume-toolbar">
+                <div>
+                    <h2>"Resume Sessions"</h2>
+                    <p>{move || status.get()}</p>
+                </div>
+                <button type="button" class="secondary" on:click=refresh>"Refresh"</button>
+            </div>
+            {move || {
+                let items = sessions.get();
+                if items.is_empty() {
+                    view! {
+                        <div class="empty-state">
+                            <div class="empty-state-title">"No saved sessions"</div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class="resume-list">
+                            <For
+                                each=move || sessions.get()
+                                key=|session| session.session_dir.clone()
+                                children=move |session| {
+                                    let session_dir = session.session_dir.clone();
+                                    let workspace = session.workspace_path.clone().unwrap_or_else(|| "unknown workspace".to_owned());
+                                    let session_id = session
+                                        .session_id
+                                        .as_deref()
+                                        .map(short_id)
+                                        .unwrap_or("legacy")
+                                        .to_owned();
+                                    view! {
+                                        <article class="resume-item">
+                                            <div class="resume-item-main">
+                                                <div class="resume-item-header">
+                                                    <strong>{short_path(&workspace)}</strong>
+                                                    <code>{session_id}</code>
+                                                </div>
+                                                <p>{session.preview.clone().unwrap_or_else(|| "No transcript preview".to_owned())}</p>
+                                                <div class="resume-meta">
+                                                    <span>{workspace}</span>
+                                                    <span>{format!("{} messages", session.message_count)}</span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                class="btn-primary"
+                                                disabled=!session.resumable
+                                                on:click=move |_| resume(session_dir.clone())
+                                            >
+                                                "Resume"
+                                            </button>
+                                        </article>
+                                    }
+                                }
+                            />
+                        </div>
+                    }.into_any()
+                }
+            }}
+        </section>
+    }
+}
+
+fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: WriteSignal<String>) {
+    spawn_local(async move {
+        match get_json::<Vec<SessionSummary>>("/sessions").await {
+            Ok(items) => {
+                let count = items.len();
+                set_sessions.set(items);
+                set_status.set(format!("{count} sessions"));
+            }
+            Err(error) => set_status.set(format!("failed to load sessions: {error}")),
+        }
+    });
 }
 
 #[component]
@@ -1342,6 +1483,35 @@ async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, St
         return Err(format!("HTTP {status}: {text}"));
     }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {
+    let response_value = JsFuture::from(
+        window()
+            .ok_or_else(|| "window is unavailable".to_owned())?
+            .fetch_with_str(&format!("{APP_SERVER_ORIGIN}{path}")),
+    )
+    .await
+    .map_err(js_error)?;
+    let response = response_value.dyn_into::<Response>().map_err(js_error)?;
+    let status = response.status();
+    let text_value = JsFuture::from(response.text().map_err(js_error)?)
+        .await
+        .map_err(js_error)?;
+    let text = text_value
+        .as_string()
+        .ok_or_else(|| "response body is not text".to_owned())?;
+
+    if !response.ok() {
+        return Err(format!("HTTP {status}: {text}"));
+    }
+    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+fn current_path() -> String {
+    window()
+        .and_then(|window| window.location().pathname().ok())
+        .unwrap_or_else(|| "/".to_owned())
 }
 
 fn update_session_labels(

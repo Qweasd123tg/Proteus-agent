@@ -460,6 +460,16 @@ textarea {
     font-size: 11px;
 }
 
+.topnav-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.topnav-link:hover {
+    color: var(--text-main);
+}
+
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -763,6 +773,99 @@ textarea {
     line-height: 1.35;
 }
 
+.resume-page {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-root);
+}
+
+.resume-toolbar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-4) var(--space-5);
+}
+
+.resume-toolbar h2 {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.resume-toolbar p {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.resume-list {
+    display: grid;
+    gap: var(--space-2);
+    overflow-y: auto;
+    padding: var(--space-5);
+}
+
+.resume-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-4);
+}
+
+.resume-item-main {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.resume-item-header,
+.resume-meta {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.resume-item-header strong {
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.resume-item-header code,
+.resume-meta {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.resume-item p {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.resume-meta span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .results-panel {
     min-height: 0;
     flex: 1;
@@ -953,6 +1056,18 @@ textarea {
     .composer-buttons {
         width: 100%;
         justify-content: space-between;
+    }
+
+    .resume-toolbar,
+    .resume-item,
+    .resume-meta {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .resume-item,
+    .resume-item button {
+        width: 100%;
     }
 
     .results-panel {

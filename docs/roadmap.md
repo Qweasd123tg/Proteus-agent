@@ -281,7 +281,8 @@ Scope:
   token/context/debug views и streaming readability остаются client concerns.
 - Начальный `clients/web` уже заведён как standalone Leptos/Trunk shell:
   transcript, composer, mode controls, approval queue, typed user-input form,
-  cancel action и HTTP/SSE client без зависимости на `proteus-core`.
+  cancel action, `/resume` session picker и HTTP/SSE client без зависимости на
+  `proteus-core`.
 - Reference snapshots для web-переезда лежат в `examples/source/leptos` и
   `examples/source/oxide-agent-web-transport`; tracked заметка находится в
   `examples/research/web-client-references.md`.

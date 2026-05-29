@@ -18,7 +18,8 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        PendingApproval, PendingUserInput, normalize_session_dir_path, session_id_from_session_dir,
+        PendingApproval, PendingUserInput, config_store_root, list_session_summaries,
+        normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, new_thread_id},
 };
@@ -146,6 +147,13 @@ impl AppServerHandle {
                 .collect::<Vec<_>>(),
             "plugins": plugin_summary(&self.plugin_reports),
         })
+    }
+
+    pub fn session_summaries(&self) -> Result<Vec<crate::core::SessionSummary>> {
+        let Some(config_path) = self.config_path.as_deref() else {
+            return Ok(Vec::new());
+        };
+        list_session_summaries(&config_store_root(config_path))
     }
 
     pub async fn respond_approval(

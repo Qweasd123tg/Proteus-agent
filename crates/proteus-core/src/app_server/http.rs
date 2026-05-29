@@ -22,7 +22,10 @@ use proteus_contracts::contracts::{ApprovalCacheScope, UserInputResponse};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, broadcast},
+};
 
 use crate::{
     contracts::CancellationToken,
@@ -53,16 +56,22 @@ impl Default for HttpServerConfig {
 
 #[derive(Clone)]
 struct HttpAppState {
-    server: AppServerHandle,
+    server: Arc<Mutex<AppServerHandle>>,
     running_turns: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    shutdown: broadcast::Sender<()>,
 }
 
 impl HttpAppState {
-    fn new(server: AppServerHandle) -> Self {
+    fn new(server: AppServerHandle, shutdown: broadcast::Sender<()>) -> Self {
         Self {
-            server,
+            server: Arc::new(Mutex::new(server)),
             running_turns: Arc::new(Mutex::new(HashMap::new())),
+            shutdown,
         }
+    }
+
+    async fn current_server(&self) -> AppServerHandle {
+        self.server.lock().await.clone()
     }
 }
 
@@ -101,6 +110,12 @@ struct SetPermissionModeRequest {
     mode: PermissionMode,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResumeSessionRequest {
+    id: Option<String>,
+    session_dir: PathBuf,
+}
+
 pub async fn run_http_app_server(
     config: AppConfig,
     cwd: PathBuf,
@@ -113,14 +128,13 @@ pub async fn run_http_app_server(
     } else {
         AgentAppServer::launch(config, cwd, config_path.as_deref())?
     };
-    let state = HttpAppState::new(server);
+    let (shutdown, mut shutdown_rx) = broadcast::channel(1);
+    let state = HttpAppState::new(server, shutdown);
     let listener = TcpListener::bind(http_config.bind).await?;
     println!(
         "Proteus app-server HTTP listening on http://{}",
         listener.local_addr()?
     );
-    let mut shutdown_events = state.server.subscribe();
-
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -134,10 +148,7 @@ pub async fn run_http_app_server(
                     }
                 });
             }
-            event = shutdown_events.recv() => match event {
-                Ok(AppServerEvent::Shutdown) | Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-            },
+            _ = shutdown_rx.recv() => break,
         }
     }
     Ok(())
@@ -153,11 +164,15 @@ async fn route_request(
     let response = match (method, path.as_str()) {
         (Method::OPTIONS, _) => empty_response(StatusCode::NO_CONTENT),
         (Method::GET, "/health") => json_response(StatusCode::OK, &json!({ "ok": true })),
-        (Method::GET, "/events") => sse_response(state),
+        (Method::GET, "/events") => sse_response(state).await,
         (Method::GET, "/config") => {
-            let summary = state.server.config_summary().await;
+            let summary = state.current_server().await.config_summary().await;
             json_response(StatusCode::OK, &summary)
         }
+        (Method::GET, "/sessions") => match state.current_server().await.session_summaries() {
+            Ok(sessions) => json_response(StatusCode::OK, &sessions),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
+        },
         (Method::POST, "/request") => match read_json::<StdioRequest>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
@@ -238,6 +253,13 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/resume") => match read_json::<ResumeSessionRequest>(request).await {
+            Ok(command) => {
+                let output = execute_resume(&state, command.id, command.session_dir).await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
         (Method::POST, "/clear") => {
             let output = execute_app_request(&state, StdioRequest::ClearHistory { id: None }).await;
             json_response(StatusCode::OK, &output)
@@ -270,7 +292,12 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
                 .map(Some)
                 .map_err(anyhow::Error::from)
         }),
-        StdioRequest::ClearHistory { .. } => state.server.clear_history().await.map(|_| None),
+        StdioRequest::ClearHistory { .. } => state
+            .current_server()
+            .await
+            .clear_history()
+            .await
+            .map(|_| None),
         StdioRequest::Approval {
             approval_id,
             approved,
@@ -278,7 +305,8 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
             cache,
             ..
         } => state
-            .server
+            .current_server()
+            .await
             .respond_approval(&approval_id, approved, note, cache)
             .await
             .map(|_| None),
@@ -287,7 +315,8 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
             response,
             ..
         } => state
-            .server
+            .current_server()
+            .await
             .respond_user_input(&request_id, response)
             .await
             .map(|_| None),
@@ -295,12 +324,15 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
             execute_cancel(state, &target_id).await.map(|_| None)
         }
         StdioRequest::SetPermissionMode { mode, .. } => {
-            state.server.set_permission_mode(mode).await;
+            state.current_server().await.set_permission_mode(mode).await;
             Ok(Some(json!({ "mode": mode })))
         }
-        StdioRequest::ConfigSummary { .. } => Ok(Some(state.server.config_summary().await)),
+        StdioRequest::ConfigSummary { .. } => {
+            Ok(Some(state.current_server().await.config_summary().await))
+        }
         StdioRequest::Shutdown { .. } => {
-            state.server.shutdown().await;
+            state.current_server().await.shutdown().await;
+            let _ = state.shutdown.send(());
             Ok(None)
         }
         _ => Err(anyhow!("unsupported StdioRequest variant")),
@@ -323,7 +355,8 @@ async fn execute_send(
     }
 
     let result = state
-        .server
+        .current_server()
+        .await
         .send_user_message_with_cancellation(text, cancellation)
         .await;
 
@@ -331,6 +364,41 @@ async fn execute_send(
         state.running_turns.lock().await.remove(turn_id);
     }
     result
+}
+
+async fn execute_resume(
+    state: &HttpAppState,
+    id: Option<String>,
+    session_dir: PathBuf,
+) -> StdioOutput {
+    let result = resume_session(state, session_dir).await.map(Some);
+    command_response(id, result)
+}
+
+async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
+    if !state.running_turns.lock().await.is_empty() {
+        return Err(anyhow!(
+            "cannot resume another session while a turn is running"
+        ));
+    }
+
+    let current = state.current_server().await;
+    current
+        .cancel_pending_approvals("session switched by client".to_owned())
+        .await;
+    current
+        .cancel_pending_user_inputs("session switched by client".to_owned())
+        .await;
+
+    let next = AgentAppServer::launch_resumed(
+        (*current.config).clone(),
+        current.cwd.clone(),
+        current.config_path.as_deref(),
+        session_dir,
+    )?;
+    let summary = next.config_summary().await;
+    *state.server.lock().await = next;
+    Ok(summary)
 }
 
 async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
@@ -342,11 +410,13 @@ async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
     cancellation.cancel();
     state
-        .server
+        .current_server()
+        .await
         .cancel_pending_approvals("turn canceled by client".to_owned())
         .await;
     state
-        .server
+        .current_server()
+        .await
         .cancel_pending_user_inputs("turn canceled by client".to_owned())
         .await;
     Ok(())
@@ -369,9 +439,9 @@ fn command_response(id: Option<String>, result: Result<Option<Value>>) -> StdioO
     }
 }
 
-fn sse_response(state: HttpAppState) -> HttpResponse {
-    let mut events = state.server.subscribe();
-    let server = state.server.clone();
+async fn sse_response(state: HttpAppState) -> HttpResponse {
+    let server = state.current_server().await;
+    let mut events = server.subscribe();
     let body = StreamBody::new(stream! {
         if let Err(error) = server.start_session().await {
             let output = command_response(None, Err(error));
@@ -491,7 +561,8 @@ mod tests {
         let cwd = tempfile::tempdir().expect("cwd");
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
-        let state = HttpAppState::new(server.clone());
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown);
 
         let output = execute_app_request(
             &state,
@@ -532,7 +603,8 @@ mod tests {
         let cwd = tempfile::tempdir().expect("cwd");
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
-        let state = HttpAppState::new(server.clone());
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown);
 
         let output = execute_app_request(
             &state,
