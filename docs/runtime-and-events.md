@@ -363,6 +363,9 @@ Web-клиент реализует минимальный plan action bar: `Ask
 planning prompt в `PermissionMode::Plan`, `Revise` уточняет последний план,
 `Execute` переключает следующую команду в `PermissionMode::Normal`, а `Exit`
 возвращает обычный режим без запуска turn.
+Plan intake UI добавляет preset choices (`Inspect`, `Design`, `Patch Plan`,
+`Ask Choices`) и свободное поле `Other / custom constraints`; это клиентский
+prompt-shaping слой поверх того же `/mode` + `/send` round-trip.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`,
 app-server публикует `AppServerEvent::UserInputRequested`, UI открывает generic
 form для вопросов/single-choice/`multiSelect`/custom answers и отвечает через
