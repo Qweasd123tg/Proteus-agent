@@ -295,6 +295,17 @@ Scope:
 - Durable task/session metadata и event-log based debugging для UI/evals.
 - Persistent MCP host: reuse server process между calls, но execution всё равно
   должен проходить через `ToolRegistry`, policy visibility и approval.
+- UX backlog для web-клиента:
+  - очередь следующего composer request во время running turn;
+  - persistent layout sizes для sidebar/composer;
+  - message actions: copy/copy markdown/collapse/retry/continue;
+  - compact typed controls и sticky latest controls для approval/user-input/plan;
+  - tool call rendering как отдельные cards/rows с duration/status/expand output;
+  - streaming transcript по app-server deltas, без ожидания final output;
+  - toast/banner для transport errors вместо transcript spam;
+  - Markdown polish: code block copy, language label, wrap toggle, LaTeX styling.
+  Эти пункты остаются client concerns поверх app-server protocol; streaming и
+  tool rendering требуют проверки текущего event shape перед реализацией.
 
 ### Memory / Skills
 
