@@ -359,20 +359,22 @@ request с новым permission override. В plan mode UI может допол
 следует interview-first модели: для широких или недоопределённых задач модель
 должна сначала запросить существенные решения через typed question tool, а
 финальный staged plan писать только после ответов или явного skip.
-Web-клиент реализует минимальные plan controls прямо в composer: `Ask Plan`
-отправляет planning prompt в `PermissionMode::Plan`, `Revise` уточняет
-последний план, `Execute` переключает следующую команду в
-`PermissionMode::Normal`, а `Exit` возвращает обычный режим без запуска turn.
+Web-клиент реализует минимальные plan controls прямо в composer: русская кнопка
+`Спросить план` отправляет planning prompt в `PermissionMode::Plan`,
+`Уточнить` уточняет последний план, `Выполнить` переключает следующую команду в
+`PermissionMode::Normal`, а `Выйти` возвращает обычный режим без запуска turn.
 `Ask Plan` трактует composer text как topic для общего planning interview:
 модель должна сама вызвать `request_user_input`/`AskUserQuestion` с 1-3
 существенными вопросами и вариантами выбора, а UI показывает choices и
 свободный `Other`.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`,
 app-server публикует `AppServerEvent::UserInputRequested`, UI показывает
-пошаговую карточку в transcript для вопросов/single-choice/`multiSelect`/custom
-answers и отвечает через `StdioRequest::UserInput`. Turn остаётся открытым, а
-workflow получает typed `ToolResult` с ответами. После обычного plan
-`TurnOutput` UI может открыть
+пошаговую карточку в transcript с question tabs для
+вопросов/single-choice/`multiSelect`/custom answers и отвечает через
+`StdioRequest::UserInput`. Transcript автоматически прокручивается вниз, а
+running turn без pending input отображается working indicator. Turn остаётся
+открытым, а workflow получает typed `ToolResult` с ответами. После обычного
+plan `TurnOutput` UI может открыть
 chooser для execute/revise/dismiss.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ

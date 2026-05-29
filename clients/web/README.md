@@ -8,8 +8,9 @@ reference snapshots и эксперименты живут в `examples/source/`
 production-клиентом.
 
 Текущий статус: standalone Leptos/Trunk shell с transcript, composer,
-permission mode controls, approval queue, typed user-input form, cancel action
-и HTTP/SSE client. Shell по умолчанию подключается к
+permission mode controls, approval queue, пошаговой typed user-input карточкой,
+cancel action, autoscroll, working indicator, resizable sidebar и HTTP/SSE
+client. Shell по умолчанию подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
 через `/mode`, отвечает на approval через `/approval`, отправляет typed input
 через `/user-input`, отменяет turn через `/cancel` и очищает history через
@@ -17,11 +18,12 @@ permission mode controls, approval queue, typed user-input form, cancel action
 переключает текущий app-server на выбранную session через `/resume`. После
 перехода обратно в чат клиент подгружает transcript текущей session через
 `/history`. Для `plan` mode composer переключается в planning controls с
-кнопками `Ask Plan`, `Revise`, `Execute` и `Exit`: это client-side control
-plane поверх `/mode` и `/send`, enforcement остаётся в core `ModeAwarePolicy`.
-`Ask Plan` отправляет topic как planning interview: агент должен сам задавать
-typed questions через `request_user_input`/`AskUserQuestion`, а UI показывает
-пошаговую карточку в transcript с choices и свободным `Other`.
+русскими кнопками `Спросить план`, `Уточнить`, `Выполнить` и `Выйти`: это
+client-side control plane поверх `/mode` и `/send`, enforcement остаётся в core
+`ModeAwarePolicy`. `Ask Plan` отправляет topic как planning interview: агент
+должен сам задавать typed questions через
+`request_user_input`/`AskUserQuestion`, а UI показывает пошаговую карточку в
+transcript с question tabs, choices и свободным `Other`.
 
 ## Запуск
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use leptos::{mount::mount_to_body, prelude::*, task::spawn_local};
-use pulldown_cmark::{Event as MarkdownEvent, Options as MarkdownOptions, Parser, html};
+use leptos::{html, mount::mount_to_body, prelude::*, task::spawn_local};
+use pulldown_cmark::{Event as MarkdownEvent, Options as MarkdownOptions, Parser, html as markdown};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
@@ -24,17 +24,17 @@ enum PermissionMode {
 impl PermissionMode {
     fn label(self) -> &'static str {
         match self {
-            Self::Plan => "Plan",
-            Self::Normal => "Normal",
-            Self::Auto => "Auto",
+            Self::Plan => "План",
+            Self::Normal => "Нормальный",
+            Self::Auto => "Авто",
         }
     }
 
     fn description(self) -> &'static str {
         match self {
-            Self::Plan => "read-only planning",
-            Self::Normal => "ask before writes",
-            Self::Auto => "write without prompts",
+            Self::Plan => "только чтение",
+            Self::Normal => "спрашивать перед записью",
+            Self::Auto => "писать без запросов",
         }
     }
 }
@@ -51,8 +51,8 @@ enum ApprovalCacheScope {
 impl ApprovalCacheScope {
     fn label(self) -> &'static str {
         match self {
-            Self::None => "Once",
-            Self::ExactCall => "Exact",
+            Self::None => "Один раз",
+            Self::ExactCall => "Точно",
             Self::ToolInCwd => "Tool/CWD",
         }
     }
@@ -68,9 +68,9 @@ enum MessageRole {
 impl MessageRole {
     fn label(&self) -> &'static str {
         match self {
-            Self::User => "You",
+            Self::User => "Вы",
             Self::Assistant => "Proteus",
-            Self::System => "System",
+            Self::System => "Система",
         }
     }
 
@@ -186,10 +186,10 @@ enum TransportStatus {
 impl TransportStatus {
     fn label(&self) -> String {
         match self {
-            Self::Connecting => "connecting".to_owned(),
-            Self::Connected => "connected".to_owned(),
-            Self::Error(message) => format!("error: {message}"),
-            Self::Shutdown => "shutdown".to_owned(),
+            Self::Connecting => "подключение".to_owned(),
+            Self::Connected => "подключено".to_owned(),
+            Self::Error(message) => format!("ошибка: {message}"),
+            Self::Shutdown => "остановлено".to_owned(),
         }
     }
 }
@@ -463,6 +463,19 @@ fn App() -> impl IntoView {
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+    let results_ref = NodeRef::<html::Section>::new();
+
+    Effect::new(move |_| {
+        let _ = (
+            messages.get().len(),
+            pending_user_inputs.get().len(),
+            is_sending.get(),
+        );
+        if let Some(results) = results_ref.get() {
+            results.set_scroll_top(results.scroll_height());
+        }
+    });
+
     if route != "/resume" {
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
@@ -645,31 +658,31 @@ fn App() -> impl IntoView {
     let activity = move || {
         vec![
             ActivityItem {
-                label: "endpoint",
+                label: "адрес",
                 value: APP_SERVER_ORIGIN.to_owned(),
             },
             ActivityItem {
-                label: "mode",
+                label: "режим",
                 value: mode.get().label().to_owned(),
             },
             ActivityItem {
-                label: "events",
+                label: "события",
                 value: event_count.get().to_string(),
             },
             ActivityItem {
-                label: "request",
+                label: "запрос",
                 value: if is_sending.get() {
-                    "running".to_owned()
+                    "в работе".to_owned()
                 } else {
-                    "idle".to_owned()
+                    "ожидает".to_owned()
                 },
             },
             ActivityItem {
-                label: "approvals",
+                label: "доступы",
                 value: pending_approvals.get().len().to_string(),
             },
             ActivityItem {
-                label: "input",
+                label: "ввод",
                 value: pending_user_inputs.get().len().to_string(),
             },
         ]
@@ -680,15 +693,19 @@ fn App() -> impl IntoView {
             .get()
             .last()
             .map(|message| message.text.clone())
-            .unwrap_or_else(|| "No task yet".to_owned())
+            .unwrap_or_else(|| "Задач пока нет".to_owned())
     };
     let draft_stats = move || {
         let text = draft.get();
         let lines = text.lines().count().max(1);
-        format!("{} chars · {} lines", text.len(), lines)
+        format!("{} симв. · {} строк", text.len(), lines)
     };
     let request_state = move || {
-        if is_sending.get() { "running" } else { "idle" }
+        if is_sending.get() {
+            "в работе"
+        } else {
+            "ожидает"
+        }
     };
     let session_dot_class = move || match transport_status.get() {
         TransportStatus::Connecting => "session-status-dot warning",
@@ -761,13 +778,14 @@ fn App() -> impl IntoView {
                         "Proteus"
                         <span>"web"</span>
                     </h2>
-                    <button type="button" title="New session" on:click=clear_transcript>
+                    <button type="button" title="Новая сессия" on:click=clear_transcript>
                         "+"
                     </button>
                 </div>
+                <div class="sidebar-resize-hint" aria-hidden="true"></div>
 
                 <div class="sidebar-search">
-                    <input type="text" placeholder="Search sessions" readonly=true />
+                    <input type="text" placeholder="Поиск сессий" readonly=true />
                 </div>
 
                 <div class="sessions-list">
@@ -788,7 +806,7 @@ fn App() -> impl IntoView {
                 </div>
 
                 <section class="sidebar-panel">
-                    <div class="panel-kicker">"Mode"</div>
+                    <div class="panel-kicker">"Режим"</div>
                     <div class="mode-list">
                         <ModeButton value=PermissionMode::Plan mode on_select=select_mode />
                         <ModeButton value=PermissionMode::Normal mode on_select=select_mode />
@@ -797,7 +815,7 @@ fn App() -> impl IntoView {
                 </section>
 
                 <section class="sidebar-panel">
-                    <div class="panel-kicker">"Runtime"</div>
+                    <div class="panel-kicker">"Состояние"</div>
                     <For
                         each=activity
                         key=|item| item.label
@@ -823,18 +841,18 @@ fn App() -> impl IntoView {
                         </span>
                     </div>
                     <nav class="topnav">
-                        <span>{move || format!("{} events", event_count.get())}</span>
-                        <a class="topnav-link" href="/">"Session"</a>
-                        <a class="topnav-link" href="/resume">"Resume"</a>
+                        <span>{move || format!("{} событий", event_count.get())}</span>
+                        <a class="topnav-link" href="/">"Чат"</a>
+                        <a class="topnav-link" href="/resume">"Сессии"</a>
                         <button
                             type="button"
                             class="secondary danger"
                             disabled=move || active_turn_id.get().is_none()
                             on:click=cancel_turn
                         >
-                            "Cancel"
+                            "Стоп"
                         </button>
-                        <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                     </nav>
                 </header>
 
@@ -845,11 +863,11 @@ fn App() -> impl IntoView {
                     </div>
                     <div class="session-summary-meta">
                         <span>
-                            <span class="label">"request"</span>
+                            <span class="label">"запрос"</span>
                             <span class="value">{request_state}</span>
                         </span>
                         <span>
-                            <span class="label">"mode"</span>
+                            <span class="label">"режим"</span>
                             <span class="value">{move || mode.get().label()}</span>
                         </span>
                     </div>
@@ -866,7 +884,7 @@ fn App() -> impl IntoView {
                                     view! { <></> }.into_any()
                                 } else {
                                     view! {
-                                        <section class="control-plane" aria-label="Pending controls">
+                                        <section class="control-plane" aria-label="Ожидающие действия">
                                             <For
                                                 each=move || pending_approvals.get()
                                                 key=|request| request.approval_id.clone()
@@ -879,14 +897,15 @@ fn App() -> impl IntoView {
                                 }
                             }}
 
-                            <section class="results-panel" aria-label="Transcript">
+                            <section class="results-panel" aria-label="Диалог" node_ref=results_ref>
                                 {move || {
                                     let items = messages.get();
                                     let user_inputs = pending_user_inputs.get();
-                                    if items.is_empty() && user_inputs.is_empty() {
+                                    let working = is_sending.get() && user_inputs.is_empty();
+                                    if items.is_empty() && user_inputs.is_empty() && !working {
                                         view! {
                                             <div class="empty-state">
-                                                <div class="empty-state-title">"No active task"</div>
+                                                <div class="empty-state-title">"Нет активной задачи"</div>
                                             </div>
                                         }
                                         .into_any()
@@ -904,6 +923,11 @@ fn App() -> impl IntoView {
                                                     view! { <UserInputCard request on_submit=submit_user_input /> }
                                                 }
                                             />
+                                            {if working {
+                                                view! { <WorkingCard /> }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
                                         }
                                         .into_any()
                                     }
@@ -912,15 +936,15 @@ fn App() -> impl IntoView {
 
                             <form class="composer" on:submit=submit>
                                 <div class="composer-label">
-                                    {move || if mode.get() == PermissionMode::Plan { "Plan Prompt" } else { "Agent Prompt" }}
+                                    {move || if mode.get() == PermissionMode::Plan { "Запрос для плана" } else { "Запрос агенту" }}
                                 </div>
                                 <textarea
                                     prop:value=move || draft.get()
                                     placeholder=move || {
                                         if mode.get() == PermissionMode::Plan {
-                                            "Describe the topic; the agent will ask planning questions"
+                                            "Опиши тему; агент задаст уточняющие вопросы"
                                         } else {
-                                            "Ask Proteus to inspect, edit, or explain code"
+                                            "Попроси Proteus посмотреть, изменить или объяснить код"
                                         }
                                     }
                                     disabled=move || is_sending.get()
@@ -929,7 +953,7 @@ fn App() -> impl IntoView {
                                 <div class="composer-actions">
                                     <div class="composer-stats">{draft_stats}</div>
                                     <div class="composer-buttons">
-                                        <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                                         {move || {
                                             if mode.get() == PermissionMode::Plan {
                                                 view! {
@@ -939,27 +963,27 @@ fn App() -> impl IntoView {
                                                             class="secondary"
                                                             disabled=move || is_sending.get()
                                                             on:click=revise_plan
-                                                            title="Revise the latest plan with composer text"
+                                                            title="Уточнить последний план текстом из поля ввода"
                                                         >
-                                                            "Revise"
+                                                            "Уточнить"
                                                         </button>
                                                         <button
                                                             type="button"
                                                             class="secondary"
                                                             disabled=move || is_sending.get()
                                                             on:click=execute_plan
-                                                            title="Switch to normal mode and execute the latest plan"
+                                                            title="Переключиться в обычный режим и выполнить последний план"
                                                         >
-                                                            "Execute"
+                                                            "Выполнить"
                                                         </button>
                                                         <button
                                                             type="button"
                                                             class="secondary"
                                                             disabled=move || is_sending.get()
                                                             on:click=exit_plan
-                                                            title="Switch back to normal mode"
+                                                            title="Вернуться в обычный режим"
                                                         >
-                                                            "Exit"
+                                                            "Выйти"
                                                         </button>
                                                     </>
                                                 }.into_any()
@@ -970,9 +994,9 @@ fn App() -> impl IntoView {
                                                         class="secondary"
                                                         disabled=move || draft_is_empty() || is_sending.get()
                                                         on:click=send_plan
-                                                        title="Switch to plan mode and ask planning questions"
+                                                        title="Переключиться в план и задать уточняющие вопросы"
                                                     >
-                                                        "Plan"
+                                                        "План"
                                                     </button>
                                                 }.into_any()
                                             }
@@ -983,16 +1007,16 @@ fn App() -> impl IntoView {
                                             disabled=move || active_turn_id.get().is_none()
                                             on:click=cancel_turn
                                         >
-                                            "Cancel"
+                                            "Стоп"
                                         </button>
                                         <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
                                             {move || {
                                                 if is_sending.get() {
-                                                    "Running"
+                                                    "Работает"
                                                 } else if mode.get() == PermissionMode::Plan {
-                                                    "Ask Plan"
+                                                    "Спросить план"
                                                 } else {
-                                                    "Run Agent"
+                                                    "Запустить"
                                                 }
                                             }}
                                         </button>
@@ -1010,13 +1034,13 @@ fn App() -> impl IntoView {
 #[component]
 fn ResumeView() -> impl IntoView {
     let (sessions, set_sessions) = signal(Vec::<SessionSummary>::new());
-    let (status, set_status) = signal("loading sessions".to_owned());
+    let (status, set_status) = signal("загружаю сессии".to_owned());
 
     load_sessions(set_sessions, set_status);
 
     let refresh = move |_| load_sessions(set_sessions, set_status);
     let resume = move |session_dir: String| {
-        set_status.set("resuming session".to_owned());
+        set_status.set("возвращаю сессию".to_owned());
         spawn_local(async move {
             match post_json(
                 "/resume",
@@ -1028,18 +1052,18 @@ fn ResumeView() -> impl IntoView {
             .await
             {
                 Ok(StdioOutput::Response { ok: true, .. }) => {
-                    set_status.set("session resumed".to_owned());
+                    set_status.set("сессия открыта".to_owned());
                     if let Some(window) = window() {
                         let _ = window.location().set_href("/");
                     }
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
-                    set_status.set(error.unwrap_or_else(|| "resume failed".to_owned()));
+                    set_status.set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
                 }
                 Ok(StdioOutput::Event { .. }) => {
-                    set_status.set("unexpected resume event".to_owned());
+                    set_status.set("неожиданное событие resume".to_owned());
                 }
-                Err(error) => set_status.set(format!("resume failed: {error}")),
+                Err(error) => set_status.set(format!("не удалось открыть сессию: {error}")),
             }
         });
     };
@@ -1048,17 +1072,17 @@ fn ResumeView() -> impl IntoView {
         <section class="resume-page">
             <div class="resume-toolbar">
                 <div>
-                    <h2>"Resume Sessions"</h2>
+                    <h2>"Прошлые сессии"</h2>
                     <p>{move || status.get()}</p>
                 </div>
-                <button type="button" class="secondary" on:click=refresh>"Refresh"</button>
+                <button type="button" class="secondary" on:click=refresh>"Обновить"</button>
             </div>
             {move || {
                 let items = sessions.get();
                 if items.is_empty() {
                     view! {
                         <div class="empty-state">
-                            <div class="empty-state-title">"No saved sessions"</div>
+                            <div class="empty-state-title">"Сохранённых сессий нет"</div>
                         </div>
                     }.into_any()
                 } else {
@@ -1069,7 +1093,7 @@ fn ResumeView() -> impl IntoView {
                                 key=|session| session.session_dir.clone()
                                 children=move |session| {
                                     let session_dir = session.session_dir.clone();
-                                    let workspace = session.workspace_path.clone().unwrap_or_else(|| "unknown workspace".to_owned());
+                                    let workspace = session.workspace_path.clone().unwrap_or_else(|| "неизвестный workspace".to_owned());
                                     let session_id = session
                                         .session_id
                                         .as_deref()
@@ -1083,10 +1107,10 @@ fn ResumeView() -> impl IntoView {
                                                     <strong>{short_path(&workspace)}</strong>
                                                     <code>{session_id}</code>
                                                 </div>
-                                                <p>{session.preview.clone().unwrap_or_else(|| "No transcript preview".to_owned())}</p>
+                                                <p>{session.preview.clone().unwrap_or_else(|| "Нет превью диалога".to_owned())}</p>
                                                 <div class="resume-meta">
                                                     <span>{workspace}</span>
-                                                    <span>{format!("{} messages", session.message_count)}</span>
+                                                    <span>{format!("{} сообщений", session.message_count)}</span>
                                                 </div>
                                             </div>
                                             <button
@@ -1095,7 +1119,7 @@ fn ResumeView() -> impl IntoView {
                                                 disabled=!session.resumable
                                                 on:click=move |_| resume(session_dir.clone())
                                             >
-                                                "Resume"
+                                                "Открыть"
                                             </button>
                                         </article>
                                     }
@@ -1115,9 +1139,9 @@ fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: Wri
             Ok(items) => {
                 let count = items.len();
                 set_sessions.set(items);
-                set_status.set(format!("{count} sessions"));
+                set_status.set(format!("{count} сессий"));
             }
-            Err(error) => set_status.set(format!("failed to load sessions: {error}")),
+            Err(error) => set_status.set(format!("не удалось загрузить сессии: {error}")),
         }
     });
 }
@@ -1181,7 +1205,7 @@ where
             <div class="control-card-header">
                 <span class="status-badge running">
                     <span class="dot"></span>
-                    "Approval"
+                    "Доступ"
                 </span>
                 <strong>{request.call.name}</strong>
                 <code>{short_path(&request.cwd)}</code>
@@ -1189,7 +1213,7 @@ where
             <p>{spec_hint}</p>
             <pre>{args_preview}</pre>
             <div class="control-row">
-                <span class="control-label">"Cache"</span>
+                <span class="control-label">"Кэш"</span>
                 <div class="segmented">
                     <button
                         type="button"
@@ -1220,14 +1244,14 @@ where
                     class="secondary danger"
                     on:click=move |_| on_resolve(deny_id.clone(), false, ApprovalCacheScope::None)
                 >
-                    "Deny"
+                    "Отклонить"
                 </button>
                 <button
                     type="button"
                     class="btn-primary"
                     on:click=move |_| on_resolve(approve_id.clone(), true, cache.get())
                 >
-                    "Approve"
+                    "Разрешить"
                 </button>
             </div>
         </article>
@@ -1246,9 +1270,21 @@ where
     let title = request
         .title
         .clone()
-        .unwrap_or_else(|| "User input requested".to_owned());
+        .unwrap_or_else(|| "Нужен ответ".to_owned());
     let questions = request.questions.clone();
     let question_count = questions.len();
+    let tabs = questions
+        .iter()
+        .enumerate()
+        .map(|(index, question)| {
+            let label = if question.header.trim().is_empty() {
+                format!("Вопрос {}", index + 1)
+            } else {
+                question.header.clone()
+            };
+            (index, label)
+        })
+        .collect::<Vec<_>>();
 
     let submit_answers = move || {
         let mut merged = answers.get();
@@ -1273,7 +1309,7 @@ where
             <div class="task-card-header input-chat-header">
                 <span class="status-badge disconnected">
                     <span class="dot"></span>
-                    "Input"
+                    "Вопрос"
                 </span>
                 <strong>{title}</strong>
                 <span class="input-step">
@@ -1286,13 +1322,39 @@ where
                     }}
                 </span>
             </div>
+            <div class="input-tabs" role="tablist">
+                <For
+                    each=move || tabs.clone()
+                    key=|(index, _)| *index
+                    children=move |(index, label)| {
+                        view! {
+                            <button
+                                type="button"
+                                role="tab"
+                                class=move || {
+                                    if current_question.get() == index {
+                                        "active"
+                                    } else if current_question.get() > index {
+                                        "done"
+                                    } else {
+                                        ""
+                                    }
+                                }
+                                on:click=move |_| set_current_question.set(index)
+                            >
+                                <span>{label}</span>
+                            </button>
+                        }
+                    }
+                />
+            </div>
             {move || {
                 let Some(question) = questions.get(current_question.get()).cloned() else {
                     return view! {
                         <section class="input-question">
                             <div class="input-question-header">
-                                <span>"Input"</span>
-                                <strong>"No questions supplied"</strong>
+                                <span>"Вопрос"</span>
+                                <strong>"Вопросы не переданы"</strong>
                             </div>
                         </section>
                     }.into_any();
@@ -1360,7 +1422,7 @@ where
                             view! {
                                 <input
                                     type=input_type
-                                    placeholder="Custom answer"
+                                    placeholder="Свой вариант"
                                     prop:value=move || {
                                         custom_answers
                                             .get()
@@ -1388,17 +1450,35 @@ where
                     disabled=move || current_question.get() == 0
                     on:click=move |_| set_current_question.update(|index| *index = index.saturating_sub(1))
                 >
-                    "Back"
+                    "Назад"
                 </button>
                 <button type="button" class="btn-primary" on:click=confirm>
                     {move || {
                         if question_count == 0 || current_question.get() + 1 >= question_count {
-                            "Submit Answer"
+                            "Отправить"
                         } else {
-                            "Confirm"
+                            "Подтвердить"
                         }
                     }}
                 </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn WorkingCard() -> impl IntoView {
+    view! {
+        <article class="task-card running working-card">
+            <div class="task-card-header">
+                <span class="status-badge running">
+                    <span class="spinner-dot"></span>
+                    "Работает"
+                </span>
+            </div>
+            <div class="message system-message working-message">
+                <span class="cli-spinner" aria-hidden="true"></span>
+                <span>"Агент думает"</span>
             </div>
         </article>
     }
@@ -1829,7 +1909,7 @@ fn markdown_html(text: &str) -> String {
         event => event,
     });
     let mut output = String::new();
-    html::push_html(&mut output, parser);
+    markdown::push_html(&mut output, parser);
     output
 }
 
