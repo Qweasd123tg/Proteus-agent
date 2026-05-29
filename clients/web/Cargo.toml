@@ -17,6 +17,7 @@ web-sys = { version = "0.3", features = [
     "EventSource",
     "EventTarget",
     "Headers",
+    "HtmlInputElement",
     "HtmlTextAreaElement",
     "MessageEvent",
     "Request",

@@ -8,9 +8,12 @@ reference snapshots и эксперименты живут в `examples/source/`
 production-клиентом.
 
 Текущий статус: standalone Leptos/Trunk shell с transcript, composer,
-permission mode controls и HTTP/SSE client. Shell по умолчанию подключается к
+permission mode controls, approval queue, typed user-input form, cancel action
+и HTTP/SSE client. Shell по умолчанию подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
-через `/mode` и очищает history через `/clear`.
+через `/mode`, отвечает на approval через `/approval`, отправляет typed input
+через `/user-input`, отменяет turn через `/cancel` и очищает history через
+`/clear`.
 
 ## Запуск
 

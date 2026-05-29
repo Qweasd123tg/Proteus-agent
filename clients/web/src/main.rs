@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use leptos::{mount::mount_to_body, prelude::*, task::spawn_local};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -32,6 +34,25 @@ impl PermissionMode {
             Self::Plan => "read-only planning",
             Self::Normal => "ask before writes",
             Self::Auto => "write without prompts",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ApprovalCacheScope {
+    #[default]
+    None,
+    ExactCall,
+    ToolInCwd,
+}
+
+impl ApprovalCacheScope {
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "Once",
+            Self::ExactCall => "Exact",
+            Self::ToolInCwd => "Tool/CWD",
         }
     }
 }
@@ -90,6 +111,52 @@ struct ActivityItem {
     value: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct ToolCallInfo {
+    id: String,
+    name: String,
+    args: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct ApprovalRequestInfo {
+    approval_id: String,
+    call: ToolCallInfo,
+    cwd: String,
+    reason: String,
+    tool_spec: Option<Value>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+struct UserInputOption {
+    label: String,
+    description: String,
+    preview: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+struct UserInputQuestion {
+    id: String,
+    header: String,
+    question: String,
+    #[serde(default)]
+    is_other: bool,
+    #[serde(default)]
+    is_secret: bool,
+    #[serde(default, alias = "multiSelect")]
+    multi_select: bool,
+    #[serde(default)]
+    options: Vec<UserInputOption>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+struct UserInputRequestInfo {
+    request_id: String,
+    cwd: String,
+    title: Option<String>,
+    questions: Vec<UserInputQuestion>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TransportStatus {
     Connecting,
@@ -136,14 +203,14 @@ enum AppServerEvent {
         output: Value,
     },
     ApprovalRequested {
-        request: Value,
+        request: ApprovalRequestInfo,
     },
     ApprovalResolved {
         approval_id: String,
         approved: bool,
     },
     UserInputRequested {
-        request: Value,
+        request: UserInputRequestInfo,
     },
     UserInputResolved {
         request_id: String,
@@ -168,6 +235,39 @@ struct SetPermissionModeRequest {
     mode: PermissionMode,
 }
 
+#[derive(Debug, Serialize)]
+struct ResolveApprovalRequest {
+    id: Option<String>,
+    approval_id: String,
+    approved: bool,
+    note: Option<String>,
+    #[serde(default)]
+    cache: ApprovalCacheScope,
+}
+
+#[derive(Debug, Serialize)]
+struct UserInputSubmitRequest {
+    id: Option<String>,
+    request_id: String,
+    response: UserInputResponseBody,
+}
+
+#[derive(Debug, Serialize)]
+struct UserInputResponseBody {
+    answers: HashMap<String, UserInputAnswerBody>,
+}
+
+#[derive(Debug, Serialize)]
+struct UserInputAnswerBody {
+    answers: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CancelRequest {
+    id: Option<String>,
+    target_id: String,
+}
+
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
@@ -185,6 +285,9 @@ fn App() -> impl IntoView {
     let (workspace_label, set_workspace_label) = signal("waiting for session".to_owned());
     let (session_label, set_session_label) = signal("not started".to_owned());
     let (is_sending, set_is_sending) = signal(false);
+    let (active_turn_id, set_active_turn_id) = signal(None::<String>);
+    let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
+    let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
 
     connect_event_stream(
         set_messages,
@@ -195,6 +298,9 @@ fn App() -> impl IntoView {
         set_workspace_label,
         set_session_label,
         set_is_sending,
+        set_active_turn_id,
+        set_pending_approvals,
+        set_pending_user_inputs,
     );
 
     let clear_transcript = move |_| {
@@ -257,6 +363,123 @@ fn App() -> impl IntoView {
         });
     };
 
+    let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
+        let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
+        spawn_local(async move {
+            match post_json(
+                "/approval",
+                &ResolveApprovalRequest {
+                    id: Some(request_id),
+                    approval_id,
+                    approved,
+                    note: None,
+                    cache,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                ),
+                Err(error) => {
+                    set_transport_status.set(TransportStatus::Error(error.clone()));
+                    push_message(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        MessageRole::System,
+                        format!("Approval response failed: {error}"),
+                    );
+                }
+            }
+        });
+    };
+
+    let submit_user_input =
+        move |request_id_value: String, answers: HashMap<String, Vec<String>>| {
+            let request_id = take_request_id(next_request_id, set_next_request_id, "input");
+            let response = UserInputResponseBody {
+                answers: answers
+                    .into_iter()
+                    .map(|(question_id, answers)| (question_id, UserInputAnswerBody { answers }))
+                    .collect(),
+            };
+            spawn_local(async move {
+                match post_json(
+                    "/user-input",
+                    &UserInputSubmitRequest {
+                        id: Some(request_id),
+                        request_id: request_id_value,
+                        response,
+                    },
+                )
+                .await
+                {
+                    Ok(output) => handle_command_response(
+                        output,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    ),
+                    Err(error) => {
+                        set_transport_status.set(TransportStatus::Error(error.clone()));
+                        push_message(
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            MessageRole::System,
+                            format!("User input response failed: {error}"),
+                        );
+                    }
+                }
+            });
+        };
+
+    let cancel_turn = move |_| {
+        let Some(target_id) = active_turn_id.get() else {
+            return;
+        };
+        let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
+        spawn_local(async move {
+            match post_json(
+                "/cancel",
+                &CancelRequest {
+                    id: Some(request_id),
+                    target_id,
+                },
+            )
+            .await
+            {
+                Ok(output) => {
+                    set_is_sending.set(false);
+                    set_active_turn_id.set(None);
+                    handle_command_response(
+                        output,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                }
+                Err(error) => {
+                    set_transport_status.set(TransportStatus::Error(error.clone()));
+                    push_message(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        MessageRole::System,
+                        format!("Cancel failed: {error}"),
+                    );
+                }
+            }
+        });
+    };
+
     let activity = move || {
         vec![
             ActivityItem {
@@ -278,6 +501,14 @@ fn App() -> impl IntoView {
                 } else {
                     "idle".to_owned()
                 },
+            },
+            ActivityItem {
+                label: "approvals",
+                value: pending_approvals.get().len().to_string(),
+            },
+            ActivityItem {
+                label: "input",
+                value: pending_user_inputs.get().len().to_string(),
             },
         ]
     };
@@ -324,6 +555,7 @@ fn App() -> impl IntoView {
         set_draft.set(String::new());
         set_is_sending.set(true);
         let request_id = take_request_id(next_request_id, set_next_request_id, "send");
+        set_active_turn_id.set(Some(request_id.clone()));
         spawn_local(async move {
             match post_json(
                 "/send",
@@ -336,6 +568,7 @@ fn App() -> impl IntoView {
             {
                 Ok(output) => {
                     set_is_sending.set(false);
+                    set_active_turn_id.set(None);
                     if let StdioOutput::Response {
                         ok: true,
                         output: Some(value),
@@ -361,6 +594,7 @@ fn App() -> impl IntoView {
                 }
                 Err(error) => {
                     set_is_sending.set(false);
+                    set_active_turn_id.set(None);
                     set_transport_status.set(TransportStatus::Error(error.clone()));
                     push_message(
                         set_messages,
@@ -445,6 +679,14 @@ fn App() -> impl IntoView {
                     </div>
                     <nav class="topnav">
                         <span>{move || format!("{} events", event_count.get())}</span>
+                        <button
+                            type="button"
+                            class="secondary danger"
+                            disabled=move || active_turn_id.get().is_none()
+                            on:click=cancel_turn
+                        >
+                            "Cancel"
+                        </button>
                         <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
                     </nav>
                 </header>
@@ -467,6 +709,33 @@ fn App() -> impl IntoView {
                 </section>
 
                 <section class="session-workspace">
+                    {move || {
+                        let approvals = pending_approvals.get();
+                        let user_inputs = pending_user_inputs.get();
+                        if approvals.is_empty() && user_inputs.is_empty() {
+                            view! { <></> }.into_any()
+                        } else {
+                            view! {
+                                <section class="control-plane" aria-label="Pending controls">
+                                    <For
+                                        each=move || pending_approvals.get()
+                                        key=|request| request.approval_id.clone()
+                                        children=move |request| {
+                                            view! { <ApprovalCard request on_resolve=resolve_approval /> }
+                                        }
+                                    />
+                                    <For
+                                        each=move || pending_user_inputs.get()
+                                        key=|request| request.request_id.clone()
+                                        children=move |request| {
+                                            view! { <UserInputCard request on_submit=submit_user_input /> }
+                                        }
+                                    />
+                                </section>
+                            }.into_any()
+                        }
+                    }}
+
                     <section class="results-panel" aria-label="Transcript">
                         {move || {
                             if messages.get().is_empty() {
@@ -501,6 +770,14 @@ fn App() -> impl IntoView {
                             <div class="composer-stats">{draft_stats}</div>
                             <div class="composer-buttons">
                                 <button type="button" class="secondary" on:click=clear_transcript>"Clear"</button>
+                                <button
+                                    type="button"
+                                    class="secondary danger"
+                                    disabled=move || active_turn_id.get().is_none()
+                                    on:click=cancel_turn
+                                >
+                                    "Cancel"
+                                </button>
                                 <button type="submit" class="btn-primary" disabled=move || is_sending.get()>
                                     {move || if is_sending.get() { "Running" } else { "Run Agent" }}
                                 </button>
@@ -510,6 +787,213 @@ fn App() -> impl IntoView {
                 </section>
             </main>
         </div>
+    }
+}
+
+#[component]
+fn ApprovalCard<F>(request: ApprovalRequestInfo, on_resolve: F) -> impl IntoView
+where
+    F: Fn(String, bool, ApprovalCacheScope) + Copy + 'static,
+{
+    let (cache, set_cache) = signal(ApprovalCacheScope::None);
+    let approve_id = request.approval_id.clone();
+    let deny_id = request.approval_id.clone();
+    let args_preview = compact_json(&request.call.args);
+    let spec_hint = request
+        .tool_spec
+        .as_ref()
+        .and_then(|spec| spec.get("description"))
+        .and_then(Value::as_str)
+        .unwrap_or(&request.reason)
+        .to_owned();
+
+    view! {
+        <article class="control-card approval-card">
+            <div class="control-card-header">
+                <span class="status-badge running">
+                    <span class="dot"></span>
+                    "Approval"
+                </span>
+                <strong>{request.call.name}</strong>
+                <code>{short_path(&request.cwd)}</code>
+            </div>
+            <p>{spec_hint}</p>
+            <pre>{args_preview}</pre>
+            <div class="control-row">
+                <span class="control-label">"Cache"</span>
+                <div class="segmented">
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::None
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::None)
+                    >
+                        {ApprovalCacheScope::None.label()}
+                    </button>
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::ExactCall
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::ExactCall)
+                    >
+                        {ApprovalCacheScope::ExactCall.label()}
+                    </button>
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::ToolInCwd
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::ToolInCwd)
+                    >
+                        {ApprovalCacheScope::ToolInCwd.label()}
+                    </button>
+                </div>
+            </div>
+            <div class="control-actions">
+                <button
+                    type="button"
+                    class="secondary danger"
+                    on:click=move |_| on_resolve(deny_id.clone(), false, ApprovalCacheScope::None)
+                >
+                    "Deny"
+                </button>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    on:click=move |_| on_resolve(approve_id.clone(), true, cache.get())
+                >
+                    "Approve"
+                </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn UserInputCard<F>(request: UserInputRequestInfo, on_submit: F) -> impl IntoView
+where
+    F: Fn(String, HashMap<String, Vec<String>>) + Copy + 'static,
+{
+    let (answers, set_answers) = signal(HashMap::<String, Vec<String>>::new());
+    let (custom_answers, set_custom_answers) = signal(HashMap::<String, String>::new());
+    let request_id = request.request_id.clone();
+    let title = request
+        .title
+        .clone()
+        .unwrap_or_else(|| "User input requested".to_owned());
+
+    let submit = move |_| {
+        let mut merged = answers.get();
+        for (question_id, value) in custom_answers.get() {
+            let value = value.trim().to_owned();
+            if !value.is_empty() {
+                merged.entry(question_id).or_default().push(value);
+            }
+        }
+        on_submit(request_id.clone(), merged);
+    };
+
+    view! {
+        <article class="control-card input-card">
+            <div class="control-card-header">
+                <span class="status-badge disconnected">
+                    <span class="dot"></span>
+                    "Input"
+                </span>
+                <strong>{title}</strong>
+                <code>{short_path(&request.cwd)}</code>
+            </div>
+            <For
+                each=move || request.questions.clone()
+                key=|question| question.id.clone()
+                children=move |question| {
+                    let question_id = question.id.clone();
+                    let custom_value_question_id = question.id.clone();
+                    let custom_write_question_id = question.id.clone();
+                    let header = question.header.clone();
+                    let question_text = question.question.clone();
+                    let options = question.options.clone();
+                    let multi_select = question.multi_select;
+                    let show_custom = question.is_other || question.options.is_empty();
+                    let input_type = if question.is_secret { "password" } else { "text" };
+
+                    view! {
+                        <section class="input-question">
+                            <div class="input-question-header">
+                                <span>{header}</span>
+                                <strong>{question_text}</strong>
+                            </div>
+                            <div class="choice-grid">
+                                <For
+                                    each=move || options.clone()
+                                    key=|option| option.label.clone()
+                                    children=move |option| {
+                                        let selected_question_id = question_id.clone();
+                                        let selected_label = option.label.clone();
+                                        let click_question_id = question_id.clone();
+                                        let click_label = option.label.clone();
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="choice-button"
+                                                class:active=move || {
+                                                    answers
+                                                        .get()
+                                                        .get(&selected_question_id)
+                                                        .is_some_and(|values| values.contains(&selected_label))
+                                                }
+                                                on:click=move |_| {
+                                                    let question_id = click_question_id.clone();
+                                                    let label = click_label.clone();
+                                                    set_answers.update(|all| {
+                                                        if multi_select {
+                                                            let values = all.entry(question_id).or_default();
+                                                            if let Some(index) = values.iter().position(|value| value == &label) {
+                                                                values.remove(index);
+                                                            } else {
+                                                                values.push(label);
+                                                            }
+                                                        } else {
+                                                            all.insert(question_id, vec![label]);
+                                                        }
+                                                    });
+                                                }
+                                            >
+                                                <span>{option.label}</span>
+                                                <small>{option.description}</small>
+                                            </button>
+                                        }
+                                    }
+                                />
+                            </div>
+                            {if show_custom {
+                                view! {
+                                    <input
+                                        type=input_type
+                                        placeholder="Custom answer"
+                                        prop:value=move || {
+                                            custom_answers
+                                                .get()
+                                                .get(&custom_value_question_id)
+                                                .cloned()
+                                                .unwrap_or_default()
+                                        }
+                                        on:input:target=move |ev| {
+                                            set_custom_answers.update(|answers| {
+                                                answers.insert(custom_write_question_id.clone(), ev.target().value());
+                                            });
+                                        }
+                                    />
+                                }.into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }}
+                        </section>
+                    }
+                }
+            />
+            <div class="control-actions">
+                <button type="button" class="btn-primary" on:click=submit>
+                    "Submit Answer"
+                </button>
+            </div>
+        </article>
     }
 }
 
@@ -565,6 +1049,9 @@ fn connect_event_stream(
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
     let url = format!("{APP_SERVER_ORIGIN}/events");
     let source = match EventSource::new(&url) {
@@ -610,6 +1097,9 @@ fn connect_event_stream(
                     set_workspace_label,
                     set_session_label,
                     set_is_sending,
+                    set_active_turn_id,
+                    set_pending_approvals,
+                    set_pending_user_inputs,
                 ),
                 Err(error) => push_message(
                     output_messages,
@@ -644,6 +1134,9 @@ fn handle_app_output(
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
     match output {
         StdioOutput::Event { event } => {
@@ -657,6 +1150,9 @@ fn handle_app_output(
                 set_workspace_label,
                 set_session_label,
                 set_is_sending,
+                set_active_turn_id,
+                set_pending_approvals,
+                set_pending_user_inputs,
             );
         }
         StdioOutput::Response { .. } => handle_command_response(
@@ -678,6 +1174,9 @@ fn handle_app_event(
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
     match event {
         AppServerEvent::Runtime { envelope } => {
@@ -692,6 +1191,7 @@ fn handle_app_event(
         ),
         AppServerEvent::TurnOutput { output } => {
             set_is_sending.set(false);
+            set_active_turn_id.set(None);
             push_message(
                 set_messages,
                 next_message_id,
@@ -700,39 +1200,58 @@ fn handle_app_event(
                 output_text(&output),
             );
         }
-        AppServerEvent::ApprovalRequested { request } => push_message(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            MessageRole::System,
-            format!("Approval requested: {}", compact_json(&request)),
-        ),
+        AppServerEvent::ApprovalRequested { request } => {
+            set_pending_approvals.update(|items| items.push(request.clone()));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("Approval requested for {}", request.call.name),
+            );
+        }
         AppServerEvent::ApprovalResolved {
             approval_id,
             approved,
-        } => push_message(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            MessageRole::System,
-            format!("Approval {approval_id} resolved: {approved}"),
-        ),
-        AppServerEvent::UserInputRequested { request } => push_message(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            MessageRole::System,
-            format!("User input requested: {}", compact_json(&request)),
-        ),
-        AppServerEvent::UserInputResolved { request_id } => push_message(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            MessageRole::System,
-            format!("User input resolved: {request_id}"),
-        ),
+        } => {
+            set_pending_approvals
+                .update(|items| items.retain(|item| item.approval_id != approval_id));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("Approval {approval_id} resolved: {approved}"),
+            );
+        }
+        AppServerEvent::UserInputRequested { request } => {
+            set_pending_user_inputs.update(|items| items.push(request.clone()));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!(
+                    "User input requested: {}",
+                    request.title.as_deref().unwrap_or("additional information")
+                ),
+            );
+        }
+        AppServerEvent::UserInputResolved { request_id } => {
+            set_pending_user_inputs.update(|items| {
+                items.retain(|item| item.request_id != request_id);
+            });
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("User input resolved: {request_id}"),
+            );
+        }
         AppServerEvent::Error { message } => {
             set_is_sending.set(false);
+            set_active_turn_id.set(None);
             push_message(
                 set_messages,
                 next_message_id,
@@ -743,6 +1262,7 @@ fn handle_app_event(
         }
         AppServerEvent::Shutdown => {
             set_is_sending.set(false);
+            set_active_turn_id.set(None);
             set_transport_status.set(TransportStatus::Shutdown);
             push_message(
                 set_messages,
