@@ -1043,43 +1043,6 @@ textarea {
     color: var(--text-muted);
 }
 
-.plan-chat-card {
-    margin-bottom: var(--space-5);
-}
-
-.plan-chat-message {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-}
-
-.plan-chat-title {
-    display: grid;
-    min-width: 0;
-    gap: 1px;
-}
-
-.plan-chat-title strong {
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.plan-chat-title span {
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-}
-
-.plan-chat-actions {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: var(--space-2);
-}
-
 .composer {
     display: grid;
     flex-shrink: 0;
@@ -1210,21 +1173,6 @@ textarea {
     .resume-item,
     .resume-item button {
         width: 100%;
-    }
-
-    .plan-chat-message {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .plan-chat-actions {
-        width: 100%;
-        flex-wrap: wrap;
-    }
-
-    .plan-chat-actions button {
-        flex: 1 1 120px;
-        justify-content: center;
     }
 
     .results-panel {
