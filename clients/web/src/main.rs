@@ -891,7 +891,9 @@ fn App() -> impl IntoView {
 
                             <section class="results-panel" aria-label="Transcript">
                                 {move || {
-                                    if messages.get().is_empty() {
+                                    let items = messages.get();
+                                    let show_plan_card = mode.get() == PermissionMode::Plan;
+                                    if items.is_empty() && !show_plan_card {
                                         view! {
                                             <div class="empty-state">
                                                 <div class="empty-state-title">"No active task"</div>
@@ -901,76 +903,73 @@ fn App() -> impl IntoView {
                                     } else {
                                         view! {
                                             <For
-                                                each=move || messages.get()
+                                                each=move || items.clone()
                                                 key=|message| message.id
                                                 children=move |message| view! { <MessageView message /> }
                                             />
+                                            {if show_plan_card {
+                                                view! {
+                                                    <article class="task-card running plan-chat-card">
+                                                        <div class="task-card-header">
+                                                            <span class="status-badge running">
+                                                                <span class="dot"></span>
+                                                                "Plan"
+                                                            </span>
+                                                        </div>
+                                                        <div class="message system-message plan-chat-message">
+                                                            <div class="plan-chat-title">
+                                                                <strong>"Plan mode"</strong>
+                                                                <span>"read-only"</span>
+                                                            </div>
+                                                            <div class="plan-chat-actions">
+                                                                <button
+                                                                    type="button"
+                                                                    class="secondary"
+                                                                    disabled=move || draft_is_empty() || is_sending.get()
+                                                                    on:click=send_plan
+                                                                    title="Ask for a read-only staged plan"
+                                                                >
+                                                                    "Ask Plan"
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    class="secondary"
+                                                                    disabled=move || is_sending.get()
+                                                                    on:click=revise_plan
+                                                                    title="Revise the latest plan with composer text"
+                                                                >
+                                                                    "Revise"
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    class="btn-primary"
+                                                                    disabled=move || !has_assistant_message() || is_sending.get()
+                                                                    on:click=execute_plan
+                                                                    title="Switch to normal mode and execute the latest plan"
+                                                                >
+                                                                    "Execute"
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    class="secondary"
+                                                                    disabled=move || is_sending.get()
+                                                                    on:click=exit_plan
+                                                                    title="Switch back to normal mode"
+                                                                >
+                                                                    "Exit"
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </article>
+                                                }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
                                         }
                                         .into_any()
                                     }
                                 }}
                             </section>
-
-                            {move || {
-                                if mode.get() == PermissionMode::Plan {
-                                    view! {
-                                        <section class="plan-controls" aria-label="Plan mode controls">
-                                            <div class="plan-panel">
-                                                <div class="plan-panel-main">
-                                                    <span class="status-badge running">
-                                                        <span class="dot"></span>
-                                                        "Plan"
-                                                    </span>
-                                                    <div class="plan-panel-title">
-                                                        <strong>"Plan mode"</strong>
-                                                        <span>"read-only"</span>
-                                                    </div>
-                                                </div>
-                                                <div class="plan-panel-actions">
-                                                    <button
-                                                        type="button"
-                                                        class="secondary"
-                                                        disabled=move || draft_is_empty() || is_sending.get()
-                                                        on:click=send_plan
-                                                        title="Ask for a read-only staged plan"
-                                                    >
-                                                        "Ask Plan"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="secondary"
-                                                        disabled=move || is_sending.get()
-                                                        on:click=revise_plan
-                                                        title="Revise the latest plan with composer text"
-                                                    >
-                                                        "Revise"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="btn-primary"
-                                                        disabled=move || !has_assistant_message() || is_sending.get()
-                                                        on:click=execute_plan
-                                                        title="Switch to normal mode and execute the latest plan"
-                                                    >
-                                                        "Execute"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="secondary"
-                                                        disabled=move || is_sending.get()
-                                                        on:click=exit_plan
-                                                        title="Switch back to normal mode"
-                                                    >
-                                                        "Exit"
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </section>
-                                    }.into_any()
-                                } else {
-                                    view! { <></> }.into_any()
-                                }
-                            }}
 
                             <form class="composer" on:submit=submit>
                                 <div class="composer-label">"Agent Prompt"</div>
