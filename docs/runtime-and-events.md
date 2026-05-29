@@ -204,14 +204,20 @@ HTTP/SSE transport:
 - `GET /health` - healthcheck;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`;
 - `GET /config` - текущий config summary;
+- `GET /sessions` - durable session summaries из config store;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
 - `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode` - короткие
   endpoint'ы над соответствующими `StdioRequest` вариантами;
+- `POST /resume` - переключает текущий HTTP app-server на выбранный
+  `session_dir`, если сейчас нет running turn;
 - `POST /clear` и `/shutdown` - control-plane команды без body.
 
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`.
+После `/resume` web-клиент открывает новый SSE connection: pending
+approval/user-input старой session закрываются, новый runtime стартует уже с
+history выбранной session.
 
 ## Session Store
 

@@ -1,13 +1,17 @@
 use std::{
     path::{Component, Path, PathBuf},
     sync::Arc,
+    time::UNIX_EPOCH,
 };
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
-use crate::{domain::SessionId, model_standard::CanonicalMessage};
+use crate::{
+    domain::SessionId,
+    model_standard::{CanonicalMessage, ContentPart},
+};
 
 const SESSION_METADATA_FILE: &str = "session.json";
 
@@ -27,6 +31,21 @@ struct SessionMetadata {
     session_id: SessionId,
     #[serde(default)]
     workspace_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub session_dir: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_path: Option<PathBuf>,
+    pub message_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    pub resumable: bool,
 }
 
 impl SessionStore {
@@ -153,6 +172,44 @@ impl SessionStore {
     }
 }
 
+pub fn list_session_summaries(config_root: &Path) -> Result<Vec<SessionSummary>> {
+    let sessions_root = config_root.join("sessions");
+    let workspace_dirs = match std::fs::read_dir(&sessions_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", sessions_root.display()));
+        }
+    };
+
+    let mut summaries = Vec::new();
+    for workspace_entry in workspace_dirs {
+        let workspace_entry = workspace_entry?;
+        if !workspace_entry.file_type()?.is_dir() {
+            continue;
+        }
+
+        for session_entry in std::fs::read_dir(workspace_entry.path())? {
+            let session_entry = session_entry?;
+            if !session_entry.file_type()?.is_dir() {
+                continue;
+            }
+
+            let session_dir = session_entry.path();
+            summaries.push(session_summary_from_dir(session_dir)?);
+        }
+    }
+
+    summaries.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.session_dir.cmp(&left.session_dir))
+    });
+    Ok(summaries)
+}
+
 pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     if session_path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
         return session_path
@@ -181,6 +238,86 @@ pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<Option<P
     }
 
     Ok(infer_workspace_path_from_session_dir(session_dir))
+}
+
+fn session_summary_from_dir(session_dir: PathBuf) -> Result<SessionSummary> {
+    let metadata = read_session_metadata(&session_dir)?;
+    let workspace_path = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.workspace_path.clone())
+        .or_else(|| infer_workspace_path_from_session_dir(&session_dir));
+    let (message_count, preview) = messages_summary(&session_dir.join("messages.jsonl"))?;
+    let updated_at_ms = session_updated_at_ms(&session_dir.join("messages.jsonl"))
+        .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
+
+    Ok(SessionSummary {
+        session_dir,
+        session_id: metadata.as_ref().map(|metadata| metadata.session_id),
+        workspace_path,
+        message_count,
+        updated_at_ms,
+        preview,
+        resumable: metadata.is_some(),
+    })
+}
+
+fn messages_summary(messages_path: &Path) -> Result<(usize, Option<String>)> {
+    let content = match std::fs::read_to_string(messages_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((0, None)),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", messages_path.display()));
+        }
+    };
+
+    let mut count = 0;
+    let mut preview = None;
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        count += 1;
+        if let Ok(message) = serde_json::from_str::<CanonicalMessage>(line)
+            && let Some(text) = message_text_preview(&message)
+        {
+            preview = Some(text);
+        }
+    }
+    Ok((count, preview))
+}
+
+fn message_text_preview(message: &CanonicalMessage) -> Option<String> {
+    message.parts.iter().find_map(|part| match part {
+        ContentPart::Text { text }
+        | ContentPart::ReasoningSummary { text }
+        | ContentPart::Reasoning { text, signature: _ } => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| truncate_preview(text))
+        }
+        ContentPart::ToolResult { result } => {
+            let text = result.text_or_status();
+            let text = text.trim();
+            (!text.is_empty()).then(|| truncate_preview(text))
+        }
+        _ => None,
+    })
+}
+
+fn truncate_preview(text: &str) -> String {
+    let limit = 160;
+    if text.chars().count() <= limit {
+        text.to_owned()
+    } else {
+        format!("{}...", text.chars().take(limit).collect::<String>())
+    }
+}
+
+fn session_updated_at_ms(path: &Path) -> Option<u64> {
+    path.metadata()
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
 }
 
 fn read_session_metadata(session_dir: &Path) -> Result<Option<SessionMetadata>> {
@@ -373,6 +510,30 @@ mod tests {
 
         assert_eq!(parsed, session_id);
         assert_eq!(workspace.as_deref(), Some(cwd.path()));
+    }
+
+    #[tokio::test]
+    async fn list_session_summaries_returns_recent_resumable_sessions() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let session_id = new_session_id();
+        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        store
+            .append_messages(&[
+                CanonicalMessage::text(MessageRole::User, "inspect this project"),
+                CanonicalMessage::text(MessageRole::Assistant, "done"),
+            ])
+            .await
+            .expect("append messages");
+
+        let summaries = list_session_summaries(config_dir.path()).expect("sessions");
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].session_id, Some(session_id));
+        assert_eq!(summaries[0].workspace_path.as_deref(), Some(cwd.path()));
+        assert_eq!(summaries[0].message_count, 2);
+        assert_eq!(summaries[0].preview.as_deref(), Some("done"));
+        assert!(summaries[0].resumable);
     }
 
     #[test]

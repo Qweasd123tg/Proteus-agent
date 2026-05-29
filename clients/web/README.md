@@ -13,7 +13,8 @@ permission mode controls, approval queue, typed user-input form, cancel action
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
 через `/mode`, отвечает на approval через `/approval`, отправляет typed input
 через `/user-input`, отменяет turn через `/cancel` и очищает history через
-`/clear`.
+`/clear`. Страница `/resume` читает прошлые sessions через `/sessions` и
+переключает текущий app-server на выбранную session через `/resume`.
 
 ## Запуск
 
