@@ -359,6 +359,10 @@ request с новым permission override. В plan mode UI может допол
 следует interview-first модели: для широких или недоопределённых задач модель
 должна сначала запросить существенные решения через typed question tool, а
 финальный staged plan писать только после ответов или явного skip.
+Web-клиент реализует минимальный plan action bar: `Ask Plan` отправляет
+planning prompt в `PermissionMode::Plan`, `Revise` уточняет последний план,
+`Execute` переключает следующую команду в `PermissionMode::Normal`, а `Exit`
+возвращает обычный режим без запуска turn.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`,
 app-server публикует `AppServerEvent::UserInputRequested`, UI открывает generic
 form для вопросов/single-choice/`multiSelect`/custom answers и отвечает через
