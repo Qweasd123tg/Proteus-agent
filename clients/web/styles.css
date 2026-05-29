@@ -917,10 +917,115 @@ textarea {
     line-height: 1.7;
 }
 
+.message > * + * {
+    margin-top: var(--space-3);
+}
+
 .message p {
-    margin: 0;
     overflow-wrap: anywhere;
-    white-space: pre-wrap;
+}
+
+.message h1,
+.message h2,
+.message h3,
+.message h4 {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.message h1 {
+    font-size: 16px;
+}
+
+.message h2 {
+    font-size: 15px;
+}
+
+.message ul,
+.message ol {
+    display: grid;
+    gap: var(--space-1);
+    padding-left: var(--space-5);
+}
+
+.message li {
+    overflow-wrap: anywhere;
+}
+
+.message a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
+.message a:hover {
+    text-decoration: underline;
+}
+
+.message code {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 1px 4px;
+}
+
+.message pre {
+    overflow: auto;
+    max-width: 100%;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-main);
+    padding: var(--space-3);
+}
+
+.message pre code {
+    display: block;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+}
+
+.message blockquote {
+    border-left: 2px solid var(--border-strong);
+    color: var(--text-muted);
+    padding-left: var(--space-3);
+}
+
+.message table {
+    display: block;
+    overflow-x: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.message th,
+.message td {
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    vertical-align: top;
+}
+
+.message th {
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.message hr {
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.message input[type="checkbox"] {
+    width: auto;
+    margin-right: var(--space-2);
+    vertical-align: middle;
 }
 
 .user-message {

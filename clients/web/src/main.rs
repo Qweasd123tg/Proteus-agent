@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use leptos::{mount::mount_to_body, prelude::*, task::spawn_local};
+use pulldown_cmark::{Event as MarkdownEvent, Options as MarkdownOptions, Parser, html};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
@@ -1166,6 +1167,7 @@ fn MessageView(message: Message) -> impl IntoView {
     let card_class = message.role.card_class();
     let message_class = message.role.message_class();
     let badge_class = message.role.badge_class();
+    let html = markdown_html(&message.text);
     view! {
         <article class=card_class>
             <div class="task-card-header">
@@ -1174,9 +1176,7 @@ fn MessageView(message: Message) -> impl IntoView {
                     {message.role.label()}
                 </span>
             </div>
-            <div class=message_class>
-                <p>{message.text}</p>
-            </div>
+            <div class=message_class inner_html=html></div>
         </article>
     }
 }
@@ -1549,6 +1549,20 @@ fn compact_json(value: &Value) -> String {
     } else {
         text
     }
+}
+
+fn markdown_html(text: &str) -> String {
+    let mut options = MarkdownOptions::empty();
+    options.insert(MarkdownOptions::ENABLE_TABLES);
+    options.insert(MarkdownOptions::ENABLE_STRIKETHROUGH);
+    options.insert(MarkdownOptions::ENABLE_TASKLISTS);
+    let parser = Parser::new_ext(text, options).map(|event| match event {
+        MarkdownEvent::Html(raw) | MarkdownEvent::InlineHtml(raw) => MarkdownEvent::Text(raw),
+        event => event,
+    });
+    let mut output = String::new();
+    html::push_html(&mut output, parser);
+    output
 }
 
 fn short_path(path: &str) -> String {
