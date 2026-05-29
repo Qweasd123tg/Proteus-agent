@@ -292,6 +292,14 @@ struct ResumeSessionRequest {
     session_dir: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlanPreset {
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    instruction: &'static str,
+}
+
 #[derive(Clone, Copy)]
 struct AppActions {
     set_messages: WriteSignal<Vec<Message>>,
@@ -463,6 +471,8 @@ fn App() -> impl IntoView {
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+    let (plan_preset, set_plan_preset) = signal("inspect".to_owned());
+    let (plan_custom, set_plan_custom) = signal(String::new());
 
     if route != "/resume" {
         load_transcript(set_messages, set_next_message_id, set_transport_status);
@@ -720,8 +730,13 @@ fn App() -> impl IntoView {
         if text.trim().is_empty() || is_sending.get() {
             return;
         }
+        let preset = plan_preset.get();
+        let custom = plan_custom.get();
         set_draft.set(String::new());
-        actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
+        actions.send_prompt(
+            planning_prompt(&text, &preset, &custom),
+            Some(PermissionMode::Plan),
+        );
     };
     let revise_plan = move |_| {
         let text = draft.get();
@@ -915,54 +930,91 @@ fn App() -> impl IntoView {
                             {move || {
                                 if mode.get() == PermissionMode::Plan {
                                     view! {
-                                        <section class="plan-panel" aria-label="Plan mode controls">
-                                            <div class="plan-panel-main">
-                                                <span class="status-badge running">
-                                                    <span class="dot"></span>
-                                                    "Plan"
-                                                </span>
-                                                <div class="plan-panel-title">
-                                                    <strong>"Plan mode"</strong>
-                                                    <span>"read-only"</span>
+                                        <section class="plan-controls" aria-label="Plan mode controls">
+                                            <div class="plan-panel">
+                                                <div class="plan-panel-main">
+                                                    <span class="status-badge running">
+                                                        <span class="dot"></span>
+                                                        "Plan"
+                                                    </span>
+                                                    <div class="plan-panel-title">
+                                                        <strong>"Plan mode"</strong>
+                                                        <span>"read-only"</span>
+                                                    </div>
+                                                </div>
+                                                <div class="plan-panel-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="secondary"
+                                                        disabled=move || draft_is_empty() || is_sending.get()
+                                                        on:click=send_plan
+                                                        title="Ask for a read-only staged plan"
+                                                    >
+                                                        "Ask Plan"
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="secondary"
+                                                        disabled=move || is_sending.get()
+                                                        on:click=revise_plan
+                                                        title="Revise the latest plan with composer text"
+                                                    >
+                                                        "Revise"
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="btn-primary"
+                                                        disabled=move || !has_assistant_message() || is_sending.get()
+                                                        on:click=execute_plan
+                                                        title="Switch to normal mode and execute the latest plan"
+                                                    >
+                                                        "Execute"
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="secondary"
+                                                        disabled=move || is_sending.get()
+                                                        on:click=exit_plan
+                                                        title="Switch back to normal mode"
+                                                    >
+                                                        "Exit"
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div class="plan-panel-actions">
-                                                <button
-                                                    type="button"
-                                                    class="secondary"
-                                                    disabled=move || draft_is_empty() || is_sending.get()
-                                                    on:click=send_plan
-                                                    title="Ask for a read-only staged plan"
-                                                >
-                                                    "Ask Plan"
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="secondary"
+                                            <div class="plan-intake">
+                                                <div class="plan-intake-header">
+                                                    <span class="control-label">"Plan intake"</span>
+                                                    <strong>"Choose planning style"</strong>
+                                                </div>
+                                                <div class="choice-grid">
+                                                    <For
+                                                        each=plan_presets
+                                                        key=|preset| preset.id
+                                                        children=move |preset| {
+                                                            let id = preset.id.to_owned();
+                                                            let selected_id = preset.id.to_owned();
+                                                            view! {
+                                                                <button
+                                                                    type="button"
+                                                                    class="choice-button"
+                                                                    class:active=move || plan_preset.get() == selected_id
+                                                                    disabled=move || is_sending.get()
+                                                                    on:click=move |_| set_plan_preset.set(id.clone())
+                                                                >
+                                                                    <span>{preset.label}</span>
+                                                                    <small>{preset.description}</small>
+                                                                </button>
+                                                            }
+                                                        }
+                                                    />
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Other / custom constraints"
+                                                    prop:value=move || plan_custom.get()
                                                     disabled=move || is_sending.get()
-                                                    on:click=revise_plan
-                                                    title="Revise the latest plan with composer text"
-                                                >
-                                                    "Revise"
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="btn-primary"
-                                                    disabled=move || !has_assistant_message() || is_sending.get()
-                                                    on:click=execute_plan
-                                                    title="Switch to normal mode and execute the latest plan"
-                                                >
-                                                    "Execute"
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="secondary"
-                                                    disabled=move || is_sending.get()
-                                                    on:click=exit_plan
-                                                    title="Switch back to normal mode"
-                                                >
-                                                    "Exit"
-                                                </button>
+                                                    on:input:target=move |ev| set_plan_custom.set(ev.target().value())
+                                                />
                                             </div>
                                         </section>
                                     }.into_any()
@@ -1779,9 +1831,53 @@ fn output_text(output: &Value) -> String {
         .to_owned()
 }
 
-fn planning_prompt(task: &str) -> String {
+fn plan_presets() -> Vec<PlanPreset> {
+    vec![
+        PlanPreset {
+            id: "inspect",
+            label: "Inspect",
+            description: "Read-only discovery before deciding.",
+            instruction: "Inspect the repository first and return findings, open questions, and a staged plan.",
+        },
+        PlanPreset {
+            id: "design",
+            label: "Design",
+            description: "Architecture and UI decisions first.",
+            instruction: "Focus on architecture, UI states, data flow, risks, and the smallest coherent implementation plan.",
+        },
+        PlanPreset {
+            id: "patch",
+            label: "Patch Plan",
+            description: "Concrete files and edit sequence.",
+            instruction: "Return a patch-oriented plan with target files, expected edits, tests, and rollback risks.",
+        },
+        PlanPreset {
+            id: "questions",
+            label: "Ask Choices",
+            description: "Prefer typed questions when ambiguous.",
+            instruction: "If important product or technical choices are missing, ask concise typed questions with options before finalizing the plan.",
+        },
+    ]
+}
+
+fn plan_preset_instruction(id: &str) -> &'static str {
+    plan_presets()
+        .into_iter()
+        .find(|preset| preset.id == id)
+        .map(|preset| preset.instruction)
+        .unwrap_or("Return a concise staged read-only plan.")
+}
+
+fn planning_prompt(task: &str, preset_id: &str, custom: &str) -> String {
+    let custom = custom.trim();
+    let custom_block = if custom.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nUser choices / custom constraints:\n{custom}")
+    };
     format!(
-        "Plan mode request:\n\n{task}\n\nReturn a concise staged plan. Stay read-only: inspect first, ask typed questions if essential decisions are missing, and do not write files."
+        "Plan mode request:\n\n{task}{custom_block}\n\nPlanning style:\n{}\n\nStay read-only. Ask typed questions with options if essential decisions are missing. Do not write files.",
+        plan_preset_instruction(preset_id)
     )
 }
 
