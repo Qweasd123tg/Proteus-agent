@@ -23,8 +23,59 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
 
 mkdir -p "${bin_dir}"
 cat > "${bin_path}" <<EOF
-#!/usr/bin/env sh
-exec "${project_dir}/target/release/proteus" "\$@"
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="${project_dir}"
+proteus_bin="\${project_dir}/target/release/proteus"
+web_dir="\${project_dir}/clients/web"
+app_port=8787
+web_port="\${PROTEUS_WEB_PORT:-1420}"
+
+if [ "\$#" -gt 0 ]; then
+  exec "\${proteus_bin}" "\$@"
+fi
+
+if [ ! -x "\${proteus_bin}" ]; then
+  echo "Proteus binary is missing: \${proteus_bin}" >&2
+  echo "Run: \${project_dir}/install.sh" >&2
+  exit 1
+fi
+
+if ! command -v trunk >/dev/null 2>&1; then
+  echo "trunk is not installed. Run: cargo install trunk --locked" >&2
+  exit 1
+fi
+
+if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx wasm32-unknown-unknown; then
+  echo "wasm32 target is missing. Run: rustup target add wasm32-unknown-unknown" >&2
+  exit 1
+fi
+
+workspace_cwd=\$(pwd)
+echo "Proteus workspace: \${workspace_cwd}"
+echo "App server:        http://127.0.0.1:\${app_port}"
+echo "Web client:        http://127.0.0.1:\${web_port}"
+echo
+
+"\${proteus_bin}" --cwd "\${workspace_cwd}" server http --port "\${app_port}" &
+server_pid=\$!
+
+sleep 1
+if ! kill -0 "\${server_pid}" >/dev/null 2>&1; then
+  wait "\${server_pid}" 2>/dev/null || true
+  echo "Proteus app server did not start. Port \${app_port} may already be in use." >&2
+  exit 1
+fi
+
+cleanup() {
+  kill "\${server_pid}" >/dev/null 2>&1 || true
+  wait "\${server_pid}" 2>/dev/null || true
+}
+trap cleanup INT TERM EXIT
+
+cd "\${web_dir}"
+trunk serve --port "\${web_port}"
 EOF
 chmod 755 "${bin_path}"
 
