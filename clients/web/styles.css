@@ -1043,48 +1043,41 @@ textarea {
     color: var(--text-muted);
 }
 
-.plan-controls {
-    display: grid;
-    flex-shrink: 0;
-    border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
+.plan-chat-card {
+    margin-bottom: var(--space-5);
 }
 
-.plan-panel {
+.plan-chat-message {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-    padding: var(--space-3) var(--space-5);
 }
 
-.plan-panel-main,
-.plan-panel-actions {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.plan-panel-title {
+.plan-chat-title {
     display: grid;
     min-width: 0;
     gap: 1px;
 }
 
-.plan-panel-title strong {
+.plan-chat-title strong {
     color: var(--text-main);
     font-size: 13px;
     font-weight: 600;
 }
 
-.plan-panel-title span {
+.plan-chat-title span {
     color: var(--text-faint);
     font-family: var(--font-mono);
     font-size: 10px;
     text-transform: uppercase;
+}
+
+.plan-chat-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .composer {
@@ -1219,18 +1212,17 @@ textarea {
         width: 100%;
     }
 
-    .plan-panel {
+    .plan-chat-message {
         align-items: flex-start;
         flex-direction: column;
-        padding: var(--space-3);
     }
 
-    .plan-panel-actions {
+    .plan-chat-actions {
         width: 100%;
         flex-wrap: wrap;
     }
 
-    .plan-panel-actions button {
+    .plan-chat-actions button {
         flex: 1 1 120px;
         justify-content: center;
     }
