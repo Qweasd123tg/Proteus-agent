@@ -116,6 +116,17 @@ button.secondary:hover {
     color: var(--text-main);
 }
 
+button.danger {
+    border-color: rgb(224 82 82 / 35%);
+    color: var(--accent-red);
+}
+
+button.danger:hover {
+    background: rgb(224 82 82 / 10%);
+    border-color: rgb(224 82 82 / 55%);
+    color: #f06a6a;
+}
+
 input,
 textarea {
     width: 100%;
@@ -583,6 +594,173 @@ textarea {
     flex: 1;
     flex-direction: column;
     overflow: hidden;
+}
+
+.control-plane {
+    display: grid;
+    flex-shrink: 0;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    max-height: 42vh;
+    overflow-y: auto;
+    padding: var(--space-4) var(--space-5);
+}
+
+.control-card {
+    display: grid;
+    gap: var(--space-3);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-panel-soft);
+    padding: var(--space-4);
+}
+
+.control-card-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.control-card-header strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.control-card-header code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.control-card p {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.control-card pre {
+    overflow: auto;
+    max-height: 120px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    padding: var(--space-3);
+    white-space: pre-wrap;
+}
+
+.control-row,
+.control-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.control-label {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.segmented {
+    display: flex;
+    min-width: 0;
+    border: 1px solid var(--border-subtle);
+}
+
+.segmented button {
+    min-height: 28px;
+    border: 0;
+    border-right: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    padding: 0 var(--space-3);
+}
+
+.segmented button:last-child {
+    border-right: 0;
+}
+
+.segmented button.active {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+.input-question {
+    display: grid;
+    gap: var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+}
+
+.input-question-header {
+    display: grid;
+    gap: 2px;
+}
+
+.input-question-header span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.input-question-header strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.choice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-2);
+}
+
+.choice-button {
+    display: grid;
+    min-height: 58px;
+    justify-items: start;
+    gap: 2px;
+    border-color: var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    white-space: normal;
+}
+
+.choice-button.active {
+    border-color: var(--accent-blue);
+    background: rgb(91 140 255 / 10%);
+    color: var(--text-main);
+}
+
+.choice-button span {
+    font-weight: 600;
+}
+
+.choice-button small {
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.35;
 }
 
 .results-panel {
