@@ -1208,9 +1208,17 @@ textarea {
 }
 
 .composer-stats {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
     color: var(--text-faint);
     font-family: var(--font-mono);
     font-size: 11px;
+}
+
+.composer-stats span {
+    white-space: nowrap;
 }
 
 .composer-buttons {
