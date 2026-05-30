@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Event, EventSource, Headers, KeyboardEvent, MessageEvent, MouseEvent, Request, RequestInit,
-    RequestMode, Response, SubmitEvent, window,
+    Event, EventSource, Headers, HtmlElement, KeyboardEvent, MessageEvent, MouseEvent, Request,
+    RequestInit, RequestMode, Response, SubmitEvent, window,
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
@@ -17,6 +17,8 @@ const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
 unsafe extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = proteusTypesetMath)]
     fn proteus_typeset_math();
+    #[wasm_bindgen(js_namespace = window, js_name = requestAnimationFrame)]
+    fn request_animation_frame(callback: &js_sys::Function) -> i32;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -527,6 +529,8 @@ fn App() -> impl IntoView {
     let (last_prompt_to_retry, set_last_prompt_to_retry) = signal(None::<String>);
     let results_ref = NodeRef::<html::Section>::new();
     let composer_ref = NodeRef::<html::Textarea>::new();
+    let (stick_to_bottom, set_stick_to_bottom) = signal(true);
+    let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (composer_height, set_composer_height) =
         signal(load_i32_setting("proteus.composerHeight", 150));
@@ -544,8 +548,8 @@ fn App() -> impl IntoView {
             queued_prompt.get().is_some(),
             is_sending.get(),
         );
-        if let Some(results) = results_ref.get() {
-            results.set_scroll_top(results.scroll_height());
+        if stick_to_bottom.get() {
+            schedule_results_scroll(results_ref, scroll_frame_pending, set_scroll_frame_pending);
         }
         proteus_typeset_math();
     });
@@ -1121,6 +1125,12 @@ fn App() -> impl IntoView {
                             }}
 
                             <section class="results-panel" aria-label="Диалог" node_ref=results_ref>
+                                on:scroll=move |_| {
+                                    if let Some(results) = results_ref.get() {
+                                        set_stick_to_bottom.set(is_near_bottom(&results));
+                                    }
+                                }
+                            >
                                 {move || {
                                     let items = messages.get();
                                     let user_inputs = pending_user_inputs.get();
@@ -2442,6 +2452,33 @@ fn save_i32_setting(key: &str, value: i32) {
     if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
         let _ = storage.set_item(key, &value.to_string());
     }
+}
+
+fn is_near_bottom(results: &HtmlElement) -> bool {
+    let distance = results.scroll_height() - results.scroll_top() - results.client_height();
+    distance <= 96
+}
+
+fn schedule_results_scroll(
+    results_ref: NodeRef<html::Section>,
+    scroll_frame_pending: ReadSignal<bool>,
+    set_scroll_frame_pending: WriteSignal<bool>,
+) {
+    if scroll_frame_pending.get() {
+        return;
+    }
+    set_scroll_frame_pending.set(true);
+
+    let callback = Closure::<dyn FnMut()>::wrap(Box::new(move || {
+        set_scroll_frame_pending.set(false);
+        if let Some(results) = results_ref.get() {
+            if is_near_bottom(&results) {
+                results.set_scroll_top(results.scroll_height());
+            }
+        }
+    }));
+    request_animation_frame(callback.as_ref().unchecked_ref());
+    callback.forget();
 }
 
 fn update_session_labels(
