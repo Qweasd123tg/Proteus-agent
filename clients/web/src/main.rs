@@ -2202,7 +2202,8 @@ fn markdown_html(text: &str) -> String {
     options.insert(MarkdownOptions::ENABLE_TABLES);
     options.insert(MarkdownOptions::ENABLE_STRIKETHROUGH);
     options.insert(MarkdownOptions::ENABLE_TASKLISTS);
-    let (markdown_text, math_fragments) = extract_math_fragments(text);
+    let normalized_text = normalize_math_code_blocks(text);
+    let (markdown_text, math_fragments) = extract_math_fragments(&normalized_text);
     let parser = Parser::new_ext(&markdown_text, options).map(|event| match event {
         MarkdownEvent::Html(raw) | MarkdownEvent::InlineHtml(raw) => MarkdownEvent::Text(raw),
         event => event,
@@ -2213,6 +2214,107 @@ fn markdown_html(text: &str) -> String {
         output = output.replace(&token, &html);
     }
     output
+}
+
+fn normalize_math_code_blocks(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let lines = text.split_inclusive('\n').collect::<Vec<_>>();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start_matches([' ', '\t']);
+
+        if let Some(fence) = fence_marker(trimmed) {
+            let mut block = String::new();
+            let mut end_index = index + 1;
+            while end_index < lines.len() {
+                let candidate = lines[end_index];
+                let candidate_trimmed = candidate.trim_start_matches([' ', '\t']);
+                if candidate_trimmed.starts_with(fence) {
+                    break;
+                }
+                block.push_str(candidate);
+                end_index += 1;
+            }
+
+            if end_index < lines.len() && looks_like_math_block(&block) {
+                output.push_str(&block);
+                index = end_index + 1;
+                continue;
+            }
+        }
+
+        if is_indented_code_line(line) {
+            let start = index;
+            let mut block = String::new();
+            while index < lines.len()
+                && (is_indented_code_line(lines[index]) || lines[index].trim().is_empty())
+            {
+                block.push_str(lines[index]);
+                index += 1;
+            }
+
+            let dedented = dedent_code_block(&block);
+            if looks_like_math_block(&dedented) {
+                output.push_str(&dedented);
+            } else {
+                for original in &lines[start..index] {
+                    output.push_str(original);
+                }
+            }
+            continue;
+        }
+
+        output.push_str(line);
+        index += 1;
+    }
+
+    output
+}
+
+fn fence_marker(line: &str) -> Option<&'static str> {
+    if line.starts_with("```") {
+        Some("```")
+    } else if line.starts_with("~~~") {
+        Some("~~~")
+    } else {
+        None
+    }
+}
+
+fn is_indented_code_line(line: &str) -> bool {
+    line.starts_with("    ") || line.starts_with('\t')
+}
+
+fn dedent_code_block(block: &str) -> String {
+    block
+        .split_inclusive('\n')
+        .map(|line| {
+            if let Some(stripped) = line.strip_prefix("    ") {
+                stripped
+            } else if let Some(stripped) = line.strip_prefix('\t') {
+                stripped
+            } else {
+                line
+            }
+        })
+        .collect()
+}
+
+fn looks_like_math_block(block: &str) -> bool {
+    let non_empty = block
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+
+    !non_empty.is_empty() && non_empty.iter().all(|line| is_math_line(line))
+}
+
+fn is_math_line(line: &str) -> bool {
+    (line.starts_with("$$") && line.ends_with("$$") && line.len() > 4)
+        || (line.starts_with("\\[") && line.ends_with("\\]") && line.len() > 4)
 }
 
 fn extract_math_fragments(text: &str) -> (String, Vec<(String, String)>) {
@@ -2404,5 +2506,32 @@ mod tests {
 
         assert!(html.contains("<code>$x$</code>"));
         assert!(!html.contains("mathjax-inline"));
+    }
+
+    #[test]
+    fn markdown_html_renders_math_only_fenced_code_blocks() {
+        let html = markdown_html("```tex\n$$a^2 + b^2 = c^2$$\n$$x = y$$\n```");
+
+        assert!(html.contains(r#"<span class="mathjax-display">\[a^2 + b^2 = c^2\]</span>"#));
+        assert!(html.contains(r#"<span class="mathjax-display">\[x = y\]</span>"#));
+        assert!(!html.contains("<pre><code>"));
+    }
+
+    #[test]
+    fn markdown_html_renders_math_only_indented_code_blocks() {
+        let html = markdown_html("    $$a^2 + b^2 = c^2$$\n    $$x = y$$");
+
+        assert!(html.contains(r#"<span class="mathjax-display">\[a^2 + b^2 = c^2\]</span>"#));
+        assert!(html.contains(r#"<span class="mathjax-display">\[x = y\]</span>"#));
+        assert!(!html.contains("<pre><code>"));
+    }
+
+    #[test]
+    fn markdown_html_keeps_non_math_fenced_code_blocks_as_code() {
+        let html = markdown_html("```rust\nlet price = \"$10\";\n```");
+
+        assert!(html.contains("<pre><code"));
+        assert!(html.contains("let price"));
+        assert!(!html.contains("mathjax"));
     }
 }
