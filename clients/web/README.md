@@ -12,7 +12,8 @@ permission mode controls, approval queue, пошаговой typed user-input к
 cancel action, `Ctrl+Enter` submit shortcut, queued next prompt, autoscroll,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
 message copy/collapse actions, toast errors, MathJax LaTeX rendering и
-HTTP/SSE client. Shell по умолчанию подключается к
+HTTP/SSE client. Sidebar показывает только session/runtime metadata, без
+transcript preview. Shell по умолчанию подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
 через `/mode`, отвечает на approval через `/approval`, отправляет typed input
 через `/user-input`, отменяет turn через `/cancel` и очищает history через

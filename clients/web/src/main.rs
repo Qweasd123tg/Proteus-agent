@@ -740,13 +740,6 @@ fn App() -> impl IntoView {
         ]
     };
 
-    let latest_preview = move || {
-        messages
-            .get()
-            .last()
-            .map(|message| message.text.clone())
-            .unwrap_or_else(|| "Задач пока нет".to_owned())
-    };
     let draft_stats = move || {
         let text = draft.get();
         let lines = text.lines().count().max(1);
@@ -926,7 +919,6 @@ fn App() -> impl IntoView {
                                     <span class="session-id">{move || short_path(&workspace_label.get())}</span>
                                     <span class=session_dot_class></span>
                                 </div>
-                                <div class="session-preview">{latest_preview}</div>
                                 <div class="session-meta">
                                     <span class="session-time">{move || session_label.get()}</span>
                                 </div>
