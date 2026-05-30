@@ -76,10 +76,10 @@ enum ReasoningEffort {
 impl ReasoningEffort {
     fn label(self) -> &'static str {
         match self {
-            Self::Config => "Авто",
-            Self::Low => "Низкий",
-            Self::Medium => "Средний",
-            Self::High => "Высокий",
+            Self::Config => "auto",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
         }
     }
 
