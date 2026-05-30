@@ -385,39 +385,6 @@ textarea {
     text-transform: uppercase;
 }
 
-.settings-list {
-    display: grid;
-    gap: var(--space-2);
-}
-
-.settings-row {
-    display: grid;
-    gap: var(--space-1);
-}
-
-.settings-row span {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.settings-row select {
-    width: 100%;
-    min-height: 34px;
-    border-color: var(--border-subtle);
-    background: var(--bg-panel);
-    color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    padding: 0 var(--space-2);
-}
-
-.settings-row select:hover,
-.settings-row select:focus {
-    border-color: var(--border-strong);
-    outline: none;
-}
-
 .activity-row {
     display: flex;
     min-height: 28px;
@@ -1461,6 +1428,42 @@ textarea {
     padding: var(--space-2) var(--space-5);
 }
 
+.composer-settings {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.composer-setting {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.composer-setting span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.composer-setting select {
+    min-height: 28px;
+    max-width: 132px;
+    border-color: var(--border-subtle);
+    background: var(--bg-panel);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 0 var(--space-2);
+}
+
+.composer-setting select:hover,
+.composer-setting select:focus {
+    border-color: var(--border-strong);
+    outline: none;
+}
+
 .composer-stats {
     display: flex;
     min-width: 0;
@@ -1555,6 +1558,7 @@ textarea {
 
     .topnav,
     .session-summary-meta,
+    .composer-settings,
     .composer-buttons {
         width: 100%;
         justify-content: space-between;
