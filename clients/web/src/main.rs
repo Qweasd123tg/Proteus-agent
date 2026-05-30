@@ -549,7 +549,12 @@ fn App() -> impl IntoView {
             is_sending.get(),
         );
         if stick_to_bottom.get() {
-            schedule_results_scroll(results_ref, scroll_frame_pending, set_scroll_frame_pending);
+            schedule_results_scroll(
+                results_ref,
+                stick_to_bottom,
+                scroll_frame_pending,
+                set_scroll_frame_pending,
+            );
         }
         proteus_typeset_math();
     });
@@ -2456,11 +2461,12 @@ fn save_i32_setting(key: &str, value: i32) {
 
 fn is_near_bottom(results: &HtmlElement) -> bool {
     let distance = results.scroll_height() - results.scroll_top() - results.client_height();
-    distance <= 96
+    distance <= 160
 }
 
 fn schedule_results_scroll(
     results_ref: NodeRef<html::Section>,
+    stick_to_bottom: ReadSignal<bool>,
     scroll_frame_pending: ReadSignal<bool>,
     set_scroll_frame_pending: WriteSignal<bool>,
 ) {
@@ -2472,7 +2478,7 @@ fn schedule_results_scroll(
     let callback = Closure::<dyn FnMut()>::wrap(Box::new(move || {
         set_scroll_frame_pending.set(false);
         if let Some(results) = results_ref.get() {
-            if is_near_bottom(&results) {
+            if stick_to_bottom.get() {
                 results.set_scroll_top(results.scroll_height());
             }
         }
