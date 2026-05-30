@@ -532,6 +532,7 @@ fn App() -> impl IntoView {
     let composer_ref = NodeRef::<html::Textarea>::new();
     let (stick_to_bottom, set_stick_to_bottom) = signal(true);
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
+    let (programmatic_scroll, set_programmatic_scroll) = signal(false);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (composer_height, set_composer_height) =
         signal(load_i32_setting("proteus.composerHeight", 150));
@@ -554,8 +555,10 @@ fn App() -> impl IntoView {
             schedule_results_scroll(
                 results_ref,
                 stick_to_bottom,
+                set_stick_to_bottom,
                 scroll_frame_pending,
                 set_scroll_frame_pending,
+                set_programmatic_scroll,
             );
         }
         if !streaming_active {
@@ -1133,8 +1136,24 @@ fn App() -> impl IntoView {
                                 }
                             }}
 
-                            <section class="results-panel" aria-label="Диалог" node_ref=results_ref>
+                            <section
+                                class="results-panel"
+                                aria-label="Диалог"
+                                node_ref=results_ref
+                                on:wheel=move |_| {
+                                    set_stick_to_bottom.set(false);
+                                }
+                                on:pointerdown=move |_| {
+                                    set_stick_to_bottom.set(false);
+                                }
+                                on:keydown=move |_| {
+                                    set_stick_to_bottom.set(false);
+                                }
                                 on:scroll=move |_| {
+                                    if programmatic_scroll.get() {
+                                        set_programmatic_scroll.set(false);
+                                        return;
+                                    }
                                     if let Some(results) = results_ref.get() {
                                         set_stick_to_bottom.set(is_near_bottom(&results));
                                     }
@@ -2488,8 +2507,10 @@ fn is_near_bottom(results: &HtmlElement) -> bool {
 fn schedule_results_scroll(
     results_ref: NodeRef<html::Section>,
     stick_to_bottom: ReadSignal<bool>,
+    set_stick_to_bottom: WriteSignal<bool>,
     scroll_frame_pending: ReadSignal<bool>,
     set_scroll_frame_pending: WriteSignal<bool>,
+    set_programmatic_scroll: WriteSignal<bool>,
 ) {
     if scroll_frame_pending.get() {
         return;
@@ -2500,7 +2521,9 @@ fn schedule_results_scroll(
         set_scroll_frame_pending.set(false);
         if let Some(results) = results_ref.get() {
             if stick_to_bottom.get() {
+                set_programmatic_scroll.set(true);
                 results.set_scroll_top(results.scroll_height());
+                set_stick_to_bottom.set(true);
             }
         }
     }));
