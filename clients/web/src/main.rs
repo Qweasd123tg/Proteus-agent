@@ -124,6 +124,46 @@ struct ActivityItem {
     value: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ToolActivity {
+    call_id: String,
+    name: String,
+    args_preview: String,
+    status: ToolActivityStatus,
+    result_preview: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ToolActivityStatus {
+    Running,
+    WaitingApproval,
+    Approved,
+    Denied,
+    Done,
+    Failed,
+}
+
+impl ToolActivityStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Running => "выполняется",
+            Self::WaitingApproval => "ждёт доступ",
+            Self::Approved => "разрешено",
+            Self::Denied => "отклонено",
+            Self::Done => "готово",
+            Self::Failed => "ошибка",
+        }
+    }
+
+    fn badge_class(self) -> &'static str {
+        match self {
+            Self::Running | Self::WaitingApproval | Self::Approved => "status-badge running",
+            Self::Done => "status-badge completed",
+            Self::Denied | Self::Failed => "status-badge failed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 struct ToolCallInfo {
     id: String,
@@ -474,12 +514,16 @@ fn App() -> impl IntoView {
     let (session_label, set_session_label) = signal("not started".to_owned());
     let (is_sending, set_is_sending) = signal(false);
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
+    let (agent_status, set_agent_status) = signal("ожидает".to_owned());
+    let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
     let (toasts, set_toasts) = signal(Vec::<ToastMessage>::new());
     let (next_toast_id, set_next_toast_id) = signal(1_u64);
     let (last_error_toast, set_last_error_toast) = signal(None::<String>);
+    let (last_prompt_to_retry, set_last_prompt_to_retry) = signal(None::<String>);
     let results_ref = NodeRef::<html::Section>::new();
+    let composer_ref = NodeRef::<html::Textarea>::new();
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (composer_height, set_composer_height) =
         signal(load_i32_setting("proteus.composerHeight", 150));
@@ -541,6 +585,8 @@ fn App() -> impl IntoView {
         set_session_label,
         set_is_sending,
         set_active_turn_id,
+        set_agent_status,
+        set_tool_activities,
         set_pending_approvals,
         set_pending_user_inputs,
     );
@@ -668,43 +714,17 @@ fn App() -> impl IntoView {
         };
 
     let cancel_turn = move |_| {
-        let Some(target_id) = active_turn_id.get() else {
-            return;
-        };
-        let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
-        spawn_local(async move {
-            match post_json(
-                "/cancel",
-                &CancelRequest {
-                    id: Some(request_id),
-                    target_id,
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    set_is_sending.set(false);
-                    set_active_turn_id.set(None);
-                    handle_command_response(
-                        output,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                }
-                Err(error) => {
-                    set_transport_status.set(TransportStatus::Error(error.clone()));
-                    push_message(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        MessageRole::System,
-                        format!("Cancel failed: {error}"),
-                    );
-                }
-            }
-        });
+        cancel_active_turn(
+            active_turn_id,
+            next_request_id,
+            set_next_request_id,
+            set_is_sending,
+            set_active_turn_id,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        );
     };
 
     let activity = move || {
@@ -723,11 +743,11 @@ fn App() -> impl IntoView {
             },
             ActivityItem {
                 label: "запрос",
-                value: if is_sending.get() {
-                    "в работе".to_owned()
-                } else {
-                    "ожидает".to_owned()
-                },
+                value: agent_status.get(),
+            },
+            ActivityItem {
+                label: "tools",
+                value: tool_activities.get().len().to_string(),
             },
             ActivityItem {
                 label: "доступы",
@@ -751,6 +771,14 @@ fn App() -> impl IntoView {
         } else {
             "ожидает"
         }
+    };
+    let session_title = move || {
+        messages
+            .get()
+            .iter()
+            .find(|message| message.role == MessageRole::User)
+            .map(|message| compact_title(&message.text))
+            .unwrap_or_else(|| short_path(&workspace_label.get()))
     };
     let session_dot_class = move || match transport_status.get() {
         TransportStatus::Connecting => "session-status-dot warning",
@@ -776,6 +804,7 @@ fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
+        set_last_prompt_to_retry.set(Some(planning_prompt(&text)));
         actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
     };
     let revise_plan = move |_| {
@@ -788,12 +817,14 @@ fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
+        set_last_prompt_to_retry.set(Some(revise_plan_prompt(&text)));
         actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
     };
     let execute_plan = move |_| {
         if is_sending.get() {
             return;
         }
+        set_last_prompt_to_retry.set(Some(execute_plan_prompt()));
         actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
     };
     let exit_plan = move |_| {
@@ -813,8 +844,11 @@ fn App() -> impl IntoView {
         }
 
         if mode.get() == PermissionMode::Plan {
-            actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
+            let prompt = planning_prompt(&text);
+            set_last_prompt_to_retry.set(Some(prompt.clone()));
+            actions.send_prompt(prompt, Some(PermissionMode::Plan));
         } else {
+            set_last_prompt_to_retry.set(Some(text.clone()));
             actions.send_prompt(text, None);
         }
     };
@@ -826,6 +860,21 @@ fn App() -> impl IntoView {
         if ev.ctrl_key() && ev.key() == "Enter" {
             ev.prevent_default();
             submit_prompt();
+        } else if ev.key() == "Escape" {
+            if active_turn_id.get().is_some() {
+                ev.prevent_default();
+                cancel_active_turn(
+                    active_turn_id,
+                    next_request_id,
+                    set_next_request_id,
+                    set_is_sending,
+                    set_active_turn_id,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
         }
     };
     let begin_sidebar_resize = move |ev: MouseEvent| {
@@ -870,8 +919,11 @@ fn App() -> impl IntoView {
         };
         set_queued_prompt.set(None);
         if mode.get() == PermissionMode::Plan {
-            actions.send_prompt(planning_prompt(&text), Some(PermissionMode::Plan));
+            let prompt = planning_prompt(&text);
+            set_last_prompt_to_retry.set(Some(prompt.clone()));
+            actions.send_prompt(prompt, Some(PermissionMode::Plan));
         } else {
+            set_last_prompt_to_retry.set(Some(text.clone()));
             actions.send_prompt(text, None);
         }
     };
@@ -881,6 +933,41 @@ fn App() -> impl IntoView {
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
+    let retry_last_prompt = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        let Some(text) = last_prompt_to_retry.get() else {
+            return;
+        };
+        actions.send_prompt(text, None);
+    };
+    let global_keydown = Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
+        if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
+            ev.prevent_default();
+            if let Some(textarea) = composer_ref.get() {
+                let _ = textarea.focus();
+            }
+        } else if ev.key() == "Escape" && active_turn_id.get().is_some() {
+            ev.prevent_default();
+            cancel_active_turn(
+                active_turn_id,
+                next_request_id,
+                set_next_request_id,
+                set_is_sending,
+                set_active_turn_id,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+            );
+        }
+    }));
+    if let Some(window) = window() {
+        let _ = window
+            .add_event_listener_with_callback("keydown", global_keydown.as_ref().unchecked_ref());
+    }
+    global_keydown.forget();
 
     view! {
         <div
@@ -980,8 +1067,8 @@ fn App() -> impl IntoView {
 
                 <section class="session-header">
                     <div>
-                        <h1>{move || short_path(&workspace_label.get())}</h1>
-                        <p>{move || session_label.get()}</p>
+                        <h1>{session_title}</h1>
+                        <p>{move || format!("{} · {}", short_path(&workspace_label.get()), session_label.get())}</p>
                     </div>
                     <div class="session-summary-meta">
                         <span>
@@ -991,6 +1078,10 @@ fn App() -> impl IntoView {
                         <span>
                             <span class="label">"режим"</span>
                             <span class="value">{move || mode.get().label()}</span>
+                        </span>
+                        <span>
+                            <span class="label">"агент"</span>
+                            <span class="value">{move || agent_status.get()}</span>
                         </span>
                     </div>
                 </section>
@@ -1043,6 +1134,13 @@ fn App() -> impl IntoView {
                                                 key=|message| message.id
                                                 children=move |message| view! { <MessageView message /> }
                                             />
+                                            {if !tool_activities.get().is_empty() {
+                                                view! {
+                                                    <ToolActivityList tools=tool_activities />
+                                                }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
                                             <For
                                                 each=move || user_inputs.clone()
                                                 key=|request| request.request_id.clone()
@@ -1074,7 +1172,18 @@ fn App() -> impl IntoView {
                                                 view! { <></> }.into_any()
                                             }}
                                             {if working {
-                                                view! { <WorkingCard /> }.into_any()
+                                                view! { <WorkingCard status=agent_status /> }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
+                                            {if let TransportStatus::Error(message) = transport_status.get() {
+                                                view! {
+                                                    <ErrorRecoveryCard
+                                                        message
+                                                        can_retry=move || last_prompt_to_retry.get().is_some() && !is_sending.get()
+                                                        on_retry=retry_last_prompt
+                                                    />
+                                                }.into_any()
                                             } else {
                                                 view! { <></> }.into_any()
                                             }}
@@ -1098,6 +1207,7 @@ fn App() -> impl IntoView {
                                     {move || if mode.get() == PermissionMode::Plan { "Запрос для плана" } else { "Запрос агенту" }}
                                 </div>
                                 <textarea
+                                    node_ref=composer_ref
                                     prop:value=move || draft.get()
                                     placeholder=move || {
                                         if mode.get() == PermissionMode::Plan {
@@ -1715,13 +1825,105 @@ where
 }
 
 #[component]
-fn WorkingCard() -> impl IntoView {
+fn ToolActivityList(tools: ReadSignal<Vec<ToolActivity>>) -> impl IntoView {
+    view! {
+        <section class="tool-activity-list" aria-label="Tools">
+            <For
+                each=move || tools.get()
+                key=|tool| tool.call_id.clone()
+                children=move |tool| view! { <ToolActivityCard tool /> }
+            />
+        </section>
+    }
+}
+
+#[component]
+fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
+    let (expanded, set_expanded) = signal(false);
+    let args = tool.args_preview.clone();
+    let result = tool.result_preview.clone();
+    view! {
+        <article class="tool-card">
+            <button
+                type="button"
+                class="tool-card-summary"
+                title="Показать детали tool"
+                on:click=move |_| set_expanded.update(|value| *value = !*value)
+            >
+                <span class=tool.status.badge_class()>
+                    <span class=if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) { "spinner-dot" } else { "dot" }></span>
+                    {tool.status.label()}
+                </span>
+                <strong>{tool.name}</strong>
+                <code>{short_id(&tool.call_id).to_owned()}</code>
+            </button>
+            {move || {
+                if expanded.get() {
+                    view! {
+                        <div class="tool-card-details">
+                            <pre>{args.clone()}</pre>
+                            {if let Some(result) = result.clone() {
+                                view! { <pre>{result}</pre> }.into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }}
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }
+            }}
+        </article>
+    }
+}
+
+#[component]
+fn ErrorRecoveryCard<R, C>(message: String, can_retry: C, on_retry: R) -> impl IntoView
+where
+    R: Fn(MouseEvent) + Copy + 'static,
+    C: Fn() -> bool + Copy + Send + 'static,
+{
+    let copy_message = message.clone();
+    view! {
+        <article class="task-card error recovery-card">
+            <div class="task-card-header">
+                <span class="status-badge failed">
+                    <span class="dot"></span>
+                    "Ошибка"
+                </span>
+            </div>
+            <div class="message system-message recovery-message">
+                <p>{message}</p>
+                <div class="queued-actions">
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        disabled=move || !can_retry()
+                        on:click=on_retry
+                    >
+                        "Повторить"
+                    </button>
+                    <button
+                        type="button"
+                        class="secondary"
+                        on:click=move |_| copy_to_clipboard(copy_message.clone())
+                    >
+                        "Скопировать"
+                    </button>
+                </div>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
     view! {
         <article class="task-card running working-card">
             <div class="task-card-header">
                 <span class="status-badge running">
                     <span class="spinner-dot"></span>
-                    "Работает"
+                    {move || status.get()}
                 </span>
             </div>
         </article>
@@ -1781,7 +1983,7 @@ fn MessageView(message: Message) -> impl IntoView {
                         title="Скопировать markdown"
                         on:click=move |_| copy_to_clipboard(copy_text.clone())
                     >
-                        "Copy"
+                        "Копировать"
                     </button>
                     <button
                         type="button"
@@ -1789,7 +1991,7 @@ fn MessageView(message: Message) -> impl IntoView {
                         title=toggle_title
                         on:click=move |_| set_collapsed.update(|value| *value = !*value)
                     >
-                        {move || if collapsed.get() { "Open" } else { "Hide" }}
+                        {move || if collapsed.get() { "Открыть" } else { "Скрыть" }}
                     </button>
                 </div>
             </div>
@@ -1820,6 +2022,8 @@ fn connect_event_stream(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
@@ -1868,6 +2072,8 @@ fn connect_event_stream(
                     set_session_label,
                     set_is_sending,
                     set_active_turn_id,
+                    set_agent_status,
+                    set_tool_activities,
                     set_pending_approvals,
                     set_pending_user_inputs,
                 ),
@@ -1905,6 +2111,8 @@ fn handle_app_output(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
@@ -1921,6 +2129,8 @@ fn handle_app_output(
                 set_session_label,
                 set_is_sending,
                 set_active_turn_id,
+                set_agent_status,
+                set_tool_activities,
                 set_pending_approvals,
                 set_pending_user_inputs,
             );
@@ -1945,11 +2155,14 @@ fn handle_app_event(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
     match event {
         AppServerEvent::Runtime { envelope } => {
+            update_runtime_status_and_tools(&envelope, set_agent_status, set_tool_activities);
             update_session_labels(envelope, set_workspace_label, set_session_label);
         }
         AppServerEvent::UserMessageSubmitted { text } => push_message(
@@ -1962,6 +2175,7 @@ fn handle_app_event(
         AppServerEvent::TurnOutput { output } => {
             set_is_sending.set(false);
             set_active_turn_id.set(None);
+            set_agent_status.set("ожидает".to_owned());
             push_message(
                 set_messages,
                 next_message_id,
@@ -1971,6 +2185,7 @@ fn handle_app_event(
             );
         }
         AppServerEvent::ApprovalRequested { request } => {
+            set_agent_status.set("ждёт доступ".to_owned());
             set_pending_approvals.update(|items| items.push(request.clone()));
             push_message(
                 set_messages,
@@ -1984,6 +2199,11 @@ fn handle_app_event(
             approval_id,
             approved,
         } => {
+            set_agent_status.set(if approved {
+                "доступ разрешён".to_owned()
+            } else {
+                "доступ отклонён".to_owned()
+            });
             set_pending_approvals
                 .update(|items| items.retain(|item| item.approval_id != approval_id));
             push_message(
@@ -1995,9 +2215,11 @@ fn handle_app_event(
             );
         }
         AppServerEvent::UserInputRequested { request } => {
+            set_agent_status.set("ждёт ответ".to_owned());
             set_pending_user_inputs.update(|items| items.push(request.clone()));
         }
         AppServerEvent::UserInputResolved { request_id } => {
+            set_agent_status.set("продолжает".to_owned());
             set_pending_user_inputs.update(|items| {
                 items.retain(|item| item.request_id != request_id);
             });
@@ -2005,6 +2227,7 @@ fn handle_app_event(
         AppServerEvent::Error { message } => {
             set_is_sending.set(false);
             set_active_turn_id.set(None);
+            set_agent_status.set("ошибка".to_owned());
             push_message(
                 set_messages,
                 next_message_id,
@@ -2016,6 +2239,7 @@ fn handle_app_event(
         AppServerEvent::Shutdown => {
             set_is_sending.set(false);
             set_active_turn_id.set(None);
+            set_agent_status.set("остановлено".to_owned());
             set_transport_status.set(TransportStatus::Shutdown);
             push_message(
                 set_messages,
@@ -2058,6 +2282,56 @@ fn handle_command_response(
             );
         }
     }
+}
+
+fn cancel_active_turn(
+    active_turn_id: ReadSignal<Option<String>>,
+    next_request_id: ReadSignal<u64>,
+    set_next_request_id: WriteSignal<u64>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    let Some(target_id) = active_turn_id.get() else {
+        return;
+    };
+    let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
+    spawn_local(async move {
+        match post_json(
+            "/cancel",
+            &CancelRequest {
+                id: Some(request_id),
+                target_id,
+            },
+        )
+        .await
+        {
+            Ok(output) => {
+                set_is_sending.set(false);
+                set_active_turn_id.set(None);
+                handle_command_response(
+                    output,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
+            Err(error) => {
+                set_transport_status.set(TransportStatus::Error(error.clone()));
+                push_message(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    MessageRole::System,
+                    format!("Cancel failed: {error}"),
+                );
+            }
+        }
+    });
 }
 
 fn command_succeeded(output: &StdioOutput) -> bool {
@@ -2159,6 +2433,178 @@ fn update_session_labels(
         set_session_label.set(short_path(session_dir));
     } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
         set_session_label.set(short_id(session_id).to_owned());
+    }
+}
+
+fn update_runtime_status_and_tools(
+    envelope: &Value,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+) {
+    let Some(event) = envelope.get("event") else {
+        return;
+    };
+
+    if event.get("TurnStarted").is_some() {
+        set_agent_status.set("начинает".to_owned());
+    } else if event.get("TaskReceived").is_some() {
+        set_agent_status.set("готовит задачу".to_owned());
+    } else if event.get("ContextBuilt").is_some() {
+        set_agent_status.set("собирает контекст".to_owned());
+    } else if event.get("ModelRequestPrepared").is_some() {
+        set_agent_status.set("думает".to_owned());
+    } else if event.get("AssistantTextDelta").is_some()
+        || event.get("AssistantReasoningDelta").is_some()
+    {
+        set_agent_status.set("пишет".to_owned());
+    } else if let Some(tool_event) = event.get("ToolCallRequested") {
+        set_agent_status.set("запускает tool".to_owned());
+        if let Some(call) = tool_event.get("call") {
+            let call_id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let name = call
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let args_preview = call.get("args").map(compact_json).unwrap_or_default();
+            set_tool_activities.update(|items| {
+                if !items.iter().any(|item| item.call_id == call_id) {
+                    items.push(ToolActivity {
+                        call_id,
+                        name,
+                        args_preview,
+                        status: ToolActivityStatus::Running,
+                        result_preview: None,
+                    });
+                    trim_tool_activities(items);
+                }
+            });
+        }
+    } else if let Some(approval_event) = event.get("ApprovalRequested") {
+        set_agent_status.set("ждёт доступ".to_owned());
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                call_id,
+                ToolActivityStatus::WaitingApproval,
+                None,
+            );
+        }
+    } else if let Some(approval_event) = event.get("ApprovalResolved") {
+        let approved = approval_event
+            .get("approved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        set_agent_status.set(if approved {
+            "доступ разрешён".to_owned()
+        } else {
+            "доступ отклонён".to_owned()
+        });
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                call_id,
+                if approved {
+                    ToolActivityStatus::Approved
+                } else {
+                    ToolActivityStatus::Denied
+                },
+                None,
+            );
+        }
+    } else if let Some(tool_event) = event.get("ToolFinished") {
+        set_agent_status.set("tool завершён".to_owned());
+        if let Some(result) = tool_event.get("result") {
+            let Some(call_id) = result.get("call_id").and_then(Value::as_str) else {
+                return;
+            };
+            let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let preview = tool_result_preview(result);
+            update_tool_status(
+                set_tool_activities,
+                call_id,
+                if ok {
+                    ToolActivityStatus::Done
+                } else {
+                    ToolActivityStatus::Failed
+                },
+                Some(preview),
+            );
+        }
+    } else if event.get("TurnFinished").is_some() {
+        set_agent_status.set("ожидает".to_owned());
+    } else if event.get("Error").is_some() {
+        set_agent_status.set("ошибка".to_owned());
+    }
+}
+
+fn update_tool_status(
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    call_id: &str,
+    status: ToolActivityStatus,
+    result_preview: Option<String>,
+) {
+    set_tool_activities.update(|items| {
+        if let Some(item) = items.iter_mut().find(|item| item.call_id == call_id) {
+            item.status = status;
+            if result_preview.is_some() {
+                item.result_preview = result_preview;
+            }
+        }
+    });
+}
+
+fn trim_tool_activities(items: &mut Vec<ToolActivity>) {
+    let overflow = items.len().saturating_sub(12);
+    if overflow > 0 {
+        items.drain(0..overflow);
+    }
+}
+
+fn tool_result_preview(result: &Value) -> String {
+    if let Some(error) = result.get("error").and_then(Value::as_str)
+        && !error.is_empty()
+    {
+        return compact_text(error, 600);
+    }
+
+    if let Some(output) = result.get("output").and_then(Value::as_str)
+        && !output.is_empty()
+    {
+        return compact_text(output, 600);
+    }
+
+    if let Some(content) = result.get("content")
+        && !content.as_array().is_none_or(Vec::is_empty)
+    {
+        return compact_text(&content.to_string(), 600);
+    }
+
+    if result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        "(нет вывода)".to_owned()
+    } else {
+        "(tool завершился без текста ошибки)".to_owned()
+    }
+}
+
+fn compact_title(text: &str) -> String {
+    let title = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("Новая сессия")
+        .trim();
+    compact_text(title, 72)
+}
+
+fn compact_text(text: &str, limit: usize) -> String {
+    if text.chars().count() > limit {
+        format!("{}...", text.chars().take(limit).collect::<String>())
+    } else {
+        text.to_owned()
     }
 }
 
