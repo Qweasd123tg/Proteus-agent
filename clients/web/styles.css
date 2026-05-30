@@ -1184,6 +1184,17 @@ textarea {
     vertical-align: middle;
 }
 
+.mathjax-display {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+    padding: var(--space-2) 0;
+}
+
+.mathjax-inline {
+    display: inline;
+}
+
 .user-message {
     color: var(--text-muted);
 }
