@@ -1008,10 +1008,14 @@ textarea {
     max-width: 100%;
     overflow-x: hidden;
     overflow-y: auto;
-    overflow-anchor: none;
+    overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
     padding: var(--space-5);
+}
+
+.results-panel.sticky-bottom {
+    overflow-anchor: none;
 }
 
 .task-card {

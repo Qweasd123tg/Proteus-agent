@@ -382,11 +382,12 @@ layout sizes сохраняются в browser `localStorage`, Markdown допо
 открытым, а workflow получает typed `ToolResult` с ответами. После обычного
 plan `TurnOutput` UI может открыть
 chooser для execute/revise/dismiss.
-Web transcript держит sticky-bottom только пока пользователь не скроллит вверх;
-повторное автоприлипание происходит рядом с нижней границей. Streaming assistant
-text рендерится через тот же Markdown pipeline, что и завершённое сообщение, но
-MathJax запускается только после окончания streaming turn, чтобы не
-перестраивать формулы на каждый token/delta.
+Web transcript держит sticky-bottom только пока пользователь не скроллит вверх:
+upward wheel/scroll отключает прилипание, повторное автоприлипание происходит
+рядом с нижней границей, а browser scroll anchoring включается для отлипшего
+состояния. Streaming assistant text рендерится через тот же Markdown pipeline,
+что и завершённое сообщение, но MathJax запускается только после окончания
+streaming turn, чтобы не перестраивать формулы на каждый token/delta.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
 пользователя до cancel или shutdown.
