@@ -12,6 +12,7 @@ use web_sys::{
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const CHAT_BOTTOM_THRESHOLD_PX: i32 = 64;
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -532,6 +533,7 @@ fn App() -> impl IntoView {
     let composer_ref = NodeRef::<html::Textarea>::new();
     let (stick_to_bottom, set_stick_to_bottom) = signal(true);
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
+    let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (composer_height, set_composer_height) =
         signal(load_i32_setting("proteus.composerHeight", 150));
@@ -556,6 +558,7 @@ fn App() -> impl IntoView {
                 stick_to_bottom,
                 scroll_frame_pending,
                 set_scroll_frame_pending,
+                set_last_results_scroll_top,
             );
         }
         if !streaming_active {
@@ -1139,7 +1142,14 @@ fn App() -> impl IntoView {
                                 node_ref=results_ref
                                 on:scroll=move |_| {
                                     if let Some(results) = results_ref.get() {
-                                        set_stick_to_bottom.set(is_near_bottom(&results));
+                                        let scroll_top = results.scroll_top();
+                                        let was_scroll_up = scroll_top + 2 < last_results_scroll_top.get();
+                                        if was_scroll_up {
+                                            set_stick_to_bottom.set(false);
+                                        } else if is_near_bottom(&results) {
+                                            set_stick_to_bottom.set(true);
+                                        }
+                                        set_last_results_scroll_top.set(scroll_top);
                                     }
                                 }
                             >
@@ -1983,7 +1993,11 @@ fn MessageView(message: Message) -> impl IntoView {
     let badge_class = message.role.badge_class();
     let text = message.text.clone();
     let html = markdown_html(&text);
-    let streaming = message.streaming;
+    let content_class = if message.streaming {
+        format!("{message_class} streaming-message")
+    } else {
+        message_class.to_owned()
+    };
     let (collapsed, set_collapsed) = signal(false);
     let copy_text = text.clone();
     let toggle_title = move || {
@@ -2027,15 +2041,9 @@ fn MessageView(message: Message) -> impl IntoView {
                         </div>
                     }.into_any()
                 } else {
-                    if streaming {
-                        view! {
-                            <div class=format!("{message_class} streaming-message")>{text.clone()}</div>
-                        }.into_any()
-                    } else {
-                        view! {
-                            <div class=message_class inner_html=html.clone()></div>
-                        }.into_any()
-                    }
+                    view! {
+                        <div class=content_class.clone() inner_html=html.clone()></div>
+                    }.into_any()
                 }
             }}
         </article>
@@ -2485,7 +2493,7 @@ fn save_i32_setting(key: &str, value: i32) {
 
 fn is_near_bottom(results: &HtmlElement) -> bool {
     let distance = results.scroll_height() - results.scroll_top() - results.client_height();
-    distance <= 160
+    distance <= CHAT_BOTTOM_THRESHOLD_PX
 }
 
 fn schedule_results_scroll(
@@ -2493,6 +2501,7 @@ fn schedule_results_scroll(
     stick_to_bottom: ReadSignal<bool>,
     scroll_frame_pending: ReadSignal<bool>,
     set_scroll_frame_pending: WriteSignal<bool>,
+    set_last_results_scroll_top: WriteSignal<i32>,
 ) {
     if scroll_frame_pending.get() {
         return;
@@ -2504,6 +2513,7 @@ fn schedule_results_scroll(
         if let Some(results) = results_ref.get() {
             if stick_to_bottom.get() {
                 results.set_scroll_top(results.scroll_height());
+                set_last_results_scroll_top.set(results.scroll_top());
             }
         }
     }));
