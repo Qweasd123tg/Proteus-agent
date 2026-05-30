@@ -1068,13 +1068,21 @@ textarea {
 }
 
 .message {
+    min-width: 0;
+    max-width: 100%;
     color: var(--text-main);
     font-size: 13px;
     line-height: 1.7;
+    overflow-wrap: anywhere;
+    word-break: normal;
 }
 
 .message > * + * {
     margin-top: var(--space-3);
+}
+
+.message > * {
+    max-width: 100%;
 }
 
 .message p {
@@ -1120,12 +1128,15 @@ textarea {
 }
 
 .message code {
+    max-width: 100%;
     border: 1px solid var(--border-subtle);
     background: var(--bg-root);
     color: var(--text-main);
     font-family: var(--font-mono);
     font-size: 12px;
     padding: 1px 4px;
+    white-space: break-spaces;
+    overflow-wrap: anywhere;
 }
 
 .message pre {
@@ -1143,6 +1154,7 @@ textarea {
     background: transparent;
     padding: 0;
     white-space: pre;
+    overflow-wrap: normal;
 }
 
 .message blockquote {
@@ -1193,6 +1205,20 @@ textarea {
 
 .mathjax-inline {
     display: inline;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.message mjx-container {
+    max-width: 100%;
+}
+
+.message mjx-container[jax="CHTML"][display="true"] {
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding-bottom: var(--space-1);
 }
 
 .user-message {
@@ -1239,6 +1265,81 @@ textarea {
     display: flex;
     gap: var(--space-2);
     justify-content: flex-end;
+}
+
+.tool-activity-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: calc(var(--space-2) * -1) 0 var(--space-5) var(--space-5);
+}
+
+.tool-card {
+    border-left: 1px solid var(--border-subtle);
+    background: transparent;
+}
+
+.tool-card-summary {
+    display: flex;
+    width: 100%;
+    min-height: 32px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    border-color: var(--border-subtle);
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    text-align: left;
+}
+
+.tool-card-summary:hover {
+    border-color: var(--border-strong);
+    color: var(--text-main);
+}
+
+.tool-card-summary strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-card-summary code {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.tool-card-details {
+    display: grid;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-top: 0;
+    background: var(--bg-root);
+    padding: var(--space-3);
+}
+
+.tool-card-details pre {
+    max-height: 220px;
+    overflow: auto;
+    margin: 0;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.recovery-message {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.recovery-message p {
+    margin: 0;
 }
 
 .spinner-dot {
