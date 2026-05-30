@@ -25,6 +25,8 @@
                 },
             };
             window.__proteusMathPending = false;
+            window.__proteusMathRunning = false;
+            window.__proteusMathQueued = false;
             window.proteusTypesetMath = () => {
                 if (window.__proteusMathPending) {
                     return;
@@ -36,10 +38,22 @@
                         const root =
                             document.querySelector(".results-panel") ||
                             document.body;
-                        if (window.MathJax.typesetClear) {
-                            window.MathJax.typesetClear([root]);
+                        const text = root.textContent || "";
+                        if (!/[\\$]/.test(text)) {
+                            return;
                         }
-                        window.MathJax.typesetPromise([root]);
+                        if (window.__proteusMathRunning) {
+                            window.__proteusMathQueued = true;
+                            return;
+                        }
+                        window.__proteusMathRunning = true;
+                        window.MathJax.typesetPromise([root]).finally(() => {
+                            window.__proteusMathRunning = false;
+                            if (window.__proteusMathQueued) {
+                                window.__proteusMathQueued = false;
+                                window.proteusTypesetMath();
+                            }
+                        });
                     }
                 });
             };
