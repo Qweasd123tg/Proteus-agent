@@ -13,12 +13,14 @@ cancel action, `Ctrl+Enter` submit shortcut, queued next prompt, autoscroll,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
 message copy/collapse actions, toast errors, MathJax LaTeX rendering и
 HTTP/SSE client. Sidebar показывает только session/runtime metadata, без
-transcript preview. Shell по умолчанию подключается к
+transcript preview. Mode и reasoning effort выбираются компактными controls в
+строке composer actions. Shell по умолчанию подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
-через `/mode`, отвечает на approval через `/approval`, отправляет typed input
-через `/user-input`, отменяет turn через `/cancel` и очищает history через
-`/clear`. Страница `/resume` читает прошлые sessions через `/sessions` и
-переключает текущий app-server на выбранную session через `/resume`. После
+через `/mode`, меняет effort через `/effort`, отвечает на approval через
+`/approval`, отправляет typed input через `/user-input`, отменяет turn через
+`/cancel` и очищает history через `/clear`. Страница `/resume` читает прошлые
+sessions через `/sessions` и переключает текущий app-server на выбранную
+session через `/resume`. После
 перехода обратно в чат клиент подгружает transcript текущей session через
 `/history`. Для `plan` mode composer переключается в planning controls с
 русской кнопкой `Спросить план`, а actions `Уточнить`, `Выполнить` и `Выйти`

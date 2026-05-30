@@ -484,7 +484,9 @@ impl AppActions {
                     self.set_next_message_id,
                     self.set_transport_status,
                 ),
-                Err(error) => self.push_error("Effort update failed", error),
+                Err(error) => self.set_transport_status.set(TransportStatus::Error(format!(
+                    "Effort update failed: {error}"
+                ))),
             }
         });
     }
@@ -691,7 +693,7 @@ fn App() -> impl IntoView {
     });
 
     if route != "/resume" {
-        load_runtime_settings(set_mode, set_effort, set_transport_status);
+        load_runtime_settings(set_mode, set_effort);
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
 
@@ -1150,45 +1152,6 @@ fn App() -> impl IntoView {
                 </div>
 
                 <section class="sidebar-panel">
-                    <div class="panel-kicker">"Настройки"</div>
-                    <div class="settings-list">
-                        <label class="settings-row">
-                            <span>"Режим"</span>
-                            <select
-                                prop:value=move || mode.get().value()
-                                on:change:target=move |ev| {
-                                    select_mode(PermissionMode::from_value(&ev.target().value()));
-                                }
-                            >
-                                <option value=PermissionMode::Plan.value() title=PermissionMode::Plan.description()>
-                                    {PermissionMode::Plan.label()}
-                                </option>
-                                <option value=PermissionMode::Normal.value() title=PermissionMode::Normal.description()>
-                                    {PermissionMode::Normal.label()}
-                                </option>
-                                <option value=PermissionMode::Auto.value() title=PermissionMode::Auto.description()>
-                                    {PermissionMode::Auto.label()}
-                                </option>
-                            </select>
-                        </label>
-                        <label class="settings-row">
-                            <span>"Effort"</span>
-                            <select
-                                prop:value=move || effort.get().value()
-                                on:change:target=move |ev| {
-                                    select_effort(ReasoningEffort::from_value(&ev.target().value()));
-                                }
-                            >
-                                <option value=ReasoningEffort::Config.value()>{ReasoningEffort::Config.label()}</option>
-                                <option value=ReasoningEffort::Low.value()>{ReasoningEffort::Low.label()}</option>
-                                <option value=ReasoningEffort::Medium.value()>{ReasoningEffort::Medium.label()}</option>
-                                <option value=ReasoningEffort::High.value()>{ReasoningEffort::High.label()}</option>
-                            </select>
-                        </label>
-                    </div>
-                </section>
-
-                <section class="sidebar-panel">
                     <div class="panel-kicker">"Состояние"</div>
                     <For
                         each=activity
@@ -1413,6 +1376,41 @@ fn App() -> impl IntoView {
                                     on:keydown=submit_shortcut
                                 />
                                 <div class="composer-actions">
+                                    <div class="composer-settings" aria-label="Настройки запроса">
+                                        <label class="composer-setting">
+                                            <span>"Режим"</span>
+                                            <select
+                                                prop:value=move || mode.get().value()
+                                                on:change:target=move |ev| {
+                                                    select_mode(PermissionMode::from_value(&ev.target().value()));
+                                                }
+                                            >
+                                                <option value=PermissionMode::Plan.value() title=PermissionMode::Plan.description()>
+                                                    {PermissionMode::Plan.label()}
+                                                </option>
+                                                <option value=PermissionMode::Normal.value() title=PermissionMode::Normal.description()>
+                                                    {PermissionMode::Normal.label()}
+                                                </option>
+                                                <option value=PermissionMode::Auto.value() title=PermissionMode::Auto.description()>
+                                                    {PermissionMode::Auto.label()}
+                                                </option>
+                                            </select>
+                                        </label>
+                                        <label class="composer-setting">
+                                            <span>"Effort"</span>
+                                            <select
+                                                prop:value=move || effort.get().value()
+                                                on:change:target=move |ev| {
+                                                    select_effort(ReasoningEffort::from_value(&ev.target().value()));
+                                                }
+                                            >
+                                                <option value=ReasoningEffort::Config.value()>{ReasoningEffort::Config.label()}</option>
+                                                <option value=ReasoningEffort::Low.value()>{ReasoningEffort::Low.label()}</option>
+                                                <option value=ReasoningEffort::Medium.value()>{ReasoningEffort::Medium.label()}</option>
+                                                <option value=ReasoningEffort::High.value()>{ReasoningEffort::High.label()}</option>
+                                            </select>
+                                        </label>
+                                    </div>
                                     <div class="composer-stats">
                                         <span>{draft_stats}</span>
                                         <span>"Ctrl+Enter отправить"</span>
@@ -1584,7 +1582,6 @@ fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: Wri
 fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
     set_effort: WriteSignal<ReasoningEffort>,
-    set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
         match get_json::<Value>("/config").await {
@@ -1596,9 +1593,7 @@ fn load_runtime_settings(
                     set_effort.set(ReasoningEffort::from_value(effort));
                 }
             }
-            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
-                "config load failed: {error}"
-            ))),
+            Err(_) => {}
         }
     });
 }

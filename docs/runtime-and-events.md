@@ -398,9 +398,10 @@ pipeline, что и завершённое сообщение, но MathJax за
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью
 workflow/model через typed tool-call.
 Web-клиент показывает компактные selectors для `PermissionMode` и
-`reasoning.effort`. `POST /effort` меняет только `ReasoningConfig.effort` для
-следующих turns и сохраняет остальные reasoning-поля из runtime config
-(`summary`, `budget_tokens`).
+`reasoning.effort` в строке composer actions, рядом с отправкой запроса.
+`POST /effort` меняет только `ReasoningConfig.effort` для следующих turns и
+сохраняет остальные reasoning-поля из runtime config (`summary`,
+`budget_tokens`).
 
 Минимальный request contract:
 
