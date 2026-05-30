@@ -111,8 +111,13 @@ impl AppServerHandle {
         self.runtime.permission_mode().await
     }
 
+    pub async fn set_reasoning_effort(&self, effort: Option<String>) {
+        self.runtime.set_reasoning_effort(effort).await;
+    }
+
     pub async fn config_summary(&self) -> Value {
         let mode = self.permission_mode().await;
+        let reasoning = self.runtime.reasoning().await;
         let tools = self.runtime.tool_entries();
         let config_files = config_files(self.config_path.as_deref());
         let model = self.config.active_model_config().ok();
@@ -141,6 +146,11 @@ impl AppServerHandle {
                 "label": format!("{}/{}", model.provider, model.model),
             })),
             "permission_mode": format!("{mode:?}"),
+            "reasoning": {
+                "effort": reasoning.effort,
+                "summary": reasoning.summary,
+                "budget_tokens": reasoning.budget_tokens,
+            },
             "modules": module_summary(&self.config),
             "tools_enabled": self.config.tools.enabled,
             "registered_tools": tools

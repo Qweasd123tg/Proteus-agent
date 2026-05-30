@@ -58,6 +58,14 @@ mod tests {
             Some("mode".to_owned())
         );
         assert_eq!(
+            StdioRequest::SetReasoningEffort {
+                id: Some("effort".to_owned()),
+                effort: Some("medium".to_owned()),
+            }
+            .id(),
+            Some("effort".to_owned())
+        );
+        assert_eq!(
             StdioRequest::ConfigSummary {
                 id: Some("configs".to_owned()),
             }
