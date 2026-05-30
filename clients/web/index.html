@@ -24,10 +24,21 @@
                     },
                 },
             };
+            window.__proteusMathPending = false;
             window.proteusTypesetMath = () => {
-                if (window.MathJax && window.MathJax.typesetPromise) {
-                    window.MathJax.typesetPromise();
+                if (window.__proteusMathPending) {
+                    return;
                 }
+                window.__proteusMathPending = true;
+                requestAnimationFrame(() => {
+                    window.__proteusMathPending = false;
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        const root =
+                            document.querySelector(".results-panel") ||
+                            document.body;
+                        window.MathJax.typesetPromise([root]);
+                    }
+                });
             };
         </script>
         <script

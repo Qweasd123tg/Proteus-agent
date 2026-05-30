@@ -373,7 +373,8 @@ transcript после ответа плана. `Уточнить` уточняе
 app-server публикует `AppServerEvent::UserInputRequested`, UI показывает
 пошаговую карточку в transcript с question tabs для
 вопросов/single-choice/`multiSelect`/custom answers и отвечает через
-`StdioRequest::UserInput`. Transcript автоматически прокручивается вниз,
+`StdioRequest::UserInput`. Sidebar не рендерит transcript preview и остаётся
+metadata/control surface. Transcript автоматически прокручивается вниз,
 composer может поставить следующий prompt в очередь во время running turn,
 layout sizes сохраняются в browser `localStorage`, Markdown дополнительно
 обрабатывается MathJax для LaTeX delimiters, а running turn без pending input
