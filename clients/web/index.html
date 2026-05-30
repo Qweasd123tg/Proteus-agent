@@ -36,6 +36,9 @@
                         const root =
                             document.querySelector(".results-panel") ||
                             document.body;
+                        if (window.MathJax.typesetClear) {
+                            window.MathJax.typesetClear([root]);
+                        }
                         window.MathJax.typesetPromise([root]);
                     }
                 });

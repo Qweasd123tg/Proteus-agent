@@ -2202,13 +2202,129 @@ fn markdown_html(text: &str) -> String {
     options.insert(MarkdownOptions::ENABLE_TABLES);
     options.insert(MarkdownOptions::ENABLE_STRIKETHROUGH);
     options.insert(MarkdownOptions::ENABLE_TASKLISTS);
-    let parser = Parser::new_ext(text, options).map(|event| match event {
+    let (markdown_text, math_fragments) = extract_math_fragments(text);
+    let parser = Parser::new_ext(&markdown_text, options).map(|event| match event {
         MarkdownEvent::Html(raw) | MarkdownEvent::InlineHtml(raw) => MarkdownEvent::Text(raw),
         event => event,
     });
     let mut output = String::new();
     markdown::push_html(&mut output, parser);
+    for (token, html) in math_fragments {
+        output = output.replace(&token, &html);
+    }
     output
+}
+
+fn extract_math_fragments(text: &str) -> (String, Vec<(String, String)>) {
+    let mut output = String::with_capacity(text.len());
+    let mut fragments = Vec::new();
+    let mut index = 0;
+    let mut at_line_start = true;
+    let mut in_fence: Option<String> = None;
+
+    while index < text.len() {
+        let rest = &text[index..];
+
+        if at_line_start {
+            let trimmed = rest.trim_start_matches([' ', '\t']);
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                let marker = trimmed.chars().take(3).collect::<String>();
+                if in_fence.as_deref() == Some(marker.as_str()) {
+                    in_fence = None;
+                } else if in_fence.is_none() {
+                    in_fence = Some(marker);
+                }
+            }
+        }
+
+        if let Some(ch) = rest.chars().next() {
+            if in_fence.is_none() && ch == '`' {
+                let tick_count = rest.chars().take_while(|next| *next == '`').count();
+                let ticks = "`".repeat(tick_count);
+                if let Some(end) = rest[tick_count..].find(&ticks) {
+                    let end_index = tick_count + end + tick_count;
+                    let segment = &rest[..end_index];
+                    output.push_str(segment);
+                    at_line_start = segment.ends_with('\n');
+                    index += end_index;
+                    continue;
+                }
+            }
+
+            if in_fence.is_none() {
+                if let Some((delimiter, end_delimiter, display)) = math_start(rest) {
+                    let content_start = delimiter.len();
+                    if let Some(relative_end) = find_math_end(&rest[content_start..], end_delimiter)
+                    {
+                        let content = &rest[content_start..content_start + relative_end];
+                        let consumed = content_start + relative_end + end_delimiter.len();
+                        let token = format!("PROTEUSMATH{}", fragments.len());
+                        output.push_str(&token);
+                        fragments.push((token, math_html(content, display)));
+                        at_line_start = rest[..consumed].ends_with('\n');
+                        index += consumed;
+                        continue;
+                    }
+                }
+            }
+
+            output.push(ch);
+            at_line_start = ch == '\n';
+            index += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    (output, fragments)
+}
+
+fn math_start(text: &str) -> Option<(&'static str, &'static str, bool)> {
+    if text.starts_with("\\[") {
+        Some(("\\[", "\\]", true))
+    } else if text.starts_with("\\(") {
+        Some(("\\(", "\\)", false))
+    } else if text.starts_with("$$") {
+        Some(("$$", "$$", true))
+    } else if text.starts_with('$') && !text.starts_with("$$") {
+        Some(("$", "$", false))
+    } else {
+        None
+    }
+}
+
+fn find_math_end(text: &str, delimiter: &str) -> Option<usize> {
+    if delimiter == "$" {
+        let mut escaped = false;
+        for (index, ch) in text.char_indices() {
+            if ch == '\\' {
+                escaped = !escaped;
+                continue;
+            }
+            if ch == '$' && !escaped {
+                return Some(index);
+            }
+            escaped = false;
+        }
+        None
+    } else {
+        text.find(delimiter)
+    }
+}
+
+fn math_html(content: &str, display: bool) -> String {
+    let content = escape_html(content.trim());
+    if display {
+        format!(r#"<span class="mathjax-display">\[{content}\]</span>"#)
+    } else {
+        format!(r#"<span class="mathjax-inline">\({content}\)</span>"#)
+    }
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn copy_to_clipboard(text: String) {
@@ -2262,4 +2378,31 @@ fn js_error(value: JsValue) -> String {
 
 fn seed_messages() -> Vec<Message> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_html_preserves_inline_math_for_mathjax() {
+        let html = markdown_html("Energy: $E = mc^2$.");
+
+        assert!(html.contains(r#"<span class="mathjax-inline">\(E = mc^2\)</span>"#));
+    }
+
+    #[test]
+    fn markdown_html_preserves_display_math_for_mathjax() {
+        let html = markdown_html(r"\[\int_0^1 x^2 dx = \frac{1}{3}\]");
+
+        assert!(html.contains(r#"<span class="mathjax-display">\[\int_0^1 x^2 dx = \frac{1}{3}\]</span>"#));
+    }
+
+    #[test]
+    fn markdown_html_does_not_extract_math_inside_code_spans() {
+        let html = markdown_html("Use `$x$` literally.");
+
+        assert!(html.contains("<code>$x$</code>"));
+        assert!(!html.contains("mathjax-inline"));
+    }
 }
