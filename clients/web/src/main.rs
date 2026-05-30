@@ -12,7 +12,7 @@ use web_sys::{
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
-const CHAT_BOTTOM_THRESHOLD_PX: i32 = 64;
+const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -115,6 +115,12 @@ struct Message {
     text: String,
     tool: Option<ToolActivity>,
     streaming: bool,
+}
+
+impl Message {
+    fn render_key(&self) -> (u64, usize, bool) {
+        (self.id, self.text.len(), self.streaming)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1152,7 +1158,7 @@ fn App() -> impl IntoView {
                                         let was_scroll_up = scroll_top + 2 < last_results_scroll_top.get();
                                         if was_scroll_up {
                                             set_stick_to_bottom.set(false);
-                                        } else if is_near_bottom(&results) {
+                                        } else if is_at_bottom(&results) {
                                             set_stick_to_bottom.set(true);
                                         }
                                         set_last_results_scroll_top.set(scroll_top);
@@ -1160,15 +1166,13 @@ fn App() -> impl IntoView {
                                 }
                             >
                                 {move || {
-                                    let items = messages.get();
-                                    let user_inputs = pending_user_inputs.get();
-                                    let queued = queued_prompt.get();
-                                    let working = is_sending.get() && user_inputs.is_empty();
-                                    let show_plan_actions = mode.get() == PermissionMode::Plan
-                                        && !is_sending.get()
-                                        && user_inputs.is_empty()
-                                        && latest_message_is_assistant();
-                                    if items.is_empty() && user_inputs.is_empty() && queued.is_none() && !working {
+                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    let working = is_sending.get() && user_inputs_empty;
+                                    if messages.get().is_empty()
+                                        && user_inputs_empty
+                                        && queued_prompt.get().is_none()
+                                        && !working
+                                    {
                                         view! {
                                             <div class="empty-state">
                                                 <div class="empty-state-title">"Нет активной задачи"</div>
@@ -1176,60 +1180,71 @@ fn App() -> impl IntoView {
                                         }
                                         .into_any()
                                     } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                <For
+                                    each=move || messages.get()
+                                    key=|message| message.render_key()
+                                    children=move |message| view! { <MessageView message /> }
+                                />
+                                <For
+                                    each=move || pending_user_inputs.get()
+                                    key=|request| request.request_id.clone()
+                                    children=move |request| {
+                                        view! { <UserInputCard request on_submit=submit_user_input /> }
+                                    }
+                                />
+                                {move || {
+                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    if mode.get() == PermissionMode::Plan
+                                        && !is_sending.get()
+                                        && user_inputs_empty
+                                        && latest_message_is_assistant()
+                                    {
                                         view! {
-                                            <For
-                                                each=move || items.clone()
-                                                key=|message| message.id
-                                                children=move |message| view! { <MessageView message /> }
+                                            <PlanActionsCard
+                                                on_revise=revise_plan
+                                                on_execute=execute_plan
+                                                on_exit=exit_plan
                                             />
-                                            <For
-                                                each=move || user_inputs.clone()
-                                                key=|request| request.request_id.clone()
-                                                children=move |request| {
-                                                    view! { <UserInputCard request on_submit=submit_user_input /> }
-                                                }
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if let Some(text) = queued_prompt.get() {
+                                        view! {
+                                            <QueuedPromptCard
+                                                text
+                                                is_sending=is_sending
+                                                on_send=send_queued_prompt
+                                                on_clear=clear_queued_prompt
                                             />
-                                            {if show_plan_actions {
-                                                view! {
-                                                    <PlanActionsCard
-                                                        on_revise=revise_plan
-                                                        on_execute=execute_plan
-                                                        on_exit=exit_plan
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
-                                            {if let Some(text) = queued {
-                                                view! {
-                                                    <QueuedPromptCard
-                                                        text
-                                                        is_sending=is_sending
-                                                        on_send=send_queued_prompt
-                                                        on_clear=clear_queued_prompt
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
-                                            {if working {
-                                                view! { <WorkingCard status=agent_status /> }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
-                                            {if let TransportStatus::Error(message) = transport_status.get() {
-                                                view! {
-                                                    <ErrorRecoveryCard
-                                                        message
-                                                        can_retry=move || last_prompt_to_retry.get().is_some() && !is_sending.get()
-                                                        on_retry=retry_last_prompt
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
-                                        }
-                                        .into_any()
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if is_sending.get() && pending_user_inputs.get().is_empty() {
+                                        view! { <WorkingCard status=agent_status /> }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if let TransportStatus::Error(message) = transport_status.get() {
+                                        view! {
+                                            <ErrorRecoveryCard
+                                                message
+                                                can_retry=move || last_prompt_to_retry.get().is_some() && !is_sending.get()
+                                                on_retry=retry_last_prompt
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
                                     }
                                 }}
                             </section>
@@ -2497,9 +2512,9 @@ fn save_i32_setting(key: &str, value: i32) {
     }
 }
 
-fn is_near_bottom(results: &HtmlElement) -> bool {
+fn is_at_bottom(results: &HtmlElement) -> bool {
     let distance = results.scroll_height() - results.scroll_top() - results.client_height();
-    distance <= CHAT_BOTTOM_THRESHOLD_PX
+    distance <= CHAT_REATTACH_THRESHOLD_PX
 }
 
 fn schedule_results_scroll(
