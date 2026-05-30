@@ -8,7 +8,7 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     Event, EventSource, Headers, HtmlElement, KeyboardEvent, MessageEvent, MouseEvent, Request,
-    RequestInit, RequestMode, Response, SubmitEvent, window,
+    RequestInit, RequestMode, Response, SubmitEvent, WheelEvent, window,
 };
 
 const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
@@ -1138,8 +1138,14 @@ fn App() -> impl IntoView {
 
                             <section
                                 class="results-panel"
+                                class:sticky-bottom=stick_to_bottom
                                 aria-label="Диалог"
                                 node_ref=results_ref
+                                on:wheel=move |ev: WheelEvent| {
+                                    if ev.delta_y() < 0.0 {
+                                        set_stick_to_bottom.set(false);
+                                    }
+                                }
                                 on:scroll=move |_| {
                                     if let Some(results) = results_ref.get() {
                                         let scroll_top = results.scroll_top();
@@ -2509,16 +2515,29 @@ fn schedule_results_scroll(
     set_scroll_frame_pending.set(true);
 
     let callback = Closure::<dyn FnMut()>::wrap(Box::new(move || {
-        set_scroll_frame_pending.set(false);
-        if let Some(results) = results_ref.get() {
-            if stick_to_bottom.get() {
-                results.set_scroll_top(results.scroll_height());
-                set_last_results_scroll_top.set(results.scroll_top());
-            }
-        }
+        scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
+        let second_frame = Closure::<dyn FnMut()>::wrap(Box::new(move || {
+            scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
+            set_scroll_frame_pending.set(false);
+        }));
+        request_animation_frame(second_frame.as_ref().unchecked_ref());
+        second_frame.forget();
     }));
     request_animation_frame(callback.as_ref().unchecked_ref());
     callback.forget();
+}
+
+fn scroll_results_to_bottom(
+    results_ref: NodeRef<html::Section>,
+    stick_to_bottom: ReadSignal<bool>,
+    set_last_results_scroll_top: WriteSignal<i32>,
+) {
+    if let Some(results) = results_ref.get() {
+        if stick_to_bottom.get() {
+            results.set_scroll_top(results.scroll_height());
+            set_last_results_scroll_top.set(results.scroll_top());
+        }
+    }
 }
 
 fn update_session_labels(
