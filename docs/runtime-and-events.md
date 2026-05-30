@@ -384,10 +384,12 @@ plan `TurnOutput` UI может открыть
 chooser для execute/revise/dismiss.
 Web transcript держит sticky-bottom только пока пользователь не скроллит вверх:
 upward wheel/scroll отключает прилипание, повторное автоприлипание происходит
-рядом с нижней границей, а browser scroll anchoring включается для отлипшего
-состояния. Streaming assistant text рендерится через тот же Markdown pipeline,
-что и завершённое сообщение, но MathJax запускается только после окончания
-streaming turn, чтобы не перестраивать формулы на каждый token/delta.
+только при реальном возврате к нижней границе, а browser scroll anchoring
+включается для отлипшего состояния. Список сообщений остаётся стабильным
+keyed-list; во время streaming пересоздаётся только меняющаяся assistant bubble,
+а не весь transcript. Streaming assistant text рендерится через тот же Markdown
+pipeline, что и завершённое сообщение, но MathJax запускается только после
+окончания streaming turn, чтобы не перестраивать формулы на каждый token/delta.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
 пользователя до cancel или shutdown.
