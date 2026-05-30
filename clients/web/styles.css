@@ -1008,6 +1008,8 @@ textarea {
     max-width: 100%;
     overflow-x: hidden;
     overflow-y: auto;
+    overflow-anchor: none;
+    overscroll-behavior: contain;
     background: var(--bg-root);
     padding: var(--space-5);
 }
@@ -1246,6 +1248,7 @@ textarea {
     min-width: 0;
     max-width: 100%;
     overflow-x: hidden;
+    contain: inline-size;
     border: 1px solid var(--border-subtle);
     background: var(--bg-panel);
     padding: var(--space-4);
