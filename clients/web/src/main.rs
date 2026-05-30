@@ -113,6 +113,7 @@ struct Message {
     role: MessageRole,
     text: String,
     tool: Option<ToolActivity>,
+    streaming: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -548,6 +549,7 @@ fn App() -> impl IntoView {
             queued_prompt.get().is_some(),
             is_sending.get(),
         );
+        let streaming_active = active_stream_message_id.get().is_some();
         if stick_to_bottom.get() {
             schedule_results_scroll(
                 results_ref,
@@ -556,7 +558,9 @@ fn App() -> impl IntoView {
                 set_scroll_frame_pending,
             );
         }
-        proteus_typeset_math();
+        if !streaming_active {
+            proteus_typeset_math();
+        }
     });
 
     Effect::new(move |_| {
@@ -1422,6 +1426,7 @@ fn load_transcript(
                         role: message_role_from_wire(&item.role),
                         text: item.text,
                         tool: None,
+                        streaming: false,
                     })
                     .collect::<Vec<_>>();
                 if !messages.is_empty() {
@@ -1975,6 +1980,7 @@ fn MessageView(message: Message) -> impl IntoView {
     let badge_class = message.role.badge_class();
     let text = message.text.clone();
     let html = markdown_html(&text);
+    let streaming = message.streaming;
     let (collapsed, set_collapsed) = signal(false);
     let copy_text = text.clone();
     let toggle_title = move || {
@@ -2018,9 +2024,15 @@ fn MessageView(message: Message) -> impl IntoView {
                         </div>
                     }.into_any()
                 } else {
-                    view! {
-                        <div class=message_class inner_html=html.clone()></div>
-                    }.into_any()
+                    if streaming {
+                        view! {
+                            <div class=format!("{message_class} streaming-message")>{text.clone()}</div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class=message_class inner_html=html.clone()></div>
+                        }.into_any()
+                    }
                 }
             }}
         </article>
@@ -2226,6 +2238,15 @@ fn handle_app_event(
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
             if streamed_this_turn.get() {
+                if let Some(message_id) = active_stream_message_id.get() {
+                    set_messages.update(|items| {
+                        if let Some(message) =
+                            items.iter_mut().find(|message| message.id == message_id)
+                        {
+                            message.streaming = false;
+                        }
+                    });
+                }
                 set_active_stream_message_id.set(None);
                 set_streamed_this_turn.set(false);
             } else {
@@ -3027,6 +3048,7 @@ fn push_message(
             role,
             text: text.into(),
             tool: None,
+            streaming: false,
         });
     });
 }
@@ -3045,6 +3067,7 @@ fn push_tool_message(
             role: MessageRole::System,
             text: String::new(),
             tool: Some(tool),
+            streaming: false,
         });
     });
 }
@@ -3077,6 +3100,7 @@ fn append_streaming_assistant_delta(
                 role: MessageRole::Assistant,
                 text: text.to_owned(),
                 tool: None,
+                streaming: true,
             });
         });
     }
@@ -3094,6 +3118,7 @@ fn finish_streaming_assistant_message(
         set_messages.update(|items| {
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 message.text = final_text.clone();
+                message.streaming = false;
             }
         });
         set_active_stream_message_id.set(None);
