@@ -46,6 +46,67 @@ impl PermissionMode {
             Self::Auto => "писать без запросов",
         }
     }
+
+    fn value(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Normal => "normal",
+            Self::Auto => "auto",
+        }
+    }
+
+    fn from_value(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "plan" => Self::Plan,
+            "auto" => Self::Auto,
+            _ => Self::Normal,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ReasoningEffort {
+    #[default]
+    Config,
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Config => "Авто",
+            Self::Low => "Низкий",
+            Self::Medium => "Средний",
+            Self::High => "Высокий",
+        }
+    }
+
+    fn value(self) -> &'static str {
+        match self {
+            Self::Config => "config",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+
+    fn effort(self) -> Option<String> {
+        match self {
+            Self::Config => None,
+            Self::Low | Self::Medium | Self::High => Some(self.value().to_owned()),
+        }
+    }
+
+    fn from_value(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "low" => Self::Low,
+            "medium" => Self::Medium,
+            "high" => Self::High,
+            _ => Self::Config,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -317,6 +378,12 @@ struct SetPermissionModeRequest {
 }
 
 #[derive(Debug, Serialize)]
+struct SetReasoningEffortRequest {
+    id: Option<String>,
+    effort: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct ResolveApprovalRequest {
     id: Option<String>,
     approval_id: String,
@@ -365,6 +432,7 @@ struct AppActions {
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
     set_mode: WriteSignal<PermissionMode>,
+    set_effort: WriteSignal<ReasoningEffort>,
     is_sending: ReadSignal<bool>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
@@ -392,6 +460,31 @@ impl AppActions {
                     self.set_transport_status,
                 ),
                 Err(error) => self.push_error("Mode update failed", error),
+            }
+        });
+    }
+
+    fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
+        self.set_effort.set(new_effort);
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
+        spawn_local(async move {
+            match post_json(
+                "/effort",
+                &SetReasoningEffortRequest {
+                    id: Some(request_id),
+                    effort: new_effort.effort(),
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Effort update failed", error),
             }
         });
     }
@@ -517,6 +610,7 @@ fn App() -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
     let (queued_prompt, set_queued_prompt) = signal(None::<String>);
     let (mode, set_mode) = signal(PermissionMode::Normal);
+    let (effort, set_effort) = signal(ReasoningEffort::Config);
     let (next_message_id, set_next_message_id) = signal(1_u64);
     let (next_request_id, set_next_request_id) = signal(1_u64);
     let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
@@ -597,6 +691,7 @@ fn App() -> impl IntoView {
     });
 
     if route != "/resume" {
+        load_runtime_settings(set_mode, set_effort, set_transport_status);
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
 
@@ -629,6 +724,7 @@ fn App() -> impl IntoView {
         next_request_id,
         set_next_request_id,
         set_mode,
+        set_effort,
         is_sending,
         set_is_sending,
         set_active_turn_id,
@@ -666,6 +762,9 @@ fn App() -> impl IntoView {
 
     let select_mode = move |new_mode: PermissionMode| {
         actions.set_permission_mode(new_mode);
+    };
+    let select_effort = move |new_effort: ReasoningEffort| {
+        actions.set_reasoning_effort(new_effort);
     };
 
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
@@ -768,6 +867,10 @@ fn App() -> impl IntoView {
             ActivityItem {
                 label: "режим",
                 value: mode.get().label().to_owned(),
+            },
+            ActivityItem {
+                label: "effort",
+                value: effort.get().label().to_owned(),
             },
             ActivityItem {
                 label: "события",
@@ -1047,11 +1150,41 @@ fn App() -> impl IntoView {
                 </div>
 
                 <section class="sidebar-panel">
-                    <div class="panel-kicker">"Режим"</div>
-                    <div class="mode-list">
-                        <ModeButton value=PermissionMode::Plan mode on_select=select_mode />
-                        <ModeButton value=PermissionMode::Normal mode on_select=select_mode />
-                        <ModeButton value=PermissionMode::Auto mode on_select=select_mode />
+                    <div class="panel-kicker">"Настройки"</div>
+                    <div class="settings-list">
+                        <label class="settings-row">
+                            <span>"Режим"</span>
+                            <select
+                                prop:value=move || mode.get().value()
+                                on:change:target=move |ev| {
+                                    select_mode(PermissionMode::from_value(&ev.target().value()));
+                                }
+                            >
+                                <option value=PermissionMode::Plan.value() title=PermissionMode::Plan.description()>
+                                    {PermissionMode::Plan.label()}
+                                </option>
+                                <option value=PermissionMode::Normal.value() title=PermissionMode::Normal.description()>
+                                    {PermissionMode::Normal.label()}
+                                </option>
+                                <option value=PermissionMode::Auto.value() title=PermissionMode::Auto.description()>
+                                    {PermissionMode::Auto.label()}
+                                </option>
+                            </select>
+                        </label>
+                        <label class="settings-row">
+                            <span>"Effort"</span>
+                            <select
+                                prop:value=move || effort.get().value()
+                                on:change:target=move |ev| {
+                                    select_effort(ReasoningEffort::from_value(&ev.target().value()));
+                                }
+                            >
+                                <option value=ReasoningEffort::Config.value()>{ReasoningEffort::Config.label()}</option>
+                                <option value=ReasoningEffort::Low.value()>{ReasoningEffort::Low.label()}</option>
+                                <option value=ReasoningEffort::Medium.value()>{ReasoningEffort::Medium.label()}</option>
+                                <option value=ReasoningEffort::High.value()>{ReasoningEffort::High.label()}</option>
+                            </select>
+                        </label>
                     </div>
                 </section>
 
@@ -1110,6 +1243,10 @@ fn App() -> impl IntoView {
                         <span>
                             <span class="label">"режим"</span>
                             <span class="value">{move || mode.get().label()}</span>
+                        </span>
+                        <span>
+                            <span class="label">"effort"</span>
+                            <span class="value">{move || effort.get().label()}</span>
                         </span>
                         <span>
                             <span class="label">"агент"</span>
@@ -1440,6 +1577,28 @@ fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: Wri
                 set_status.set(format!("{count} сессий"));
             }
             Err(error) => set_status.set(format!("не удалось загрузить сессии: {error}")),
+        }
+    });
+}
+
+fn load_runtime_settings(
+    set_mode: WriteSignal<PermissionMode>,
+    set_effort: WriteSignal<ReasoningEffort>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    spawn_local(async move {
+        match get_json::<Value>("/config").await {
+            Ok(config) => {
+                if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
+                    set_mode.set(PermissionMode::from_value(mode));
+                }
+                if let Some(effort) = config.pointer("/reasoning/effort").and_then(Value::as_str) {
+                    set_effort.set(ReasoningEffort::from_value(effort));
+                }
+            }
+            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
+                "config load failed: {error}"
+            ))),
         }
     });
 }
@@ -1972,29 +2131,6 @@ fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
                 </span>
             </div>
         </article>
-    }
-}
-
-#[component]
-fn ModeButton<F>(
-    value: PermissionMode,
-    mode: ReadSignal<PermissionMode>,
-    on_select: F,
-) -> impl IntoView
-where
-    F: Fn(PermissionMode) + Copy + 'static,
-{
-    let active = move || mode.get() == value;
-    view! {
-        <button
-            type="button"
-            class:active=active
-            on:click=move |_| on_select(value)
-            title=value.description()
-        >
-            <span>{value.label()}</span>
-            <small>{value.description()}</small>
-        </button>
     }
 }
 

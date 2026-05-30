@@ -135,6 +135,10 @@ pub enum StdioRequest {
         id: Option<String>,
         mode: PermissionMode,
     },
+    SetReasoningEffort {
+        id: Option<String>,
+        effort: Option<String>,
+    },
     ConfigSummary {
         id: Option<String>,
     },
@@ -152,6 +156,7 @@ impl StdioRequest {
             | Self::UserInput { id, .. }
             | Self::Cancel { id, .. }
             | Self::SetPermissionMode { id, .. }
+            | Self::SetReasoningEffort { id, .. }
             | Self::ConfigSummary { id }
             | Self::Shutdown { id } => id.clone(),
         }

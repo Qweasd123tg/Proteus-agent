@@ -111,6 +111,12 @@ struct SetPermissionModeRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct SetReasoningEffortRequest {
+    id: Option<String>,
+    effort: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ResumeSessionRequest {
     id: Option<String>,
     session_dir: PathBuf,
@@ -257,6 +263,20 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest>(request).await {
+            Ok(command) => {
+                let output = execute_app_request(
+                    &state,
+                    StdioRequest::SetReasoningEffort {
+                        id: command.id,
+                        effort: command.effort,
+                    },
+                )
+                .await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
         (Method::POST, "/resume") => match read_json::<ResumeSessionRequest>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
@@ -330,6 +350,14 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
         StdioRequest::SetPermissionMode { mode, .. } => {
             state.current_server().await.set_permission_mode(mode).await;
             Ok(Some(json!({ "mode": mode })))
+        }
+        StdioRequest::SetReasoningEffort { effort, .. } => {
+            state
+                .current_server()
+                .await
+                .set_reasoning_effort(effort.clone())
+                .await;
+            Ok(Some(json!({ "effort": effort })))
         }
         StdioRequest::ConfigSummary { .. } => {
             Ok(Some(state.current_server().await.config_summary().await))
@@ -599,6 +627,52 @@ mod tests {
             _ => panic!("unexpected output variant"),
         }
         assert_eq!(server.permission_mode().await, PermissionMode::Auto);
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn request_dispatch_sets_reasoning_effort() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown);
+
+        let output = execute_app_request(
+            &state,
+            StdioRequest::SetReasoningEffort {
+                id: Some("effort-1".to_owned()),
+                effort: Some("high".to_owned()),
+            },
+        )
+        .await;
+
+        match output {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("effort-1"));
+                assert!(ok);
+                assert_eq!(
+                    output
+                        .as_ref()
+                        .and_then(|value| value.get("effort"))
+                        .and_then(Value::as_str),
+                    Some("high")
+                );
+                assert!(error.is_none());
+            }
+            StdioOutput::Event { .. } => panic!("expected command response"),
+            _ => panic!("unexpected output variant"),
+        }
+        let summary = server.config_summary().await;
+        assert_eq!(
+            summary.pointer("/reasoning/effort").and_then(Value::as_str),
+            Some("high")
+        );
         server.shutdown().await;
     }
 

@@ -179,6 +179,15 @@ pub async fn run_stdio_app_server(
                 )
                 .await;
             }
+            StdioRequest::SetReasoningEffort { effort, .. } => {
+                server.set_reasoning_effort(effort.clone()).await;
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    Ok(Some(serde_json::json!({ "effort": effort }))),
+                )
+                .await;
+            }
             StdioRequest::ConfigSummary { .. } => {
                 send_stdio_response(&output_tx, id, Ok(Some(server.config_summary().await))).await;
             }
