@@ -110,6 +110,7 @@ struct Message {
     id: u64,
     role: MessageRole,
     text: String,
+    tool: Option<ToolActivity>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -514,6 +515,8 @@ fn App() -> impl IntoView {
     let (session_label, set_session_label) = signal("not started".to_owned());
     let (is_sending, set_is_sending) = signal(false);
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
+    let (active_stream_message_id, set_active_stream_message_id) = signal(None::<u64>);
+    let (streamed_this_turn, set_streamed_this_turn) = signal(false);
     let (agent_status, set_agent_status) = signal("ожидает".to_owned());
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
@@ -585,6 +588,10 @@ fn App() -> impl IntoView {
         set_session_label,
         set_is_sending,
         set_active_turn_id,
+        active_stream_message_id,
+        set_active_stream_message_id,
+        streamed_this_turn,
+        set_streamed_this_turn,
         set_agent_status,
         set_tool_activities,
         set_pending_approvals,
@@ -608,6 +615,9 @@ fn App() -> impl IntoView {
     let clear_transcript = move |_| {
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
+        set_active_stream_message_id.set(None);
+        set_streamed_this_turn.set(false);
+        set_tool_activities.set(Vec::new());
         set_queued_prompt.set(None);
         spawn_local(async move {
             match post_json("/clear", &json!({})).await {
@@ -1134,13 +1144,6 @@ fn App() -> impl IntoView {
                                                 key=|message| message.id
                                                 children=move |message| view! { <MessageView message /> }
                                             />
-                                            {if !tool_activities.get().is_empty() {
-                                                view! {
-                                                    <ToolActivityList tools=tool_activities />
-                                                }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
                                             <For
                                                 each=move || user_inputs.clone()
                                                 key=|request| request.request_id.clone()
@@ -1403,6 +1406,7 @@ fn load_transcript(
                         id: index as u64 + 1,
                         role: message_role_from_wire(&item.role),
                         text: item.text,
+                        tool: None,
                     })
                     .collect::<Vec<_>>();
                 if !messages.is_empty() {
@@ -1825,19 +1829,6 @@ where
 }
 
 #[component]
-fn ToolActivityList(tools: ReadSignal<Vec<ToolActivity>>) -> impl IntoView {
-    view! {
-        <section class="tool-activity-list" aria-label="Tools">
-            <For
-                each=move || tools.get()
-                key=|tool| tool.call_id.clone()
-                children=move |tool| view! { <ToolActivityCard tool /> }
-            />
-        </section>
-    }
-}
-
-#[component]
 fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
     let args = tool.args_preview.clone();
@@ -1955,6 +1946,15 @@ where
 
 #[component]
 fn MessageView(message: Message) -> impl IntoView {
+    if let Some(tool) = message.tool {
+        return view! {
+            <article class="task-card tool-chat-card">
+                <ToolActivityCard tool />
+            </article>
+        }
+        .into_any();
+    }
+
     let card_class = message.role.card_class();
     let message_class = message.role.message_class();
     let badge_class = message.role.badge_class();
@@ -2009,7 +2009,7 @@ fn MessageView(message: Message) -> impl IntoView {
                 }
             }}
         </article>
-    }
+    }.into_any()
 }
 
 fn connect_event_stream(
@@ -2022,6 +2022,10 @@ fn connect_event_stream(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -2072,6 +2076,10 @@ fn connect_event_stream(
                     set_session_label,
                     set_is_sending,
                     set_active_turn_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    streamed_this_turn,
+                    set_streamed_this_turn,
                     set_agent_status,
                     set_tool_activities,
                     set_pending_approvals,
@@ -2111,6 +2119,10 @@ fn handle_app_output(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -2129,6 +2141,10 @@ fn handle_app_output(
                 set_session_label,
                 set_is_sending,
                 set_active_turn_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                streamed_this_turn,
+                set_streamed_this_turn,
                 set_agent_status,
                 set_tool_activities,
                 set_pending_approvals,
@@ -2155,6 +2171,10 @@ fn handle_app_event(
     set_session_label: WriteSignal<String>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -2162,38 +2182,51 @@ fn handle_app_event(
 ) {
     match event {
         AppServerEvent::Runtime { envelope } => {
-            update_runtime_status_and_tools(&envelope, set_agent_status, set_tool_activities);
+            update_runtime_status_and_tools(
+                &envelope,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                set_agent_status,
+                set_tool_activities,
+            );
             update_session_labels(envelope, set_workspace_label, set_session_label);
         }
-        AppServerEvent::UserMessageSubmitted { text } => push_message(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            MessageRole::User,
-            text,
-        ),
+        AppServerEvent::UserMessageSubmitted { text } => {
+            set_streamed_this_turn.set(false);
+            set_active_stream_message_id.set(None);
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::User,
+                text,
+            );
+        }
         AppServerEvent::TurnOutput { output } => {
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::Assistant,
-                output_text(&output),
-            );
+            if streamed_this_turn.get() {
+                set_active_stream_message_id.set(None);
+                set_streamed_this_turn.set(false);
+            } else {
+                finish_streaming_assistant_message(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    output_text(&output),
+                );
+            }
         }
         AppServerEvent::ApprovalRequested { request } => {
             set_agent_status.set("ждёт доступ".to_owned());
             set_pending_approvals.update(|items| items.push(request.clone()));
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::System,
-                format!("Approval requested for {}", request.call.name),
-            );
         }
         AppServerEvent::ApprovalResolved {
             approval_id,
@@ -2206,13 +2239,6 @@ fn handle_app_event(
             });
             set_pending_approvals
                 .update(|items| items.retain(|item| item.approval_id != approval_id));
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::System,
-                format!("Approval {approval_id} resolved: {approved}"),
-            );
         }
         AppServerEvent::UserInputRequested { request } => {
             set_agent_status.set("ждёт ответ".to_owned());
@@ -2438,6 +2464,12 @@ fn update_session_labels(
 
 fn update_runtime_status_and_tools(
     envelope: &Value,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
 ) {
@@ -2446,6 +2478,8 @@ fn update_runtime_status_and_tools(
     };
 
     if event.get("TurnStarted").is_some() {
+        set_streamed_this_turn.set(false);
+        set_active_stream_message_id.set(None);
         set_agent_status.set("начинает".to_owned());
     } else if event.get("TaskReceived").is_some() {
         set_agent_status.set("готовит задачу".to_owned());
@@ -2453,12 +2487,24 @@ fn update_runtime_status_and_tools(
         set_agent_status.set("собирает контекст".to_owned());
     } else if event.get("ModelRequestPrepared").is_some() {
         set_agent_status.set("думает".to_owned());
-    } else if event.get("AssistantTextDelta").is_some()
-        || event.get("AssistantReasoningDelta").is_some()
-    {
+    } else if let Some(delta_event) = event.get("AssistantTextDelta") {
         set_agent_status.set("пишет".to_owned());
+        if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
+            set_streamed_this_turn.set(true);
+            append_streaming_assistant_delta(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                text,
+            );
+        }
+    } else if event.get("AssistantReasoningDelta").is_some() {
+        set_agent_status.set("думает".to_owned());
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         set_agent_status.set("запускает tool".to_owned());
+        set_active_stream_message_id.set(None);
         if let Some(call) = tool_event.get("call") {
             let call_id = call
                 .get("id")
@@ -2471,15 +2517,22 @@ fn update_runtime_status_and_tools(
                 .unwrap_or("tool")
                 .to_owned();
             let args_preview = call.get("args").map(compact_json).unwrap_or_default();
+            let tool = ToolActivity {
+                call_id: call_id.clone(),
+                name,
+                args_preview,
+                status: ToolActivityStatus::Running,
+                result_preview: None,
+            };
+            push_tool_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                tool.clone(),
+            );
             set_tool_activities.update(|items| {
                 if !items.iter().any(|item| item.call_id == call_id) {
-                    items.push(ToolActivity {
-                        call_id,
-                        name,
-                        args_preview,
-                        status: ToolActivityStatus::Running,
-                        result_preview: None,
-                    });
+                    items.push(tool);
                     trim_tool_activities(items);
                 }
             });
@@ -2489,6 +2542,7 @@ fn update_runtime_status_and_tools(
         if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
             update_tool_status(
                 set_tool_activities,
+                set_messages,
                 call_id,
                 ToolActivityStatus::WaitingApproval,
                 None,
@@ -2507,6 +2561,7 @@ fn update_runtime_status_and_tools(
         if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
             update_tool_status(
                 set_tool_activities,
+                set_messages,
                 call_id,
                 if approved {
                     ToolActivityStatus::Approved
@@ -2526,6 +2581,7 @@ fn update_runtime_status_and_tools(
             let preview = tool_result_preview(result);
             update_tool_status(
                 set_tool_activities,
+                set_messages,
                 call_id,
                 if ok {
                     ToolActivityStatus::Done
@@ -2544,6 +2600,7 @@ fn update_runtime_status_and_tools(
 
 fn update_tool_status(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_messages: WriteSignal<Vec<Message>>,
     call_id: &str,
     status: ToolActivityStatus,
     result_preview: Option<String>,
@@ -2551,8 +2608,20 @@ fn update_tool_status(
     set_tool_activities.update(|items| {
         if let Some(item) = items.iter_mut().find(|item| item.call_id == call_id) {
             item.status = status;
-            if result_preview.is_some() {
-                item.result_preview = result_preview;
+            if let Some(result_preview) = result_preview.clone() {
+                item.result_preview = Some(result_preview);
+            }
+        }
+    });
+    set_messages.update(|items| {
+        if let Some(tool) = items
+            .iter_mut()
+            .filter_map(|message| message.tool.as_mut())
+            .find(|tool| tool.call_id == call_id)
+        {
+            tool.status = status;
+            if let Some(result_preview) = result_preview {
+                tool.result_preview = Some(result_preview);
             }
         }
     });
@@ -2914,8 +2983,86 @@ fn push_message(
             id,
             role,
             text: text.into(),
+            tool: None,
         });
     });
+}
+
+fn push_tool_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    tool: ToolActivity,
+) {
+    let id = next_message_id.get();
+    set_next_message_id.set(id + 1);
+    set_messages.update(|items| {
+        items.push(Message {
+            id,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: Some(tool),
+        });
+    });
+}
+
+fn append_streaming_assistant_delta(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    text: &str,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    if let Some(message_id) = active_stream_message_id.get() {
+        set_messages.update(|items| {
+            if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
+                message.text.push_str(text);
+            }
+        });
+    } else {
+        let id = next_message_id.get();
+        set_next_message_id.set(id + 1);
+        set_active_stream_message_id.set(Some(id));
+        set_messages.update(|items| {
+            items.push(Message {
+                id,
+                role: MessageRole::Assistant,
+                text: text.to_owned(),
+                tool: None,
+            });
+        });
+    }
+}
+
+fn finish_streaming_assistant_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    final_text: String,
+) {
+    if let Some(message_id) = active_stream_message_id.get() {
+        set_messages.update(|items| {
+            if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
+                message.text = final_text.clone();
+            }
+        });
+        set_active_stream_message_id.set(None);
+    } else {
+        push_message(
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            MessageRole::Assistant,
+            final_text,
+        );
+    }
 }
 
 fn js_error(value: JsValue) -> String {
