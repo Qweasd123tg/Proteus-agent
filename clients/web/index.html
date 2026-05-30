@@ -42,12 +42,20 @@
                         if (!/[\\$]/.test(text)) {
                             return;
                         }
+                        const wasAtBottom =
+                            root.scrollHeight -
+                                root.scrollTop -
+                                root.clientHeight <=
+                            64;
                         if (window.__proteusMathRunning) {
                             window.__proteusMathQueued = true;
                             return;
                         }
                         window.__proteusMathRunning = true;
                         window.MathJax.typesetPromise([root]).finally(() => {
+                            if (wasAtBottom) {
+                                root.scrollTop = root.scrollHeight;
+                            }
                             window.__proteusMathRunning = false;
                             if (window.__proteusMathQueued) {
                                 window.__proteusMathQueued = false;
