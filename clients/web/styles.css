@@ -1004,6 +1004,9 @@ textarea {
 .results-panel {
     min-height: 0;
     flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     overflow-y: auto;
     background: var(--bg-root);
     padding: var(--space-5);
@@ -1011,6 +1014,9 @@ textarea {
 
 .task-card {
     position: relative;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     margin-bottom: var(--space-5);
     border-left: 1px solid var(--border-subtle);
     padding-left: var(--space-5);
@@ -1070,11 +1076,12 @@ textarea {
 .message {
     min-width: 0;
     max-width: 100%;
+    overflow-x: hidden;
     color: var(--text-main);
     font-size: 13px;
     line-height: 1.7;
     overflow-wrap: anywhere;
-    word-break: normal;
+    word-break: break-word;
 }
 
 .message > * + * {
@@ -1086,7 +1093,10 @@ textarea {
 }
 
 .message p {
+    max-width: 100%;
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .message h1,
@@ -1116,6 +1126,7 @@ textarea {
 
 .message li {
     overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .message a {
@@ -1140,12 +1151,16 @@ textarea {
 }
 
 .message pre {
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     max-width: 100%;
     border: 1px solid var(--border-subtle);
     background: var(--bg-root);
     color: var(--text-main);
     padding: var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .message pre code {
@@ -1153,8 +1168,9 @@ textarea {
     border: 0;
     background: transparent;
     padding: 0;
-    white-space: pre;
-    overflow-wrap: normal;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .message blockquote {
@@ -1227,6 +1243,9 @@ textarea {
 
 .assistant-message,
 .system-message {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     border: 1px solid var(--border-subtle);
     background: var(--bg-panel);
     padding: var(--space-4);
