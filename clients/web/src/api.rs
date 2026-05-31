@@ -1,13 +1,53 @@
+use std::cell::RefCell;
+
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
 
-use crate::types::StdioOutput;
+use crate::types::{SessionToken, StdioOutput};
 
 pub(crate) const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
+const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
+const SESSION_HEADER: &str = "X-Proteus-Session";
+
+thread_local! {
+    static SESSION_TOKEN: RefCell<SessionToken> = RefCell::new(SessionToken::missing());
+}
+
+pub(crate) fn load_session_token() -> Result<SessionToken, String> {
+    let token = if let Some(token) = query_session_token() {
+        persist_session_token(&token)?;
+        token
+    } else if let Some(storage) = session_storage()? {
+        if let Some(value) = storage.get_item(SESSION_STORAGE_KEY).map_err(js_error)? {
+            SessionToken::new(value)
+        } else {
+            SessionToken::missing()
+        }
+    } else {
+        SessionToken::missing()
+    };
+
+    SESSION_TOKEN.with(|stored| *stored.borrow_mut() = token.clone());
+    Ok(token)
+}
+
+pub(crate) fn event_stream_url() -> String {
+    let token = current_session_token();
+    match token.as_deref() {
+        Some(token) => format!(
+            "{APP_SERVER_ORIGIN}/events?{}={}",
+            SESSION_QUERY_KEYS[0],
+            encode_uri_component(token)
+        ),
+        None => format!("{APP_SERVER_ORIGIN}/events"),
+    }
+}
 
 pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, String> {
+    let token = current_session_token();
     let request_body = serde_json::to_string(body).map_err(|error| error.to_string())?;
     let init = RequestInit::new();
     init.set_method("POST");
@@ -18,6 +58,7 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
     headers
         .set("content-type", "application/json")
         .map_err(js_error)?;
+    set_session_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
 
     let request = Request::new_with_str_and_init(&format!("{APP_SERVER_ORIGIN}{path}"), &init)
@@ -44,16 +85,25 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
                 "HTTP {status}: {text} (backend is older than web client; restart proteus after ./install.sh)"
             ));
         }
-        return Err(format!("HTTP {status}: {text}"));
+        return Err(http_error(status, &text));
     }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
 }
 
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {
+    let token = current_session_token();
+    let init = RequestInit::new();
+    init.set_method("GET");
+    init.set_mode(RequestMode::Cors);
+    let headers = Headers::new().map_err(js_error)?;
+    set_session_header(&headers, &token)?;
+    init.set_headers(headers.as_ref());
+    let request = Request::new_with_str_and_init(&format!("{APP_SERVER_ORIGIN}{path}"), &init)
+        .map_err(js_error)?;
     let response_value = JsFuture::from(
         window()
             .ok_or_else(|| "window is unavailable".to_owned())?
-            .fetch_with_str(&format!("{APP_SERVER_ORIGIN}{path}")),
+            .fetch_with_request(&request),
     )
     .await
     .map_err(js_error)?;
@@ -67,9 +117,77 @@ pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result
         .ok_or_else(|| "response body is not text".to_owned())?;
 
     if !response.ok() {
-        return Err(format!("HTTP {status}: {text}"));
+        return Err(http_error(status, &text));
     }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+fn set_session_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {
+    if let Some(token) = token.as_deref() {
+        headers.set(SESSION_HEADER, token).map_err(js_error)?;
+    }
+    Ok(())
+}
+
+fn current_session_token() -> SessionToken {
+    SESSION_TOKEN.with(|stored| stored.borrow().clone())
+}
+
+fn query_session_token() -> Option<SessionToken> {
+    let search = window()?.location().search().ok()?;
+    let search = search.strip_prefix('?').unwrap_or(&search);
+    for pair in search.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if SESSION_QUERY_KEYS.iter().any(|candidate| candidate == &key) {
+            let value = decode_uri_component(value).unwrap_or_else(|| value.to_owned());
+            return Some(SessionToken::new(value));
+        }
+    }
+    None
+}
+
+fn persist_session_token(token: &SessionToken) -> Result<(), String> {
+    let Some(value) = token.as_deref() else {
+        return Ok(());
+    };
+    if let Some(storage) = session_storage()? {
+        storage
+            .set_item(SESSION_STORAGE_KEY, value)
+            .map_err(js_error)?;
+    }
+    Ok(())
+}
+
+fn session_storage() -> Result<Option<web_sys::Storage>, String> {
+    window()
+        .ok_or_else(|| "window is unavailable".to_owned())?
+        .session_storage()
+        .map_err(js_error)
+}
+
+fn encode_uri_component(value: &str) -> String {
+    js_sys::encode_uri_component(value)
+        .as_string()
+        .unwrap_or_else(|| value.to_owned())
+}
+
+fn decode_uri_component(value: &str) -> Option<String> {
+    js_sys::decode_uri_component(value).ok()?.as_string()
+}
+
+fn http_error(status: u16, text: &str) -> String {
+    let kind = match status {
+        400 => "malformed request",
+        401 => "auth required or session expired",
+        403 => "request denied",
+        404 => "server endpoint not found",
+        500..=599 => "server error",
+        _ => "request failed",
+    };
+    format!("HTTP {status} ({kind}): {text}")
 }
 
 pub(crate) fn js_error(value: JsValue) -> String {

@@ -111,7 +111,10 @@ pub(crate) fn ResumeView() -> impl IntoView {
     }
 }
 
-fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: WriteSignal<String>) {
+fn load_sessions(
+    set_sessions: WriteSignal<Vec<SessionSummary>>,
+    set_status: WriteSignal<String>,
+) {
     spawn_local(async move {
         match get_json::<Vec<SessionSummary>>("/sessions").await {
             Ok(items) => {
@@ -432,6 +435,7 @@ where
     let approve_id = request.approval_id.clone();
     let deny_id = request.approval_id.clone();
     let args_preview = compact_json(&request.call.args);
+    let is_safe_cache_target = approval_allows_tool_cwd_cache(&request);
     let spec_hint = request
         .tool_spec
         .as_ref()
@@ -469,13 +473,19 @@ where
                     >
                         {ApprovalCacheScope::ExactCall.label()}
                     </button>
-                    <button
-                        type="button"
-                        class:active=move || cache.get() == ApprovalCacheScope::ToolInCwd
-                        on:click=move |_| set_cache.set(ApprovalCacheScope::ToolInCwd)
-                    >
-                        {ApprovalCacheScope::ToolInCwd.label()}
-                    </button>
+                    {if is_safe_cache_target {
+                        view! {
+                            <button
+                                type="button"
+                                class:active=move || cache.get() == ApprovalCacheScope::ToolInCwd
+                                on:click=move |_| set_cache.set(ApprovalCacheScope::ToolInCwd)
+                            >
+                                {ApprovalCacheScope::ToolInCwd.label()}
+                            </button>
+                        }.into_any()
+                    } else {
+                        view! { <></> }.into_any()
+                    }}
                 </div>
             </div>
             <div class="control-actions">
@@ -496,6 +506,15 @@ where
             </div>
         </article>
     }
+}
+
+fn approval_allows_tool_cwd_cache(request: &ApprovalRequestInfo) -> bool {
+    request
+        .tool_spec
+        .as_ref()
+        .and_then(|spec| spec.get("safety"))
+        .and_then(Value::as_str)
+        .is_some_and(|safety| matches!(safety, "ReadOnly" | "WritesFiles"))
 }
 
 #[component]
