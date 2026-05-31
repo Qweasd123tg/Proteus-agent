@@ -977,7 +977,7 @@ mod tests {
             Some("old turn error".to_owned()),
             json!({}),
         );
-        let history = vec![CanonicalMessage::new(
+        let history = [CanonicalMessage::new(
             MessageRole::Tool,
             vec![ContentPart::ToolResult { result }],
         )];

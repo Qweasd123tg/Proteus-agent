@@ -37,10 +37,9 @@ core `ModeAwarePolicy`. `Ask Plan` отправляет topic как planning in
 `request_user_input`/`AskUserQuestion`, а UI показывает пошаговую карточку в
 transcript с question tabs, choices и свободным `Other`.
 
-Dogfood запуск предполагает локальный app-server на `127.0.0.1`. Перед
-использованием за пределами loopback HTTP boundary должен требовать local
-session token и ограниченный CORS. Для SSE token можно передавать query
-параметром, для `fetch` — header `X-Proteus-Session` или
+Dogfood запуск предполагает локальный app-server на `127.0.0.1`. HTTP boundary
+требует local session token и ограниченный CORS. Для SSE token можно передавать
+query параметром, для `fetch` — header `X-Proteus-Session` или
 `Authorization: Bearer <token>`; raw token не хранить в `localStorage`.
 
 ## Запуск
@@ -50,7 +49,11 @@ session token и ограниченный CORS. Для SSE token можно пе
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
-cargo run --bin proteus -- server http --port 8787
+export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
+cargo run --bin proteus -- server http \
+  --port 8787 \
+  --token "$PROTEUS_SESSION_TOKEN" \
+  --allow-origin http://127.0.0.1:1420
 ```
 
 В другом терминале:
