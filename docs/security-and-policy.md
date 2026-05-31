@@ -15,6 +15,30 @@ boundary, safety classes, permission mode и approval policy. Отдельный
 network gate, protected paths и secrets policy являются следующими слоями, а не
 заменой текущего `ToolOrchestrator`.
 
+## App-Server HTTP Boundary
+
+`proteus server http` предназначен для локального web-клиента и dogfood
+запусков. До отдельного hardening-а держите bind только на `127.0.0.1` и не
+экспонируйте порт в сеть: HTTP endpoints умеют отправлять prompts, approvals,
+typed input, cancel, reload-tools, history/resume и shutdown.
+
+Dogfood-ready boundary должен требовать per-server local session token на всех
+не-trivial endpoints (`/events`, `/send`, `/approval`, `/user-input`,
+`/cancel`, `/mode`, `/model`, `/reasoning`, `/effort`, `/config`,
+`/sessions`, `/history`, `/resume`, `/clear`, `/reload-tools`, `/shutdown`;
+`/health` может оставаться публичным). Для SSE допустим query token, потому
+что browser `EventSource` не выставляет произвольные headers; для обычных
+`fetch` requests предпочтителен `X-Proteus-Session` или
+`Authorization: Bearer <token>`. Raw token не печатать в обычные logs, не
+класть в `localStorage`; in-memory state или `sessionStorage` приемлемы для
+v0.
+
+CORS для защищённых endpoints должен быть allowlist-ом локальных origins,
+например `http://127.0.0.1:1420`, `http://localhost:1420` и текущий
+dev-server port. Wildcard CORS допустим только для явно публичных endpoints
+вроде `/health`; requests без `Origin` от локальных CLI/curl можно принимать
+при валидном token.
+
 ## ToolSafety
 
 Поддерживаемые классы:

@@ -7,7 +7,7 @@ reference snapshots и эксперименты живут в `examples/source/`
 `examples/research/`, чтобы не смешивать исследовательский материал с
 production-клиентом.
 
-Текущий статус: standalone Leptos/Trunk shell с transcript, composer,
+Текущий статус: Leptos/Trunk app-server client с transcript, composer,
 permission mode controls, approval queue, пошаговой typed user-input карточкой,
 cancel action, `Ctrl+Enter` submit shortcut, queued next prompt, autoscroll,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
@@ -36,6 +36,12 @@ core `ModeAwarePolicy`. `Ask Plan` отправляет topic как planning in
 агент должен сам задавать typed questions через
 `request_user_input`/`AskUserQuestion`, а UI показывает пошаговую карточку в
 transcript с question tabs, choices и свободным `Other`.
+
+Dogfood запуск предполагает локальный app-server на `127.0.0.1`. Перед
+использованием за пределами loopback HTTP boundary должен требовать local
+session token и ограниченный CORS. Для SSE token можно передавать query
+параметром, для `fetch` — header `X-Proteus-Session` или
+`Authorization: Bearer <token>`; raw token не хранить в `localStorage`.
 
 ## Запуск
 

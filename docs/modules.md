@@ -35,7 +35,7 @@ adapters.
 Список встроенных manifests можно посмотреть без запуска runtime:
 
 ```bash
-agent modules list
+proteus modules list
 ```
 
 Эта команда читает `BuiltinModuleCatalog`; она не устанавливает модули и не является package manager.
@@ -253,7 +253,7 @@ plugin tool совпадает с builtin/configured tool, builtin/configured р
 Текущий registry можно посмотреть командой:
 
 ```bash
-agent tools list
+proteus tools list
 ```
 
 Config-defined tools добавляются через manifests в `tools.path`, inline через
