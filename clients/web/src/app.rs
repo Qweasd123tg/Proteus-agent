@@ -1,0 +1,2816 @@
+use std::collections::HashMap;
+
+use leptos::{html, prelude::*, task::spawn_local};
+use serde_json::{Value, json};
+use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
+use web_sys::{
+    Event, EventSource, HtmlElement, KeyboardEvent, MessageEvent, MouseEvent, SubmitEvent,
+    WheelEvent, window,
+};
+
+use crate::api::{APP_SERVER_ORIGIN, get_json, js_error, post_json};
+use crate::markdown::markdown_html;
+use crate::types::*;
+
+const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
+
+#[wasm_bindgen]
+unsafe extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = proteusTypesetMath)]
+    fn proteus_typeset_math();
+    #[wasm_bindgen(js_namespace = window, js_name = requestAnimationFrame)]
+    fn request_animation_frame(callback: &js_sys::Function) -> i32;
+}
+
+#[derive(Clone, Copy)]
+struct AppActions {
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    transport_status: ReadSignal<TransportStatus>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    next_request_id: ReadSignal<u64>,
+    set_next_request_id: WriteSignal<u64>,
+    set_mode: WriteSignal<PermissionMode>,
+    set_model_name: WriteSignal<String>,
+    reasoning_enabled: ReadSignal<bool>,
+    set_reasoning_enabled: WriteSignal<bool>,
+    set_effort: WriteSignal<ReasoningEffort>,
+    is_sending: ReadSignal<bool>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+}
+
+impl AppActions {
+    fn set_permission_mode(self, new_mode: PermissionMode) {
+        self.set_mode.set(new_mode);
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
+        spawn_local(async move {
+            match post_json(
+                "/mode",
+                &SetPermissionModeRequest {
+                    id: Some(request_id),
+                    mode: new_mode,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Mode update failed", error),
+            }
+        });
+    }
+
+    fn set_model_name(self, new_model: String) {
+        let new_model = new_model.trim().to_owned();
+        if new_model.is_empty() {
+            return;
+        }
+        self.set_model_name.set(new_model.clone());
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
+        spawn_local(async move {
+            match post_json(
+                "/model",
+                &SetModelRequest {
+                    id: Some(request_id),
+                    model: new_model,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Model update failed", error),
+            }
+        });
+    }
+
+    fn set_reasoning_enabled(self, enabled: bool) {
+        self.set_reasoning_enabled.set(enabled);
+        if !enabled {
+            self.set_effort.set(ReasoningEffort::Config);
+        }
+        let request_id =
+            take_request_id(self.next_request_id, self.set_next_request_id, "reasoning");
+        spawn_local(async move {
+            match post_json(
+                "/reasoning",
+                &SetReasoningEnabledRequest {
+                    id: Some(request_id),
+                    enabled,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Reasoning update failed", error),
+            }
+        });
+    }
+
+    fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
+        if !self.reasoning_enabled.get() {
+            return;
+        }
+        let effort_value = new_effort.effort();
+        self.set_effort.set(new_effort);
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
+        spawn_local(async move {
+            match post_json(
+                "/effort",
+                &SetReasoningEffortRequest {
+                    id: Some(request_id),
+                    effort: effort_value,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Effort update failed", error),
+            }
+        });
+    }
+
+    fn send_prompt(self, text: String, forced_mode: Option<PermissionMode>) {
+        let text = text.trim().to_owned();
+        if text.is_empty() || self.is_sending.get() {
+            return;
+        }
+
+        if let Some(new_mode) = forced_mode {
+            self.set_mode.set(new_mode);
+        }
+
+        self.set_is_sending.set(true);
+        let mode_request_id = forced_mode
+            .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
+        self.set_active_turn_id.set(Some(request_id.clone()));
+
+        spawn_local(async move {
+            if let Some(new_mode) = forced_mode {
+                match post_json(
+                    "/mode",
+                    &SetPermissionModeRequest {
+                        id: mode_request_id,
+                        mode: new_mode,
+                    },
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let ok = command_succeeded(&output);
+                        handle_command_response(
+                            output,
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            self.set_transport_status,
+                        );
+                        if !ok {
+                            self.finish_turn();
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        self.finish_turn();
+                        self.push_error("Mode update failed", error);
+                        return;
+                    }
+                }
+            }
+
+            match post_json(
+                "/send",
+                &SendRequest {
+                    id: Some(request_id),
+                    text,
+                },
+            )
+            .await
+            {
+                Ok(output) => {
+                    self.finish_turn();
+                    if let StdioOutput::Response {
+                        ok: true,
+                        output: Some(value),
+                        ..
+                    } = &output
+                        && !matches!(self.transport_status.get(), TransportStatus::Connected)
+                    {
+                        push_message(
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            MessageRole::Assistant,
+                            output_text(value),
+                        );
+                    }
+                    handle_command_response(
+                        output,
+                        self.set_messages,
+                        self.next_message_id,
+                        self.set_next_message_id,
+                        self.set_transport_status,
+                    );
+                }
+                Err(error) => {
+                    self.finish_turn();
+                    self.push_error("Send failed", error);
+                }
+            }
+        });
+    }
+
+    fn finish_turn(self) {
+        self.set_is_sending.set(false);
+        self.set_active_turn_id.set(None);
+    }
+
+    fn push_error(self, prefix: &str, error: String) {
+        report_error(
+            self.set_messages,
+            self.next_message_id,
+            self.set_next_message_id,
+            self.set_transport_status,
+            prefix,
+            error,
+        );
+    }
+}
+
+#[component]
+pub(crate) fn App() -> impl IntoView {
+    let route = current_path();
+    let (messages, set_messages) = signal(seed_messages());
+    let (draft, set_draft) = signal(String::new());
+    let (queued_prompt, set_queued_prompt) = signal(None::<String>);
+    let (mode, set_mode) = signal(PermissionMode::Normal);
+    let (model_name, set_model_name) = signal(String::new());
+    let (model_options, set_model_options) = signal(Vec::<String>::new());
+    let (reasoning_enabled, set_reasoning_enabled) = signal(true);
+    let (effort, set_effort) = signal(ReasoningEffort::Config);
+    let (effort_options, set_effort_options) = signal(Vec::<String>::new());
+    let (next_message_id, set_next_message_id) = signal(1_u64);
+    let (next_request_id, set_next_request_id) = signal(1_u64);
+    let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
+    let (event_count, set_event_count) = signal(0_u64);
+    let (workspace_label, set_workspace_label) = signal("waiting for session".to_owned());
+    let (session_label, set_session_label) = signal("not started".to_owned());
+    let (is_sending, set_is_sending) = signal(false);
+    let (active_turn_id, set_active_turn_id) = signal(None::<String>);
+    let (active_stream_message_id, set_active_stream_message_id) = signal(None::<u64>);
+    let (streamed_this_turn, set_streamed_this_turn) = signal(false);
+    let (agent_status, set_agent_status) = signal("ожидает".to_owned());
+    let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
+    let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
+    let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+    let (toasts, set_toasts) = signal(Vec::<ToastMessage>::new());
+    let (next_toast_id, set_next_toast_id) = signal(1_u64);
+    let (last_error_toast, set_last_error_toast) = signal(None::<String>);
+    let (last_prompt_to_retry, set_last_prompt_to_retry) = signal(None::<String>);
+    let results_ref = NodeRef::<html::Section>::new();
+    let composer_ref = NodeRef::<html::Textarea>::new();
+    let (stick_to_bottom, set_stick_to_bottom) = signal(true);
+    let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
+    let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
+    let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
+    let (composer_height, set_composer_height) =
+        signal(load_i32_setting("proteus.composerHeight", 150));
+    let (dragging_sidebar, set_dragging_sidebar) = signal(false);
+    let (dragging_composer, set_dragging_composer) = signal(false);
+    let (resize_start_x, set_resize_start_x) = signal(0_i32);
+    let (resize_start_y, set_resize_start_y) = signal(0_i32);
+    let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
+    let (resize_start_composer, set_resize_start_composer) = signal(150_i32);
+
+    Effect::new(move |_| {
+        let _ = (
+            messages.get().len(),
+            pending_user_inputs.get().len(),
+            queued_prompt.get().is_some(),
+            is_sending.get(),
+        );
+        let streaming_active = active_stream_message_id.get().is_some();
+        if stick_to_bottom.get() {
+            schedule_results_scroll(
+                results_ref,
+                stick_to_bottom,
+                scroll_frame_pending,
+                set_scroll_frame_pending,
+                set_last_results_scroll_top,
+            );
+        }
+        if !streaming_active {
+            proteus_typeset_math();
+        }
+    });
+
+    Effect::new(move |_| {
+        save_i32_setting("proteus.sidebarWidth", sidebar_width.get());
+    });
+
+    Effect::new(move |_| {
+        save_i32_setting("proteus.composerHeight", composer_height.get());
+    });
+
+    Effect::new(move |_| {
+        if let TransportStatus::Error(message) = transport_status.get() {
+            if last_error_toast.get().as_deref() != Some(message.as_str()) {
+                let id = next_toast_id.get();
+                set_next_toast_id.set(id + 1);
+                set_toasts.update(|items| {
+                    items.push(ToastMessage {
+                        id,
+                        text: message.clone(),
+                    });
+                });
+                set_last_error_toast.set(Some(message));
+            }
+        }
+    });
+
+    if route != "/resume" {
+        load_runtime_settings(
+            set_mode,
+            set_model_name,
+            set_model_options,
+            set_reasoning_enabled,
+            set_effort,
+            set_effort_options,
+        );
+        load_transcript(set_messages, set_next_message_id, set_transport_status);
+    }
+
+    connect_event_stream(
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        set_transport_status,
+        set_event_count,
+        set_workspace_label,
+        set_session_label,
+        set_is_sending,
+        set_active_turn_id,
+        active_stream_message_id,
+        set_active_stream_message_id,
+        streamed_this_turn,
+        set_streamed_this_turn,
+        set_agent_status,
+        set_tool_activities,
+        set_pending_approvals,
+        set_pending_user_inputs,
+    );
+
+    let actions = AppActions {
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        transport_status,
+        set_transport_status,
+        next_request_id,
+        set_next_request_id,
+        set_mode,
+        set_model_name,
+        reasoning_enabled,
+        set_reasoning_enabled,
+        set_effort,
+        is_sending,
+        set_is_sending,
+        set_active_turn_id,
+    };
+
+    let clear_transcript = move |_| {
+        set_messages.set(Vec::new());
+        set_next_message_id.set(1);
+        set_active_stream_message_id.set(None);
+        set_streamed_this_turn.set(false);
+        set_tool_activities.set(Vec::new());
+        set_queued_prompt.set(None);
+        spawn_local(async move {
+            match post_json("/clear", &json!({})).await {
+                Ok(output) => handle_command_response(
+                    output,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                ),
+                Err(error) => {
+                    report_error(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                        "Clear failed",
+                        error,
+                    );
+                }
+            }
+        });
+    };
+
+    let select_mode = move |new_mode: PermissionMode| {
+        actions.set_permission_mode(new_mode);
+    };
+    let select_model = move |new_model: String| {
+        actions.set_model_name(new_model);
+    };
+    let select_reasoning = move |enabled: bool| {
+        actions.set_reasoning_enabled(enabled);
+    };
+    let select_effort = move |new_effort: ReasoningEffort| {
+        actions.set_reasoning_effort(new_effort);
+    };
+
+    let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
+        let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
+        spawn_local(async move {
+            match post_json(
+                "/approval",
+                &ResolveApprovalRequest {
+                    id: Some(request_id),
+                    approval_id,
+                    approved,
+                    note: None,
+                    cache,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                ),
+                Err(error) => {
+                    report_error(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                        "Approval response failed",
+                        error,
+                    );
+                }
+            }
+        });
+    };
+
+    let submit_user_input =
+        move |request_id_value: String, answers: HashMap<String, Vec<String>>| {
+            let request_id = take_request_id(next_request_id, set_next_request_id, "input");
+            let response = UserInputResponseBody {
+                answers: answers
+                    .into_iter()
+                    .map(|(question_id, answers)| (question_id, UserInputAnswerBody { answers }))
+                    .collect(),
+            };
+            spawn_local(async move {
+                match post_json(
+                    "/user-input",
+                    &UserInputSubmitRequest {
+                        id: Some(request_id),
+                        request_id: request_id_value,
+                        response,
+                    },
+                )
+                .await
+                {
+                    Ok(output) => handle_command_response(
+                        output,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    ),
+                    Err(error) => {
+                        report_error(
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            set_transport_status,
+                            "User input response failed",
+                            error,
+                        );
+                    }
+                }
+            });
+        };
+
+    let cancel_turn = move |_| {
+        cancel_active_turn(
+            active_turn_id,
+            next_request_id,
+            set_next_request_id,
+            set_is_sending,
+            set_active_turn_id,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        );
+    };
+
+    let activity = move || {
+        vec![
+            ActivityItem {
+                label: "адрес",
+                value: APP_SERVER_ORIGIN.to_owned(),
+            },
+            ActivityItem {
+                label: "режим",
+                value: mode.get().label().to_owned(),
+            },
+            ActivityItem {
+                label: "model",
+                value: model_name.get(),
+            },
+            ActivityItem {
+                label: "reasoning",
+                value: if reasoning_enabled.get() { "on" } else { "off" }.to_owned(),
+            },
+            ActivityItem {
+                label: "effort",
+                value: effort.get().label().to_owned(),
+            },
+            ActivityItem {
+                label: "события",
+                value: event_count.get().to_string(),
+            },
+            ActivityItem {
+                label: "запрос",
+                value: agent_status.get(),
+            },
+            ActivityItem {
+                label: "tools",
+                value: tool_activities.get().len().to_string(),
+            },
+            ActivityItem {
+                label: "доступы",
+                value: pending_approvals.get().len().to_string(),
+            },
+            ActivityItem {
+                label: "ввод",
+                value: pending_user_inputs.get().len().to_string(),
+            },
+        ]
+    };
+
+    let draft_stats = move || {
+        let text = draft.get();
+        let lines = text.lines().count().max(1);
+        format!("{} симв. · {} строк", text.len(), lines)
+    };
+    let request_state = move || {
+        if is_sending.get() {
+            "в работе"
+        } else {
+            "ожидает"
+        }
+    };
+    let session_title = move || {
+        messages
+            .get()
+            .iter()
+            .find(|message| message.role == MessageRole::User)
+            .map(|message| compact_title(&message.text))
+            .unwrap_or_else(|| short_path(&workspace_label.get()))
+    };
+    let session_dot_class = move || match transport_status.get() {
+        TransportStatus::Connecting => "session-status-dot warning",
+        TransportStatus::Connected => {
+            if is_sending.get() {
+                "session-status-dot running"
+            } else {
+                "session-status-dot success"
+            }
+        }
+        TransportStatus::Error(_) | TransportStatus::Shutdown => "session-status-dot error",
+    };
+    let transport_badge_class = move || match transport_status.get() {
+        TransportStatus::Connecting => "status-badge disconnected",
+        TransportStatus::Connected => "status-badge completed",
+        TransportStatus::Error(_) | TransportStatus::Shutdown => "status-badge failed",
+    };
+    let draft_is_empty = move || draft.get().trim().is_empty();
+
+    let send_plan = move |_| {
+        let text = draft.get();
+        if text.trim().is_empty() || is_sending.get() {
+            return;
+        }
+        set_draft.set(String::new());
+        send_planning_request(actions, set_last_prompt_to_retry, text);
+    };
+    let revise_plan = move |_| {
+        let text = draft.get();
+        if text.trim().is_empty() {
+            set_draft.set("Уточни последний план:\n".to_owned());
+            return;
+        }
+        if is_sending.get() {
+            return;
+        }
+        set_draft.set(String::new());
+        set_last_prompt_to_retry.set(Some(revise_plan_prompt(&text)));
+        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
+    };
+    let execute_plan = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        set_last_prompt_to_retry.set(Some(execute_plan_prompt()));
+        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
+    };
+    let exit_plan = move |_| {
+        actions.set_permission_mode(PermissionMode::Normal);
+    };
+
+    let submit_prompt = move || {
+        let text = draft.get().trim().to_owned();
+        if text.is_empty() {
+            return;
+        }
+
+        set_draft.set(String::new());
+        if is_sending.get() {
+            set_queued_prompt.set(Some(text));
+            return;
+        }
+
+        send_prompt_for_mode(actions, set_last_prompt_to_retry, mode.get(), text);
+    };
+    let submit = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        submit_prompt();
+    };
+    let submit_shortcut = move |ev: KeyboardEvent| {
+        if ev.ctrl_key() && ev.key() == "Enter" {
+            ev.prevent_default();
+            submit_prompt();
+        } else if ev.key() == "Escape" {
+            if active_turn_id.get().is_some() {
+                ev.prevent_default();
+                cancel_active_turn(
+                    active_turn_id,
+                    next_request_id,
+                    set_next_request_id,
+                    set_is_sending,
+                    set_active_turn_id,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
+        }
+    };
+    let begin_sidebar_resize = move |ev: MouseEvent| {
+        ev.prevent_default();
+        set_dragging_sidebar.set(true);
+        set_resize_start_x.set(ev.client_x());
+        set_resize_start_sidebar.set(sidebar_width.get());
+    };
+    let begin_composer_resize = move |ev: MouseEvent| {
+        ev.prevent_default();
+        set_dragging_composer.set(true);
+        set_resize_start_y.set(ev.client_y());
+        set_resize_start_composer.set(composer_height.get());
+    };
+    let resize_drag = move |ev: MouseEvent| {
+        if dragging_sidebar.get() {
+            let delta = ev.client_x() - resize_start_x.get();
+            set_sidebar_width.set((resize_start_sidebar.get() + delta).clamp(210, 520));
+        }
+        if dragging_composer.get() {
+            let delta = ev.client_y() - resize_start_y.get();
+            set_composer_height.set((resize_start_composer.get() - delta).clamp(96, 420));
+        }
+    };
+    let stop_resize = move |_| {
+        set_dragging_sidebar.set(false);
+        set_dragging_composer.set(false);
+    };
+    let is_resizing = move || dragging_sidebar.get() || dragging_composer.get();
+    let latest_message_is_assistant = move || {
+        messages
+            .get()
+            .last()
+            .is_some_and(|message| message.role == MessageRole::Assistant)
+    };
+    let send_queued_prompt = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        let Some(text) = queued_prompt.get() else {
+            return;
+        };
+        set_queued_prompt.set(None);
+        send_prompt_for_mode(actions, set_last_prompt_to_retry, mode.get(), text);
+    };
+    let clear_queued_prompt = move |_| {
+        set_queued_prompt.set(None);
+    };
+    let dismiss_toast = move |toast_id: u64| {
+        set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
+    };
+    let retry_last_prompt = move |_| {
+        if is_sending.get() {
+            return;
+        }
+        let Some(text) = last_prompt_to_retry.get() else {
+            return;
+        };
+        actions.send_prompt(text, None);
+    };
+    let global_keydown =
+        Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
+            if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
+                ev.prevent_default();
+                if let Some(textarea) = composer_ref.get() {
+                    let _ = textarea.focus();
+                }
+            } else if ev.key() == "Escape" && active_turn_id.get().is_some() {
+                ev.prevent_default();
+                cancel_active_turn(
+                    active_turn_id,
+                    next_request_id,
+                    set_next_request_id,
+                    set_is_sending,
+                    set_active_turn_id,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
+        }));
+    if let Some(window) = window() {
+        let _ = window
+            .add_event_listener_with_callback("keydown", global_keydown.as_ref().unchecked_ref());
+    }
+    global_keydown.forget();
+
+    view! {
+        <div
+            class="app-layout"
+            class:resizing=is_resizing
+            on:mousemove=resize_drag
+            on:mouseup=stop_resize
+            on:mouseleave=stop_resize
+        >
+            <ToastStack toasts on_dismiss=dismiss_toast />
+            <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
+                <div class="sidebar-header">
+                    <h2>
+                        "Proteus"
+                        <span>"web"</span>
+                    </h2>
+                    <button type="button" title="Новая сессия" on:click=clear_transcript>
+                        "+"
+                    </button>
+                </div>
+                <div
+                    class="sidebar-resize-handle"
+                    aria-hidden="true"
+                    on:mousedown=begin_sidebar_resize
+                ></div>
+
+                <div class="sidebar-search">
+                    <input type="text" placeholder="Поиск сессий" readonly=true />
+                </div>
+
+                <div class="sessions-list">
+                    <ul class="session-list">
+                        <li class="session-list-item">
+                            <div class="session-item active">
+                                <div class="session-item-header">
+                                    <span class="session-id">{move || short_path(&workspace_label.get())}</span>
+                                    <span class=session_dot_class></span>
+                                </div>
+                                <div class="session-meta">
+                                    <span class="session-time">{move || session_label.get()}</span>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+
+                <section class="sidebar-panel">
+                    <div class="panel-kicker">"Состояние"</div>
+                    <For
+                        each=activity
+                        key=|item| item.label
+                        children=move |item| {
+                            view! {
+                                <div class="activity-row">
+                                    <span>{item.label}</span>
+                                    <strong>{item.value}</strong>
+                                </div>
+                            }
+                        }
+                    />
+                </section>
+            </aside>
+
+            <main class="workspace-main">
+                <header class="topbar">
+                    <div class="topbar-left">
+                        <a class="brand" href="#">"Proteus Agent"</a>
+                        <span class=transport_badge_class>
+                            <span class="dot"></span>
+                            {move || transport_status.get().label()}
+                        </span>
+                    </div>
+                    <nav class="topnav">
+                        <span>{move || format!("{} событий", event_count.get())}</span>
+                        <a class="topnav-link" href="/">"Чат"</a>
+                        <a class="topnav-link" href="/resume">"Сессии"</a>
+                        <button
+                            type="button"
+                            class="secondary danger"
+                            disabled=move || active_turn_id.get().is_none()
+                            on:click=cancel_turn
+                        >
+                            "Стоп"
+                        </button>
+                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
+                    </nav>
+                </header>
+
+                <section class="session-header">
+                    <div>
+                        <h1>{session_title}</h1>
+                        <p>{move || format!("{} · {}", short_path(&workspace_label.get()), session_label.get())}</p>
+                    </div>
+                    <div class="session-summary-meta">
+                        <span>
+                            <span class="label">"запрос"</span>
+                            <span class="value">{request_state}</span>
+                        </span>
+                        <span>
+                            <span class="label">"режим"</span>
+                            <span class="value">{move || mode.get().label()}</span>
+                        </span>
+                        <span>
+                            <span class="label">"effort"</span>
+                            <span class="value">{move || effort.get().label()}</span>
+                        </span>
+                        <span>
+                            <span class="label">"агент"</span>
+                            <span class="value">{move || agent_status.get()}</span>
+                        </span>
+                    </div>
+                </section>
+
+                <section class="session-workspace">
+                    {if route == "/resume" {
+                        view! { <ResumeView /> }.into_any()
+                    } else {
+                        view! {
+                            {move || {
+                                let approvals = pending_approvals.get();
+                                if approvals.is_empty() {
+                                    view! { <></> }.into_any()
+                                } else {
+                                    view! {
+                                        <section class="control-plane" aria-label="Ожидающие действия">
+                                            <For
+                                                each=move || pending_approvals.get()
+                                                key=|request| request.approval_id.clone()
+                                                children=move |request| {
+                                                    view! { <ApprovalCard request on_resolve=resolve_approval /> }
+                                                }
+                                            />
+                                        </section>
+                                    }.into_any()
+                                }
+                            }}
+
+                            <section
+                                class="results-panel"
+                                class:sticky-bottom=stick_to_bottom
+                                aria-label="Диалог"
+                                node_ref=results_ref
+                                on:wheel=move |ev: WheelEvent| {
+                                    if ev.delta_y() < 0.0 {
+                                        set_stick_to_bottom.set(false);
+                                    }
+                                }
+                                on:scroll=move |_| {
+                                    if let Some(results) = results_ref.get() {
+                                        let scroll_top = results.scroll_top();
+                                        let was_scroll_up = scroll_top + 2 < last_results_scroll_top.get();
+                                        if was_scroll_up {
+                                            set_stick_to_bottom.set(false);
+                                        } else if is_at_bottom(&results) {
+                                            set_stick_to_bottom.set(true);
+                                        }
+                                        set_last_results_scroll_top.set(scroll_top);
+                                    }
+                                }
+                            >
+                                {move || {
+                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    let working = is_sending.get() && user_inputs_empty;
+                                    if messages.get().is_empty()
+                                        && user_inputs_empty
+                                        && queued_prompt.get().is_none()
+                                        && !working
+                                    {
+                                        view! {
+                                            <div class="empty-state">
+                                                <div class="empty-state-title">"Нет активной задачи"</div>
+                                            </div>
+                                        }
+                                        .into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                <For
+                                    each=move || messages.get()
+                                    key=|message| message.render_key()
+                                    children=move |message| view! { <MessageView message /> }
+                                />
+                                <For
+                                    each=move || pending_user_inputs.get()
+                                    key=|request| request.request_id.clone()
+                                    children=move |request| {
+                                        view! { <UserInputCard request on_submit=submit_user_input /> }
+                                    }
+                                />
+                                {move || {
+                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    if mode.get() == PermissionMode::Plan
+                                        && !is_sending.get()
+                                        && user_inputs_empty
+                                        && latest_message_is_assistant()
+                                    {
+                                        view! {
+                                            <PlanActionsCard
+                                                on_revise=revise_plan
+                                                on_execute=execute_plan
+                                                on_exit=exit_plan
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if let Some(text) = queued_prompt.get() {
+                                        view! {
+                                            <QueuedPromptCard
+                                                text
+                                                is_sending=is_sending
+                                                on_send=send_queued_prompt
+                                                on_clear=clear_queued_prompt
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if is_sending.get() && pending_user_inputs.get().is_empty() {
+                                        view! { <WorkingCard status=agent_status /> }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                                {move || {
+                                    if let TransportStatus::Error(message) = transport_status.get() {
+                                        view! {
+                                            <ErrorRecoveryCard
+                                                message
+                                                can_retry=move || last_prompt_to_retry.get().is_some() && !is_sending.get()
+                                                on_retry=retry_last_prompt
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }
+                                }}
+                            </section>
+
+                            <form
+                                class="composer"
+                                style=move || format!("--input-min-height: {}px", composer_height.get())
+                                on:submit=submit
+                            >
+                                <div
+                                    class="composer-resize-handle"
+                                    aria-hidden="true"
+                                    on:mousedown=begin_composer_resize
+                                ></div>
+                                <div class="composer-label">
+                                    {move || if mode.get() == PermissionMode::Plan { "Запрос для плана" } else { "Запрос агенту" }}
+                                </div>
+                                <textarea
+                                    node_ref=composer_ref
+                                    prop:value=move || draft.get()
+                                    placeholder=move || {
+                                        if mode.get() == PermissionMode::Plan {
+                                            "Опиши тему; агент задаст уточняющие вопросы"
+                                        } else {
+                                            "Попроси Proteus посмотреть, изменить или объяснить код"
+                                        }
+                                    }
+                                    on:input:target=move |ev| set_draft.set(ev.target().value())
+                                    on:keydown=submit_shortcut
+                                />
+                                <div class="composer-actions">
+                                    <div class="composer-settings" aria-label="Настройки запроса">
+                                        <label class="composer-setting">
+                                            <span>"mode"</span>
+                                            <select
+                                                prop:value=move || mode.get().value()
+                                                on:change:target=move |ev| {
+                                                    select_mode(PermissionMode::from_value(&ev.target().value()));
+                                                }
+                                            >
+                                                <option value=PermissionMode::Plan.value() title=PermissionMode::Plan.description()>
+                                                    {PermissionMode::Plan.label()}
+                                                </option>
+                                                <option value=PermissionMode::Normal.value() title=PermissionMode::Normal.description()>
+                                                    {PermissionMode::Normal.label()}
+                                                </option>
+                                                <option value=PermissionMode::Auto.value() title=PermissionMode::Auto.description()>
+                                                    {PermissionMode::Auto.label()}
+                                                </option>
+                                            </select>
+                                        </label>
+                                        <label class="composer-setting model-setting">
+                                            <span>"model"</span>
+                                            <input
+                                                list="model-options"
+                                                prop:value=move || model_name.get()
+                                                on:change:target=move |ev| select_model(ev.target().value())
+                                            />
+                                            <datalist id="model-options">
+                                                <For
+                                                    each=move || model_options.get()
+                                                    key=|model| model.clone()
+                                                    children=move |model| {
+                                                        view! { <option value=model></option> }
+                                                    }
+                                                />
+                                            </datalist>
+                                        </label>
+                                        <label class="composer-setting">
+                                            <span>"reasoning"</span>
+                                            <select
+                                                prop:value=move || if reasoning_enabled.get() { "on" } else { "off" }
+                                                on:change:target=move |ev| {
+                                                    select_reasoning(ev.target().value() == "on");
+                                                }
+                                            >
+                                                <option value="on">"on"</option>
+                                                <option value="off">"off"</option>
+                                            </select>
+                                        </label>
+                                        <label class="composer-setting">
+                                            <span>"effort"</span>
+                                            <select
+                                                disabled=move || !reasoning_enabled.get()
+                                                prop:value=move || effort.get().value()
+                                                on:change:target=move |ev| {
+                                                    select_effort(ReasoningEffort::from_value(&ev.target().value()));
+                                                }
+                                            >
+                                                <option value="auto">"auto"</option>
+                                                <For
+                                                    each=move || effort_options.get()
+                                                    key=|option| option.clone()
+                                                    children=move |option| {
+                                                        view! { <option value=option.clone()>{option.clone()}</option> }
+                                                    }
+                                                />
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div class="composer-stats">
+                                        <span>{draft_stats}</span>
+                                        <span>"Ctrl+Enter отправить"</span>
+                                    </div>
+                                    <div class="composer-buttons">
+                                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
+                                        {move || {
+                                            if mode.get() == PermissionMode::Plan {
+                                                view! { <></> }.into_any()
+                                            } else {
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="secondary"
+                                                        disabled=move || draft_is_empty() || is_sending.get()
+                                                        on:click=send_plan
+                                                        title="Переключиться в план и задать уточняющие вопросы"
+                                                    >
+                                                        "План"
+                                                    </button>
+                                                }.into_any()
+                                            }
+                                        }}
+                                        <button
+                                            type="button"
+                                            class="secondary danger"
+                                            disabled=move || active_turn_id.get().is_none()
+                                            on:click=cancel_turn
+                                        >
+                                            "Стоп"
+                                        </button>
+                                        <button type="submit" class="btn-primary" disabled=draft_is_empty>
+                                            {move || {
+                                                if is_sending.get() {
+                                                    "В очередь"
+                                                } else if mode.get() == PermissionMode::Plan {
+                                                    "Спросить план"
+                                                } else {
+                                                    "Запустить"
+                                                }
+                                            }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        }.into_any()
+                    }}
+                </section>
+            </main>
+        </div>
+    }
+}
+
+#[component]
+fn ResumeView() -> impl IntoView {
+    let (sessions, set_sessions) = signal(Vec::<SessionSummary>::new());
+    let (status, set_status) = signal("загружаю сессии".to_owned());
+
+    load_sessions(set_sessions, set_status);
+
+    let refresh = move |_| load_sessions(set_sessions, set_status);
+    let resume = move |session_dir: String| {
+        set_status.set("возвращаю сессию".to_owned());
+        spawn_local(async move {
+            match post_json(
+                "/resume",
+                &ResumeSessionRequest {
+                    id: Some("resume".to_owned()),
+                    session_dir,
+                },
+            )
+            .await
+            {
+                Ok(StdioOutput::Response { ok: true, .. }) => {
+                    set_status.set("сессия открыта".to_owned());
+                    if let Some(window) = window() {
+                        let _ = window.location().set_href("/");
+                    }
+                }
+                Ok(StdioOutput::Response { error, .. }) => {
+                    set_status.set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
+                }
+                Ok(StdioOutput::Event { .. }) => {
+                    set_status.set("неожиданное событие resume".to_owned());
+                }
+                Err(error) => set_status.set(format!("не удалось открыть сессию: {error}")),
+            }
+        });
+    };
+
+    view! {
+        <section class="resume-page">
+            <div class="resume-toolbar">
+                <div>
+                    <h2>"Прошлые сессии"</h2>
+                    <p>{move || status.get()}</p>
+                </div>
+                <button type="button" class="secondary" on:click=refresh>"Обновить"</button>
+            </div>
+            {move || {
+                let items = sessions.get();
+                if items.is_empty() {
+                    view! {
+                        <div class="empty-state">
+                            <div class="empty-state-title">"Сохранённых сессий нет"</div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class="resume-list">
+                            <For
+                                each=move || sessions.get()
+                                key=|session| session.session_dir.clone()
+                                children=move |session| {
+                                    let session_dir = session.session_dir.clone();
+                                    let workspace = session.workspace_path.clone().unwrap_or_else(|| "неизвестный workspace".to_owned());
+                                    let session_id = session
+                                        .session_id
+                                        .as_deref()
+                                        .map(short_id)
+                                        .unwrap_or("legacy")
+                                        .to_owned();
+                                    view! {
+                                        <article class="resume-item">
+                                            <div class="resume-item-main">
+                                                <div class="resume-item-header">
+                                                    <strong>{short_path(&workspace)}</strong>
+                                                    <code>{session_id}</code>
+                                                </div>
+                                                <p>{session.preview.clone().unwrap_or_else(|| "Нет превью диалога".to_owned())}</p>
+                                                <div class="resume-meta">
+                                                    <span>{workspace}</span>
+                                                    <span>{format!("{} сообщений", session.message_count)}</span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                class="btn-primary"
+                                                disabled=!session.resumable
+                                                on:click=move |_| resume(session_dir.clone())
+                                            >
+                                                "Открыть"
+                                            </button>
+                                        </article>
+                                    }
+                                }
+                            />
+                        </div>
+                    }.into_any()
+                }
+            }}
+        </section>
+    }
+}
+
+fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: WriteSignal<String>) {
+    spawn_local(async move {
+        match get_json::<Vec<SessionSummary>>("/sessions").await {
+            Ok(items) => {
+                let count = items.len();
+                set_sessions.set(items);
+                set_status.set(format!("{count} сессий"));
+            }
+            Err(error) => set_status.set(format!("не удалось загрузить сессии: {error}")),
+        }
+    });
+}
+
+fn load_runtime_settings(
+    set_mode: WriteSignal<PermissionMode>,
+    set_model_name: WriteSignal<String>,
+    set_model_options: WriteSignal<Vec<String>>,
+    set_reasoning_enabled: WriteSignal<bool>,
+    set_effort: WriteSignal<ReasoningEffort>,
+    set_effort_options: WriteSignal<Vec<String>>,
+) {
+    spawn_local(async move {
+        match get_json::<Value>("/config").await {
+            Ok(config) => {
+                if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
+                    set_mode.set(PermissionMode::from_value(mode));
+                }
+                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
+                    set_model_name.set(model.to_owned());
+                }
+                let mut options = config
+                    .get("model_options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| {
+                        item.get("name")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
+                    if !options.iter().any(|item| item == model) {
+                        options.push(model.to_owned());
+                    }
+                }
+                set_model_options.set(options);
+                if let Some(enabled) = config
+                    .pointer("/reasoning/enabled")
+                    .and_then(Value::as_bool)
+                {
+                    set_reasoning_enabled.set(enabled);
+                }
+                let current_effort = config.pointer("/reasoning/effort").and_then(Value::as_str);
+                let mut effort_options = config
+                    .pointer("/reasoning/effort_options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>();
+                if let Some(effort) = current_effort {
+                    if !effort_options.iter().any(|item| item == effort) {
+                        effort_options.push(effort.to_owned());
+                    }
+                    set_effort.set(ReasoningEffort::from_value(effort));
+                }
+                set_effort_options.set(effort_options);
+            }
+            Err(_) => {}
+        }
+    });
+}
+
+fn load_transcript(
+    set_messages: WriteSignal<Vec<Message>>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    spawn_local(async move {
+        match get_json::<Vec<TranscriptMessage>>("/history").await {
+            Ok(items) => {
+                let messages = items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, item)| Message {
+                        id: index as u64 + 1,
+                        role: message_role_from_wire(&item.role),
+                        text: item.text,
+                        tool: None,
+                        streaming: false,
+                    })
+                    .collect::<Vec<_>>();
+                if !messages.is_empty() {
+                    set_next_message_id.set(messages.len() as u64 + 1);
+                    set_messages.set(messages);
+                }
+            }
+            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
+                "history load failed: {error}"
+            ))),
+        }
+    });
+}
+
+fn message_role_from_wire(role: &str) -> MessageRole {
+    match role {
+        "user" => MessageRole::User,
+        "assistant" => MessageRole::Assistant,
+        _ => MessageRole::System,
+    }
+}
+
+#[component]
+fn ApprovalCard<F>(request: ApprovalRequestInfo, on_resolve: F) -> impl IntoView
+where
+    F: Fn(String, bool, ApprovalCacheScope) + Copy + 'static,
+{
+    let (cache, set_cache) = signal(ApprovalCacheScope::None);
+    let approve_id = request.approval_id.clone();
+    let deny_id = request.approval_id.clone();
+    let args_preview = compact_json(&request.call.args);
+    let spec_hint = request
+        .tool_spec
+        .as_ref()
+        .and_then(|spec| spec.get("description"))
+        .and_then(Value::as_str)
+        .unwrap_or(&request.reason)
+        .to_owned();
+
+    view! {
+        <article class="control-card approval-card">
+            <div class="control-card-header">
+                <span class="status-badge running">
+                    <span class="dot"></span>
+                    "Доступ"
+                </span>
+                <strong>{request.call.name}</strong>
+                <code>{short_path(&request.cwd)}</code>
+            </div>
+            <p>{spec_hint}</p>
+            <pre>{args_preview}</pre>
+            <div class="control-row">
+                <span class="control-label">"Кэш"</span>
+                <div class="segmented">
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::None
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::None)
+                    >
+                        {ApprovalCacheScope::None.label()}
+                    </button>
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::ExactCall
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::ExactCall)
+                    >
+                        {ApprovalCacheScope::ExactCall.label()}
+                    </button>
+                    <button
+                        type="button"
+                        class:active=move || cache.get() == ApprovalCacheScope::ToolInCwd
+                        on:click=move |_| set_cache.set(ApprovalCacheScope::ToolInCwd)
+                    >
+                        {ApprovalCacheScope::ToolInCwd.label()}
+                    </button>
+                </div>
+            </div>
+            <div class="control-actions">
+                <button
+                    type="button"
+                    class="secondary danger"
+                    on:click=move |_| on_resolve(deny_id.clone(), false, ApprovalCacheScope::None)
+                >
+                    "Отклонить"
+                </button>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    on:click=move |_| on_resolve(approve_id.clone(), true, cache.get())
+                >
+                    "Разрешить"
+                </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn UserInputCard<F>(request: UserInputRequestInfo, on_submit: F) -> impl IntoView
+where
+    F: Fn(String, HashMap<String, Vec<String>>) + Copy + 'static,
+{
+    let (answers, set_answers) = signal(HashMap::<String, Vec<String>>::new());
+    let (custom_answers, set_custom_answers) = signal(HashMap::<String, String>::new());
+    let (current_question, set_current_question) = signal(0usize);
+    let request_id = request.request_id.clone();
+    let title = request
+        .title
+        .clone()
+        .unwrap_or_else(|| "Нужен ответ".to_owned());
+    let questions = request.questions.clone();
+    let question_count = questions.len();
+    let tabs = questions
+        .iter()
+        .enumerate()
+        .map(|(index, question)| {
+            let label = if question.header.trim().is_empty() {
+                format!("Вопрос {}", index + 1)
+            } else {
+                question.header.clone()
+            };
+            (index, label)
+        })
+        .collect::<Vec<_>>();
+
+    let submit_answers = move || {
+        let mut merged = answers.get();
+        for (question_id, value) in custom_answers.get() {
+            let value = value.trim().to_owned();
+            if !value.is_empty() {
+                merged.entry(question_id).or_default().push(value);
+            }
+        }
+        on_submit(request_id.clone(), merged);
+    };
+    let confirm = move |_| {
+        if question_count == 0 || current_question.get() + 1 >= question_count {
+            submit_answers();
+        } else {
+            set_current_question.update(|index| *index += 1);
+        }
+    };
+
+    view! {
+        <article class="task-card running input-chat-card">
+            <div class="task-card-header input-chat-header">
+                <span class="status-badge disconnected">
+                    <span class="dot"></span>
+                    "Вопрос"
+                </span>
+                <strong>{title}</strong>
+                <span class="input-step">
+                    {move || {
+                        if question_count == 0 {
+                            "0 / 0".to_owned()
+                        } else {
+                            format!("{} / {}", current_question.get() + 1, question_count)
+                        }
+                    }}
+                </span>
+            </div>
+            <div class="input-tabs" role="tablist">
+                <For
+                    each=move || tabs.clone()
+                    key=|(index, _)| *index
+                    children=move |(index, label)| {
+                        view! {
+                            <button
+                                type="button"
+                                role="tab"
+                                class=move || {
+                                    if current_question.get() == index {
+                                        "active"
+                                    } else if current_question.get() > index {
+                                        "done"
+                                    } else {
+                                        ""
+                                    }
+                                }
+                                on:click=move |_| set_current_question.set(index)
+                            >
+                                <span>{label}</span>
+                            </button>
+                        }
+                    }
+                />
+            </div>
+            {move || {
+                let Some(question) = questions.get(current_question.get()).cloned() else {
+                    return view! {
+                        <section class="input-question">
+                            <div class="input-question-header">
+                                <span>"Вопрос"</span>
+                                <strong>"Вопросы не переданы"</strong>
+                            </div>
+                        </section>
+                    }.into_any();
+                };
+                let question_id = question.id.clone();
+                let custom_value_question_id = question.id.clone();
+                let custom_write_question_id = question.id.clone();
+                let header = question.header.clone();
+                let question_text = question.question.clone();
+                let options = question.options.clone();
+                let multi_select = question.multi_select;
+                let show_custom = question.is_other || question.options.is_empty();
+                let input_type = if question.is_secret { "password" } else { "text" };
+
+                view! {
+                    <section class="input-question">
+                        <div class="input-question-header">
+                            <span>{header}</span>
+                            <strong>{question_text}</strong>
+                        </div>
+                        <div class="choice-grid">
+                            <For
+                                each=move || options.clone()
+                                key=|option| option.label.clone()
+                                children=move |option| {
+                                    let selected_question_id = question_id.clone();
+                                    let selected_label = option.label.clone();
+                                    let click_question_id = question_id.clone();
+                                    let click_label = option.label.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="choice-button"
+                                            class:active=move || {
+                                                answers
+                                                    .get()
+                                                    .get(&selected_question_id)
+                                                    .is_some_and(|values| values.contains(&selected_label))
+                                            }
+                                            on:click=move |_| {
+                                                let question_id = click_question_id.clone();
+                                                let label = click_label.clone();
+                                                set_answers.update(|all| {
+                                                    if multi_select {
+                                                        let values = all.entry(question_id).or_default();
+                                                        if let Some(index) = values.iter().position(|value| value == &label) {
+                                                            values.remove(index);
+                                                        } else {
+                                                            values.push(label);
+                                                        }
+                                                    } else {
+                                                        all.insert(question_id, vec![label]);
+                                                    }
+                                                });
+                                            }
+                                        >
+                                            <span>{option.label}</span>
+                                            <small>{option.description}</small>
+                                        </button>
+                                    }
+                                }
+                            />
+                        </div>
+                        {if show_custom {
+                            view! {
+                                <input
+                                    type=input_type
+                                    placeholder="Свой вариант"
+                                    prop:value=move || {
+                                        custom_answers
+                                            .get()
+                                            .get(&custom_value_question_id)
+                                            .cloned()
+                                            .unwrap_or_default()
+                                    }
+                                    on:input:target=move |ev| {
+                                        set_custom_answers.update(|answers| {
+                                            answers.insert(custom_write_question_id.clone(), ev.target().value());
+                                        });
+                                    }
+                                />
+                            }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
+                    </section>
+                }.into_any()
+            }}
+            <div class="input-chat-actions">
+                <button
+                    type="button"
+                    class="secondary"
+                    disabled=move || current_question.get() == 0
+                    on:click=move |_| set_current_question.update(|index| *index = index.saturating_sub(1))
+                >
+                    "Назад"
+                </button>
+                <button type="button" class="btn-primary" on:click=confirm>
+                    {move || {
+                        if question_count == 0 || current_question.get() + 1 >= question_count {
+                            "Отправить"
+                        } else {
+                            "Подтвердить"
+                        }
+                    }}
+                </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn ToastStack<F>(toasts: ReadSignal<Vec<ToastMessage>>, on_dismiss: F) -> impl IntoView
+where
+    F: Fn(u64) + Copy + Send + 'static,
+{
+    view! {
+        <div class="toast-stack" aria-live="polite">
+            <For
+                each=move || toasts.get()
+                key=|toast| toast.id
+                children=move |toast| {
+                    let toast_id = toast.id;
+                    view! {
+                        <div class="toast">
+                            <span>{toast.text}</span>
+                            <button
+                                type="button"
+                                class="secondary"
+                                title="Закрыть"
+                                on:click=move |_| on_dismiss(toast_id)
+                            >
+                                "×"
+                            </button>
+                        </div>
+                    }
+                }
+            />
+        </div>
+    }
+}
+
+#[component]
+fn QueuedPromptCard<S, C>(
+    text: String,
+    is_sending: ReadSignal<bool>,
+    on_send: S,
+    on_clear: C,
+) -> impl IntoView
+where
+    S: Fn(MouseEvent) + Copy + 'static,
+    C: Fn(MouseEvent) + Copy + 'static,
+{
+    let preview = text.clone();
+    view! {
+        <article class="task-card running queued-card">
+            <div class="task-card-header">
+                <span class="status-badge disconnected">
+                    <span class="dot"></span>
+                    "В очереди"
+                </span>
+            </div>
+            <div class="message system-message queued-message">
+                <p>{preview}</p>
+                <div class="queued-actions">
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        disabled=move || is_sending.get()
+                        on:click=on_send
+                    >
+                        "Отправить"
+                    </button>
+                    <button type="button" class="secondary" on:click=on_clear>
+                        "Убрать"
+                    </button>
+                </div>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn PlanActionsCard<R, E, X>(on_revise: R, on_execute: E, on_exit: X) -> impl IntoView
+where
+    R: Fn(MouseEvent) + Copy + 'static,
+    E: Fn(MouseEvent) + Copy + 'static,
+    X: Fn(MouseEvent) + Copy + 'static,
+{
+    view! {
+        <article class="task-card running plan-actions-card">
+            <div class="task-card-header">
+                <span class="status-badge running">
+                    <span class="dot"></span>
+                    "План готов"
+                </span>
+            </div>
+            <div class="message system-message plan-actions-message">
+                <button
+                    type="button"
+                    class="secondary"
+                    on:click=on_revise
+                    title="Уточнить последний план текстом из поля ввода"
+                >
+                    "Уточнить"
+                </button>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    on:click=on_execute
+                    title="Переключиться в обычный режим и выполнить последний план"
+                >
+                    "Выполнить"
+                </button>
+                <button
+                    type="button"
+                    class="secondary"
+                    on:click=on_exit
+                    title="Вернуться в обычный режим"
+                >
+                    "Выйти"
+                </button>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
+    let (expanded, set_expanded) = signal(false);
+    let args = tool.args_preview.clone();
+    let result = tool.result_preview.clone();
+    view! {
+        <article class="tool-card">
+            <button
+                type="button"
+                class="tool-card-summary"
+                title="Показать детали tool"
+                on:click=move |_| set_expanded.update(|value| *value = !*value)
+            >
+                <span class=tool.status.badge_class()>
+                    <span class=if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) { "spinner-dot" } else { "dot" }></span>
+                    {tool.status.label()}
+                </span>
+                <strong>{tool.name}</strong>
+                <code>{short_id(&tool.call_id).to_owned()}</code>
+            </button>
+            {move || {
+                if expanded.get() {
+                    view! {
+                        <div class="tool-card-details">
+                            <pre>{args.clone()}</pre>
+                            {if let Some(result) = result.clone() {
+                                view! { <pre>{result}</pre> }.into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }}
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }
+            }}
+        </article>
+    }
+}
+
+#[component]
+fn ErrorRecoveryCard<R, C>(message: String, can_retry: C, on_retry: R) -> impl IntoView
+where
+    R: Fn(MouseEvent) + Copy + 'static,
+    C: Fn() -> bool + Copy + Send + 'static,
+{
+    let copy_message = message.clone();
+    view! {
+        <article class="task-card error recovery-card">
+            <div class="task-card-header">
+                <span class="status-badge failed">
+                    <span class="dot"></span>
+                    "Ошибка"
+                </span>
+            </div>
+            <div class="message system-message recovery-message">
+                <p>{message}</p>
+                <div class="queued-actions">
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        disabled=move || !can_retry()
+                        on:click=on_retry
+                    >
+                        "Повторить"
+                    </button>
+                    <button
+                        type="button"
+                        class="secondary"
+                        on:click=move |_| copy_to_clipboard(copy_message.clone())
+                    >
+                        "Скопировать"
+                    </button>
+                </div>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
+    view! {
+        <article class="task-card running working-card">
+            <div class="task-card-header">
+                <span class="status-badge running">
+                    <span class="spinner-dot"></span>
+                    {move || status.get()}
+                </span>
+            </div>
+        </article>
+    }
+}
+
+#[component]
+fn MessageView(message: Message) -> impl IntoView {
+    if let Some(tool) = message.tool {
+        return view! {
+            <article class="task-card tool-chat-card">
+                <ToolActivityCard tool />
+            </article>
+        }
+        .into_any();
+    }
+
+    let card_class = message.role.card_class();
+    let message_class = message.role.message_class();
+    let badge_class = message.role.badge_class();
+    let text = message.text.clone();
+    let html = markdown_html(&text);
+    let content_class = if message.streaming {
+        format!("{message_class} streaming-message")
+    } else {
+        message_class.to_owned()
+    };
+    let (collapsed, set_collapsed) = signal(false);
+    let copy_text = text.clone();
+    let toggle_title = move || {
+        if collapsed.get() {
+            "Развернуть"
+        } else {
+            "Свернуть"
+        }
+    };
+    view! {
+        <article class=card_class>
+            <div class="task-card-header">
+                <span class=badge_class>
+                    <span class="dot"></span>
+                    {message.role.label()}
+                </span>
+                <div class="message-actions">
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title="Скопировать markdown"
+                        on:click=move |_| copy_to_clipboard(copy_text.clone())
+                    >
+                        "Копировать"
+                    </button>
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title=toggle_title
+                        on:click=move |_| set_collapsed.update(|value| *value = !*value)
+                    >
+                        {move || if collapsed.get() { "Открыть" } else { "Скрыть" }}
+                    </button>
+                </div>
+            </div>
+            {move || {
+                if collapsed.get() {
+                    view! {
+                        <div class="message collapsed-message">
+                            "Сообщение скрыто"
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class=content_class.clone() inner_html=html.clone()></div>
+                    }.into_any()
+                }
+            }}
+        </article>
+    }
+    .into_any()
+}
+
+fn connect_event_stream(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_event_count: WriteSignal<u64>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    let url = format!("{APP_SERVER_ORIGIN}/events");
+    let source = match EventSource::new(&url) {
+        Ok(source) => source,
+        Err(error) => {
+            let message = js_error(error);
+            set_transport_status.set(TransportStatus::Error(message.clone()));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("Event stream failed: {message}"),
+            );
+            return;
+        }
+    };
+
+    let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        set_transport_status.set(TransportStatus::Connected);
+    }));
+    source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+    on_open.forget();
+
+    let output_messages = set_messages;
+    let output_next_message_id = next_message_id;
+    let output_set_next_message_id = set_next_message_id;
+    let output_transport_status = set_transport_status;
+    let output_event_count = set_event_count;
+    let on_output =
+        Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
+            let Some(data) = event.data().as_string() else {
+                return;
+            };
+            match serde_json::from_str::<StdioOutput>(&data) {
+                Ok(output) => handle_app_output(
+                    output,
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    output_transport_status,
+                    output_event_count,
+                    set_workspace_label,
+                    set_session_label,
+                    set_is_sending,
+                    set_active_turn_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    streamed_this_turn,
+                    set_streamed_this_turn,
+                    set_agent_status,
+                    set_tool_activities,
+                    set_pending_approvals,
+                    set_pending_user_inputs,
+                ),
+                Err(error) => push_message(
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    MessageRole::System,
+                    format!("Invalid event payload: {error}"),
+                ),
+            }
+        }));
+    let _ = source.add_event_listener_with_callback("output", on_output.as_ref().unchecked_ref());
+    on_output.forget();
+
+    let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        set_transport_status.set(TransportStatus::Error(
+            "event stream disconnected".to_owned(),
+        ));
+    }));
+    source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    on_error.forget();
+
+    std::mem::forget(source);
+}
+
+fn handle_app_output(
+    output: StdioOutput,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_event_count: WriteSignal<u64>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    match output {
+        StdioOutput::Event { event } => {
+            set_event_count.update(|count| *count += 1);
+            handle_app_event(
+                event,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                set_workspace_label,
+                set_session_label,
+                set_is_sending,
+                set_active_turn_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                streamed_this_turn,
+                set_streamed_this_turn,
+                set_agent_status,
+                set_tool_activities,
+                set_pending_approvals,
+                set_pending_user_inputs,
+            );
+        }
+        StdioOutput::Response { .. } => handle_command_response(
+            output,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        ),
+    }
+}
+
+fn handle_app_event(
+    event: AppServerEvent,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    match event {
+        AppServerEvent::Runtime { envelope } => {
+            update_runtime_status_and_tools(
+                &envelope,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                set_agent_status,
+                set_tool_activities,
+            );
+            update_session_labels(envelope, set_workspace_label, set_session_label);
+        }
+        AppServerEvent::UserMessageSubmitted { text } => {
+            set_streamed_this_turn.set(false);
+            set_active_stream_message_id.set(None);
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::User,
+                text,
+            );
+        }
+        AppServerEvent::TurnOutput { output } => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("ожидает".to_owned());
+            if streamed_this_turn.get() {
+                if let Some(message_id) = active_stream_message_id.get() {
+                    set_messages.update(|items| {
+                        if let Some(message) =
+                            items.iter_mut().find(|message| message.id == message_id)
+                        {
+                            message.streaming = false;
+                        }
+                    });
+                }
+                set_active_stream_message_id.set(None);
+                set_streamed_this_turn.set(false);
+            } else {
+                finish_streaming_assistant_message(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    output_text(&output),
+                );
+            }
+        }
+        AppServerEvent::ApprovalRequested { request } => {
+            set_agent_status.set("ждёт доступ".to_owned());
+            set_pending_approvals.update(|items| items.push(request.clone()));
+        }
+        AppServerEvent::ApprovalResolved {
+            approval_id,
+            approved,
+        } => {
+            set_agent_status.set(if approved {
+                "доступ разрешён".to_owned()
+            } else {
+                "доступ отклонён".to_owned()
+            });
+            set_pending_approvals
+                .update(|items| items.retain(|item| item.approval_id != approval_id));
+        }
+        AppServerEvent::UserInputRequested { request } => {
+            set_agent_status.set("ждёт ответ".to_owned());
+            set_pending_user_inputs.update(|items| items.push(request.clone()));
+        }
+        AppServerEvent::UserInputResolved { request_id } => {
+            set_agent_status.set("продолжает".to_owned());
+            set_pending_user_inputs.update(|items| {
+                items.retain(|item| item.request_id != request_id);
+            });
+        }
+        AppServerEvent::Error { message } => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("ошибка".to_owned());
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("AppServer error: {message}"),
+            );
+        }
+        AppServerEvent::Shutdown => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("остановлено".to_owned());
+            set_transport_status.set(TransportStatus::Shutdown);
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                "AppServer shutdown".to_owned(),
+            );
+        }
+        AppServerEvent::Unknown => {}
+    }
+}
+
+fn handle_command_response(
+    output: StdioOutput,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    if let StdioOutput::Response {
+        id,
+        ok,
+        output: _,
+        error,
+    } = output
+    {
+        if !ok {
+            let message = error.unwrap_or_else(|| "request failed".to_owned());
+            set_transport_status.set(TransportStatus::Error(message.clone()));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!(
+                    "{} failed: {message}",
+                    id.unwrap_or_else(|| "request".to_owned())
+                ),
+            );
+        }
+    }
+}
+
+fn cancel_active_turn(
+    active_turn_id: ReadSignal<Option<String>>,
+    next_request_id: ReadSignal<u64>,
+    set_next_request_id: WriteSignal<u64>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    let Some(target_id) = active_turn_id.get() else {
+        return;
+    };
+    let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
+    spawn_local(async move {
+        match post_json(
+            "/cancel",
+            &CancelRequest {
+                id: Some(request_id),
+                target_id,
+            },
+        )
+        .await
+        {
+            Ok(output) => {
+                set_is_sending.set(false);
+                set_active_turn_id.set(None);
+                handle_command_response(
+                    output,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
+            Err(error) => {
+                report_error(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                    "Cancel failed",
+                    error,
+                );
+            }
+        }
+    });
+}
+
+fn command_succeeded(output: &StdioOutput) -> bool {
+    matches!(output, StdioOutput::Response { ok: true, .. })
+}
+
+fn current_path() -> String {
+    window()
+        .and_then(|window| window.location().pathname().ok())
+        .unwrap_or_else(|| "/".to_owned())
+}
+
+fn load_i32_setting(key: &str, fallback: i32) -> i32 {
+    window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(key).ok().flatten())
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(fallback)
+}
+
+fn save_i32_setting(key: &str, value: i32) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.set_item(key, &value.to_string());
+    }
+}
+
+fn is_at_bottom(results: &HtmlElement) -> bool {
+    let distance = results.scroll_height() - results.scroll_top() - results.client_height();
+    distance <= CHAT_REATTACH_THRESHOLD_PX
+}
+
+fn schedule_results_scroll(
+    results_ref: NodeRef<html::Section>,
+    stick_to_bottom: ReadSignal<bool>,
+    scroll_frame_pending: ReadSignal<bool>,
+    set_scroll_frame_pending: WriteSignal<bool>,
+    set_last_results_scroll_top: WriteSignal<i32>,
+) {
+    if scroll_frame_pending.get() {
+        return;
+    }
+    set_scroll_frame_pending.set(true);
+
+    let callback = Closure::<dyn FnMut()>::wrap(Box::new(move || {
+        scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
+        let second_frame = Closure::<dyn FnMut()>::wrap(Box::new(move || {
+            scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
+            set_scroll_frame_pending.set(false);
+        }));
+        request_animation_frame(second_frame.as_ref().unchecked_ref());
+        second_frame.forget();
+    }));
+    request_animation_frame(callback.as_ref().unchecked_ref());
+    callback.forget();
+}
+
+fn scroll_results_to_bottom(
+    results_ref: NodeRef<html::Section>,
+    stick_to_bottom: ReadSignal<bool>,
+    set_last_results_scroll_top: WriteSignal<i32>,
+) {
+    if let Some(results) = results_ref.get() {
+        if stick_to_bottom.get() {
+            results.set_scroll_top(results.scroll_height());
+            set_last_results_scroll_top.set(results.scroll_top());
+        }
+    }
+}
+
+fn update_session_labels(
+    envelope: Value,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+) {
+    let Some(started) = envelope.pointer("/event/SessionStarted") else {
+        return;
+    };
+    if let Some(cwd) = started.get("cwd").and_then(Value::as_str) {
+        set_workspace_label.set(cwd.to_owned());
+    }
+    if let Some(session_dir) = started.get("session_dir").and_then(Value::as_str) {
+        set_session_label.set(short_path(session_dir));
+    } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
+        set_session_label.set(short_id(session_id).to_owned());
+    }
+}
+
+fn update_runtime_status_and_tools(
+    envelope: &Value,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+) {
+    let Some(event) = envelope.get("event") else {
+        return;
+    };
+
+    if event.get("TurnStarted").is_some() {
+        set_streamed_this_turn.set(false);
+        set_active_stream_message_id.set(None);
+        set_agent_status.set("начинает".to_owned());
+    } else if event.get("TaskReceived").is_some() {
+        set_agent_status.set("готовит задачу".to_owned());
+    } else if event.get("ContextBuilt").is_some() {
+        set_agent_status.set("собирает контекст".to_owned());
+    } else if event.get("ModelRequestPrepared").is_some() {
+        set_agent_status.set("думает".to_owned());
+    } else if let Some(delta_event) = event.get("AssistantTextDelta") {
+        set_agent_status.set("пишет".to_owned());
+        if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
+            set_streamed_this_turn.set(true);
+            append_streaming_assistant_delta(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                text,
+            );
+        }
+    } else if event.get("AssistantReasoningDelta").is_some() {
+        set_agent_status.set("думает".to_owned());
+    } else if let Some(tool_event) = event.get("ToolCallRequested") {
+        set_agent_status.set("запускает tool".to_owned());
+        set_active_stream_message_id.set(None);
+        if let Some(call) = tool_event.get("call") {
+            let call_id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let name = call
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let args_preview = call.get("args").map(compact_json).unwrap_or_default();
+            let tool = ToolActivity {
+                call_id: call_id.clone(),
+                name,
+                args_preview,
+                status: ToolActivityStatus::Running,
+                result_preview: None,
+            };
+            push_tool_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                tool.clone(),
+            );
+            set_tool_activities.update(|items| {
+                if !items.iter().any(|item| item.call_id == call_id) {
+                    items.push(tool);
+                    trim_tool_activities(items);
+                }
+            });
+        }
+    } else if let Some(approval_event) = event.get("ApprovalRequested") {
+        set_agent_status.set("ждёт доступ".to_owned());
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                ToolActivityStatus::WaitingApproval,
+                None,
+            );
+        }
+    } else if let Some(approval_event) = event.get("ApprovalResolved") {
+        let approved = approval_event
+            .get("approved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        set_agent_status.set(if approved {
+            "доступ разрешён".to_owned()
+        } else {
+            "доступ отклонён".to_owned()
+        });
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                if approved {
+                    ToolActivityStatus::Approved
+                } else {
+                    ToolActivityStatus::Denied
+                },
+                None,
+            );
+        }
+    } else if let Some(tool_event) = event.get("ToolFinished") {
+        set_agent_status.set("tool завершён".to_owned());
+        if let Some(result) = tool_event.get("result") {
+            let Some(call_id) = result.get("call_id").and_then(Value::as_str) else {
+                return;
+            };
+            let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let preview = tool_result_preview(result);
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                if ok {
+                    ToolActivityStatus::Done
+                } else {
+                    ToolActivityStatus::Failed
+                },
+                Some(preview),
+            );
+        }
+    } else if event.get("TurnFinished").is_some() {
+        set_agent_status.set("ожидает".to_owned());
+    } else if event.get("Error").is_some() {
+        set_agent_status.set("ошибка".to_owned());
+    }
+}
+
+fn update_tool_status(
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_messages: WriteSignal<Vec<Message>>,
+    call_id: &str,
+    status: ToolActivityStatus,
+    result_preview: Option<String>,
+) {
+    set_tool_activities.update(|items| {
+        if let Some(item) = items.iter_mut().find(|item| item.call_id == call_id) {
+            item.status = status;
+            if let Some(result_preview) = result_preview.clone() {
+                item.result_preview = Some(result_preview);
+            }
+        }
+    });
+    set_messages.update(|items| {
+        if let Some(tool) = items
+            .iter_mut()
+            .filter_map(|message| message.tool.as_mut())
+            .find(|tool| tool.call_id == call_id)
+        {
+            tool.status = status;
+            if let Some(result_preview) = result_preview {
+                tool.result_preview = Some(result_preview);
+            }
+        }
+    });
+}
+
+fn trim_tool_activities(items: &mut Vec<ToolActivity>) {
+    let overflow = items.len().saturating_sub(12);
+    if overflow > 0 {
+        items.drain(0..overflow);
+    }
+}
+
+fn tool_result_preview(result: &Value) -> String {
+    if let Some(error) = result.get("error").and_then(Value::as_str)
+        && !error.is_empty()
+    {
+        return compact_text(error, 600);
+    }
+
+    if let Some(output) = result.get("output").and_then(Value::as_str)
+        && !output.is_empty()
+    {
+        return compact_text(output, 600);
+    }
+
+    if let Some(content) = result.get("content")
+        && !content.as_array().is_none_or(Vec::is_empty)
+    {
+        return compact_text(&content.to_string(), 600);
+    }
+
+    if result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        "(нет вывода)".to_owned()
+    } else {
+        "(tool завершился без текста ошибки)".to_owned()
+    }
+}
+
+fn compact_title(text: &str) -> String {
+    let title = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("Новая сессия")
+        .trim();
+    compact_text(title, 72)
+}
+
+fn compact_text(text: &str, limit: usize) -> String {
+    if text.chars().count() > limit {
+        format!("{}...", text.chars().take(limit).collect::<String>())
+    } else {
+        text.to_owned()
+    }
+}
+
+fn output_text(output: &Value) -> String {
+    output
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or("(empty response)")
+        .to_owned()
+}
+
+fn send_prompt_for_mode(
+    actions: AppActions,
+    set_last_prompt_to_retry: WriteSignal<Option<String>>,
+    mode: PermissionMode,
+    text: String,
+) {
+    if mode == PermissionMode::Plan {
+        send_planning_request(actions, set_last_prompt_to_retry, text);
+    } else {
+        set_last_prompt_to_retry.set(Some(text.clone()));
+        actions.send_prompt(text, None);
+    }
+}
+
+fn send_planning_request(
+    actions: AppActions,
+    set_last_prompt_to_retry: WriteSignal<Option<String>>,
+    text: String,
+) {
+    let prompt = planning_prompt(&text);
+    set_last_prompt_to_retry.set(Some(prompt.clone()));
+    actions.send_prompt(prompt, Some(PermissionMode::Plan));
+}
+
+fn planning_prompt(topic: &str) -> String {
+    format!(
+        "Plan mode topic:\n\n{topic}\n\nRun a planning interview before implementation. Stay read-only. First inspect only if useful, then ask the user 1-3 concise typed questions with 2-4 concrete options via request_user_input/AskUserQuestion whenever product, scope, UX, architecture, risk, or priority choices are missing. Put the recommended option first. Do not include an Other option because the client adds free-form Other automatically. Do not write files. After the user answers, return a staged implementation plan with assumptions, target files, verification, and unresolved risks."
+    )
+}
+
+fn revise_plan_prompt(feedback: &str) -> String {
+    format!(
+        "Revise the latest plan using this feedback:\n\n{feedback}\n\nStay in read-only planning mode and return the updated staged plan."
+    )
+}
+
+fn execute_plan_prompt() -> String {
+    "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
+}
+
+fn compact_json(value: &Value) -> String {
+    let text = serde_json::to_string(value).unwrap_or_else(|_| "<invalid json>".to_owned());
+    let limit = 180;
+    if text.chars().count() > limit {
+        format!("{}...", text.chars().take(limit).collect::<String>())
+    } else {
+        text
+    }
+}
+
+fn copy_to_clipboard(text: String) {
+    if let Some(window) = window() {
+        let clipboard = window.navigator().clipboard();
+        let _ = clipboard.write_text(&text);
+    }
+}
+
+fn short_path(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_owned()
+}
+
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
+fn take_request_id(
+    next_request_id: ReadSignal<u64>,
+    set_next_request_id: WriteSignal<u64>,
+    prefix: &str,
+) -> String {
+    let id = next_request_id.get();
+    set_next_request_id.set(id + 1);
+    format!("{prefix}-{id}")
+}
+
+fn report_error(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    prefix: &str,
+    error: String,
+) {
+    set_transport_status.set(TransportStatus::Error(error.clone()));
+    push_message(
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        MessageRole::System,
+        format!("{prefix}: {error}"),
+    );
+}
+
+fn push_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    role: MessageRole,
+    text: impl Into<String>,
+) {
+    let id = next_message_id.get();
+    set_next_message_id.set(id + 1);
+    set_messages.update(|items| {
+        items.push(Message {
+            id,
+            role,
+            text: text.into(),
+            tool: None,
+            streaming: false,
+        });
+    });
+}
+
+fn push_tool_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    tool: ToolActivity,
+) {
+    let id = next_message_id.get();
+    set_next_message_id.set(id + 1);
+    set_messages.update(|items| {
+        items.push(Message {
+            id,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: Some(tool),
+            streaming: false,
+        });
+    });
+}
+
+fn append_streaming_assistant_delta(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    text: &str,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    if let Some(message_id) = active_stream_message_id.get() {
+        set_messages.update(|items| {
+            if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
+                message.text.push_str(text);
+            }
+        });
+    } else {
+        let id = next_message_id.get();
+        set_next_message_id.set(id + 1);
+        set_active_stream_message_id.set(Some(id));
+        set_messages.update(|items| {
+            items.push(Message {
+                id,
+                role: MessageRole::Assistant,
+                text: text.to_owned(),
+                tool: None,
+                streaming: true,
+            });
+        });
+    }
+}
+
+fn finish_streaming_assistant_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    final_text: String,
+) {
+    if let Some(message_id) = active_stream_message_id.get() {
+        set_messages.update(|items| {
+            if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
+                message.text = final_text.clone();
+                message.streaming = false;
+            }
+        });
+        set_active_stream_message_id.set(None);
+    } else {
+        push_message(
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            MessageRole::Assistant,
+            final_text,
+        );
+    }
+}
+
+fn seed_messages() -> Vec<Message> {
+    Vec::new()
+}
