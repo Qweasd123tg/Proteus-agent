@@ -111,10 +111,7 @@ pub(crate) fn ResumeView() -> impl IntoView {
     }
 }
 
-fn load_sessions(
-    set_sessions: WriteSignal<Vec<SessionSummary>>,
-    set_status: WriteSignal<String>,
-) {
+fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: WriteSignal<String>) {
     spawn_local(async move {
         match get_json::<Vec<SessionSummary>>("/sessions").await {
             Ok(items) => {
