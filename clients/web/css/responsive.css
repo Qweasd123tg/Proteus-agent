@@ -1,0 +1,192 @@
+@media (max-width: 900px) {
+    .app-layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: auto !important;
+        min-width: 0;
+        min-height: auto;
+        max-height: min(280px, 38vh);
+        max-width: none;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .sidebar-resize-handle {
+        display: none;
+    }
+
+    .sessions-list {
+        min-height: 0;
+    }
+
+    .sidebar-panel {
+        display: none;
+    }
+
+    .workspace-main {
+        min-height: 0;
+    }
+}
+
+@media (max-width: 620px) {
+    .topbar,
+    .session-header,
+    .composer-actions {
+        height: auto;
+        align-items: flex-start;
+        flex-direction: column;
+        padding: var(--space-3);
+    }
+
+    .topbar-left,
+    .topnav,
+    .session-summary-meta,
+    .composer-settings,
+    .composer-buttons {
+        width: 100%;
+    }
+
+    .topbar-left {
+        justify-content: space-between;
+    }
+
+    .topnav,
+    .session-summary-meta,
+    .composer-buttons {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .session-summary-meta {
+        gap: var(--space-2) var(--space-4);
+    }
+
+    .session-header h1 {
+        white-space: normal;
+    }
+
+    .control-plane,
+    .resume-list,
+    .results-panel {
+        padding: var(--space-4);
+    }
+
+    .control-row,
+    .control-actions,
+    .input-chat-actions,
+    .queued-actions {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .control-actions,
+    .input-chat-actions,
+    .queued-actions {
+        justify-content: flex-end;
+    }
+
+    .choice-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .task-card {
+        margin-bottom: var(--space-4);
+        padding-left: var(--space-4);
+    }
+
+    .task-card-header,
+    .input-chat-header {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .message-actions {
+        margin-left: auto;
+    }
+
+    .resume-toolbar,
+    .resume-item,
+    .resume-meta {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .resume-item,
+    .resume-item button {
+        width: 100%;
+    }
+
+    .resume-item-header,
+    .resume-meta {
+        flex-wrap: wrap;
+    }
+
+    .composer-label,
+    .composer textarea {
+        padding-right: var(--space-4);
+        padding-left: var(--space-4);
+    }
+
+    .composer-settings {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: end;
+    }
+
+    .composer-setting {
+        display: grid;
+        gap: 2px;
+    }
+
+    .composer-setting.model-setting {
+        grid-column: 1 / -1;
+    }
+
+    .composer-setting select,
+    .composer-setting input,
+    .composer-setting.model-setting input {
+        width: 100%;
+        max-width: none;
+    }
+
+    .composer-stats {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
+    .toast-stack {
+        top: var(--space-2);
+        right: var(--space-2);
+        width: calc(100vw - 16px);
+    }
+}
+
+@media (max-width: 420px) {
+    .composer-settings {
+        grid-template-columns: 1fr;
+    }
+
+    .composer-buttons button {
+        flex: 1 1 calc(50% - var(--space-2));
+    }
+
+    .composer-buttons .btn-primary {
+        flex-basis: 100%;
+    }
+
+    .topnav button,
+    .topnav-link {
+        flex: 1 1 auto;
+    }
+
+    .segmented {
+        width: 100%;
+    }
+
+    .segmented button {
+        flex: 1 0 auto;
+    }
+}

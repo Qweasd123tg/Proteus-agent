@@ -1,0 +1,192 @@
+.message {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.message > * + * {
+    margin-top: var(--space-3);
+}
+
+.message > * {
+    max-width: 100%;
+}
+
+.message p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.message h1,
+.message h2,
+.message h3,
+.message h4 {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.message h1 {
+    font-size: 16px;
+}
+
+.message h2 {
+    font-size: 15px;
+}
+
+.message ul,
+.message ol {
+    display: grid;
+    gap: var(--space-1);
+    padding-left: var(--space-5);
+}
+
+.message li {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.message a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
+.message a:hover {
+    text-decoration: underline;
+}
+
+.message code {
+    max-width: 100%;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 1px 4px;
+    white-space: break-spaces;
+    overflow-wrap: anywhere;
+}
+
+.message pre {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-main);
+    padding: var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.message pre code {
+    display: block;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.message blockquote {
+    border-left: 2px solid var(--border-strong);
+    color: var(--text-muted);
+    padding-left: var(--space-3);
+}
+
+.message table {
+    display: block;
+    overflow-x: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.message th,
+.message td {
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    vertical-align: top;
+}
+
+.message th {
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.message hr {
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.message input[type="checkbox"] {
+    width: auto;
+    margin-right: var(--space-2);
+    vertical-align: middle;
+}
+
+.mathjax-display {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+    padding: var(--space-2) 0;
+}
+
+.mathjax-inline {
+    display: inline;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.message mjx-container {
+    max-width: 100%;
+}
+
+.message mjx-container[jax="CHTML"][display="true"] {
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding-bottom: var(--space-1);
+}
+
+.user-message {
+    color: var(--text-muted);
+}
+
+.assistant-message,
+.system-message {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    contain: inline-size;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-4);
+}
+
+.system-message {
+    color: var(--text-muted);
+}
+
+.streaming-message {
+    overflow-wrap: anywhere;
+}
+
+.collapsed-message {
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-faint);
+    padding: var(--space-3);
+}

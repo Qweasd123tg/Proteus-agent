@@ -1,0 +1,573 @@
+.panel-kicker,
+.control-label {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.activity-row {
+    display: flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 12px;
+}
+
+.activity-row span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.activity-row strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    background: var(--text-faint);
+}
+
+.session-status-dot.running {
+    animation: pulse 2s infinite;
+    background: var(--accent-blue);
+}
+
+.session-status-dot.success {
+    background: var(--accent-green);
+}
+
+.session-status-dot.warning {
+    background: var(--accent-yellow);
+}
+
+.session-status-dot.error {
+    background: var(--accent-red);
+}
+
+.toast-stack {
+    position: fixed;
+    top: var(--space-4);
+    right: var(--space-4);
+    z-index: 20;
+    display: grid;
+    width: min(420px, calc(100vw - 32px));
+    gap: var(--space-2);
+}
+
+.toast {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border: 1px solid rgb(224 82 82 / 35%);
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
+    padding: var(--space-3);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 28%);
+}
+
+.toast span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.toast button {
+    min-height: 24px;
+    padding: 0 var(--space-2);
+}
+
+.status-badge {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.status-badge .dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    background: var(--text-faint);
+}
+
+.status-badge.running {
+    border-color: rgb(91 140 255 / 35%);
+    color: var(--accent-blue);
+}
+
+.status-badge.running .dot {
+    animation: pulse 2s infinite;
+    background: var(--accent-blue);
+}
+
+.status-badge.completed {
+    border-color: rgb(72 199 116 / 30%);
+    color: var(--accent-green);
+}
+
+.status-badge.completed .dot {
+    background: var(--accent-green);
+}
+
+.status-badge.failed {
+    border-color: rgb(224 82 82 / 30%);
+    color: var(--accent-red);
+}
+
+.status-badge.failed .dot {
+    background: var(--accent-red);
+}
+
+.status-badge.disconnected {
+    border-color: rgb(216 162 30 / 30%);
+    color: var(--accent-yellow);
+}
+
+.status-badge.disconnected .dot {
+    background: var(--accent-yellow);
+}
+
+.status-badge.idle {
+    border-color: var(--border-subtle);
+    color: var(--text-faint);
+}
+
+.control-plane {
+    display: grid;
+    flex-shrink: 0;
+    gap: var(--space-3);
+    max-height: 42vh;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-4) var(--space-5);
+}
+
+.control-card {
+    display: grid;
+    gap: var(--space-3);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-panel-soft);
+    padding: var(--space-4);
+}
+
+.control-card-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.control-card-header strong,
+.control-card-header code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.control-card-header strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.control-card-header code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.control-card p {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.control-card pre {
+    overflow: auto;
+    max-height: 120px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    padding: var(--space-3);
+    white-space: pre-wrap;
+}
+
+.control-row,
+.control-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.segmented {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+}
+
+.segmented button {
+    min-height: 28px;
+    flex: 0 0 auto;
+    border: 0;
+    border-right: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    padding: 0 var(--space-3);
+}
+
+.segmented button:last-child {
+    border-right: 0;
+}
+
+.segmented button.active {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+.task-card {
+    position: relative;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    margin-bottom: var(--space-5);
+    border-left: 1px solid var(--border-subtle);
+    padding-left: var(--space-5);
+}
+
+.task-card::before {
+    position: absolute;
+    top: 0;
+    left: -3px;
+    width: 5px;
+    height: 5px;
+    background: var(--border-strong);
+    content: "";
+}
+
+.task-card.running::before {
+    animation: pulse 2s infinite;
+    background: var(--accent-blue);
+}
+
+.task-card.success::before {
+    background: var(--accent-green);
+}
+
+.task-card.error::before {
+    background: var(--accent-red);
+}
+
+.task-card-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.message-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.icon-button {
+    min-height: 24px;
+    border-color: var(--border-subtle);
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 0 var(--space-2);
+}
+
+.icon-button:hover {
+    color: var(--text-main);
+}
+
+.input-question {
+    display: grid;
+    gap: var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+}
+
+.input-chat-card {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.input-chat-header {
+    justify-content: space-between;
+}
+
+.input-chat-header strong {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.input-step {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.input-chat-actions,
+.queued-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.input-tabs {
+    display: flex;
+    min-width: 0;
+    gap: var(--space-1);
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-2);
+}
+
+.input-tabs button {
+    min-height: 28px;
+    border-color: var(--border-subtle);
+    background: transparent;
+    color: var(--text-faint);
+    padding: 0 var(--space-3);
+}
+
+.input-tabs button.active {
+    border-color: var(--accent-blue);
+    background: rgb(91 140 255 / 10%);
+    color: var(--text-main);
+}
+
+.input-tabs button.done {
+    border-color: rgb(72 199 116 / 28%);
+    color: var(--accent-green);
+}
+
+.input-tabs span {
+    overflow: hidden;
+    max-width: 160px;
+    text-overflow: ellipsis;
+}
+
+.input-question-header {
+    display: grid;
+    gap: 2px;
+}
+
+.input-question-header span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.input-question-header strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.choice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-2);
+}
+
+.choice-button {
+    display: grid;
+    min-height: 58px;
+    justify-items: start;
+    gap: 2px;
+    border-color: var(--border-subtle);
+    background: var(--bg-panel);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    white-space: normal;
+}
+
+.choice-button.active {
+    border-color: var(--accent-blue);
+    background: rgb(91 140 255 / 10%);
+    color: var(--text-main);
+}
+
+.choice-button span {
+    font-weight: 600;
+}
+
+.choice-button small {
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.working-card {
+    margin-bottom: 0;
+}
+
+.queued-card {
+    margin-bottom: var(--space-5);
+}
+
+.queued-message,
+.recovery-message {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.queued-message p {
+    max-height: 92px;
+    overflow: auto;
+}
+
+.queued-message p,
+.recovery-message p {
+    margin: 0;
+}
+
+.plan-actions-card {
+    margin-bottom: var(--space-5);
+}
+
+.plan-actions-message {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.tool-activity-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: calc(var(--space-2) * -1) 0 var(--space-5) var(--space-5);
+}
+
+.tool-card {
+    border-left: 1px solid var(--border-subtle);
+    background: transparent;
+}
+
+.tool-card-summary {
+    display: flex;
+    width: 100%;
+    min-height: 32px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    border-color: var(--border-subtle);
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    text-align: left;
+}
+
+.tool-card-summary:hover {
+    border-color: var(--border-strong);
+    color: var(--text-main);
+}
+
+.tool-card-summary strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-card-summary code {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.tool-card-details {
+    display: grid;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-top: 0;
+    background: var(--bg-root);
+    padding: var(--space-3);
+}
+
+.tool-card-details pre {
+    max-height: 220px;
+    overflow: auto;
+    margin: 0;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.spinner-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border: 1px solid currentcolor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
