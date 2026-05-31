@@ -2760,6 +2760,11 @@ async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, St
         .ok_or_else(|| "response body is not text".to_owned())?;
 
     if !response.ok() {
+        if status == 404 && text.contains("unknown app-server HTTP endpoint") {
+            return Err(format!(
+                "HTTP {status}: {text} (backend is older than web client; restart proteus after ./install.sh)"
+            ));
+        }
         return Err(format!("HTTP {status}: {text}"));
     }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))

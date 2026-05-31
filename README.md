@@ -158,7 +158,9 @@ proteus
 Wrapper использует текущую директорию как workspace, поднимает app-server на
 `http://127.0.0.1:8787` и web-клиент на `http://127.0.0.1:1420`. Для обычных CLI
 команд передайте аргументы, например `proteus doctor` или
-`proteus --plan "inspect project"`.
+`proteus --plan "inspect project"`. Если source новее release binary, wrapper
+сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
+app-server не разъезжались по protocol endpoints.
 
 Leptos-клиент уже живёт в `clients/web` и по умолчанию подключается к
 `http://127.0.0.1:8787/events` и `/send`. HTTP/SSE app-server transport
