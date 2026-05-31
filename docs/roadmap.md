@@ -140,6 +140,9 @@ Scope:
 - session resume/restore;
 - durable task/session metadata;
 - event-log based debugging.
+- groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`, explicit
+  reload command и events, без выгрузки dylib и без in-place мутации активного
+  turn-а. Дизайн зафиксирован в `docs/hot-swap.md`.
 
 ### v0.4: Web Client Protocol
 
@@ -295,6 +298,9 @@ Scope:
 - Durable task/session metadata и event-log based debugging для UI/evals.
 - Persistent MCP host: reuse server process между calls, но execution всё равно
   должен проходить через `ToolRegistry`, policy visibility и approval.
+- Hot-swap/reload для config-defined tools и MCP discovery: агент может
+  добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
+  snapshot видит discovered tools, старые turns доживают на прежнем snapshot.
 - UX backlog для web-клиента:
   - очередь следующего composer request во время running turn;
   - persistent layout sizes для sidebar/composer;
