@@ -200,26 +200,45 @@ fn parse_app_server_http_command(task: &[String]) -> Result<Option<HttpServerCon
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--host" => {
-                let value = args.next().ok_or_else(|| {
-                    anyhow::anyhow!("usage: proteus server http [--host <ip>] [--port <port>]")
-                })?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", app_server_http_usage()))?;
                 host = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("invalid --host value: {value}"))?;
             }
             "--port" => {
-                let value = args.next().ok_or_else(|| {
-                    anyhow::anyhow!("usage: proteus server http [--host <ip>] [--port <port>]")
-                })?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", app_server_http_usage()))?;
                 port = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("invalid --port value: {value}"))?;
             }
-            _ => bail!("usage: proteus server http [--host <ip>] [--port <port>]"),
+            "--token" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", app_server_http_usage()))?;
+                if value.is_empty() {
+                    bail!("--token must not be empty");
+                }
+                config.session_token = value.clone();
+            }
+            "--allow-origin" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", app_server_http_usage()))?;
+                config.allowed_origins.push(value.clone());
+            }
+            _ => bail!("{}", app_server_http_usage()),
         }
     }
     config.bind = std::net::SocketAddr::new(host, port);
     Ok(Some(config))
+}
+
+fn app_server_http_usage() -> &'static str {
+    "usage: proteus server http [--host <ip>] [--port <port>] [--token <token>] [--allow-origin <origin>]"
 }
 
 fn is_doctor_command(task: &[String]) -> bool {
