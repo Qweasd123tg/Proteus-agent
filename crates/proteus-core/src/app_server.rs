@@ -111,16 +111,25 @@ impl AppServerHandle {
         self.runtime.permission_mode().await
     }
 
+    pub async fn set_model_name(&self, model: String) {
+        self.runtime.set_model_name(model).await;
+    }
+
+    pub async fn set_reasoning_enabled(&self, enabled: bool) {
+        self.runtime.set_reasoning_enabled(enabled).await;
+    }
+
     pub async fn set_reasoning_effort(&self, effort: Option<String>) {
         self.runtime.set_reasoning_effort(effort).await;
     }
 
     pub async fn config_summary(&self) -> Value {
         let mode = self.permission_mode().await;
+        let model_ref = self.runtime.model_ref().await;
         let reasoning = self.runtime.reasoning().await;
         let tools = self.runtime.tool_entries();
         let config_files = config_files(self.config_path.as_deref());
-        let model = self.config.active_model_config().ok();
+        let model_options = configured_model_options(&self.config);
         json!({
             "display_text": render_config_summary(
                 &self.config,
@@ -140,17 +149,26 @@ impl AppServerHandle {
                 .collect::<Vec<_>>(),
             "cwd": self.cwd.display().to_string(),
             "profile": self.config.profile.name,
-            "model": model.as_ref().map(|model| json!({
-                "provider": model.provider,
-                "name": model.model,
-                "label": format!("{}/{}", model.provider, model.model),
-            })),
-            "permission_mode": format!("{mode:?}"),
+            "model": {
+                "provider": model_ref.provider.clone(),
+                "name": model_ref.model.clone(),
+                "label": format!("{}/{}", model_ref.provider, model_ref.model),
+            },
+            "model_options": model_options
+                .iter()
+                .map(|model| json!({
+                    "provider": model.provider.clone(),
+                    "name": model.model.clone(),
+                    "label": format!("{}/{}", model.provider, model.model),
+                }))
+                .collect::<Vec<_>>(),
             "reasoning": {
+                "enabled": reasoning.effort.is_some() || reasoning.summary || reasoning.budget_tokens.is_some(),
                 "effort": reasoning.effort,
                 "summary": reasoning.summary,
                 "budget_tokens": reasoning.budget_tokens,
             },
+            "permission_mode": format!("{mode:?}"),
             "modules": module_summary(&self.config),
             "tools_enabled": self.config.tools.enabled,
             "registered_tools": tools
@@ -510,6 +528,22 @@ fn module_summary(config: &AppConfig) -> Vec<Value> {
     .into_iter()
     .map(|(slot, id)| json!({ "slot": slot, "id": id }))
     .collect()
+}
+
+fn configured_model_options(config: &AppConfig) -> Vec<crate::domain::ModelRef> {
+    let mut options = Vec::new();
+    if let Ok(model) = config.active_model_config() {
+        options.push(model.model_ref());
+    }
+    for profile in config.providers.values() {
+        if let Ok(model) = profile.to_model_config() {
+            let model_ref = model.model_ref();
+            if !options.iter().any(|item| item == &model_ref) {
+                options.push(model_ref);
+            }
+        }
+    }
+    options
 }
 
 fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {

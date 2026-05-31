@@ -179,12 +179,30 @@ pub async fn run_stdio_app_server(
                 )
                 .await;
             }
+            StdioRequest::SetModel { model, .. } => {
+                server.set_model_name(model.clone()).await;
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    Ok(Some(serde_json::json!({ "model": model }))),
+                )
+                .await;
+            }
             StdioRequest::SetReasoningEffort { effort, .. } => {
                 server.set_reasoning_effort(effort.clone()).await;
                 send_stdio_response(
                     &output_tx,
                     id,
                     Ok(Some(serde_json::json!({ "effort": effort }))),
+                )
+                .await;
+            }
+            StdioRequest::SetReasoningEnabled { enabled, .. } => {
+                server.set_reasoning_enabled(enabled).await;
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    Ok(Some(serde_json::json!({ "enabled": enabled }))),
                 )
                 .await;
             }

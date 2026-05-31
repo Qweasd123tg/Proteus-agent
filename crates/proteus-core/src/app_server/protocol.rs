@@ -66,6 +66,22 @@ mod tests {
             Some("effort".to_owned())
         );
         assert_eq!(
+            StdioRequest::SetModel {
+                id: Some("model".to_owned()),
+                model: "deepseek-v4-pro".to_owned(),
+            }
+            .id(),
+            Some("model".to_owned())
+        );
+        assert_eq!(
+            StdioRequest::SetReasoningEnabled {
+                id: Some("reasoning".to_owned()),
+                enabled: true,
+            }
+            .id(),
+            Some("reasoning".to_owned())
+        );
+        assert_eq!(
             StdioRequest::ConfigSummary {
                 id: Some("configs".to_owned()),
             }

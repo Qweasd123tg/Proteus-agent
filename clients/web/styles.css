@@ -1433,6 +1433,7 @@ textarea {
     min-width: 0;
     align-items: center;
     gap: var(--space-2);
+    flex-wrap: wrap;
 }
 
 .composer-setting {
@@ -1447,7 +1448,8 @@ textarea {
     font-size: 10px;
 }
 
-.composer-setting select {
+.composer-setting select,
+.composer-setting input {
     min-height: 28px;
     max-width: 132px;
     border-color: var(--border-subtle);
@@ -1458,8 +1460,15 @@ textarea {
     padding: 0 var(--space-2);
 }
 
+.composer-setting.model-setting input {
+    width: 180px;
+    max-width: 24vw;
+}
+
 .composer-setting select:hover,
-.composer-setting select:focus {
+.composer-setting select:focus,
+.composer-setting input:hover,
+.composer-setting input:focus {
     border-color: var(--border-strong);
     outline: none;
 }
