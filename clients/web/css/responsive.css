@@ -69,8 +69,13 @@
 
     .control-plane,
     .resume-list,
+    .configs-scroll,
     .results-panel {
         padding: var(--space-4);
+    }
+
+    .config-overview {
+        grid-template-columns: 1fr;
     }
 
     .control-row,
@@ -108,6 +113,7 @@
 
     .resume-toolbar,
     .resume-item,
+    .config-list-item,
     .resume-meta {
         align-items: flex-start;
         flex-direction: column;
@@ -116,6 +122,10 @@
     .resume-item,
     .resume-item button {
         width: 100%;
+    }
+
+    .config-list-item .status-badge {
+        align-self: flex-start;
     }
 
     .resume-item-header,

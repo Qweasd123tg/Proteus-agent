@@ -263,6 +263,90 @@ pub(crate) struct SessionSummary {
     pub(crate) resumable: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigSummary {
+    #[serde(default)]
+    pub(crate) config_path: Option<String>,
+    #[serde(default)]
+    pub(crate) config_files: Vec<String>,
+    #[serde(default)]
+    pub(crate) cwd: String,
+    #[serde(default)]
+    pub(crate) profile: String,
+    #[serde(default)]
+    pub(crate) model: ConfigModel,
+    #[serde(default)]
+    pub(crate) model_options: Vec<ConfigModel>,
+    #[serde(default)]
+    pub(crate) reasoning: ConfigReasoning,
+    #[serde(default)]
+    pub(crate) permission_mode: String,
+    #[serde(default)]
+    pub(crate) modules: Vec<ConfigModule>,
+    #[serde(default)]
+    pub(crate) tools_enabled: Vec<String>,
+    #[serde(default)]
+    pub(crate) registered_tools: Vec<ConfigTool>,
+    #[serde(default)]
+    pub(crate) plugins: Vec<ConfigPlugin>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigModel {
+    #[serde(default)]
+    pub(crate) provider: String,
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) label: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigReasoning {
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default)]
+    pub(crate) effort: Option<String>,
+    #[serde(default)]
+    pub(crate) effort_options: Vec<String>,
+    #[serde(default)]
+    pub(crate) summary: bool,
+    #[serde(default)]
+    pub(crate) budget_tokens: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigModule {
+    #[serde(default)]
+    pub(crate) slot: String,
+    #[serde(default)]
+    pub(crate) id: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigTool {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) safety: String,
+    #[serde(default)]
+    pub(crate) description: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigPlugin {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) version: String,
+    #[serde(default)]
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) description: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct TranscriptMessage {
     pub(crate) role: String,
