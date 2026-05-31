@@ -1,7 +1,12 @@
+mod actions;
 mod api;
 mod app;
+mod components;
+mod events;
 mod markdown;
+mod messages;
 mod types;
+mod ui_utils;
 
 use leptos::mount::mount_to_body;
 
