@@ -694,6 +694,7 @@ fn App() -> impl IntoView {
     let (model_options, set_model_options) = signal(Vec::<String>::new());
     let (reasoning_enabled, set_reasoning_enabled) = signal(true);
     let (effort, set_effort) = signal(ReasoningEffort::Config);
+    let (effort_options, set_effort_options) = signal(Vec::<String>::new());
     let (next_message_id, set_next_message_id) = signal(1_u64);
     let (next_request_id, set_next_request_id) = signal(1_u64);
     let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
@@ -780,6 +781,7 @@ fn App() -> impl IntoView {
             set_model_options,
             set_reasoning_enabled,
             set_effort,
+            set_effort_options,
         );
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
@@ -1531,22 +1533,22 @@ fn App() -> impl IntoView {
                                         </label>
                                         <label class="composer-setting">
                                             <span>"effort"</span>
-                                            <input
-                                                list="effort-options"
+                                            <select
                                                 disabled=move || !reasoning_enabled.get()
                                                 prop:value=move || effort.get().value()
                                                 on:change:target=move |ev| {
                                                     select_effort(ReasoningEffort::from_value(&ev.target().value()));
                                                 }
-                                            />
-                                            <datalist id="effort-options">
-                                                <option value="auto"></option>
-                                                <option value="low"></option>
-                                                <option value="medium"></option>
-                                                <option value="high"></option>
-                                                <option value="max"></option>
-                                                <option value="xhigh"></option>
-                                            </datalist>
+                                            >
+                                                <option value="auto">"auto"</option>
+                                                <For
+                                                    each=move || effort_options.get()
+                                                    key=|option| option.clone()
+                                                    children=move |option| {
+                                                        view! { <option value=option.clone()>{option.clone()}</option> }
+                                                    }
+                                                />
+                                            </select>
                                         </label>
                                     </div>
                                     <div class="composer-stats">
@@ -1723,6 +1725,7 @@ fn load_runtime_settings(
     set_model_options: WriteSignal<Vec<String>>,
     set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
+    set_effort_options: WriteSignal<Vec<String>>,
 ) {
     spawn_local(async move {
         match get_json::<Value>("/config").await {
@@ -1754,9 +1757,23 @@ fn load_runtime_settings(
                 {
                     set_reasoning_enabled.set(enabled);
                 }
-                if let Some(effort) = config.pointer("/reasoning/effort").and_then(Value::as_str) {
+                let current_effort = config.pointer("/reasoning/effort").and_then(Value::as_str);
+                let mut effort_options = config
+                    .pointer("/reasoning/effort_options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>();
+                if let Some(effort) = current_effort {
+                    if !effort_options.iter().any(|item| item == effort) {
+                        effort_options.push(effort.to_owned());
+                    }
                     set_effort.set(ReasoningEffort::from_value(effort));
                 }
+                set_effort_options.set(effort_options);
             }
             Err(_) => {}
         }

@@ -14,9 +14,9 @@ working indicator, drag-resize sidebar/composer с сохранением раз
 message copy/collapse actions, toast errors, MathJax LaTeX rendering и
 HTTP/SSE client. Sidebar показывает только session/runtime metadata, без
 transcript preview. Mode, model, reasoning on/off и raw reasoning effort
-задаются компактными controls в строке composer actions; effort остаётся
-свободным raw input с datalist-подсказками, чтобы не зашивать provider-specific
-значения во фронт. Shell по умолчанию
+задаются компактными controls в строке composer actions; effort выбирается из
+config/capability options, чтобы не зашивать provider-specific значения во
+фронт. Shell по умолчанию
 подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
 через `/mode`, model через `/model`, reasoning через `/reasoning`, effort через

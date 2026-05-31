@@ -2364,6 +2364,7 @@ active_provider = "anthropic"
 provider = "anthropic"
 model = "claude-sonnet-4-6"
 stream = false
+reasoning_efforts = ["high", "max"]
 
 [providers.anthropic.reasoning]
 effort = "max"
@@ -2382,6 +2383,10 @@ budget_tokens = 8192
     assert_eq!(model_config.reasoning.effort.as_deref(), Some("max"));
     assert!(model_config.reasoning.summary);
     assert_eq!(model_config.reasoning.budget_tokens, Some(8192));
+    assert_eq!(
+        config.providers["anthropic"].reasoning_efforts,
+        vec!["high", "max"]
+    );
 }
 
 #[tokio::test]

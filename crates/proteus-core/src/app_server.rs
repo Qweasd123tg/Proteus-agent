@@ -127,6 +127,8 @@ impl AppServerHandle {
         let mode = self.permission_mode().await;
         let model_ref = self.runtime.model_ref().await;
         let reasoning = self.runtime.reasoning().await;
+        let effort_options =
+            configured_reasoning_effort_options(&self.config, &model_ref, &reasoning);
         let tools = self.runtime.tool_entries();
         let config_files = config_files(self.config_path.as_deref());
         let model_options = configured_model_options(&self.config);
@@ -165,6 +167,7 @@ impl AppServerHandle {
             "reasoning": {
                 "enabled": reasoning.effort.is_some() || reasoning.summary || reasoning.budget_tokens.is_some(),
                 "effort": reasoning.effort,
+                "effort_options": effort_options,
                 "summary": reasoning.summary,
                 "budget_tokens": reasoning.budget_tokens,
             },
@@ -544,6 +547,80 @@ fn configured_model_options(config: &AppConfig) -> Vec<crate::domain::ModelRef> 
         }
     }
     options
+}
+
+fn configured_reasoning_effort_options(
+    config: &AppConfig,
+    active_model: &crate::domain::ModelRef,
+    reasoning: &crate::domain::ReasoningConfig,
+) -> Vec<String> {
+    let mut options = Vec::new();
+    for profile in matching_provider_profiles(config, active_model) {
+        push_unique_strings(&mut options, &profile.reasoning_efforts);
+    }
+
+    if looks_like_deepseek(config, active_model) {
+        push_unique(&mut options, "high");
+        push_unique(&mut options, "max");
+    }
+
+    if let Some(effort) = reasoning.effort.as_deref() {
+        push_unique(&mut options, effort);
+    }
+
+    options
+}
+
+fn matching_provider_profiles<'a>(
+    config: &'a AppConfig,
+    active_model: &crate::domain::ModelRef,
+) -> Vec<&'a crate::core::ProviderProfileConfig> {
+    let mut profiles = Vec::new();
+    if let Some(profile) = active_provider_profile(config) {
+        profiles.push(profile);
+    }
+    profiles.extend(config.providers.values().filter(|profile| {
+        profile.provider == active_model.provider && profile.model == active_model.model
+    }));
+    profiles
+}
+
+fn active_provider_profile(config: &AppConfig) -> Option<&crate::core::ProviderProfileConfig> {
+    if let Some(active_provider) = config
+        .active_provider
+        .as_ref()
+        .filter(|provider| !provider.trim().is_empty())
+    {
+        return config.providers.get(active_provider);
+    }
+    config.providers.get("default")
+}
+
+fn looks_like_deepseek(config: &AppConfig, active_model: &crate::domain::ModelRef) -> bool {
+    let model = active_model.model.to_ascii_lowercase();
+    let provider = active_model.provider.to_ascii_lowercase();
+    let provider_config = config
+        .active_model_config()
+        .ok()
+        .map(|model| model.provider_config.to_string().to_ascii_lowercase())
+        .unwrap_or_default();
+    model.contains("deepseek")
+        || provider.contains("deepseek")
+        || provider_config.contains("deepseek")
+}
+
+fn push_unique_strings(options: &mut Vec<String>, values: &[String]) {
+    for value in values {
+        push_unique(options, value);
+    }
+}
+
+fn push_unique(options: &mut Vec<String>, value: &str) {
+    let value = value.trim();
+    if value.is_empty() || options.iter().any(|item| item == value) {
+        return;
+    }
+    options.push(value.to_owned());
 }
 
 fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
