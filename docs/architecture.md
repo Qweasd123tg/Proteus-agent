@@ -18,11 +18,12 @@ External CLI/UI -> AppServer/transport -> AgentRuntime -> BuiltinRegistry
 
 `AppConfig` выбирает реализации по строковым ключам. `BuiltinModuleCatalog` хранит built-in manifests и factory lookup. При старте ядро сканирует `~/.proteus/plugins/`, загружает dylib-плагины через `abi_stable` и регистрирует их modules в том же catalog (builtin выигрывает конфликт по `(slot, id)`). `BuiltinRegistry` использует catalog и собирает trait-объекты. `AgentRuntime` запускает workflow и хранит историю. `Workflow` работает только с contracts и DTO.
 
-Это не marketplace, не hot-reload и не sandbox. Это статическая dylib-загрузка
-при старте: чтобы заменить или обновить плагин, ядро сейчас перезапускается.
-Планируемая горячая замена должна идти через snapshot/epoch boundary, а не
-через in-place мутацию активного runtime; правила зафиксированы в
-[hot-swap.md](hot-swap.md).
+Это не marketplace и не sandbox. Dylib-плагины грузятся статически при сборке
+snapshot-а и не выгружаются из процесса. Для config-defined tools и MCP
+discovery app-server уже умеет `ReloadTools`: новый `RuntimeSnapshot` получает
+новый registry, а активные turns доживают на старом snapshot. Общий
+`reload_modules` и persistent MCP host остаются planned; правила зафиксированы
+в [hot-swap.md](hot-swap.md).
 
 ## Статус Ядра
 
@@ -307,7 +308,7 @@ task
 
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`. `model` пока регистрируется только как builtin. Package manager, marketplace и hot-reload не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`. `model` пока регистрируется только как builtin. Package manager, marketplace, dylib unload и общий `reload_modules` не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors, MCP

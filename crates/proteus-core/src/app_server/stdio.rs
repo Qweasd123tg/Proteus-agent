@@ -209,6 +209,14 @@ pub async fn run_stdio_app_server(
             StdioRequest::ConfigSummary { .. } => {
                 send_stdio_response(&output_tx, id, Ok(Some(server.config_summary().await))).await;
             }
+            StdioRequest::ReloadTools { .. } => {
+                let result = server.reload_tools().await.and_then(|report| {
+                    serde_json::to_value(report)
+                        .map(Some)
+                        .map_err(anyhow::Error::from)
+                });
+                send_stdio_response(&output_tx, id, result).await;
+            }
             StdioRequest::Shutdown { .. } => {
                 shutdown_requested = true;
                 server.shutdown().await;

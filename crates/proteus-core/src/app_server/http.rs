@@ -330,6 +330,10 @@ async fn route_request(
             let output = execute_app_request(&state, StdioRequest::ClearHistory { id: None }).await;
             json_response(StatusCode::OK, &output)
         }
+        (Method::POST, "/reload-tools") => {
+            let output = execute_app_request(&state, StdioRequest::ReloadTools { id: None }).await;
+            json_response(StatusCode::OK, &output)
+        }
         (Method::POST, "/shutdown") => {
             let output = execute_app_request(&state, StdioRequest::Shutdown { id: None }).await;
             json_response(StatusCode::OK, &output)
@@ -420,6 +424,16 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
         StdioRequest::ConfigSummary { .. } => {
             Ok(Some(state.current_server().await.config_summary().await))
         }
+        StdioRequest::ReloadTools { .. } => state
+            .current_server()
+            .await
+            .reload_tools()
+            .await
+            .and_then(|report| {
+                serde_json::to_value(report)
+                    .map(Some)
+                    .map_err(anyhow::Error::from)
+            }),
         StdioRequest::Shutdown { .. } => {
             state.current_server().await.shutdown().await;
             let _ = state.shutdown.send(());
@@ -480,8 +494,9 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
         .cancel_pending_user_inputs("session switched by client".to_owned())
         .await;
 
+    let config = current.config.read().await.clone();
     let next = AgentAppServer::launch_resumed(
-        (*current.config).clone(),
+        config,
         current.cwd.clone(),
         current.config_path.as_deref(),
         session_dir,

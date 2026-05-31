@@ -1192,7 +1192,7 @@ async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
         bail!("/remember: content is empty");
     }
     let item = proteus_core::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
-    runtime.memory().remember(item).await?;
+    runtime.memory().await.remember(item).await?;
     Ok(format!("stored ({kind}): {content}"))
 }
 

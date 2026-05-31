@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use uuid::Uuid;
 
 use crate::{
@@ -18,8 +18,8 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        PendingApproval, PendingUserInput, config_store_root, list_session_summaries,
-        normalize_session_dir_path, session_id_from_session_dir,
+        PendingApproval, PendingUserInput, RuntimeReloadReport, config_store_root,
+        list_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, new_thread_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
@@ -51,10 +51,10 @@ type PendingUserInputResponders =
 #[derive(Clone)]
 pub struct AppServerHandle {
     runtime: Arc<AgentRuntime>,
-    config: Arc<AppConfig>,
+    config: Arc<RwLock<AppConfig>>,
     config_path: Option<PathBuf>,
     cwd: PathBuf,
-    plugin_reports: Arc<Vec<crate::core::PluginLoadReport>>,
+    plugin_reports: Arc<RwLock<Vec<crate::core::PluginLoadReport>>>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
@@ -127,19 +127,22 @@ impl AppServerHandle {
         let mode = self.permission_mode().await;
         let model_ref = self.runtime.model_ref().await;
         let reasoning = self.runtime.reasoning().await;
-        let effort_options =
-            configured_reasoning_effort_options(&self.config, &model_ref, &reasoning);
-        let tools = self.runtime.tool_entries();
+        let module_epoch = self.runtime.module_epoch().await;
+        let config = self.config.read().await.clone();
+        let effort_options = configured_reasoning_effort_options(&config, &model_ref, &reasoning);
+        let tools = self.runtime.tool_entries().await;
         let config_files = config_files(self.config_path.as_deref());
-        let model_options = configured_model_options(&self.config);
+        let model_options = configured_model_options(&config);
+        let plugin_reports = self.plugin_reports.read().await;
         json!({
             "display_text": render_config_summary(
-                &self.config,
+                &config,
                 self.config_path.as_deref(),
                 &self.cwd,
                 mode,
                 &tools,
-                &self.plugin_reports,
+                &plugin_reports,
+                module_epoch,
             ),
             "config_path": self
                 .config_path
@@ -150,7 +153,7 @@ impl AppServerHandle {
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>(),
             "cwd": self.cwd.display().to_string(),
-            "profile": self.config.profile.name,
+            "profile": config.profile.name,
             "model": {
                 "provider": model_ref.provider.clone(),
                 "name": model_ref.model.clone(),
@@ -172,8 +175,9 @@ impl AppServerHandle {
                 "budget_tokens": reasoning.budget_tokens,
             },
             "permission_mode": format!("{mode:?}"),
-            "modules": module_summary(&self.config),
-            "tools_enabled": self.config.tools.enabled,
+            "module_epoch": module_epoch.as_u64(),
+            "modules": module_summary(&config),
+            "tools_enabled": config.tools.enabled,
             "registered_tools": tools
                 .iter()
                 .map(|(source, spec)| json!({
@@ -183,7 +187,7 @@ impl AppServerHandle {
                     "description": spec.description,
                 }))
                 .collect::<Vec<_>>(),
-            "plugins": plugin_summary(&self.plugin_reports),
+            "plugins": plugin_summary(&plugin_reports),
         })
     }
 
@@ -269,6 +273,20 @@ impl AppServerHandle {
     pub async fn cancel_pending_user_inputs(&self, note: String) {
         deny_pending_user_inputs(self.pending_user_inputs.clone(), self.events.clone(), note).await;
     }
+
+    pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
+        let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
+        let (registry, plugin_reports) = build_registry_and_plugin_reports(&config, &self.cwd)?;
+        let report = self.runtime.reload_registry(registry).await?;
+        *self.config.write().await = config;
+        *self.plugin_reports.write().await = plugin_reports;
+        let _ = self.events.send(AppServerEvent::ModulesReloaded {
+            old_epoch: report.old_epoch,
+            new_epoch: report.new_epoch,
+            tool_names: report.tool_names.clone(),
+        });
+        Ok(report)
+    }
 }
 
 fn transcript_message(message: &CanonicalMessage) -> Option<AppTranscriptMessage> {
@@ -350,18 +368,13 @@ impl AgentAppServer {
             cwd = workspace_path;
         }
 
-        let config_snapshot = Arc::new(config.clone());
+        let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
         let (module_catalog, plugin_reports) = match module_catalog {
             Some(catalog) => (Some(catalog), Vec::new()),
             None => {
-                let mut catalog = BuiltinModuleCatalog::new();
-                let reports = crate::core::default_plugins_dir()
-                    .map(|plugins_dir| {
-                        crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
-                    })
-                    .unwrap_or_default();
+                let (catalog, reports) = load_module_catalog_with_reports();
                 (Some(catalog), reports)
             }
         };
@@ -421,12 +434,45 @@ impl AgentAppServer {
             config: config_snapshot,
             config_path: config_path_snapshot,
             cwd: cwd_snapshot,
-            plugin_reports: Arc::new(plugin_reports),
+            plugin_reports: Arc::new(RwLock::new(plugin_reports)),
             events,
             pending_approvals,
             pending_user_inputs,
         })
     }
+}
+
+async fn reload_tools_config(
+    config_path: Option<&Path>,
+    current: &RwLock<AppConfig>,
+) -> Result<AppConfig> {
+    let mut config = current.read().await.clone();
+    if let Some(path) = config_path {
+        let loaded = AppConfig::load(Some(path)).await?;
+        config.tools = loaded.tools;
+    }
+    Ok(config)
+}
+
+fn load_module_catalog_with_reports() -> (BuiltinModuleCatalog, Vec<crate::core::PluginLoadReport>)
+{
+    let mut catalog = BuiltinModuleCatalog::new();
+    let reports = crate::core::default_plugins_dir()
+        .map(|plugins_dir| crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog))
+        .unwrap_or_default();
+    (catalog, reports)
+}
+
+fn build_registry_and_plugin_reports(
+    config: &AppConfig,
+    cwd: &Path,
+) -> Result<(
+    crate::core::BuiltinRegistry,
+    Vec<crate::core::PluginLoadReport>,
+)> {
+    let (catalog, reports) = load_module_catalog_with_reports();
+    let registry = crate::core::BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), catalog)?;
+    Ok((registry, reports))
 }
 
 fn render_config_summary(
@@ -436,6 +482,7 @@ fn render_config_summary(
     mode: PermissionMode,
     tools: &[(ToolSource, crate::domain::ToolSpec)],
     plugin_reports: &[crate::core::PluginLoadReport],
+    module_epoch: crate::core::ModuleEpoch,
 ) -> String {
     let mut lines = Vec::new();
     lines.push("Config summary".to_owned());
@@ -454,6 +501,7 @@ fn render_config_summary(
     }
     lines.push(format!("cwd: {}", cwd.display()));
     lines.push(format!("profile: {}", config.profile.name));
+    lines.push(format!("module epoch: {}", module_epoch.as_u64()));
     if let Ok(model) = config.active_model_config() {
         lines.push(format!("model: {}/{}", model.provider, model.model));
     }
@@ -1443,6 +1491,87 @@ mod tests {
         assert!(transcript.iter().any(|message| {
             message.role == "assistant" && message.text.contains("Fake final answer")
         }));
+
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn reload_tools_rebuilds_registry_from_config_path_and_emits_event() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let config_path = config_dir.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[tools]
+enabled = []
+"#,
+        )
+        .expect("initial config");
+        let config = AppConfig::load(Some(&config_path))
+            .await
+            .expect("load initial config");
+        let handle = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
+            .expect("app server");
+        let mut event_rx = handle.subscribe();
+
+        std::fs::write(
+            &config_path,
+            r#"
+[modules]
+workflow = "missing_after_reload"
+
+[tools]
+enabled = []
+
+[[tools.configured]]
+name = "reload_probe"
+description = "Probe tool added by reload"
+safety = "ReadOnly"
+
+[tools.configured.executor]
+kind = "process"
+command = "printf"
+args = ["ok"]
+"#,
+        )
+        .expect("updated config");
+
+        let report = handle.reload_tools().await.expect("reload tools");
+        assert_eq!(report.old_epoch, 0);
+        assert_eq!(report.new_epoch, 1);
+        assert!(report.tool_names.iter().any(|name| name == "reload_probe"));
+
+        let reload_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("reload event should arrive")
+            .expect("event stream should stay open");
+        assert!(matches!(
+            reload_event,
+            AppServerEvent::ModulesReloaded {
+                old_epoch: 0,
+                new_epoch: 1,
+                ref tool_names,
+            } if tool_names.iter().any(|name| name == "reload_probe")
+        ));
+
+        let summary = handle.config_summary().await;
+        assert_eq!(summary["module_epoch"].as_u64(), Some(1));
+        assert!(
+            summary["modules"]
+                .as_array()
+                .expect("modules")
+                .iter()
+                .any(|module| module["slot"].as_str() == Some("workflow")
+                    && module["id"].as_str() == Some("none"))
+        );
+        assert!(
+            summary["registered_tools"]
+                .as_array()
+                .expect("registered tools")
+                .iter()
+                .any(|tool| tool["name"].as_str() == Some("reload_probe"))
+        );
 
         handle.shutdown().await;
     }

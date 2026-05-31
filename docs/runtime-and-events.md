@@ -407,6 +407,16 @@ reasoning-поля из runtime config (`summary`, `budget_tokens`). UI полу
 список `reasoning.effort_options` из `GET /config`; `auto` означает не
 переопределять effort поверх config.
 
+`StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
+из config path, заново сканируют dylib-плагины и MCP/configured tools, затем
+публикуют новый `RuntimeSnapshot`. Остальные `modules.*`, provider и runtime
+settings остаются как в текущем app-server snapshot; для их замены нужен
+будущий `reload_modules`. Уже running turn держит старый snapshot; new turns
+берут новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
+new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
+`module_epoch`. Это reload control-plane, а не dylib unload и не persistent MCP
+host.
+
 Минимальный request contract:
 
 ```json

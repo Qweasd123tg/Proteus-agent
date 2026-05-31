@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use serde::Serialize;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, timeout};
 
@@ -28,9 +29,46 @@ pub struct AgentRuntime {
     session: SessionState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ModuleEpoch(u64);
+
+impl ModuleEpoch {
+    pub fn initial() -> Self {
+        Self(0)
+    }
+
+    pub fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct RuntimeSnapshot {
+    pub epoch: ModuleEpoch,
+    pub registry: BuiltinRegistry,
+}
+
+impl RuntimeSnapshot {
+    pub fn new(epoch: ModuleEpoch, registry: BuiltinRegistry) -> Self {
+        Self { epoch, registry }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RuntimeReloadReport {
+    pub old_epoch: u64,
+    pub new_epoch: u64,
+    pub tool_names: Vec<String>,
+}
+
 struct RuntimeServices {
     cwd: PathBuf,
-    registry: BuiltinRegistry,
+    snapshot: RwLock<RuntimeSnapshot>,
+    reload_lock: Mutex<()>,
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
@@ -138,7 +176,8 @@ impl AgentRuntime {
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
         let _run_guard = self.session.run_lock.lock().await;
-        self.ensure_session_started().await?;
+        let snapshot = self.snapshot().await;
+        self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = new_turn_id();
         if cancellation.is_cancelled() {
             anyhow::bail!("turn canceled by client");
@@ -164,7 +203,7 @@ impl AgentRuntime {
         // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
         // правильным envelope (session/thread/turn). Без этого дельты
         // тихо дропаются (штатное поведение без runtime).
-        if let Some(service) = &self.services.registry.model_service {
+        if let Some(service) = &snapshot.registry.model_service {
             service.set_event_context(crate::core::DeltaEventContext {
                 emitter: Some(self.services.events.clone()),
                 session_id: Some(self.session.session_id),
@@ -175,7 +214,7 @@ impl AgentRuntime {
         let permission_mode = *self.services.permission_mode.read().await;
         let model_ref = self.services.model_ref.read().await.clone();
         let reasoning = self.services.reasoning.read().await.clone();
-        let mut runtime_context = self.services.registry.runtime_context_with_user_input(
+        let mut runtime_context = snapshot.registry.runtime_context_with_user_input(
             self.session.session_id,
             self.session.thread_id,
             turn_id,
@@ -189,9 +228,8 @@ impl AgentRuntime {
         let runtime_context = runtime_context.with_cancellation(cancellation.clone());
         let history = self.session.history.lock().await.clone();
         let previous_history_len = history.len();
-        let workflow_timeout_ms = self.services.registry.runtime_config.workflow_timeout_ms;
-        let workflow = self
-            .services
+        let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
+        let workflow = snapshot
             .registry
             .workflow
             .run(task.clone(), history, runtime_context);
@@ -215,8 +253,7 @@ impl AgentRuntime {
             previous_history_len
         );
         let new_messages = &workflow_output.messages[previous_history_len..];
-        let memory_output = self
-            .services
+        let memory_output = snapshot
             .registry
             .memory_policy
             .after_turn(
@@ -225,7 +262,7 @@ impl AgentRuntime {
                     output: &workflow_output.output,
                     new_messages,
                 },
-                self.services.registry.memory.as_ref(),
+                snapshot.registry.memory.as_ref(),
             )
             .await?;
         for kind in memory_output.written_kinds {
@@ -294,8 +331,35 @@ impl AgentRuntime {
         self.services.reasoning.read().await.clone()
     }
 
-    pub fn tool_entries(&self) -> Vec<(ToolSource, ToolSpec)> {
-        self.services.registry.tools.entries()
+    pub async fn tool_entries(&self) -> Vec<(ToolSource, ToolSpec)> {
+        self.snapshot().await.registry.tools.entries()
+    }
+
+    pub async fn module_epoch(&self) -> ModuleEpoch {
+        self.services.snapshot.read().await.epoch
+    }
+
+    async fn snapshot(&self) -> RuntimeSnapshot {
+        self.services.snapshot.read().await.clone()
+    }
+
+    pub async fn reload_registry(&self, registry: BuiltinRegistry) -> Result<RuntimeReloadReport> {
+        let _reload_guard = self.services.reload_lock.lock().await;
+        let mut snapshot = self.services.snapshot.write().await;
+        let old_epoch = snapshot.epoch;
+        let new_epoch = old_epoch.next();
+        let tool_names = registry
+            .tools
+            .specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        *snapshot = RuntimeSnapshot::new(new_epoch, registry);
+        Ok(RuntimeReloadReport {
+            old_epoch: old_epoch.as_u64(),
+            new_epoch: new_epoch.as_u64(),
+            tool_names,
+        })
     }
 
     pub async fn start_session(&self) -> Result<()> {
@@ -303,6 +367,11 @@ impl AgentRuntime {
     }
 
     async fn ensure_session_started(&self) -> Result<()> {
+        let snapshot = self.snapshot().await;
+        self.ensure_session_started_with_snapshot(&snapshot).await
+    }
+
+    async fn ensure_session_started_with_snapshot(&self, snapshot: &RuntimeSnapshot) -> Result<()> {
         let mut started = self.session.session_started.lock().await;
         if *started {
             return Ok(());
@@ -315,7 +384,7 @@ impl AgentRuntime {
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
-                    model: Some(self.services.registry.model_config.model_ref()),
+                    model: Some(snapshot.registry.model_config.model_ref()),
                     session_dir: self.session_dir().map(|path| path.to_path_buf()),
                 },
             )
@@ -327,7 +396,8 @@ impl AgentRuntime {
     pub async fn render(&self, output: &AgentOutput) -> Result<String> {
         let json =
             proteus_contracts::abi_stable::std_types::RString::from(serde_json::to_string(output)?);
-        match self.services.registry.renderer.render_json(json) {
+        let snapshot = self.snapshot().await;
+        match snapshot.registry.renderer.render_json(json) {
             proteus_contracts::abi_stable::std_types::RResult::ROk(text) => Ok(text.into_string()),
             proteus_contracts::abi_stable::std_types::RResult::RErr(err) => {
                 Err(anyhow::anyhow!("renderer error: {}", err.message))
@@ -366,8 +436,8 @@ impl AgentRuntime {
     /// MemoryStore активной конфигурации. Используется REPL для
     /// `/remember`-команды — запись идёт напрямую в store, минуя
     /// Workflow (это не turn, а side-channel ручной записи).
-    pub fn memory(&self) -> Arc<dyn crate::contracts::MemoryStore> {
-        self.services.registry.memory.clone()
+    pub async fn memory(&self) -> Arc<dyn crate::contracts::MemoryStore> {
+        self.snapshot().await.registry.memory.clone()
     }
 }
 
@@ -525,7 +595,8 @@ impl AgentRuntimeBuilder {
         Ok(AgentRuntime {
             services: RuntimeServices {
                 cwd,
-                registry,
+                snapshot: RwLock::new(RuntimeSnapshot::new(ModuleEpoch::initial(), registry)),
+                reload_lock: Mutex::new(()),
                 events,
                 approval,
                 user_input,
@@ -574,7 +645,10 @@ pub fn config_store_root(path: &std::path::Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
 
     use anyhow::Result;
     use async_trait::async_trait;
@@ -591,8 +665,8 @@ mod tests {
     use super::*;
     use crate::{
         contracts::{RuntimeContext, Workflow, WorkflowOutput},
-        core::BuiltinModuleCatalog,
-        domain::{AgentOutput, AgentTask},
+        core::{BuiltinModuleCatalog, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
+        domain::{AgentOutput, AgentTask, ToolSafety},
         model_standard::{CanonicalMessage, MessageRole},
     };
 
@@ -628,6 +702,16 @@ mod tests {
     struct ShortHistoryWorkflow;
     struct HangingWorkflow;
     struct DelayedWorkflow;
+    struct SnapshotProbeWorkflow {
+        wait_once: Arc<AtomicBool>,
+        started: Arc<tokio::sync::Notify>,
+        proceed: Arc<tokio::sync::Notify>,
+    }
+
+    async fn replace_workflow_for_test(runtime: &AgentRuntime, workflow: Arc<dyn Workflow>) {
+        let mut snapshot = runtime.services.snapshot.write().await;
+        snapshot.registry.workflow = workflow;
+    }
 
     #[async_trait]
     impl Workflow for ShortHistoryWorkflow {
@@ -673,17 +757,37 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl Workflow for SnapshotProbeWorkflow {
+        async fn run(
+            &self,
+            _task: AgentTask,
+            _history: Vec<CanonicalMessage>,
+            ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            if self.wait_once.swap(false, Ordering::SeqCst) {
+                self.started.notify_one();
+                self.proceed.notified().await;
+            }
+            let has_late_tool = ctx.tools.spec("late_tool").is_ok();
+            Ok(WorkflowOutput::new(
+                AgentOutput::text(format!("has_late_tool={has_late_tool}")),
+                Vec::new(),
+            ))
+        }
+    }
+
     #[tokio::test]
     async fn run_errors_when_workflow_drops_existing_history() {
         let cwd = tempfile::tempdir().expect("temp dir");
         let mut config = AppConfig::default();
         config.modules.patch = "null".to_owned();
-        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+        let runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
             .with_module_catalog(test_catalog())
             .build()
             .expect("runtime");
 
-        runtime.services.registry.workflow = Arc::new(ShortHistoryWorkflow);
+        replace_workflow_for_test(&runtime, Arc::new(ShortHistoryWorkflow)).await;
         runtime
             .session
             .history
@@ -708,11 +812,11 @@ mod tests {
         let cwd = tempfile::tempdir().expect("temp dir");
         let mut config = AppConfig::default();
         config.runtime.workflow_timeout_ms = 50;
-        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+        let runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
             .with_module_catalog(test_catalog())
             .build()
             .expect("runtime");
-        runtime.services.registry.workflow = Arc::new(HangingWorkflow);
+        replace_workflow_for_test(&runtime, Arc::new(HangingWorkflow)).await;
 
         let error = runtime
             .run("current".to_owned())
@@ -727,14 +831,71 @@ mod tests {
         let cwd = tempfile::tempdir().expect("temp dir");
         let mut config = AppConfig::default();
         config.runtime.workflow_timeout_ms = 0;
-        let mut runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
+        let runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
             .with_module_catalog(test_catalog())
             .build()
             .expect("runtime");
-        runtime.services.registry.workflow = Arc::new(DelayedWorkflow);
+        replace_workflow_for_test(&runtime, Arc::new(DelayedWorkflow)).await;
 
         let output = runtime.run("current".to_owned()).await.unwrap();
 
         assert_eq!(output.text, "done");
+    }
+
+    #[tokio::test]
+    async fn reload_registry_publishes_new_snapshot_without_mutating_running_turn() {
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let config = AppConfig::default();
+        let runtime = Arc::new(
+            AgentRuntime::builder(config, cwd.path().to_path_buf())
+                .with_module_catalog(test_catalog())
+                .build()
+                .expect("runtime"),
+        );
+        let workflow = Arc::new(SnapshotProbeWorkflow {
+            wait_once: Arc::new(AtomicBool::new(true)),
+            started: Arc::new(tokio::sync::Notify::new()),
+            proceed: Arc::new(tokio::sync::Notify::new()),
+        });
+        replace_workflow_for_test(&runtime, workflow.clone()).await;
+
+        let running_runtime = runtime.clone();
+        let running = tokio::spawn(async move { running_runtime.run("probe".to_owned()).await });
+        workflow.started.notified().await;
+
+        let mut next_config = AppConfig::default();
+        next_config.tools.configured.push(ConfiguredToolConfig {
+            name: "late_tool".to_owned(),
+            description: "Appears after reload".to_owned(),
+            input_schema: serde_json::json!({"type": "object"}),
+            safety: ToolSafety::ReadOnly,
+            timeout_ms: None,
+            metadata: serde_json::Value::Null,
+            executor: ConfiguredToolExecutorConfig::Process {
+                command: "printf".to_owned(),
+                args: vec!["ok".to_owned()],
+            },
+        });
+        let next_registry =
+            BuiltinRegistry::from_catalog(&next_config, cwd.path().to_path_buf(), test_catalog())
+                .expect("next registry");
+        let report = runtime
+            .reload_registry(next_registry)
+            .await
+            .expect("reload registry");
+        assert_eq!(report.old_epoch, 0);
+        assert_eq!(report.new_epoch, 1);
+        assert!(report.tool_names.iter().any(|name| name == "late_tool"));
+
+        workflow.proceed.notify_one();
+        let running_output = running
+            .await
+            .expect("running task")
+            .expect("running output");
+        assert_eq!(running_output.text, "has_late_tool=false");
+
+        replace_workflow_for_test(&runtime, workflow).await;
+        let next_output = runtime.run("probe after reload".to_owned()).await.unwrap();
+        assert_eq!(next_output.text, "has_late_tool=true");
     }
 }
