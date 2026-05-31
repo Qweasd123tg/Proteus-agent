@@ -31,6 +31,7 @@ proteus_bin="\${project_dir}/target/release/proteus"
 web_dir="\${project_dir}/clients/web"
 app_port=8787
 web_port="\${PROTEUS_WEB_PORT:-1420}"
+session_token="\${PROTEUS_SESSION_TOKEN:-\$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')}"
 
 if [ ! -x "\${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
@@ -57,10 +58,10 @@ fi
 workspace_cwd=\$(pwd)
 echo "Proteus workspace: \${workspace_cwd}"
 echo "App server:        http://127.0.0.1:\${app_port}"
-echo "Web client:        http://127.0.0.1:\${web_port}"
+echo "Web client:        http://127.0.0.1:\${web_port}/?session=<redacted>"
 echo
 
-"\${proteus_bin}" --cwd "\${workspace_cwd}" server http --port "\${app_port}" &
+"\${proteus_bin}" --cwd "\${workspace_cwd}" server http --port "\${app_port}" --token "\${session_token}" &
 server_pid=\$!
 
 sleep 1
@@ -77,6 +78,15 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 cd "\${web_dir}"
+open_web_url="http://127.0.0.1:\${web_port}/?session=\${session_token}"
+(
+  sleep 2
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "\${open_web_url}" >/dev/null 2>&1 || true
+  elif command -v open >/dev/null 2>&1; then
+    open "\${open_web_url}" >/dev/null 2>&1 || true
+  fi
+) &
 env -u NO_COLOR trunk serve --port "\${web_port}"
 EOF
 chmod 755 "${bin_path}"

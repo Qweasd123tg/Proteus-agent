@@ -98,6 +98,33 @@ impl ApprovalCacheScope {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SessionToken(Option<String>);
+
+impl SessionToken {
+    pub(crate) fn new(value: impl Into<String>) -> Self {
+        let value = value.into();
+        let value = value.trim();
+        if value.is_empty() {
+            Self(None)
+        } else {
+            Self(Some(value.to_owned()))
+        }
+    }
+
+    pub(crate) fn missing() -> Self {
+        Self(None)
+    }
+
+    pub(crate) fn as_deref(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+
+    pub(crate) fn is_missing(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum MessageRole {
     User,
@@ -149,8 +176,18 @@ pub(crate) struct Message {
 }
 
 impl Message {
-    pub(crate) fn render_key(&self) -> (u64, usize, bool) {
-        (self.id, self.text.len(), self.streaming)
+    pub(crate) fn render_key(&self) -> String {
+        if let Some(tool) = &self.tool {
+            return format!(
+                "{}:{}:{}:{}:{}",
+                self.id,
+                tool.call_id,
+                tool.status.key(),
+                tool.result_preview.as_deref().unwrap_or("").len(),
+                tool.result_preview.as_deref().unwrap_or("")
+            );
+        }
+        format!("{}:{}:{}", self.id, self.text.len(), self.streaming)
     }
 }
 
@@ -186,6 +223,17 @@ pub(crate) enum ToolActivityStatus {
 }
 
 impl ToolActivityStatus {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::WaitingApproval => "waiting_approval",
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Running => "выполняется",

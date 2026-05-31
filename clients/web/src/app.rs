@@ -9,7 +9,7 @@ use crate::actions::{
     AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
     revise_plan_prompt, send_planning_request, send_prompt_for_mode, take_request_id,
 };
-use crate::api::{APP_SERVER_ORIGIN, get_json, post_json};
+use crate::api::{APP_SERVER_ORIGIN, get_json, load_session_token, post_json};
 use crate::components::{
     ApprovalCard, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
     ToastStack, UserInputCard, WorkingCard,
@@ -36,6 +36,20 @@ pub(crate) fn App() -> impl IntoView {
     let is_configs_route = route == "/configs";
     let is_chat_route = !is_resume_route && !is_configs_route;
     let (messages, set_messages) = signal(seed_messages());
+    let session_token = match load_session_token() {
+        Ok(token) => token,
+        Err(error) => {
+            let message = format!("Session token storage failed: {error}");
+            set_messages.set(vec![Message {
+                id: 1,
+                role: MessageRole::System,
+                text: message,
+                tool: None,
+                streaming: false,
+            }]);
+            SessionToken::missing()
+        }
+    };
     let (draft, set_draft) = signal(String::new());
     let (queued_prompt, set_queued_prompt) = signal(None::<String>);
     let (mode, set_mode) = signal(PermissionMode::Normal);
@@ -75,6 +89,12 @@ pub(crate) fn App() -> impl IntoView {
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
     let (resize_start_composer, set_resize_start_composer) = signal(150_i32);
+
+    if session_token.is_missing() {
+        set_transport_status.set(TransportStatus::Error(
+            "auth token missing from URL; launch Proteus through the wrapper".to_owned(),
+        ));
+    }
 
     Effect::new(move |_| {
         let _ = (
@@ -389,7 +409,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
-        send_planning_request(actions, text);
+        send_planning_request(actions.clone(), text);
     };
     let revise_plan = move |_| {
         let text = draft.get();
@@ -401,16 +421,20 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
-        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
+        actions
+            .clone()
+            .send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
     };
     let execute_plan = move |_| {
         if is_sending.get() {
             return;
         }
-        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
+        actions
+            .clone()
+            .send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
     };
     let exit_plan = move |_| {
-        actions.set_permission_mode(PermissionMode::Normal);
+        actions.clone().set_permission_mode(PermissionMode::Normal);
     };
 
     let submit_prompt = move || {
@@ -425,7 +449,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
 
-        send_prompt_for_mode(actions, mode.get(), text);
+        send_prompt_for_mode(actions.clone(), mode.get(), text);
     };
     let submit = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -493,7 +517,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         };
         set_queued_prompt.set(None);
-        send_prompt_for_mode(actions, mode.get(), text);
+        send_prompt_for_mode(actions.clone(), mode.get(), text);
     };
     let clear_queued_prompt = move |_| {
         set_queued_prompt.set(None);
@@ -817,7 +841,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                                 type="button"
                                                                                 class="menu-option"
                                                                                 class:active=move || model_name.get() == active_model
-                                                                                on:click=move |_| actions.set_model_name(click_model.clone())
+                                                                                on:click=move |_| actions.clone().set_model_name(click_model.clone())
                                                                             >
                                                                                 {model}
                                                                             </button>
@@ -838,7 +862,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         class="menu-option"
                                                         class:active=move || mode.get() == PermissionMode::Plan
                                                         title=PermissionMode::Plan.description()
-                                                        on:click=move |_| actions.set_permission_mode(PermissionMode::Plan)
+                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Plan)
                                                     >
                                                         {PermissionMode::Plan.label()}
                                                     </button>
@@ -847,7 +871,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         class="menu-option"
                                                         class:active=move || mode.get() == PermissionMode::Normal
                                                         title=PermissionMode::Normal.description()
-                                                        on:click=move |_| actions.set_permission_mode(PermissionMode::Normal)
+                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Normal)
                                                     >
                                                         {PermissionMode::Normal.label()}
                                                     </button>
@@ -856,7 +880,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         class="menu-option"
                                                         class:active=move || mode.get() == PermissionMode::Auto
                                                         title=PermissionMode::Auto.description()
-                                                        on:click=move |_| actions.set_permission_mode(PermissionMode::Auto)
+                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Auto)
                                                     >
                                                         {PermissionMode::Auto.label()}
                                                     </button>
@@ -870,7 +894,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         type="button"
                                                         class="menu-option"
                                                         class:active=move || reasoning_enabled.get()
-                                                        on:click=move |_| actions.set_reasoning_enabled(true)
+                                                        on:click=move |_| actions.clone().set_reasoning_enabled(true)
                                                     >
                                                         "on"
                                                     </button>
@@ -878,7 +902,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         type="button"
                                                         class="menu-option"
                                                         class:active=move || !reasoning_enabled.get()
-                                                        on:click=move |_| actions.set_reasoning_enabled(false)
+                                                        on:click=move |_| actions.clone().set_reasoning_enabled(false)
                                                     >
                                                         "off"
                                                     </button>
@@ -893,7 +917,7 @@ pub(crate) fn App() -> impl IntoView {
                                                         class="menu-option"
                                                         class:active=move || effort.get() == ReasoningEffort::Config
                                                         disabled=move || !reasoning_enabled.get()
-                                                        on:click=move |_| actions.set_reasoning_effort(ReasoningEffort::Config)
+                                                        on:click=move |_| actions.clone().set_reasoning_effort(ReasoningEffort::Config)
                                                     >
                                                         "auto"
                                                     </button>
@@ -909,7 +933,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                     class="menu-option"
                                                                     class:active=move || effort.get().value() == active_effort
                                                                     disabled=move || !reasoning_enabled.get()
-                                                                    on:click=move |_| actions.set_reasoning_effort(click_effort.clone())
+                                                                    on:click=move |_| actions.clone().set_reasoning_effort(click_effort.clone())
                                                                 >
                                                                     {option}
                                                                 </button>

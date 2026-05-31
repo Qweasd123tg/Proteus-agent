@@ -4,7 +4,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
-use crate::api::{APP_SERVER_ORIGIN, js_error};
+use crate::api::{event_stream_url, js_error};
 use crate::messages::{
     append_streaming_assistant_delta, finish_streaming_assistant_message, push_message,
     push_tool_message, update_tool_status,
@@ -31,7 +31,7 @@ pub(crate) fn connect_event_stream(
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
 ) {
-    let url = format!("{APP_SERVER_ORIGIN}/events");
+    let url = event_stream_url();
     let source = match EventSource::new(&url) {
         Ok(source) => source,
         Err(error) => {
