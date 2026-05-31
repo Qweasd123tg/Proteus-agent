@@ -111,9 +111,21 @@ struct SetPermissionModeRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct SetModelRequest {
+    id: Option<String>,
+    model: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct SetReasoningEffortRequest {
     id: Option<String>,
     effort: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SetReasoningEnabledRequest {
+    id: Option<String>,
+    enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -263,6 +275,20 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/model") => match read_json::<SetModelRequest>(request).await {
+            Ok(command) => {
+                let output = execute_app_request(
+                    &state,
+                    StdioRequest::SetModel {
+                        id: command.id,
+                        model: command.model,
+                    },
+                )
+                .await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
         (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
@@ -277,6 +303,22 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/reasoning") => {
+            match read_json::<SetReasoningEnabledRequest>(request).await {
+                Ok(command) => {
+                    let output = execute_app_request(
+                        &state,
+                        StdioRequest::SetReasoningEnabled {
+                            id: command.id,
+                            enabled: command.enabled,
+                        },
+                    )
+                    .await;
+                    json_response(StatusCode::OK, &output)
+                }
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
         (Method::POST, "/resume") => match read_json::<ResumeSessionRequest>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
@@ -351,6 +393,14 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
             state.current_server().await.set_permission_mode(mode).await;
             Ok(Some(json!({ "mode": mode })))
         }
+        StdioRequest::SetModel { model, .. } => {
+            state
+                .current_server()
+                .await
+                .set_model_name(model.clone())
+                .await;
+            Ok(Some(json!({ "model": model })))
+        }
         StdioRequest::SetReasoningEffort { effort, .. } => {
             state
                 .current_server()
@@ -358,6 +408,14 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
                 .set_reasoning_effort(effort.clone())
                 .await;
             Ok(Some(json!({ "effort": effort })))
+        }
+        StdioRequest::SetReasoningEnabled { enabled, .. } => {
+            state
+                .current_server()
+                .await
+                .set_reasoning_enabled(enabled)
+                .await;
+            Ok(Some(json!({ "enabled": enabled })))
         }
         StdioRequest::ConfigSummary { .. } => {
             Ok(Some(state.current_server().await.config_summary().await))
@@ -672,6 +730,54 @@ mod tests {
         assert_eq!(
             summary.pointer("/reasoning/effort").and_then(Value::as_str),
             Some("high")
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn request_dispatch_sets_model_and_reasoning_enabled() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown);
+
+        let model_output = execute_app_request(
+            &state,
+            StdioRequest::SetModel {
+                id: Some("model-1".to_owned()),
+                model: "deepseek-v4-pro".to_owned(),
+            },
+        )
+        .await;
+        assert!(matches!(
+            model_output,
+            StdioOutput::Response { ok: true, .. }
+        ));
+
+        let reasoning_output = execute_app_request(
+            &state,
+            StdioRequest::SetReasoningEnabled {
+                id: Some("reasoning-1".to_owned()),
+                enabled: false,
+            },
+        )
+        .await;
+        assert!(matches!(
+            reasoning_output,
+            StdioOutput::Response { ok: true, .. }
+        ));
+
+        let summary = server.config_summary().await;
+        assert_eq!(
+            summary.pointer("/model/name").and_then(Value::as_str),
+            Some("deepseek-v4-pro")
+        );
+        assert_eq!(
+            summary
+                .pointer("/reasoning/enabled")
+                .and_then(Value::as_bool),
+            Some(false)
         );
         server.shutdown().await;
     }

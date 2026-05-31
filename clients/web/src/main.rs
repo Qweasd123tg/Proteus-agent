@@ -33,9 +33,9 @@ enum PermissionMode {
 impl PermissionMode {
     fn label(self) -> &'static str {
         match self {
-            Self::Plan => "План",
-            Self::Normal => "Нормальный",
-            Self::Auto => "Авто",
+            Self::Plan => "plan",
+            Self::Normal => "normal",
+            Self::Auto => "auto",
         }
     }
 
@@ -64,57 +64,44 @@ impl PermissionMode {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 enum ReasoningEffort {
     #[default]
     Config,
-    Low,
-    Medium,
-    High,
-    Max,
-    XHigh,
+    Custom(String),
 }
 
 impl ReasoningEffort {
-    fn label(self) -> &'static str {
+    fn label(&self) -> String {
         match self {
-            Self::Config => "auto",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Max => "max",
-            Self::XHigh => "xhigh",
+            Self::Config => "auto".to_owned(),
+            Self::Custom(value) => value.clone(),
         }
     }
 
-    fn value(self) -> &'static str {
+    fn value(&self) -> String {
         match self {
-            Self::Config => "config",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Max => "max",
-            Self::XHigh => "xhigh",
+            Self::Config => "auto".to_owned(),
+            Self::Custom(value) => value.clone(),
         }
     }
 
-    fn effort(self) -> Option<String> {
+    fn effort(&self) -> Option<String> {
         match self {
             Self::Config => None,
-            Self::Low | Self::Medium | Self::High | Self::Max | Self::XHigh => {
-                Some(self.value().to_owned())
-            }
+            Self::Custom(value) => Some(value.clone()),
         }
     }
 
     fn from_value(value: &str) -> Self {
-        match value.to_ascii_lowercase().as_str() {
-            "low" => Self::Low,
-            "medium" => Self::Medium,
-            "high" => Self::High,
-            "max" => Self::Max,
-            "xhigh" => Self::XHigh,
-            _ => Self::Config,
+        let value = value.trim();
+        if value.is_empty()
+            || value.eq_ignore_ascii_case("auto")
+            || value.eq_ignore_ascii_case("config")
+        {
+            Self::Config
+        } else {
+            Self::Custom(value.to_owned())
         }
     }
 }
@@ -388,9 +375,21 @@ struct SetPermissionModeRequest {
 }
 
 #[derive(Debug, Serialize)]
+struct SetModelRequest {
+    id: Option<String>,
+    model: String,
+}
+
+#[derive(Debug, Serialize)]
 struct SetReasoningEffortRequest {
     id: Option<String>,
     effort: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SetReasoningEnabledRequest {
+    id: Option<String>,
+    enabled: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -442,6 +441,9 @@ struct AppActions {
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
     set_mode: WriteSignal<PermissionMode>,
+    set_model_name: WriteSignal<String>,
+    reasoning_enabled: ReadSignal<bool>,
+    set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
     is_sending: ReadSignal<bool>,
     set_is_sending: WriteSignal<bool>,
@@ -474,7 +476,73 @@ impl AppActions {
         });
     }
 
+    fn set_model_name(self, new_model: String) {
+        let new_model = new_model.trim().to_owned();
+        if new_model.is_empty() {
+            return;
+        }
+        self.set_model_name.set(new_model.clone());
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
+        spawn_local(async move {
+            match post_json(
+                "/model",
+                &SetModelRequest {
+                    id: Some(request_id),
+                    model: new_model,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.set_transport_status.set(TransportStatus::Error(format!(
+                    "Model update failed: {error}"
+                ))),
+            }
+        });
+    }
+
+    fn set_reasoning_enabled(self, enabled: bool) {
+        self.set_reasoning_enabled.set(enabled);
+        if !enabled {
+            self.set_effort.set(ReasoningEffort::Config);
+        }
+        let request_id =
+            take_request_id(self.next_request_id, self.set_next_request_id, "reasoning");
+        spawn_local(async move {
+            match post_json(
+                "/reasoning",
+                &SetReasoningEnabledRequest {
+                    id: Some(request_id),
+                    enabled,
+                },
+            )
+            .await
+            {
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.set_transport_status.set(TransportStatus::Error(format!(
+                    "Reasoning update failed: {error}"
+                ))),
+            }
+        });
+    }
+
     fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
+        if !self.reasoning_enabled.get() {
+            return;
+        }
+        let effort_value = new_effort.effort();
         self.set_effort.set(new_effort);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
         spawn_local(async move {
@@ -482,7 +550,7 @@ impl AppActions {
                 "/effort",
                 &SetReasoningEffortRequest {
                     id: Some(request_id),
-                    effort: new_effort.effort(),
+                    effort: effort_value,
                 },
             )
             .await
@@ -622,6 +690,9 @@ fn App() -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
     let (queued_prompt, set_queued_prompt) = signal(None::<String>);
     let (mode, set_mode) = signal(PermissionMode::Normal);
+    let (model_name, set_model_name) = signal(String::new());
+    let (model_options, set_model_options) = signal(Vec::<String>::new());
+    let (reasoning_enabled, set_reasoning_enabled) = signal(true);
     let (effort, set_effort) = signal(ReasoningEffort::Config);
     let (next_message_id, set_next_message_id) = signal(1_u64);
     let (next_request_id, set_next_request_id) = signal(1_u64);
@@ -703,7 +774,13 @@ fn App() -> impl IntoView {
     });
 
     if route != "/resume" {
-        load_runtime_settings(set_mode, set_effort);
+        load_runtime_settings(
+            set_mode,
+            set_model_name,
+            set_model_options,
+            set_reasoning_enabled,
+            set_effort,
+        );
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
 
@@ -736,6 +813,9 @@ fn App() -> impl IntoView {
         next_request_id,
         set_next_request_id,
         set_mode,
+        set_model_name,
+        reasoning_enabled,
+        set_reasoning_enabled,
         set_effort,
         is_sending,
         set_is_sending,
@@ -774,6 +854,12 @@ fn App() -> impl IntoView {
 
     let select_mode = move |new_mode: PermissionMode| {
         actions.set_permission_mode(new_mode);
+    };
+    let select_model = move |new_model: String| {
+        actions.set_model_name(new_model);
+    };
+    let select_reasoning = move |enabled: bool| {
+        actions.set_reasoning_enabled(enabled);
     };
     let select_effort = move |new_effort: ReasoningEffort| {
         actions.set_reasoning_effort(new_effort);
@@ -879,6 +965,14 @@ fn App() -> impl IntoView {
             ActivityItem {
                 label: "режим",
                 value: mode.get().label().to_owned(),
+            },
+            ActivityItem {
+                label: "model",
+                value: model_name.get(),
+            },
+            ActivityItem {
+                label: "reasoning",
+                value: if reasoning_enabled.get() { "on" } else { "off" }.to_owned(),
             },
             ActivityItem {
                 label: "effort",
@@ -1388,7 +1482,7 @@ fn App() -> impl IntoView {
                                 <div class="composer-actions">
                                     <div class="composer-settings" aria-label="Настройки запроса">
                                         <label class="composer-setting">
-                                            <span>"Режим"</span>
+                                            <span>"mode"</span>
                                             <select
                                                 prop:value=move || mode.get().value()
                                                 on:change:target=move |ev| {
@@ -1406,21 +1500,53 @@ fn App() -> impl IntoView {
                                                 </option>
                                             </select>
                                         </label>
+                                        <label class="composer-setting model-setting">
+                                            <span>"model"</span>
+                                            <input
+                                                list="model-options"
+                                                prop:value=move || model_name.get()
+                                                on:change:target=move |ev| select_model(ev.target().value())
+                                            />
+                                            <datalist id="model-options">
+                                                <For
+                                                    each=move || model_options.get()
+                                                    key=|model| model.clone()
+                                                    children=move |model| {
+                                                        view! { <option value=model></option> }
+                                                    }
+                                                />
+                                            </datalist>
+                                        </label>
                                         <label class="composer-setting">
-                                            <span>"Effort"</span>
+                                            <span>"reasoning"</span>
                                             <select
+                                                prop:value=move || if reasoning_enabled.get() { "on" } else { "off" }
+                                                on:change:target=move |ev| {
+                                                    select_reasoning(ev.target().value() == "on");
+                                                }
+                                            >
+                                                <option value="on">"on"</option>
+                                                <option value="off">"off"</option>
+                                            </select>
+                                        </label>
+                                        <label class="composer-setting">
+                                            <span>"effort"</span>
+                                            <input
+                                                list="effort-options"
+                                                disabled=move || !reasoning_enabled.get()
                                                 prop:value=move || effort.get().value()
                                                 on:change:target=move |ev| {
                                                     select_effort(ReasoningEffort::from_value(&ev.target().value()));
                                                 }
-                                            >
-                                                <option value=ReasoningEffort::Config.value()>{ReasoningEffort::Config.label()}</option>
-                                                <option value=ReasoningEffort::Low.value()>{ReasoningEffort::Low.label()}</option>
-                                                <option value=ReasoningEffort::Medium.value()>{ReasoningEffort::Medium.label()}</option>
-                                                <option value=ReasoningEffort::High.value()>{ReasoningEffort::High.label()}</option>
-                                                <option value=ReasoningEffort::Max.value()>{ReasoningEffort::Max.label()}</option>
-                                                <option value=ReasoningEffort::XHigh.value()>{ReasoningEffort::XHigh.label()}</option>
-                                            </select>
+                                            />
+                                            <datalist id="effort-options">
+                                                <option value="auto"></option>
+                                                <option value="low"></option>
+                                                <option value="medium"></option>
+                                                <option value="high"></option>
+                                                <option value="max"></option>
+                                                <option value="xhigh"></option>
+                                            </datalist>
                                         </label>
                                     </div>
                                     <div class="composer-stats">
@@ -1593,6 +1719,9 @@ fn load_sessions(set_sessions: WriteSignal<Vec<SessionSummary>>, set_status: Wri
 
 fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
+    set_model_name: WriteSignal<String>,
+    set_model_options: WriteSignal<Vec<String>>,
+    set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
 ) {
     spawn_local(async move {
@@ -1600,6 +1729,30 @@ fn load_runtime_settings(
             Ok(config) => {
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
+                }
+                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
+                    set_model_name.set(model.to_owned());
+                }
+                let mut options = config
+                    .get("model_options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| {
+                        item.get("name")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
+                    if !options.iter().any(|item| item == model) {
+                        options.push(model.to_owned());
+                    }
+                }
+                set_model_options.set(options);
+                if let Some(enabled) = config.pointer("/reasoning/enabled").and_then(Value::as_bool)
+                {
+                    set_reasoning_enabled.set(enabled);
                 }
                 if let Some(effort) = config.pointer("/reasoning/effort").and_then(Value::as_str) {
                     set_effort.set(ReasoningEffort::from_value(effort));

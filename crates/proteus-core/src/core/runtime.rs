@@ -17,8 +17,8 @@ use crate::{
         HeadlessUserInputTransport, JsonlEventStore, SessionStore,
     },
     domain::{
-        AgentOutput, AgentTask, Event, EventContext, PermissionMode, ReasoningConfig, SessionId,
-        ThreadId, ToolSpec, new_session_id, new_thread_id, new_turn_id,
+        AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig,
+        SessionId, ThreadId, ToolSpec, new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::CanonicalMessage,
 };
@@ -35,7 +35,9 @@ struct RuntimeServices {
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
     permission_mode: RwLock<PermissionMode>,
+    model_ref: RwLock<ModelRef>,
     reasoning: RwLock<ReasoningConfig>,
+    default_reasoning: ReasoningConfig,
 }
 
 struct SessionState {
@@ -171,6 +173,7 @@ impl AgentRuntime {
             });
         }
         let permission_mode = *self.services.permission_mode.read().await;
+        let model_ref = self.services.model_ref.read().await.clone();
         let reasoning = self.services.reasoning.read().await.clone();
         let mut runtime_context = self.services.registry.runtime_context_with_user_input(
             self.session.session_id,
@@ -181,6 +184,7 @@ impl AgentRuntime {
             self.services.user_input.clone(),
             permission_mode,
         );
+        runtime_context.model_ref = model_ref;
         runtime_context.reasoning = reasoning;
         let runtime_context = runtime_context.with_cancellation(cancellation.clone());
         let history = self.session.history.lock().await.clone();
@@ -253,6 +257,33 @@ impl AgentRuntime {
 
     pub async fn permission_mode(&self) -> PermissionMode {
         *self.services.permission_mode.read().await
+    }
+
+    pub async fn set_model_name(&self, model: String) {
+        let model = model.trim();
+        if model.is_empty() {
+            return;
+        }
+        self.services.model_ref.write().await.model = model.to_owned();
+    }
+
+    pub async fn model_ref(&self) -> ModelRef {
+        self.services.model_ref.read().await.clone()
+    }
+
+    pub async fn set_reasoning_enabled(&self, enabled: bool) {
+        let mut reasoning = self.services.reasoning.write().await;
+        if enabled {
+            if reasoning.effort.is_none() {
+                reasoning.effort = self.services.default_reasoning.effort.clone();
+            }
+            reasoning.summary = self.services.default_reasoning.summary;
+            reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
+        } else {
+            reasoning.effort = None;
+            reasoning.summary = false;
+            reasoning.budget_tokens = None;
+        }
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) {
@@ -487,7 +518,9 @@ impl AgentRuntimeBuilder {
             Vec::new()
         };
         let session_started = resume_history && !history.is_empty();
+        let model_ref = registry.model_config.model_ref();
         let reasoning = registry.model_config.reasoning.clone();
+        let default_reasoning = reasoning.clone();
 
         Ok(AgentRuntime {
             services: RuntimeServices {
@@ -497,7 +530,9 @@ impl AgentRuntimeBuilder {
                 approval,
                 user_input,
                 permission_mode: RwLock::new(permission_mode),
+                model_ref: RwLock::new(model_ref),
                 reasoning: RwLock::new(reasoning),
+                default_reasoning,
             },
             session: SessionState::new(
                 session_id,

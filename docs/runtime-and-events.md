@@ -206,7 +206,8 @@ HTTP/SSE transport:
 - `GET /config` - текущий config summary;
 - `GET /sessions` - durable session summaries из config store;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
-- `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/effort` - короткие
+- `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/model`,
+  `/reasoning`, `/effort` - короткие
   endpoint'ы над соответствующими `StdioRequest` вариантами;
 - `POST /resume` - переключает текущий HTTP app-server на выбранный
   `session_dir`, если сейчас нет running turn;
@@ -397,11 +398,14 @@ pipeline, что и завершённое сообщение, но MathJax за
 использовать эти labels в строке прогресса (`Language`, `Stack`, `Deploy`, ...),
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью
 workflow/model через typed tool-call.
-Web-клиент показывает компактные selectors для `PermissionMode` и
-`reasoning.effort` в строке composer actions, рядом с отправкой запроса.
-`POST /effort` меняет только `ReasoningConfig.effort` для следующих turns и
-сохраняет остальные reasoning-поля из runtime config (`summary`,
-`budget_tokens`).
+Web-клиент показывает компактные selectors для `PermissionMode`, model name,
+reasoning on/off и `reasoning.effort` в строке composer actions, рядом с
+отправкой запроса. `POST /model` меняет имя модели в текущем provider adapter
+для следующих turns. `POST /reasoning` включает/выключает reasoning config,
+а `POST /effort` меняет только `ReasoningConfig.effort` и сохраняет остальные
+reasoning-поля из runtime config (`summary`, `budget_tokens`). Значение
+`effort` в UI вводится как raw string с datalist-подсказками; `auto` означает
+не переопределять effort поверх config.
 
 Минимальный request contract:
 
