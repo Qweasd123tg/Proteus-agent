@@ -28,14 +28,6 @@ impl PermissionMode {
         }
     }
 
-    pub(crate) fn value(self) -> &'static str {
-        match self {
-            Self::Plan => "plan",
-            Self::Normal => "normal",
-            Self::Auto => "auto",
-        }
-    }
-
     pub(crate) fn from_value(value: &str) -> Self {
         match value.to_ascii_lowercase().as_str() {
             "plan" => Self::Plan,

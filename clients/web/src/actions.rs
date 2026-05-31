@@ -15,10 +15,13 @@ pub(crate) struct AppActions {
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
     pub(crate) next_request_id: ReadSignal<u64>,
     pub(crate) set_next_request_id: WriteSignal<u64>,
+    pub(crate) mode: ReadSignal<PermissionMode>,
     pub(crate) set_mode: WriteSignal<PermissionMode>,
+    pub(crate) model_name: ReadSignal<String>,
     pub(crate) set_model_name: WriteSignal<String>,
     pub(crate) reasoning_enabled: ReadSignal<bool>,
     pub(crate) set_reasoning_enabled: WriteSignal<bool>,
+    pub(crate) effort: ReadSignal<ReasoningEffort>,
     pub(crate) set_effort: WriteSignal<ReasoningEffort>,
     pub(crate) is_sending: ReadSignal<bool>,
     pub(crate) set_is_sending: WriteSignal<bool>,
@@ -27,6 +30,7 @@ pub(crate) struct AppActions {
 
 impl AppActions {
     pub(crate) fn set_permission_mode(self, new_mode: PermissionMode) {
+        let previous_mode = self.mode.get();
         self.set_mode.set(new_mode);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
         spawn_local(async move {
@@ -39,14 +43,19 @@ impl AppActions {
             )
             .await
             {
-                Ok(output) => handle_command_response(
-                    output,
-                    self.set_messages,
-                    self.next_message_id,
-                    self.set_next_message_id,
-                    self.set_transport_status,
-                ),
-                Err(error) => self.push_error("Mode update failed", error),
+                Ok(output) => {
+                    if !handle_control_response(
+                        output,
+                        self.set_transport_status,
+                        "Mode update failed",
+                    ) {
+                        self.set_mode.set(previous_mode);
+                    }
+                }
+                Err(error) => {
+                    self.set_mode.set(previous_mode);
+                    self.set_control_error("Mode update failed", error);
+                }
             }
         });
     }
@@ -56,31 +65,41 @@ impl AppActions {
         if new_model.is_empty() {
             return;
         }
-        self.set_model_name.set(new_model.clone());
+        if self.model_name.get() == new_model {
+            return;
+        }
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
         spawn_local(async move {
+            let requested_model = new_model.clone();
             match post_json(
                 "/model",
                 &SetModelRequest {
                     id: Some(request_id),
-                    model: new_model,
+                    model: requested_model,
                 },
             )
             .await
             {
-                Ok(output) => handle_command_response(
-                    output,
-                    self.set_messages,
-                    self.next_message_id,
-                    self.set_next_message_id,
-                    self.set_transport_status,
-                ),
-                Err(error) => self.push_error("Model update failed", error),
+                Ok(output) => {
+                    if handle_control_response(
+                        output,
+                        self.set_transport_status,
+                        "Model update failed",
+                    ) {
+                        self.set_model_name.set(new_model);
+                    }
+                }
+                Err(error) => self.set_control_error("Model update failed", error),
             }
         });
     }
 
     pub(crate) fn set_reasoning_enabled(self, enabled: bool) {
+        let previous_enabled = self.reasoning_enabled.get();
+        let previous_effort = self.effort.get();
+        if previous_enabled == enabled {
+            return;
+        }
         self.set_reasoning_enabled.set(enabled);
         if !enabled {
             self.set_effort.set(ReasoningEffort::Config);
@@ -97,20 +116,31 @@ impl AppActions {
             )
             .await
             {
-                Ok(output) => handle_command_response(
-                    output,
-                    self.set_messages,
-                    self.next_message_id,
-                    self.set_next_message_id,
-                    self.set_transport_status,
-                ),
-                Err(error) => self.push_error("Reasoning update failed", error),
+                Ok(output) => {
+                    if !handle_control_response(
+                        output,
+                        self.set_transport_status,
+                        "Reasoning update failed",
+                    ) {
+                        self.set_reasoning_enabled.set(previous_enabled);
+                        self.set_effort.set(previous_effort);
+                    }
+                }
+                Err(error) => {
+                    self.set_reasoning_enabled.set(previous_enabled);
+                    self.set_effort.set(previous_effort);
+                    self.set_control_error("Reasoning update failed", error);
+                }
             }
         });
     }
 
     pub(crate) fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
         if !self.reasoning_enabled.get() {
+            return;
+        }
+        let previous_effort = self.effort.get();
+        if previous_effort == new_effort {
             return;
         }
         let effort_value = new_effort.effort();
@@ -126,14 +156,19 @@ impl AppActions {
             )
             .await
             {
-                Ok(output) => handle_command_response(
-                    output,
-                    self.set_messages,
-                    self.next_message_id,
-                    self.set_next_message_id,
-                    self.set_transport_status,
-                ),
-                Err(error) => self.push_error("Effort update failed", error),
+                Ok(output) => {
+                    if !handle_control_response(
+                        output,
+                        self.set_transport_status,
+                        "Effort update failed",
+                    ) {
+                        self.set_effort.set(previous_effort);
+                    }
+                }
+                Err(error) => {
+                    self.set_effort.set(previous_effort);
+                    self.set_control_error("Effort update failed", error);
+                }
             }
         });
     }
@@ -244,6 +279,35 @@ impl AppActions {
             error,
         );
     }
+
+    fn set_control_error(self, prefix: &str, error: String) {
+        self.set_transport_status
+            .set(TransportStatus::Error(format!("{prefix}: {error}")));
+    }
+}
+
+fn handle_control_response(
+    output: StdioOutput,
+    set_transport_status: WriteSignal<TransportStatus>,
+    prefix: &str,
+) -> bool {
+    match output {
+        StdioOutput::Response { ok: true, .. } => {
+            set_transport_status.set(TransportStatus::Connected);
+            true
+        }
+        StdioOutput::Response { error, .. } => {
+            let message = error.unwrap_or_else(|| "request failed".to_owned());
+            set_transport_status.set(TransportStatus::Error(format!("{prefix}: {message}")));
+            false
+        }
+        StdioOutput::Event { .. } => {
+            set_transport_status.set(TransportStatus::Error(format!(
+                "{prefix}: unexpected event response"
+            )));
+            false
+        }
+    }
 }
 
 pub(crate) fn handle_command_response(
@@ -327,27 +391,16 @@ pub(crate) fn cancel_active_turn(
     });
 }
 
-pub(crate) fn send_prompt_for_mode(
-    actions: AppActions,
-    set_last_prompt_to_retry: WriteSignal<Option<String>>,
-    mode: PermissionMode,
-    text: String,
-) {
+pub(crate) fn send_prompt_for_mode(actions: AppActions, mode: PermissionMode, text: String) {
     if mode == PermissionMode::Plan {
-        send_planning_request(actions, set_last_prompt_to_retry, text);
+        send_planning_request(actions, text);
     } else {
-        set_last_prompt_to_retry.set(Some(text.clone()));
         actions.send_prompt(text, None);
     }
 }
 
-pub(crate) fn send_planning_request(
-    actions: AppActions,
-    set_last_prompt_to_retry: WriteSignal<Option<String>>,
-    text: String,
-) {
+pub(crate) fn send_planning_request(actions: AppActions, text: String) {
     let prompt = planning_prompt(&text);
-    set_last_prompt_to_retry.set(Some(prompt.clone()));
     actions.send_prompt(prompt, Some(PermissionMode::Plan));
 }
 

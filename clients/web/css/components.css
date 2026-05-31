@@ -466,8 +466,7 @@
     margin-bottom: var(--space-5);
 }
 
-.queued-message,
-.recovery-message {
+.queued-message {
     display: grid;
     gap: var(--space-3);
 }
@@ -477,8 +476,7 @@
     overflow: auto;
 }
 
-.queued-message p,
-.recovery-message p {
+.queued-message p {
     margin: 0;
 }
 
