@@ -13,7 +13,7 @@ use http_body_util::{BodyExt, Full, StreamBody, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Frame, Incoming},
-    header::{CACHE_CONTROL, CONNECTION, CONTENT_TYPE},
+    header::{AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, HeaderValue, ORIGIN},
     server::conn::http1,
     service::service_fn,
 };
@@ -41,15 +41,23 @@ use super::{
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+const SESSION_TOKEN_HEADER: &str = "x-proteus-session-token";
+const SESSION_TOKEN_QUERY: &str = "token";
+const SESSION_TOKEN_QUERY_ALIAS: &str = "session_token";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpServerConfig {
     pub bind: SocketAddr,
+    pub session_token: String,
+    pub allowed_origins: Vec<String>,
 }
 
 impl Default for HttpServerConfig {
     fn default() -> Self {
         Self {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8787),
+            session_token: new_session_token(),
+            allowed_origins: Vec::new(),
         }
     }
 }
@@ -59,19 +67,40 @@ struct HttpAppState {
     server: Arc<Mutex<AppServerHandle>>,
     running_turns: Arc<Mutex<HashMap<String, CancellationToken>>>,
     shutdown: broadcast::Sender<()>,
+    security: HttpSecurity,
 }
 
 impl HttpAppState {
-    fn new(server: AppServerHandle, shutdown: broadcast::Sender<()>) -> Self {
+    fn new(
+        server: AppServerHandle,
+        shutdown: broadcast::Sender<()>,
+        security: HttpSecurity,
+    ) -> Self {
         Self {
             server: Arc::new(Mutex::new(server)),
             running_turns: Arc::new(Mutex::new(HashMap::new())),
             shutdown,
+            security,
         }
     }
 
     async fn current_server(&self) -> AppServerHandle {
         self.server.lock().await.clone()
+    }
+}
+
+#[derive(Clone)]
+struct HttpSecurity {
+    session_token: Arc<str>,
+    allowed_origins: Arc<[String]>,
+}
+
+impl HttpSecurity {
+    fn from_config(config: &HttpServerConfig) -> Self {
+        Self {
+            session_token: Arc::from(config.session_token.as_str()),
+            allowed_origins: Arc::from(config.allowed_origins.clone().into_boxed_slice()),
+        }
     }
 }
 
@@ -147,11 +176,16 @@ pub async fn run_http_app_server(
         AgentAppServer::launch(config, cwd, config_path.as_deref())?
     };
     let (shutdown, mut shutdown_rx) = broadcast::channel(1);
-    let state = HttpAppState::new(server, shutdown);
+    let security = HttpSecurity::from_config(&http_config);
+    let state = HttpAppState::new(server, shutdown, security);
     let listener = TcpListener::bind(http_config.bind).await?;
     println!(
         "Proteus app-server HTTP listening on http://{}",
         listener.local_addr()?
+    );
+    println!(
+        "Proteus app-server HTTP session token: {}",
+        http_config.session_token
     );
     loop {
         tokio::select! {
@@ -178,9 +212,26 @@ async fn route_request(
 ) -> Result<HttpResponse, Infallible> {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
+    let cors_origin = match validate_origin(&request, &state.security) {
+        Ok(origin) => origin,
+        Err(response) => return Ok(response),
+    };
+
+    if method == Method::OPTIONS {
+        return Ok(options_response(&request, cors_origin));
+    }
+
+    if endpoint_requires_auth(&method, &path) && !request_has_valid_token(&request, &state.security)
+    {
+        let mut response = error_response(
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid app-server session token",
+        );
+        add_cors_headers(&mut response, cors_origin.as_ref());
+        return Ok(response);
+    }
 
     let response = match (method, path.as_str()) {
-        (Method::OPTIONS, _) => empty_response(StatusCode::NO_CONTENT),
         (Method::GET, "/health") => json_response(StatusCode::OK, &json!({ "ok": true })),
         (Method::GET, "/events") => sse_response(state).await,
         (Method::GET, "/config") => {
@@ -341,7 +392,142 @@ async fn route_request(
         _ => error_response(StatusCode::NOT_FOUND, "unknown app-server HTTP endpoint"),
     };
 
+    let mut response = response;
+    add_cors_headers(&mut response, cors_origin.as_ref());
     Ok(response)
+}
+
+fn endpoint_requires_auth(method: &Method, path: &str) -> bool {
+    !matches!(
+        (method, path),
+        (&Method::OPTIONS, _) | (&Method::GET, "/health")
+    )
+}
+
+fn validate_origin<B>(
+    request: &Request<B>,
+    security: &HttpSecurity,
+) -> Result<Option<HeaderValue>, HttpResponse> {
+    let Some(origin) = request.headers().get(ORIGIN) else {
+        return Ok(None);
+    };
+    let Ok(origin_text) = origin.to_str() else {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "request origin is not allowed",
+        ));
+    };
+    if is_allowed_origin(origin_text, &security.allowed_origins) {
+        return Ok(Some(origin.clone()));
+    }
+    Err(error_response(
+        StatusCode::FORBIDDEN,
+        "request origin is not allowed",
+    ))
+}
+
+fn is_allowed_origin(origin: &str, allowed_origins: &[String]) -> bool {
+    if allowed_origins
+        .iter()
+        .any(|allowed| origin.eq_ignore_ascii_case(allowed))
+    {
+        return true;
+    }
+
+    let Ok(uri) = origin.parse::<hyper::Uri>() else {
+        return false;
+    };
+    let Some(scheme) = uri.scheme_str() else {
+        return false;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return false;
+    }
+    if uri.path() != "/" || uri.query().is_some() {
+        return false;
+    }
+    let Some(mut host) = uri.host() else {
+        return false;
+    };
+    if let Some(stripped) = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        host = stripped;
+    }
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
+fn request_has_valid_token<B>(request: &Request<B>, security: &HttpSecurity) -> bool {
+    request
+        .headers()
+        .get(SESSION_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|token| token_matches(token, &security.session_token))
+        || request
+            .headers()
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(bearer_token)
+            .is_some_and(|token| token_matches(token, &security.session_token))
+        || request
+            .uri()
+            .query()
+            .is_some_and(|query| query_has_valid_token(query, &security.session_token))
+}
+
+fn bearer_token(value: &str) -> Option<&str> {
+    let (scheme, token) = value.split_once(' ')?;
+    if scheme.eq_ignore_ascii_case("bearer") && !token.is_empty() {
+        Some(token)
+    } else {
+        None
+    }
+}
+
+fn query_has_valid_token(query: &str, expected: &str) -> bool {
+    query.split('&').any(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        matches!(key, SESSION_TOKEN_QUERY | SESSION_TOKEN_QUERY_ALIAS)
+            && token_matches(value, expected)
+    })
+}
+
+fn token_matches(provided: &str, expected: &str) -> bool {
+    let provided = provided.as_bytes();
+    let expected = expected.as_bytes();
+    if provided.len() != expected.len() {
+        return false;
+    }
+    provided
+        .iter()
+        .zip(expected.iter())
+        .fold(0_u8, |diff, (left, right)| diff | (left ^ right))
+        == 0
+}
+
+fn options_response<B>(request: &Request<B>, cors_origin: Option<HeaderValue>) -> HttpResponse {
+    let mut response = if request
+        .headers()
+        .get("access-control-request-method")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|method| !matches!(method, "GET" | "POST" | "OPTIONS"))
+    {
+        error_response(StatusCode::METHOD_NOT_ALLOWED, "HTTP method is not allowed")
+    } else {
+        empty_response(StatusCode::NO_CONTENT)
+    };
+    add_cors_headers(&mut response, cors_origin.as_ref());
+    response
+}
+
+fn new_session_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 async fn read_json<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T> {
@@ -579,15 +765,13 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
     })
     .boxed_unsync();
 
-    let mut response = Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/event-stream")
         .header(CACHE_CONTROL, "no-cache")
         .header(CONNECTION, "keep-alive")
         .body(body)
-        .expect("sse response is valid");
-    add_cors_headers(&mut response);
-    response
+        .expect("sse response is valid")
 }
 
 fn encode_sse_output(output: &StdioOutput) -> Bytes {
@@ -631,29 +815,34 @@ fn empty_response(status: StatusCode) -> HttpResponse {
 
 fn response_with_body(status: StatusCode, content_type: &'static str, body: Bytes) -> HttpResponse {
     let body = Full::new(body).boxed_unsync();
-    let mut response = Response::builder()
+    Response::builder()
         .status(status)
         .header(CONTENT_TYPE, content_type)
         .body(body)
-        .expect("HTTP response is valid");
-    add_cors_headers(&mut response);
-    response
+        .expect("HTTP response is valid")
 }
 
-fn add_cors_headers(response: &mut HttpResponse) {
+fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
+    let Some(origin) = origin else {
+        return;
+    };
     let headers = response.headers_mut();
-    headers.insert(
-        "access-control-allow-origin",
-        "*".parse().expect("valid header"),
-    );
+    headers.insert("access-control-allow-origin", origin.clone());
     headers.insert(
         "access-control-allow-methods",
         "GET, POST, OPTIONS".parse().expect("valid header"),
     );
     headers.insert(
         "access-control-allow-headers",
-        "content-type".parse().expect("valid header"),
+        "authorization, content-type, x-proteus-session-token"
+            .parse()
+            .expect("valid header"),
     );
+    headers.insert(
+        "access-control-allow-credentials",
+        "true".parse().expect("valid header"),
+    );
+    headers.insert("vary", "origin".parse().expect("valid header"));
 }
 
 #[cfg(test)]
@@ -661,13 +850,179 @@ mod tests {
     use super::*;
     use crate::core::AppConfig;
 
+    fn test_security() -> HttpSecurity {
+        HttpSecurity {
+            session_token: Arc::from("session-secret"),
+            allowed_origins: Arc::from(
+                vec!["https://app.example.test".to_owned()].into_boxed_slice(),
+            ),
+        }
+    }
+
+    fn request_with_origin(origin: Option<&str>) -> Request<()> {
+        let mut builder = Request::builder().method(Method::GET).uri("/config");
+        if let Some(origin) = origin {
+            builder = builder.header(ORIGIN, origin);
+        }
+        builder.body(()).expect("request")
+    }
+
+    #[test]
+    fn protected_endpoints_require_session_token_except_health_and_preflight() {
+        let protected = [
+            (Method::GET, "/events"),
+            (Method::GET, "/config"),
+            (Method::GET, "/sessions"),
+            (Method::GET, "/history"),
+            (Method::POST, "/request"),
+            (Method::POST, "/send"),
+            (Method::POST, "/approval"),
+            (Method::POST, "/user-input"),
+            (Method::POST, "/cancel"),
+            (Method::POST, "/mode"),
+            (Method::POST, "/model"),
+            (Method::POST, "/effort"),
+            (Method::POST, "/reasoning"),
+            (Method::POST, "/resume"),
+            (Method::POST, "/clear"),
+            (Method::POST, "/reload-tools"),
+            (Method::POST, "/shutdown"),
+        ];
+
+        for (method, path) in protected {
+            assert!(
+                endpoint_requires_auth(&method, path),
+                "{method} {path} must require auth"
+            );
+        }
+        assert!(!endpoint_requires_auth(&Method::GET, "/health"));
+        assert!(!endpoint_requires_auth(&Method::OPTIONS, "/config"));
+    }
+
+    #[test]
+    fn token_auth_accepts_header_authorization_and_query_tokens() {
+        let security = test_security();
+        let header_request = Request::builder()
+            .uri("/config")
+            .header(SESSION_TOKEN_HEADER, "session-secret")
+            .body(())
+            .expect("request");
+        let bearer_request = Request::builder()
+            .uri("/config")
+            .header(AUTHORIZATION, "Bearer session-secret")
+            .body(())
+            .expect("request");
+        let query_request = Request::builder()
+            .uri("/events?token=session-secret")
+            .body(())
+            .expect("request");
+        let alias_query_request = Request::builder()
+            .uri("/events?session_token=session-secret")
+            .body(())
+            .expect("request");
+
+        assert!(request_has_valid_token(&header_request, &security));
+        assert!(request_has_valid_token(&bearer_request, &security));
+        assert!(request_has_valid_token(&query_request, &security));
+        assert!(request_has_valid_token(&alias_query_request, &security));
+    }
+
+    #[test]
+    fn token_auth_rejects_missing_and_invalid_tokens() {
+        let security = test_security();
+        let missing = Request::builder().uri("/config").body(()).expect("request");
+        let invalid_header = Request::builder()
+            .uri("/config")
+            .header(SESSION_TOKEN_HEADER, "wrong")
+            .body(())
+            .expect("request");
+        let invalid_bearer = Request::builder()
+            .uri("/config")
+            .header(AUTHORIZATION, "Bearer wrong")
+            .body(())
+            .expect("request");
+        let invalid_query = Request::builder()
+            .uri("/events?token=wrong")
+            .body(())
+            .expect("request");
+
+        assert!(!request_has_valid_token(&missing, &security));
+        assert!(!request_has_valid_token(&invalid_header, &security));
+        assert!(!request_has_valid_token(&invalid_bearer, &security));
+        assert!(!request_has_valid_token(&invalid_query, &security));
+    }
+
+    #[test]
+    fn origin_validation_allows_loopback_and_explicit_origins() {
+        let security = test_security();
+        for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://[::1]:5173",
+            "https://app.example.test",
+        ] {
+            let request = request_with_origin(Some(origin));
+            let allowed = validate_origin(&request, &security).expect("allowed");
+            assert_eq!(
+                allowed.as_ref().and_then(|value| value.to_str().ok()),
+                Some(origin)
+            );
+        }
+        let request = request_with_origin(None);
+        assert!(validate_origin(&request, &security).unwrap().is_none());
+    }
+
+    #[test]
+    fn origin_validation_rejects_untrusted_origins() {
+        let security = test_security();
+        for origin in [
+            "https://evil.example.test",
+            "null",
+            "file://localhost/tmp/app.html",
+            "http://localhost.evil.example.test",
+        ] {
+            let request = request_with_origin(Some(origin));
+            let response = validate_origin(&request, &security).expect_err("rejected");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+
+    #[test]
+    fn options_response_adds_cors_headers_for_allowed_origin() {
+        let request = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/config")
+            .header(ORIGIN, "http://localhost:5173")
+            .header("access-control-request-method", "POST")
+            .body(())
+            .expect("request");
+        let origin = validate_origin(&request, &test_security()).expect("origin");
+        let response = options_response(&request, origin);
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://localhost:5173")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-headers")
+                .and_then(|value| value.to_str().ok()),
+            Some("authorization, content-type, x-proteus-session-token")
+        );
+    }
+
     #[tokio::test]
     async fn request_dispatch_sets_permission_mode() {
         let cwd = tempfile::tempdir().expect("cwd");
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
         let (shutdown, _) = broadcast::channel(1);
-        let state = HttpAppState::new(server.clone(), shutdown);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
         let output = execute_app_request(
             &state,
@@ -709,7 +1064,7 @@ mod tests {
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
         let (shutdown, _) = broadcast::channel(1);
-        let state = HttpAppState::new(server.clone(), shutdown);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
         let output = execute_app_request(
             &state,
@@ -755,7 +1110,7 @@ mod tests {
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
         let (shutdown, _) = broadcast::channel(1);
-        let state = HttpAppState::new(server.clone(), shutdown);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
         let model_output = execute_app_request(
             &state,
@@ -810,7 +1165,7 @@ mod tests {
         let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
             .expect("app server");
         let (shutdown, _) = broadcast::channel(1);
-        let state = HttpAppState::new(server.clone(), shutdown);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
         let output = execute_app_request(
             &state,
