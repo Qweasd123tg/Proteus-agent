@@ -570,7 +570,8 @@
     font-weight: 500;
 }
 
-.resume-page {
+.resume-page,
+.configs-page {
     display: flex;
     min-height: 0;
     flex: 1;
@@ -661,4 +662,165 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.configs-scroll {
+    display: grid;
+    gap: var(--space-4);
+    overflow-y: auto;
+    padding: var(--space-5);
+}
+
+.config-overview {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+}
+
+.config-panel,
+.config-section {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+}
+
+.config-panel {
+    display: grid;
+    align-content: start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.config-panel-header,
+.config-section-header,
+.config-list-title,
+.config-row,
+.config-kv {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.config-panel-header,
+.config-section-header,
+.config-row,
+.config-kv {
+    justify-content: space-between;
+}
+
+.config-panel-header strong,
+.config-section-header h3,
+.config-list-title strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-section-header {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-section-header span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.config-kv span,
+.config-row span {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.config-kv code,
+.config-row code,
+.config-list-title code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-row {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-row:last-child {
+    border-bottom: 0;
+}
+
+.config-chip-row {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-panel .config-chip-row {
+    padding: 0;
+}
+
+.config-chip {
+    max-width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-list {
+    display: grid;
+}
+
+.config-list-item {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-list-item:last-child {
+    border-bottom: 0;
+}
+
+.config-list-main {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.config-list-main p {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-empty {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: var(--space-4);
 }

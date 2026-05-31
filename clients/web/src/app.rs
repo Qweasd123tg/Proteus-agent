@@ -11,8 +11,8 @@ use crate::actions::{
 };
 use crate::api::{APP_SERVER_ORIGIN, get_json, post_json};
 use crate::components::{
-    ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView, ToastStack,
-    UserInputCard, WorkingCard,
+    ApprovalCard, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
+    ToastStack, UserInputCard, WorkingCard,
 };
 use crate::events::connect_event_stream;
 use crate::messages::report_error;
@@ -32,6 +32,9 @@ unsafe extern "C" {
 #[component]
 pub(crate) fn App() -> impl IntoView {
     let route = current_path();
+    let is_resume_route = route == "/resume";
+    let is_configs_route = route == "/configs";
+    let is_chat_route = !is_resume_route && !is_configs_route;
     let (messages, set_messages) = signal(seed_messages());
     let (draft, set_draft) = signal(String::new());
     let (queued_prompt, set_queued_prompt) = signal(None::<String>);
@@ -119,7 +122,7 @@ pub(crate) fn App() -> impl IntoView {
         }
     });
 
-    if route != "/resume" {
+    if is_chat_route {
         load_runtime_settings(
             set_mode,
             set_model_name,
@@ -349,6 +352,12 @@ pub(crate) fn App() -> impl IntoView {
         }
     };
     let session_title = move || {
+        if is_configs_route {
+            return "Configs".to_owned();
+        }
+        if is_resume_route {
+            return "Сессии".to_owned();
+        }
         messages
             .get()
             .iter()
@@ -594,6 +603,7 @@ pub(crate) fn App() -> impl IntoView {
                     <nav class="topnav">
                         <span>{move || format!("{} событий", event_count.get())}</span>
                         <a class="topnav-link" href="/">"Чат"</a>
+                        <a class="topnav-link" href="/configs">"Configs"</a>
                         <a class="topnav-link" href="/resume">"Сессии"</a>
                         <button
                             type="button"
@@ -625,8 +635,10 @@ pub(crate) fn App() -> impl IntoView {
                 </section>
 
                 <section class="session-workspace">
-                    {if route == "/resume" {
+                    {if is_resume_route {
                         view! { <ResumeView /> }.into_any()
+                    } else if is_configs_route {
+                        view! { <ConfigsView /> }.into_any()
                     } else {
                         view! {
                             {move || {

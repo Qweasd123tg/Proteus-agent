@@ -11,20 +11,22 @@ production-клиентом.
 permission mode controls, approval queue, пошаговой typed user-input карточкой,
 cancel action, `Ctrl+Enter` submit shortcut, queued next prompt, autoscroll,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
-message copy/collapse actions, toast errors, MathJax LaTeX rendering и
-HTTP/SSE client. Sidebar показывает только session/runtime metadata, без
-transcript preview. Mode, model, reasoning on/off и raw reasoning effort
-задаются компактными controls в строке composer actions; effort выбирается из
-config/capability options, чтобы не зашивать provider-specific значения во
+message copy/collapse actions, toast errors, MathJax LaTeX rendering, экран
+`/configs` с активными modules/tools/plugins/config files и HTTP/SSE client.
+Sidebar показывает только session/runtime metadata, без transcript preview.
+Mode, model, reasoning on/off и raw reasoning effort задаются компактным menu в
+строке composer actions; model выбирается только из config options, а effort —
+из config/capability options, чтобы не зашивать provider-specific значения во
 фронт. Shell по умолчанию
 подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через `/send`, меняет mode
 через `/mode`, model через `/model`, reasoning через `/reasoning`, effort через
 `/effort`, отвечает на approval через `/approval`, отправляет typed input через
 `/user-input`, отменяет turn через `/cancel` и очищает history через `/clear`.
-Страница `/resume` читает прошлые
-sessions через `/sessions` и переключает текущий app-server на выбранную
-session через `/resume`. После
+Страница `/configs` читает `/config` и раскладывает подключённые modules,
+registered tools, enabled tools, plugins, model/reasoning и config files по
+категориям. Страница `/resume` читает прошлые sessions через `/sessions` и
+переключает текущий app-server на выбранную session через `/resume`. После
 перехода обратно в чат клиент подгружает transcript текущей session через
 `/history`. Для `plan` mode composer переключается в planning controls с
 русской кнопкой `Спросить план`, а actions `Уточнить`, `Выполнить` и `Выйти`
