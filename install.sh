@@ -77,7 +77,7 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 cd "\${web_dir}"
-trunk serve --port "\${web_port}"
+env -u NO_COLOR trunk serve --port "\${web_port}"
 EOF
 chmod 755 "${bin_path}"
 
