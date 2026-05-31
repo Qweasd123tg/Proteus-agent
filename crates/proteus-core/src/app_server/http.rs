@@ -775,6 +775,13 @@ mod tests {
         );
         assert_eq!(
             summary
+                .pointer("/reasoning/effort_options")
+                .and_then(Value::as_array)
+                .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+            Some(vec!["high", "max"])
+        );
+        assert_eq!(
+            summary
                 .pointer("/reasoning/enabled")
                 .and_then(Value::as_bool),
             Some(false)

@@ -278,6 +278,8 @@ pub struct ProviderProfileConfig {
     pub stream: bool,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
+    #[serde(default, alias = "effort_options", alias = "reasoning_effort_options")]
+    pub reasoning_efforts: Vec<String>,
     #[serde(default)]
     pub provider_config: serde_json::Value,
     #[serde(flatten)]
