@@ -1,0 +1,494 @@
+use leptos::prelude::*;
+use serde_json::Value;
+use wasm_bindgen::{JsCast, closure::Closure};
+use web_sys::{Event, EventSource, MessageEvent};
+
+use crate::actions::handle_command_response;
+use crate::api::{APP_SERVER_ORIGIN, js_error};
+use crate::messages::{
+    append_streaming_assistant_delta, finish_streaming_assistant_message, push_message,
+    push_tool_message, update_tool_status,
+};
+use crate::types::*;
+use crate::ui_utils::{compact_json, compact_text, output_text, short_id, short_path};
+
+pub(crate) fn connect_event_stream(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_event_count: WriteSignal<u64>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    let url = format!("{APP_SERVER_ORIGIN}/events");
+    let source = match EventSource::new(&url) {
+        Ok(source) => source,
+        Err(error) => {
+            let message = js_error(error);
+            set_transport_status.set(TransportStatus::Error(message.clone()));
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("Event stream failed: {message}"),
+            );
+            return;
+        }
+    };
+
+    let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        set_transport_status.set(TransportStatus::Connected);
+    }));
+    source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+    on_open.forget();
+
+    let output_messages = set_messages;
+    let output_next_message_id = next_message_id;
+    let output_set_next_message_id = set_next_message_id;
+    let output_transport_status = set_transport_status;
+    let output_event_count = set_event_count;
+    let on_output =
+        Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
+            let Some(data) = event.data().as_string() else {
+                return;
+            };
+            match serde_json::from_str::<StdioOutput>(&data) {
+                Ok(output) => handle_app_output(
+                    output,
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    output_transport_status,
+                    output_event_count,
+                    set_workspace_label,
+                    set_session_label,
+                    set_is_sending,
+                    set_active_turn_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    streamed_this_turn,
+                    set_streamed_this_turn,
+                    set_agent_status,
+                    set_tool_activities,
+                    set_pending_approvals,
+                    set_pending_user_inputs,
+                ),
+                Err(error) => push_message(
+                    output_messages,
+                    output_next_message_id,
+                    output_set_next_message_id,
+                    MessageRole::System,
+                    format!("Invalid event payload: {error}"),
+                ),
+            }
+        }));
+    let _ = source.add_event_listener_with_callback("output", on_output.as_ref().unchecked_ref());
+    on_output.forget();
+
+    let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        set_transport_status.set(TransportStatus::Error(
+            "event stream disconnected".to_owned(),
+        ));
+    }));
+    source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    on_error.forget();
+
+    std::mem::forget(source);
+}
+
+fn handle_app_output(
+    output: StdioOutput,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_event_count: WriteSignal<u64>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    match output {
+        StdioOutput::Event { event } => {
+            set_event_count.update(|count| *count += 1);
+            handle_app_event(
+                event,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                set_workspace_label,
+                set_session_label,
+                set_is_sending,
+                set_active_turn_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                streamed_this_turn,
+                set_streamed_this_turn,
+                set_agent_status,
+                set_tool_activities,
+                set_pending_approvals,
+                set_pending_user_inputs,
+            );
+        }
+        StdioOutput::Response { .. } => handle_command_response(
+            output,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        ),
+    }
+}
+
+fn handle_app_event(
+    event: AppServerEvent,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    match event {
+        AppServerEvent::Runtime { envelope } => {
+            update_runtime_status_and_tools(
+                &envelope,
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                set_agent_status,
+                set_tool_activities,
+            );
+            update_session_labels(envelope, set_workspace_label, set_session_label);
+        }
+        AppServerEvent::UserMessageSubmitted { text } => {
+            set_streamed_this_turn.set(false);
+            set_active_stream_message_id.set(None);
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::User,
+                text,
+            );
+        }
+        AppServerEvent::TurnOutput { output } => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("ожидает".to_owned());
+            if streamed_this_turn.get() {
+                if let Some(message_id) = active_stream_message_id.get() {
+                    set_messages.update(|items| {
+                        if let Some(message) =
+                            items.iter_mut().find(|message| message.id == message_id)
+                        {
+                            message.streaming = false;
+                        }
+                    });
+                }
+                set_active_stream_message_id.set(None);
+                set_streamed_this_turn.set(false);
+            } else {
+                finish_streaming_assistant_message(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    active_stream_message_id,
+                    set_active_stream_message_id,
+                    output_text(&output),
+                );
+            }
+        }
+        AppServerEvent::ApprovalRequested { request } => {
+            set_agent_status.set("ждёт доступ".to_owned());
+            set_pending_approvals.update(|items| {
+                if let Some(item) = items
+                    .iter_mut()
+                    .find(|item| item.approval_id == request.approval_id)
+                {
+                    *item = request;
+                } else {
+                    items.push(request);
+                }
+            });
+        }
+        AppServerEvent::ApprovalResolved {
+            approval_id,
+            approved,
+        } => {
+            set_agent_status.set(if approved {
+                "доступ разрешён".to_owned()
+            } else {
+                "доступ отклонён".to_owned()
+            });
+            set_pending_approvals
+                .update(|items| items.retain(|item| item.approval_id != approval_id));
+        }
+        AppServerEvent::UserInputRequested { request } => {
+            set_agent_status.set("ждёт ответ".to_owned());
+            set_pending_user_inputs.update(|items| {
+                if let Some(item) = items
+                    .iter_mut()
+                    .find(|item| item.request_id == request.request_id)
+                {
+                    *item = request;
+                } else {
+                    items.push(request);
+                }
+            });
+        }
+        AppServerEvent::UserInputResolved { request_id } => {
+            set_agent_status.set("продолжает".to_owned());
+            set_pending_user_inputs.update(|items| {
+                items.retain(|item| item.request_id != request_id);
+            });
+        }
+        AppServerEvent::Error { message } => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("ошибка".to_owned());
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                format!("AppServer error: {message}"),
+            );
+        }
+        AppServerEvent::Shutdown => {
+            set_is_sending.set(false);
+            set_active_turn_id.set(None);
+            set_agent_status.set("остановлено".to_owned());
+            set_transport_status.set(TransportStatus::Shutdown);
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                "AppServer shutdown".to_owned(),
+            );
+        }
+        AppServerEvent::Unknown => {}
+    }
+}
+
+fn update_session_labels(
+    envelope: Value,
+    set_workspace_label: WriteSignal<String>,
+    set_session_label: WriteSignal<String>,
+) {
+    let Some(started) = envelope.pointer("/event/SessionStarted") else {
+        return;
+    };
+    if let Some(cwd) = started.get("cwd").and_then(Value::as_str) {
+        set_workspace_label.set(cwd.to_owned());
+    }
+    if let Some(session_dir) = started.get("session_dir").and_then(Value::as_str) {
+        set_session_label.set(short_path(session_dir));
+    } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
+        set_session_label.set(short_id(session_id).to_owned());
+    }
+}
+
+fn update_runtime_status_and_tools(
+    envelope: &Value,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    set_agent_status: WriteSignal<String>,
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+) {
+    let Some(event) = envelope.get("event") else {
+        return;
+    };
+
+    if event.get("TurnStarted").is_some() {
+        set_streamed_this_turn.set(false);
+        set_active_stream_message_id.set(None);
+        set_agent_status.set("начинает".to_owned());
+    } else if event.get("TaskReceived").is_some() {
+        set_agent_status.set("готовит задачу".to_owned());
+    } else if event.get("ContextBuilt").is_some() {
+        set_agent_status.set("собирает контекст".to_owned());
+    } else if event.get("ModelRequestPrepared").is_some() {
+        set_agent_status.set("думает".to_owned());
+    } else if let Some(delta_event) = event.get("AssistantTextDelta") {
+        set_agent_status.set("пишет".to_owned());
+        if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
+            set_streamed_this_turn.set(true);
+            append_streaming_assistant_delta(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                active_stream_message_id,
+                set_active_stream_message_id,
+                text,
+            );
+        }
+    } else if event.get("AssistantReasoningDelta").is_some() {
+        set_agent_status.set("думает".to_owned());
+    } else if let Some(tool_event) = event.get("ToolCallRequested") {
+        set_agent_status.set("запускает tool".to_owned());
+        set_active_stream_message_id.set(None);
+        if let Some(call) = tool_event.get("call") {
+            let call_id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let name = call
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_owned();
+            let args_preview = call.get("args").map(compact_json).unwrap_or_default();
+            let tool = ToolActivity {
+                call_id: call_id.clone(),
+                name,
+                args_preview,
+                status: ToolActivityStatus::Running,
+                result_preview: None,
+            };
+            push_tool_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                tool.clone(),
+            );
+            set_tool_activities.update(|items| {
+                if !items.iter().any(|item| item.call_id == call_id) {
+                    items.push(tool);
+                    trim_tool_activities(items);
+                }
+            });
+        }
+    } else if let Some(approval_event) = event.get("ApprovalRequested") {
+        set_agent_status.set("ждёт доступ".to_owned());
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                ToolActivityStatus::WaitingApproval,
+                None,
+            );
+        }
+    } else if let Some(approval_event) = event.get("ApprovalResolved") {
+        let approved = approval_event
+            .get("approved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        set_agent_status.set(if approved {
+            "доступ разрешён".to_owned()
+        } else {
+            "доступ отклонён".to_owned()
+        });
+        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                if approved {
+                    ToolActivityStatus::Approved
+                } else {
+                    ToolActivityStatus::Denied
+                },
+                None,
+            );
+        }
+    } else if let Some(tool_event) = event.get("ToolFinished") {
+        set_agent_status.set("tool завершён".to_owned());
+        if let Some(result) = tool_event.get("result") {
+            let Some(call_id) = result.get("call_id").and_then(Value::as_str) else {
+                return;
+            };
+            let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let preview = tool_result_preview(result);
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                call_id,
+                if ok {
+                    ToolActivityStatus::Done
+                } else {
+                    ToolActivityStatus::Failed
+                },
+                Some(preview),
+            );
+        }
+    } else if event.get("TurnFinished").is_some() {
+        set_agent_status.set("ожидает".to_owned());
+    } else if event.get("Error").is_some() {
+        set_agent_status.set("ошибка".to_owned());
+    }
+}
+
+fn trim_tool_activities(items: &mut Vec<ToolActivity>) {
+    let overflow = items.len().saturating_sub(12);
+    if overflow > 0 {
+        items.drain(0..overflow);
+    }
+}
+
+fn tool_result_preview(result: &Value) -> String {
+    if let Some(error) = result.get("error").and_then(Value::as_str)
+        && !error.is_empty()
+    {
+        return compact_text(error, 600);
+    }
+
+    if let Some(output) = result.get("output").and_then(Value::as_str)
+        && !output.is_empty()
+    {
+        return compact_text(output, 600);
+    }
+
+    if let Some(content) = result.get("content")
+        && !content.as_array().is_none_or(Vec::is_empty)
+    {
+        return compact_text(&content.to_string(), 600);
+    }
+
+    if result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        "(нет вывода)".to_owned()
+    } else {
+        "(tool завершился без текста ошибки)".to_owned()
+    }
+}
