@@ -18,7 +18,11 @@ External CLI/UI -> AppServer/transport -> AgentRuntime -> BuiltinRegistry
 
 `AppConfig` выбирает реализации по строковым ключам. `BuiltinModuleCatalog` хранит built-in manifests и factory lookup. При старте ядро сканирует `~/.proteus/plugins/`, загружает dylib-плагины через `abi_stable` и регистрирует их modules в том же catalog (builtin выигрывает конфликт по `(slot, id)`). `BuiltinRegistry` использует catalog и собирает trait-объекты. `AgentRuntime` запускает workflow и хранит историю. `Workflow` работает только с contracts и DTO.
 
-Это не marketplace, не hot-reload и не sandbox. Это статическая dylib-загрузка при старте: чтобы заменить или обновить плагин, ядро перезапускается.
+Это не marketplace, не hot-reload и не sandbox. Это статическая dylib-загрузка
+при старте: чтобы заменить или обновить плагин, ядро сейчас перезапускается.
+Планируемая горячая замена должна идти через snapshot/epoch boundary, а не
+через in-place мутацию активного runtime; правила зафиксированы в
+[hot-swap.md](hot-swap.md).
 
 ## Статус Ядра
 

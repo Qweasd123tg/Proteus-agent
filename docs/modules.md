@@ -42,6 +42,10 @@ agent modules list
 
 В текущей реализации config-defined tools уже поддерживают process и stdio MCP
 executors, но external process modules и package manager ещё не реализованы.
+Горячая замена модулей пока не реализована: смена config/plugin набора требует
+пересборки runtime. Планируемая модель reload описана в
+`docs/hot-swap.md`: новые turns получают новый `RuntimeSnapshot`, а активные
+turns продолжают работать на старом snapshot.
 
 ## Slots
 
@@ -51,6 +55,8 @@ executors, но external process modules и package manager ещё не реал
 идеи вроде Cursor-like dynamic context или Codex-like tool search сначала
 должны лечь в существующие `ContextBuilder`, `ToolExposure`, `SearchBackend`,
 `Workflow` или research plugin, а не расширять таблицу ниже автоматически.
+То же относится к MCP hot-swap: discovery и visibility проходят через
+`ToolRegistry`/`ToolExposure`, а не через отдельный feature-specific slot.
 
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
