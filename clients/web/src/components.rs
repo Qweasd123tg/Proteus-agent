@@ -564,45 +564,6 @@ fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn ErrorRecoveryCard<R, C>(message: String, can_retry: C, on_retry: R) -> impl IntoView
-where
-    R: Fn(MouseEvent) + Copy + 'static,
-    C: Fn() -> bool + Copy + Send + 'static,
-{
-    let copy_message = message.clone();
-    view! {
-        <article class="task-card error recovery-card">
-            <div class="task-card-header">
-                <span class="status-badge failed">
-                    <span class="dot"></span>
-                    "Ошибка"
-                </span>
-            </div>
-            <div class="message system-message recovery-message">
-                <p>{message}</p>
-                <div class="queued-actions">
-                    <button
-                        type="button"
-                        class="btn-primary"
-                        disabled=move || !can_retry()
-                        on:click=on_retry
-                    >
-                        "Повторить"
-                    </button>
-                    <button
-                        type="button"
-                        class="secondary"
-                        on:click=move |_| copy_to_clipboard(copy_message.clone())
-                    >
-                        "Скопировать"
-                    </button>
-                </div>
-            </div>
-        </article>
-    }
-}
-
-#[component]
 pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
     view! {
         <article class="task-card running working-card">
