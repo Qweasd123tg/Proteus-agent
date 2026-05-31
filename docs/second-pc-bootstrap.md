@@ -25,7 +25,7 @@ modules, tools, policy и event log. На новом ПК проверь `api_ke
 
 ```bash
 proteus doctor
-agent tools list
+proteus tools list
 ```
 
 В `tools list` для coding profile должны быть видны основные tools:
@@ -54,8 +54,8 @@ cd /path/to/project
 proteus
 ```
 
-Активный Leptos web-клиент ещё в переезде; до него используйте core CLI,
-`proteus server stdio` или временный app-server harness. История и event log
+Активный Leptos web-клиент запускается wrapper-ом `proteus` после `./install.sh`
+или вручную через `proteus server http` плюс `trunk serve`. История и event log
 будут лежать под основным config root:
 
 ```text

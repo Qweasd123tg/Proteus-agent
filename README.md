@@ -160,8 +160,11 @@ proteus
 ```
 
 Wrapper использует текущую директорию как workspace, поднимает app-server на
-`http://127.0.0.1:8787` и web-клиент на `http://127.0.0.1:1420`. Для обычных CLI
-команд передайте аргументы, например `proteus doctor` или
+`http://127.0.0.1:8787`, web-клиент на `http://127.0.0.1:1420` и генерирует
+per-launch session token. В консоль печатается только redacted URL, а browser
+открывается с `?session=<token>`; web-клиент использует query token для
+`EventSource` и header `X-Proteus-Session` для `fetch`. Для обычных CLI команд
+передайте аргументы, например `proteus doctor` или
 `proteus --plan "inspect project"`. Если source новее release binary, wrapper
 сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
 app-server не разъезжались по protocol endpoints.
@@ -174,8 +177,10 @@ HTTP/SSE transport запускается через `proteus server http`; CLI 
 прогонов.
 
 Для dogfood запуска держите app-server на loopback (`127.0.0.1`) и не
-выносите его наружу: текущий HTTP boundary ещё требует отдельного
-token/CORS hardening перед публичным или shared-network использованием.
+выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood,
+требует session token на app-control endpoints и ограничивает browser CORS
+локальными/явно разрешёнными origins, но не является shared-network deployment
+моделью.
 Reference snapshots для web-клиента лежат вне production-каталога:
 
 - `examples/source/leptos` — git-ignored clone `leptos-rs/leptos`;
