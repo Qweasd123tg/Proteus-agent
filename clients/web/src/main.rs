@@ -71,6 +71,8 @@ enum ReasoningEffort {
     Low,
     Medium,
     High,
+    Max,
+    XHigh,
 }
 
 impl ReasoningEffort {
@@ -80,6 +82,8 @@ impl ReasoningEffort {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
+            Self::Max => "max",
+            Self::XHigh => "xhigh",
         }
     }
 
@@ -89,13 +93,17 @@ impl ReasoningEffort {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
+            Self::Max => "max",
+            Self::XHigh => "xhigh",
         }
     }
 
     fn effort(self) -> Option<String> {
         match self {
             Self::Config => None,
-            Self::Low | Self::Medium | Self::High => Some(self.value().to_owned()),
+            Self::Low | Self::Medium | Self::High | Self::Max | Self::XHigh => {
+                Some(self.value().to_owned())
+            }
         }
     }
 
@@ -104,6 +112,8 @@ impl ReasoningEffort {
             "low" => Self::Low,
             "medium" => Self::Medium,
             "high" => Self::High,
+            "max" => Self::Max,
+            "xhigh" => Self::XHigh,
             _ => Self::Config,
         }
     }
@@ -1408,6 +1418,8 @@ fn App() -> impl IntoView {
                                                 <option value=ReasoningEffort::Low.value()>{ReasoningEffort::Low.label()}</option>
                                                 <option value=ReasoningEffort::Medium.value()>{ReasoningEffort::Medium.label()}</option>
                                                 <option value=ReasoningEffort::High.value()>{ReasoningEffort::High.label()}</option>
+                                                <option value=ReasoningEffort::Max.value()>{ReasoningEffort::Max.label()}</option>
+                                                <option value=ReasoningEffort::XHigh.value()>{ReasoningEffort::XHigh.label()}</option>
                                             </select>
                                         </label>
                                     </div>
