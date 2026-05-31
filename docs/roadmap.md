@@ -140,9 +140,10 @@ Scope:
 - session resume/restore;
 - durable task/session metadata;
 - event-log based debugging.
-- groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`, explicit
-  reload command и events, без выгрузки dylib и без in-place мутации активного
-  turn-а. Дизайн зафиксирован в `docs/hot-swap.md`.
+- ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
+  `StdioRequest::ReloadTools`,`StdioRequest::ReloadTools`, HTTP `POST /reload-tools`HTTP `POST /reload-tools` и
+  `ModulesReloaded` eventevent, без выгрузки dylib и без in-place мутации активного
+  turn-а. Дизайн и remaining scope зафиксированыи remaining scope зафиксированы в `docs/hot-swap.md`.
 
 ### v0.4: Web Client Protocol
 

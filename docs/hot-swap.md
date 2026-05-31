@@ -1,9 +1,8 @@
 # Hot-Swap И Dynamic Modules
 
-Этот документ фиксирует planned boundary для будущей горячей замены модулей.
-Фактическая реализация v0 пока статическая: config читается при сборке
-`BuiltinRegistry`, dylib-плагины сканируются на старте, а `ToolRegistry`
-собирается один раз для runtime/session.
+Этот документ фиксирует boundary горячей замены модулей. Текущая реализация
+поддерживает snapshot-based reload для app-server tools/config/MCP discovery.
+Полный `reload_modules`, persistent MCP host и dylib unload остаются planned.
 
 Hot-swap здесь означает не "выгрузить dylib из процесса", а атомарно
 переключить новые turn/model-request на новый snapshot модулей.
@@ -90,21 +89,30 @@ name. Это сохраняет главный инвариант безопас
 
 ## Минимальный Implementation Path
 
-1. Добавить `ModuleEpoch`/`RuntimeSnapshot` как host-side concept без нового
+Сделано:
+
+1. `ModuleEpoch`/`RuntimeSnapshot` добавлены как host-side concept без нового
    public slot.
-2. Перенести `BuiltinRegistry` внутрь атомарно заменяемого snapshot holder для
-   app-server/runtime.
-3. Добавить explicit reload command в app-server protocol: сначала
-   `reload_tools`, затем общий `reload_modules`.
-4. При reload строить новый catalog/registry с нуля; старый snapshot не
-   мутировать.
-5. Испускать event вида `ModulesReloaded { old_epoch, new_epoch,
-   changed_modules }`.
-6. Добавить focused tests:
-   - running turn продолжает использовать старый snapshot;
-   - new turn видит новый tool/MCP config;
-   - duplicate/failed plugin reload не ломает активный snapshot;
-   - `tool_call` bridge не обходит `ApprovalPolicy`.
+2. `BuiltinRegistry` живёт внутри snapshot holder; `AgentRuntime::run` берёт
+   snapshot один раз на старте turn-а.
+3. App-server protocol поддерживает `StdioRequest::ReloadTools`; HTTP даёт
+   `POST /reload-tools`. Эта команда применяет только `tools.*` из config path;
+   `modules.*` остаются задачей будущего `reload_modules`.
+4. Reload строит новый catalog/registry с нуля и публикует новый snapshot, не
+   мутируя старый.
+5. App-server испускает `AppServerEvent::ModulesReloaded { old_epoch,
+   new_epoch, tool_names }`.
+6. Тесты покрывают, что running turn продолжает использовать старый snapshot,
+   а new turn видит новый tool config.
+
+Осталось:
+
+- добавить общий `reload_modules`, если понадобится reload не только
+  config-defined/MCP/plugin tool graph;
+- расширить reload report до `changed_modules`, а не только `tool_names`;
+- покрыть failed plugin reload без повреждения активного snapshot;
+- реализовать `tool_call` bridge и проверить, что он не обходит
+  `ApprovalPolicy`.
 
 ## Что Не Делать В v0
 

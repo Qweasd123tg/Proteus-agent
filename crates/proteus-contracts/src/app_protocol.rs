@@ -66,6 +66,14 @@ pub enum AppServerEvent {
     /// User-input request разрешён клиентом, timeout'ом или shutdown'ом.
     UserInputResolved { request_id: AppUserInputRequestId },
 
+    /// Runtime опубликовал новый snapshot модулей/tools. Уже активные turns
+    /// продолжают работать на старом epoch, новые turns берут новый.
+    ModulesReloaded {
+        old_epoch: u64,
+        new_epoch: u64,
+        tool_names: Vec<String>,
+    },
+
     /// Ошибка в turn или ядре.
     Error { message: String },
 
@@ -150,6 +158,9 @@ pub enum StdioRequest {
     ConfigSummary {
         id: Option<String>,
     },
+    ReloadTools {
+        id: Option<String>,
+    },
     Shutdown {
         id: Option<String>,
     },
@@ -168,6 +179,7 @@ impl StdioRequest {
             | Self::SetReasoningEffort { id, .. }
             | Self::SetReasoningEnabled { id, .. }
             | Self::ConfigSummary { id }
+            | Self::ReloadTools { id }
             | Self::Shutdown { id } => id.clone(),
         }
     }

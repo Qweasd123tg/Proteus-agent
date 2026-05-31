@@ -88,6 +88,13 @@ mod tests {
             .id(),
             Some("configs".to_owned())
         );
+        assert_eq!(
+            StdioRequest::ReloadTools {
+                id: Some("reload".to_owned()),
+            }
+            .id(),
+            Some("reload".to_owned())
+        );
     }
 
     #[test]
