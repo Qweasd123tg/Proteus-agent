@@ -32,14 +32,16 @@ web_dir="\${project_dir}/clients/web"
 app_port=8787
 web_port="\${PROTEUS_WEB_PORT:-1420}"
 
-if [ "\$#" -gt 0 ]; then
-  exec "\${proteus_bin}" "\$@"
+if [ ! -x "\${proteus_bin}" ]; then
+  echo "Proteus binary is missing; building release binary..." >&2
+  "\${project_dir}/install.sh"
+elif find "\${project_dir}/crates" "\${project_dir}/plugins/default" "\${project_dir}/Cargo.toml" "\${project_dir}/Cargo.lock" -newer "\${proteus_bin}" -print -quit | grep -q .; then
+  echo "Proteus binary is stale; rebuilding release binary..." >&2
+  "\${project_dir}/install.sh"
 fi
 
-if [ ! -x "\${proteus_bin}" ]; then
-  echo "Proteus binary is missing: \${proteus_bin}" >&2
-  echo "Run: \${project_dir}/install.sh" >&2
-  exit 1
+if [ "\$#" -gt 0 ]; then
+  exec "\${proteus_bin}" "\$@"
 fi
 
 if ! command -v trunk >/dev/null 2>&1; then
