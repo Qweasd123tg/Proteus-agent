@@ -210,7 +210,7 @@ async fn route_request(
     let path = request.uri().path().to_owned();
     let cors_origin = match validate_origin(&request, &state.security) {
         Ok(origin) => origin,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     if method == Method::OPTIONS {
@@ -403,23 +403,23 @@ fn endpoint_requires_auth(method: &Method, path: &str) -> bool {
 fn validate_origin<B>(
     request: &Request<B>,
     security: &HttpSecurity,
-) -> Result<Option<HeaderValue>, HttpResponse> {
+) -> Result<Option<HeaderValue>, Box<HttpResponse>> {
     let Some(origin) = request.headers().get(ORIGIN) else {
         return Ok(None);
     };
     let Ok(origin_text) = origin.to_str() else {
-        return Err(error_response(
+        return Err(Box::new(error_response(
             StatusCode::FORBIDDEN,
             "request origin is not allowed",
-        ));
+        )));
     };
     if is_allowed_origin(origin_text, &security.allowed_origins) {
         return Ok(Some(origin.clone()));
     }
-    Err(error_response(
+    Err(Box::new(error_response(
         StatusCode::FORBIDDEN,
         "request origin is not allowed",
-    ))
+    )))
 }
 
 fn is_allowed_origin(origin: &str, allowed_origins: &[String]) -> bool {

@@ -269,17 +269,17 @@ mod tests {
         write_event(
             &mut log,
             1,
-            EventContext::new(session_id.clone(), thread_id.clone(), Some(turn_id.clone())),
+            EventContext::new(session_id, thread_id, Some(turn_id)),
             Event::TurnStarted {
-                session_id: session_id.clone(),
+                session_id,
                 thread_id,
-                turn_id: turn_id.clone(),
+                turn_id,
             },
         );
         write_event(
             &mut log,
             2,
-            EventContext::new(session_id.clone(), new_thread_id(), Some(turn_id.clone())),
+            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
             Event::ModelRequestPrepared {
                 model: ModelRef::new("fake", "test"),
             },
@@ -287,7 +287,7 @@ mod tests {
         write_event(
             &mut log,
             3,
-            EventContext::new(session_id.clone(), new_thread_id(), Some(turn_id.clone())),
+            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
             Event::TokenUsageUpdated {
                 usage: TokenUsageSnapshot::new(
                     ModelRef::new("fake", "test"),
@@ -300,7 +300,7 @@ mod tests {
         write_event(
             &mut log,
             4,
-            EventContext::new(session_id.clone(), new_thread_id(), Some(turn_id.clone())),
+            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
             Event::ToolCallRequested {
                 call: ToolCall::new(
                     call_id.clone(),
@@ -312,7 +312,7 @@ mod tests {
         write_event(
             &mut log,
             5,
-            EventContext::new(session_id.clone(), new_thread_id(), Some(turn_id.clone())),
+            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
             Event::ToolFinished {
                 result: ToolResult::ok(call_id, "updated src/lib.rs"),
             },
@@ -351,7 +351,7 @@ mod tests {
         write_event(
             &mut log,
             10,
-            EventContext::new(session_id.clone(), thread_id.clone(), Some(turn_id.clone())),
+            EventContext::new(session_id, thread_id, Some(turn_id)),
             Event::TurnStarted {
                 session_id,
                 thread_id,
@@ -378,17 +378,17 @@ mod tests {
         write_event(
             &mut log,
             1,
-            EventContext::new(session_id.clone(), thread_id.clone(), Some(turn_id.clone())),
+            EventContext::new(session_id, thread_id, Some(turn_id)),
             Event::TurnStarted {
-                session_id: session_id.clone(),
+                session_id,
                 thread_id,
-                turn_id: turn_id.clone(),
+                turn_id,
             },
         );
         write_event(
             &mut log,
             2,
-            EventContext::new(session_id.clone(), new_thread_id(), Some(turn_id.clone())),
+            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
             Event::TurnFinished {
                 output: AgentOutput::text("done"),
             },

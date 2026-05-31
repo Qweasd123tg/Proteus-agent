@@ -127,6 +127,7 @@ impl BuiltinRegistry {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn runtime_context_with_user_input(
         &self,
         session_id: SessionId,

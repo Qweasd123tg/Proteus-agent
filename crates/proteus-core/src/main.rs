@@ -759,13 +759,13 @@ fn format_timeout_ms(value: u64) -> String {
     if value == 0 {
         return "disabled".to_owned();
     }
-    if value % 3_600_000 == 0 {
+    if value.is_multiple_of(3_600_000) {
         return format!("{}h", value / 3_600_000);
     }
-    if value % 60_000 == 0 {
+    if value.is_multiple_of(60_000) {
         return format!("{}m", value / 60_000);
     }
-    if value % 1_000 == 0 {
+    if value.is_multiple_of(1_000) {
         return format!("{}s", value / 1_000);
     }
     format!("{value}ms")
