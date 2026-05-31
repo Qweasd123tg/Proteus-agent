@@ -61,7 +61,11 @@ echo "App server:        http://127.0.0.1:\${app_port}"
 echo "Web client:        http://127.0.0.1:\${web_port}/?session=<redacted>"
 echo
 
-"\${proteus_bin}" --cwd "\${workspace_cwd}" server http --port "\${app_port}" --token "\${session_token}" &
+"\${proteus_bin}" --cwd "\${workspace_cwd}" server http \
+  --port "\${app_port}" \
+  --token "\${session_token}" \
+  --allow-origin "http://127.0.0.1:\${web_port}" \
+  --allow-origin "http://localhost:\${web_port}" &
 server_pid=\$!
 
 sleep 1

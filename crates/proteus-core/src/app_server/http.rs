@@ -57,7 +57,7 @@ impl Default for HttpServerConfig {
         Self {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8787),
             session_token: new_session_token(),
-            allowed_origins: Vec::new(),
+            allowed_origins: default_allowed_origins(),
         }
     }
 }
@@ -423,40 +423,9 @@ fn validate_origin<B>(
 }
 
 fn is_allowed_origin(origin: &str, allowed_origins: &[String]) -> bool {
-    if allowed_origins
+    allowed_origins
         .iter()
         .any(|allowed| origin.eq_ignore_ascii_case(allowed))
-    {
-        return true;
-    }
-
-    let Ok(uri) = origin.parse::<hyper::Uri>() else {
-        return false;
-    };
-    let Some(scheme) = uri.scheme_str() else {
-        return false;
-    };
-    if !matches!(scheme, "http" | "https") {
-        return false;
-    }
-    if uri.path() != "/" || uri.query().is_some() {
-        return false;
-    }
-    let Some(mut host) = uri.host() else {
-        return false;
-    };
-    if let Some(stripped) = host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        host = stripped;
-    }
-    if host.eq_ignore_ascii_case("localhost") {
-        return true;
-    }
-    host.parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
 }
 
 fn request_has_valid_token<B>(request: &Request<B>, security: &HttpSecurity) -> bool {
@@ -525,6 +494,13 @@ fn options_response<B>(request: &Request<B>, cors_origin: Option<HeaderValue>) -
 
 fn new_session_token() -> String {
     uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec![
+        "http://127.0.0.1:1420".to_owned(),
+        "http://localhost:1420".to_owned(),
+    ]
 }
 
 async fn read_json<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T> {
@@ -848,11 +824,11 @@ mod tests {
     use crate::core::AppConfig;
 
     fn test_security() -> HttpSecurity {
+        let mut allowed_origins = default_allowed_origins();
+        allowed_origins.push("https://app.example.test".to_owned());
         HttpSecurity {
             session_token: Arc::from("session-secret"),
-            allowed_origins: Arc::from(
-                vec!["https://app.example.test".to_owned()].into_boxed_slice(),
-            ),
+            allowed_origins: Arc::from(allowed_origins.into_boxed_slice()),
         }
     }
 
@@ -961,12 +937,11 @@ mod tests {
     }
 
     #[test]
-    fn origin_validation_allows_loopback_and_explicit_origins() {
+    fn origin_validation_allows_configured_origins() {
         let security = test_security();
         for origin in [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://[::1]:5173",
+            "http://127.0.0.1:1420",
+            "http://localhost:1420",
             "https://app.example.test",
         ] {
             let request = request_with_origin(Some(origin));
@@ -987,6 +962,8 @@ mod tests {
             "https://evil.example.test",
             "null",
             "file://localhost/tmp/app.html",
+            "http://127.0.0.1:5173",
+            "http://[::1]:1420",
             "http://localhost.evil.example.test",
         ] {
             let request = request_with_origin(Some(origin));
@@ -1000,7 +977,7 @@ mod tests {
         let request = Request::builder()
             .method(Method::OPTIONS)
             .uri("/config")
-            .header(ORIGIN, "http://localhost:5173")
+            .header(ORIGIN, "http://localhost:1420")
             .header("access-control-request-method", "POST")
             .body(())
             .expect("request");
@@ -1013,7 +990,7 @@ mod tests {
                 .headers()
                 .get("access-control-allow-origin")
                 .and_then(|value| value.to_str().ok()),
-            Some("http://localhost:5173")
+            Some("http://localhost:1420")
         );
         assert_eq!(
             response
@@ -1195,6 +1172,68 @@ mod tests {
             StdioOutput::Event { .. } => panic!("expected command response"),
             _ => panic!("unexpected output variant"),
         }
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn cancel_active_turn_clears_pending_approval_and_user_input() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+        let turn_id = "turn-cancel".to_owned();
+        let cancellation = CancellationToken::new();
+        state
+            .running_turns
+            .lock()
+            .await
+            .insert(turn_id.clone(), cancellation.clone());
+
+        let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
+        let approval_id = "approval-cancel".to_owned();
+        server
+            .pending_approvals
+            .lock()
+            .await
+            .insert(approval_id, approval_tx);
+
+        let (input_tx, input_rx) = tokio::sync::oneshot::channel();
+        let request_id = "input-cancel".to_owned();
+        server
+            .pending_user_inputs
+            .lock()
+            .await
+            .insert(request_id, input_tx);
+
+        let output = execute_app_request(
+            &state,
+            StdioRequest::Cancel {
+                id: Some("cancel-1".to_owned()),
+                target_id: turn_id,
+            },
+        )
+        .await;
+
+        match output {
+            StdioOutput::Response { ok, error, .. } => {
+                assert!(ok, "cancel should succeed: {error:?}");
+            }
+            StdioOutput::Event { .. } => panic!("expected command response"),
+            _ => panic!("unexpected output variant"),
+        }
+
+        assert!(cancellation.is_cancelled());
+        assert!(state.running_turns.lock().await.is_empty());
+        assert!(server.pending_approvals.lock().await.is_empty());
+        assert!(server.pending_user_inputs.lock().await.is_empty());
+
+        let approval = approval_rx.await.expect("approval should be resolved");
+        assert!(!approval.approved);
+        assert_eq!(approval.note.as_deref(), Some("turn canceled by client"));
+        let input = input_rx.await.expect("user input should be resolved");
+        assert!(input.answers.is_empty());
+
         server.shutdown().await;
     }
 

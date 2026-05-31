@@ -486,17 +486,19 @@ HTTP/SSE app-server нужен для локального web dogfood. Запу
 loopback:
 
 ```bash
-proteus server http --port 8787
+proteus server http --port 8787 --token "$PROTEUS_SESSION_TOKEN"
 ```
 
 Не биндуйте `--host 0.0.0.0` для обычного dogfood: app-server принимает
 prompts, approvals, user input, cancel, reload-tools, history/resume и
-shutdown. Dogfood-hardening должен добавить local session token на все
-не-trivial endpoints и CORS allowlist для локальных web origins. Для
-`EventSource` допустим token в query string, потому что browser API не даёт
-ставить headers; для `fetch` используйте `X-Proteus-Session` или
-`Authorization: Bearer <token>`. Raw token не логировать и не хранить в
-`localStorage`.
+shutdown. HTTP boundary требует local session token на все non-trivial
+endpoints и проверяет Origin для browser requests. Для `EventSource` допустим
+token в query string, потому что browser API не даёт ставить headers; для
+`fetch` используйте `X-Proteus-Session` или `Authorization: Bearer <token>`.
+Raw token не логировать и не хранить в `localStorage`; wrapper из
+`./install.sh` генерирует token на запуск и открывает web UI с redacted console
+output. Если web dev server запущен не на стандартном `1420`, добавьте его
+origin через `--allow-origin http://127.0.0.1:<port>`.
 
 App-server поддерживает control-plane reload для tools/config/MCP discovery:
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
