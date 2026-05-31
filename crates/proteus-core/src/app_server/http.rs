@@ -41,9 +41,9 @@ use super::{
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
 
-const SESSION_TOKEN_HEADER: &str = "x-proteus-session-token";
+const SESSION_TOKEN_HEADERS: [&str; 2] = ["x-proteus-session", "x-proteus-session-token"];
 const SESSION_TOKEN_QUERY: &str = "token";
-const SESSION_TOKEN_QUERY_ALIAS: &str = "session_token";
+const SESSION_TOKEN_QUERY_ALIASES: [&str; 3] = ["session", "session_token", "proteus_session"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpServerConfig {
@@ -182,10 +182,6 @@ pub async fn run_http_app_server(
     println!(
         "Proteus app-server HTTP listening on http://{}",
         listener.local_addr()?
-    );
-    println!(
-        "Proteus app-server HTTP session token: {}",
-        http_config.session_token
     );
     loop {
         tokio::select! {
@@ -464,17 +460,18 @@ fn is_allowed_origin(origin: &str, allowed_origins: &[String]) -> bool {
 }
 
 fn request_has_valid_token<B>(request: &Request<B>, security: &HttpSecurity) -> bool {
-    request
-        .headers()
-        .get(SESSION_TOKEN_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|token| token_matches(token, &security.session_token))
-        || request
+    SESSION_TOKEN_HEADERS.iter().any(|header| {
+        request
             .headers()
-            .get(AUTHORIZATION)
+            .get(*header)
             .and_then(|value| value.to_str().ok())
-            .and_then(bearer_token)
             .is_some_and(|token| token_matches(token, &security.session_token))
+    }) || request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(bearer_token)
+        .is_some_and(|token| token_matches(token, &security.session_token))
         || request
             .uri()
             .query()
@@ -493,7 +490,7 @@ fn bearer_token(value: &str) -> Option<&str> {
 fn query_has_valid_token(query: &str, expected: &str) -> bool {
     query.split('&').any(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        matches!(key, SESSION_TOKEN_QUERY | SESSION_TOKEN_QUERY_ALIAS)
+        (key == SESSION_TOKEN_QUERY || SESSION_TOKEN_QUERY_ALIASES.contains(&key))
             && token_matches(value, expected)
     })
 }
@@ -834,7 +831,7 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
     );
     headers.insert(
         "access-control-allow-headers",
-        "authorization, content-type, x-proteus-session-token"
+        "authorization, content-type, x-proteus-session, x-proteus-session-token"
             .parse()
             .expect("valid header"),
     );
@@ -904,7 +901,12 @@ mod tests {
         let security = test_security();
         let header_request = Request::builder()
             .uri("/config")
-            .header(SESSION_TOKEN_HEADER, "session-secret")
+            .header("x-proteus-session", "session-secret")
+            .body(())
+            .expect("request");
+        let legacy_header_request = Request::builder()
+            .uri("/config")
+            .header("x-proteus-session-token", "session-secret")
             .body(())
             .expect("request");
         let bearer_request = Request::builder()
@@ -920,11 +922,17 @@ mod tests {
             .uri("/events?session_token=session-secret")
             .body(())
             .expect("request");
+        let web_query_request = Request::builder()
+            .uri("/events?session=session-secret")
+            .body(())
+            .expect("request");
 
         assert!(request_has_valid_token(&header_request, &security));
+        assert!(request_has_valid_token(&legacy_header_request, &security));
         assert!(request_has_valid_token(&bearer_request, &security));
         assert!(request_has_valid_token(&query_request, &security));
         assert!(request_has_valid_token(&alias_query_request, &security));
+        assert!(request_has_valid_token(&web_query_request, &security));
     }
 
     #[test]
@@ -933,7 +941,7 @@ mod tests {
         let missing = Request::builder().uri("/config").body(()).expect("request");
         let invalid_header = Request::builder()
             .uri("/config")
-            .header(SESSION_TOKEN_HEADER, "wrong")
+            .header("x-proteus-session", "wrong")
             .body(())
             .expect("request");
         let invalid_bearer = Request::builder()
@@ -1012,7 +1020,7 @@ mod tests {
                 .headers()
                 .get("access-control-allow-headers")
                 .and_then(|value| value.to_str().ok()),
-            Some("authorization, content-type, x-proteus-session-token")
+            Some("authorization, content-type, x-proteus-session, x-proteus-session-token")
         );
     }
 
