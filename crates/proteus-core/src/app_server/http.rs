@@ -764,9 +764,11 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
     let server = state.current_server().await;
     let mut events = server.subscribe();
     let body = StreamBody::new(stream! {
+        yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
+
         if let Err(error) = server.start_session().await {
             let output = command_response(None, Err(error));
-            yield Ok::<Frame<Bytes>, Infallible>(Frame::data(encode_sse_output(&output)));
+            yield Ok(Frame::data(encode_sse_output(&output)));
             return;
         }
 
@@ -877,6 +879,8 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::core::AppConfig;
 
@@ -1187,6 +1191,41 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("*")
         );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn event_stream_flushes_initial_heartbeat() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/events?token=session-secret")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+
+        let mut body = response.into_body();
+        let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("SSE should flush a first frame")
+            .expect("SSE body should stay open")
+            .expect("SSE frame should be valid");
+        assert_eq!(
+            frame.data_ref().expect("heartbeat should be data"),
+            &Bytes::from_static(b": connected\n\n")
+        );
+        drop(body);
         server.shutdown().await;
     }
 

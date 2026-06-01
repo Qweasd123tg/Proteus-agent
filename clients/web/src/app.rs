@@ -150,6 +150,7 @@ pub(crate) fn App() -> impl IntoView {
             set_reasoning_enabled,
             set_effort,
             set_effort_options,
+            set_workspace_label,
         );
         load_transcript(set_messages, set_next_message_id, set_transport_status);
     }
@@ -1004,10 +1005,14 @@ fn load_runtime_settings(
     set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
+    set_workspace_label: WriteSignal<String>,
 ) {
     spawn_local(async move {
         match get_json::<Value>("/config").await {
             Ok(config) => {
+                if let Some(cwd) = config.get("cwd").and_then(Value::as_str) {
+                    set_workspace_label.set(cwd.to_owned());
+                }
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
                 }
