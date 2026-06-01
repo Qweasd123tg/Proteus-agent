@@ -110,7 +110,10 @@ fn collect_text(response: &CanonicalModelResponse) -> Vec<String> {
 
 impl FakeModelClient {
     fn complete_response(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
-        if let Some(result_text) = latest_tool_result_text(&request) {
+        let user_text = latest_user_text(&request).unwrap_or_default();
+        if latest_turn_input(&request) == LatestTurnInput::ToolResult
+            && let Some(result_text) = latest_tool_result_text(&request)
+        {
             let message = CanonicalMessage::text(
                 MessageRole::Assistant,
                 format!("Fake final answer after tool result:\n{result_text}"),
@@ -121,7 +124,6 @@ impl FakeModelClient {
             );
         }
 
-        let user_text = latest_user_text(&request).unwrap_or_default();
         // Trigger pattern `remember_fact <content>` emits a real tool call into
         // the remember_fact builtin. This lets integration tests exercise the
         // full tool-call round trip without depending on any tool that lives
@@ -197,6 +199,39 @@ impl FakeModelClient {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LatestTurnInput {
+    User,
+    ToolResult,
+    Other,
+}
+
+fn latest_turn_input(request: &CanonicalModelRequest) -> LatestTurnInput {
+    request
+        .messages
+        .iter()
+        .rev()
+        .find_map(|message| {
+            if message.role == MessageRole::User
+                && message
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, ContentPart::Text { .. }))
+            {
+                return Some(LatestTurnInput::User);
+            }
+            if message
+                .parts
+                .iter()
+                .any(|part| matches!(part, ContentPart::ToolResult { .. }))
+            {
+                return Some(LatestTurnInput::ToolResult);
+            }
+            None
+        })
+        .unwrap_or(LatestTurnInput::Other)
+}
+
 fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
     request
         .messages
@@ -259,7 +294,10 @@ fn parse_request_user_input_request(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model_standard::{CanonicalMessage, MessageRole, ModelStreamEvent};
+    use crate::{
+        domain::ToolResult,
+        model_standard::{CanonicalMessage, MessageRole, ModelStreamEvent},
+    };
     use futures_util::StreamExt;
 
     fn sample_request() -> CanonicalModelRequest {
@@ -347,5 +385,35 @@ mod tests {
             response.tool_calls[0].args["question"].as_str(),
             Some("Which smoke path should continue?")
         );
+    }
+
+    #[tokio::test]
+    async fn later_user_prompt_overrides_previous_tool_result() {
+        let client = FakeModelClient::default();
+        let previous_result = ToolResult::error(
+            new_call_id(),
+            "approval request could not be delivered to any app-server client",
+        );
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "x"),
+            vec![
+                CanonicalMessage::text(MessageRole::User, "remember_fact old"),
+                CanonicalMessage::new(
+                    MessageRole::Tool,
+                    vec![ContentPart::ToolResult {
+                        result: previous_result,
+                    }],
+                ),
+                CanonicalMessage::text(MessageRole::User, "request_user_input"),
+            ],
+        );
+        let mut stream = client.stream(request).await.unwrap();
+        let event = stream.next().await.unwrap().unwrap();
+        let response = match event {
+            ModelStreamEvent::Response { response } => response,
+            other => panic!("expected response event, got {other:?}"),
+        };
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "request_user_input");
     }
 }
