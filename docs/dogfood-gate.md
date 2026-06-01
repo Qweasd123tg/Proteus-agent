@@ -75,6 +75,62 @@ approve или deny действие
 Gate зелёный, если сценарий можно пройти без потери контроля над turn-ом и
 после него можно понять, где была боль.
 
+### Ручной UI Smoke
+
+Используйте этот чеклист, когда браузерную автоматику нельзя запустить
+надёжно. Он проверяет именно web/app-server loop, а не только HTTP endpoints.
+
+1. Запустить app-server с явным token и разрешённым origin:
+
+   ```bash
+   export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
+   proteus server http \
+     --port 8787 \
+     --token "$PROTEUS_SESSION_TOKEN" \
+     --allow-origin http://127.0.0.1:1420
+   ```
+
+2. В другом терминале запустить web-клиент:
+
+   ```bash
+   cd clients/web
+   trunk serve
+   ```
+
+3. Открыть UI с query token:
+
+   ```text
+   http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>
+   ```
+
+   Если открыть `http://127.0.0.1:1420/` без query token, ожидаемое поведение -
+   `waiting for session`, disconnected event stream и HTTP 401 на `/config` /
+   `/history`.
+
+4. Проверить, что в sidebar нет `waiting for session`, event stream подключён,
+   `/config` и `/history` не показывают HTTP 401.
+5. Отправить маленькую задачу, которая требует tool call и approval.
+6. Убедиться, что tool activity card меняет состояние во время выполнения.
+7. Approve один pending approval и дождаться продолжения turn-а.
+8. На отдельном approval выбрать deny и убедиться, что UI показывает понятную
+   ошибку или финальный ответ с отказом.
+9. В сценарии с `request_user_input` отправить typed answer из UI.
+10. Во время активного turn-а нажать cancel и проверить, что pending approval и
+    typed input очищены или переходят в понятное terminal-состояние.
+11. Открыть `Configs` и `Сессии`, проверить, что страницы загружаются без auth
+    errors и показывают текущую config/session информацию.
+12. После run-а выполнить readback:
+
+    ```bash
+    proteus doctor
+    proteus eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
+    ```
+
+Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
+turn-ом. Если задача сама провалилась, но UI сохранил transcript/event log и
+ясно показал причину, фиксируйте это как `failed` или `inconclusive` в
+postmortem, а не как блокер web/app-server boundary.
+
 ## Blocking Bugs
 
 Эти проблемы блокируют v0 dogfood и чинятся до polish:
