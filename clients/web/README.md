@@ -65,6 +65,15 @@ trunk serve
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.
 AppServer HTTP по примеру выше слушает `http://127.0.0.1:8787`.
+Откройте web-клиент с session token из первого терминала:
+
+```text
+http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>
+```
+
+Без query token клиент сможет загрузиться, но app-server отклонит `/events`,
+`/send`, approvals, typed input, cancel и страницы config/history как
+unauthorized.
 
 ## Граница
 
