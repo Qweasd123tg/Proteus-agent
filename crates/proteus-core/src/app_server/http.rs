@@ -459,9 +459,56 @@ fn bearer_token(value: &str) -> Option<&str> {
 fn query_has_valid_token(query: &str, expected: &str) -> bool {
     query.split('&').any(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode_query_value(value);
         (key == SESSION_TOKEN_QUERY || SESSION_TOKEN_QUERY_ALIASES.contains(&key))
-            && token_matches(value, expected)
+            && token_matches(value.as_ref(), expected)
     })
+}
+
+fn percent_decode_query_value(value: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut changed = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                if let Some(byte) = hex_pair(bytes[index + 1], bytes[index + 2]) {
+                    decoded.push(byte);
+                    changed = true;
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    if changed {
+        String::from_utf8(decoded)
+            .map(std::borrow::Cow::Owned)
+            .unwrap_or(std::borrow::Cow::Borrowed(value))
+    } else {
+        std::borrow::Cow::Borrowed(value)
+    }
+}
+
+fn hex_pair(high: u8, low: u8) -> Option<u8> {
+    Some(hex_digit(high)? << 4 | hex_digit(low)?)
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn token_matches(provided: &str, expected: &str) -> bool {
@@ -909,6 +956,20 @@ mod tests {
         assert!(request_has_valid_token(&query_request, &security));
         assert!(request_has_valid_token(&alias_query_request, &security));
         assert!(request_has_valid_token(&web_query_request, &security));
+    }
+
+    #[test]
+    fn token_auth_accepts_percent_encoded_event_source_query_token() {
+        let security = HttpSecurity {
+            session_token: Arc::from("session secret/%"),
+            allowed_origins: Arc::from(default_allowed_origins().into_boxed_slice()),
+        };
+        let request = Request::builder()
+            .uri("/events?token=session%20secret%2F%25")
+            .body(())
+            .expect("request");
+
+        assert!(request_has_valid_token(&request, &security));
     }
 
     #[test]

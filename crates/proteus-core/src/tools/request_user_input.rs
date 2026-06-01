@@ -308,7 +308,7 @@ fn format_user_input_response(answers: &HashMap<String, UserInputAnswer>) -> Str
         return "User did not provide answers.".to_owned();
     }
     let mut entries = answers.iter().collect::<Vec<_>>();
-    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    entries.sort_by_key(|(key, _)| *key);
     let summary = entries
         .into_iter()
         .map(|(question_id, answer)| {
