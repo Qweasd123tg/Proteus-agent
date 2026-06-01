@@ -12,7 +12,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full, StreamBody, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
-    body::{Frame, Incoming},
+    body::{Body, Frame},
     header::{AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, HeaderValue, ORIGIN},
     server::conn::http1,
     service::service_fn,
@@ -202,10 +202,14 @@ pub async fn run_http_app_server(
     Ok(())
 }
 
-async fn route_request(
+async fn route_request<B>(
     state: HttpAppState,
-    request: Request<Incoming>,
-) -> Result<HttpResponse, Infallible> {
+    request: Request<B>,
+) -> Result<HttpResponse, Infallible>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::fmt::Display,
+{
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let cors_origin = match validate_origin(&request, &state.security) {
@@ -242,13 +246,13 @@ async fn route_request(
             let transcript = state.current_server().await.transcript().await;
             json_response(StatusCode::OK, &transcript)
         }
-        (Method::POST, "/request") => match read_json::<StdioRequest>(request).await {
+        (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/send") => match read_json::<SendRequest>(request).await {
+        (Method::POST, "/send") => match read_json::<SendRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -262,7 +266,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/approval") => match read_json::<ApprovalRequest>(request).await {
+        (Method::POST, "/approval") => match read_json::<ApprovalRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -279,7 +283,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/user-input") => match read_json::<UserInputRequest>(request).await {
+        (Method::POST, "/user-input") => match read_json::<UserInputRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -294,7 +298,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/cancel") => match read_json::<CancelRequest>(request).await {
+        (Method::POST, "/cancel") => match read_json::<CancelRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -308,7 +312,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest>(request).await {
+        (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -322,7 +326,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/model") => match read_json::<SetModelRequest>(request).await {
+        (Method::POST, "/model") => match read_json::<SetModelRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -336,7 +340,8 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest>(request).await {
+        (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest, _>(request).await
+        {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -351,7 +356,7 @@ async fn route_request(
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
         (Method::POST, "/reasoning") => {
-            match read_json::<SetReasoningEnabledRequest>(request).await {
+            match read_json::<SetReasoningEnabledRequest, _>(request).await {
                 Ok(command) => {
                     let output = execute_app_request(
                         &state,
@@ -366,7 +371,7 @@ async fn route_request(
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }
-        (Method::POST, "/resume") => match read_json::<ResumeSessionRequest>(request).await {
+        (Method::POST, "/resume") => match read_json::<ResumeSessionRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
                 json_response(StatusCode::OK, &output)
@@ -550,7 +555,12 @@ fn default_allowed_origins() -> Vec<String> {
     ]
 }
 
-async fn read_json<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T> {
+async fn read_json<T, B>(request: Request<B>) -> Result<T>
+where
+    T: DeserializeOwned,
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::fmt::Display,
+{
     let bytes = request
         .into_body()
         .collect()
@@ -870,6 +880,10 @@ mod tests {
     use super::*;
     use crate::core::AppConfig;
 
+    fn empty_body() -> Full<Bytes> {
+        Full::new(Bytes::new())
+    }
+
     fn test_security() -> HttpSecurity {
         let mut allowed_origins = default_allowed_origins();
         allowed_origins.push("https://app.example.test".to_owned());
@@ -885,6 +899,15 @@ mod tests {
             builder = builder.header(ORIGIN, origin);
         }
         builder.body(()).expect("request")
+    }
+
+    async fn test_state() -> (HttpAppState, AppServerHandle) {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+        (state, server)
     }
 
     #[test]
@@ -1060,6 +1083,111 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("authorization, content-type, x-proteus-session, x-proteus-session-token")
         );
+    }
+
+    #[tokio::test]
+    async fn route_rejects_missing_token_before_dispatching_protected_endpoint() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_event_stream_without_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/events")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_mutating_endpoint_without_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/send")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_bad_origin_even_with_valid_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .header(ORIGIN, "https://evil.example.test")
+            .header("x-proteus-session", "session-secret")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        assert_ne!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("*")
+        );
+        server.shutdown().await;
     }
 
     #[tokio::test]
