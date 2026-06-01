@@ -151,8 +151,17 @@ pub(crate) fn App() -> impl IntoView {
             set_effort,
             set_effort_options,
             set_workspace_label,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
         );
-        load_transcript(set_messages, set_next_message_id, set_transport_status);
+        load_transcript(
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        );
     }
 
     connect_event_stream(
@@ -1006,6 +1015,10 @@ fn load_runtime_settings(
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
     set_workspace_label: WriteSignal<String>,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
         match get_json::<Value>("/config").await {
@@ -1060,13 +1073,21 @@ fn load_runtime_settings(
                 }
                 set_effort_options.set(effort_options);
             }
-            Err(_) => {}
+            Err(error) => report_error(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                "Config load failed",
+                error,
+            ),
         }
     });
 }
 
 fn load_transcript(
     set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
@@ -1089,9 +1110,14 @@ fn load_transcript(
                     set_messages.set(messages);
                 }
             }
-            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
-                "history load failed: {error}"
-            ))),
+            Err(error) => report_error(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                "History load failed",
+                error,
+            ),
         }
     });
 }
