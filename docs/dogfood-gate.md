@@ -87,7 +87,8 @@ Gate зелёный, если сценарий можно пройти без п
    proteus server http \
      --port 8787 \
      --token "$PROTEUS_SESSION_TOKEN" \
-     --allow-origin http://127.0.0.1:1420
+     --allow-origin http://127.0.0.1:1420 \
+     --allow-origin http://localhost:1420
    ```
 
 2. В другом терминале запустить web-клиент:
