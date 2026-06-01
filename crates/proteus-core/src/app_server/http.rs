@@ -879,11 +879,25 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, time::Duration};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        time::Duration,
+    };
+
+    use coding_workflow::CodingSingleLoopWorkflow;
+    use context_pack::SimpleContextBuilderPlugin;
+    use policy_pack::AskWritePolicyPlugin;
+    use proteus_contracts::{
+        abi_stable::sabi_trait::TD_Opaque,
+        contracts::Renderer_TO,
+        plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
+    };
+    use renderer_pack::PlainRendererPlugin;
+    use serde_json::Value;
 
     use super::*;
-    use crate::contracts::UserInputAnswer;
-    use crate::core::AppConfig;
+    use crate::contracts::{UserInputAnswer, UserInputRequest as ContractUserInputRequest};
+    use crate::core::{AppConfig, BuiltinModuleCatalog};
 
     fn empty_body() -> Full<Bytes> {
         Full::new(Bytes::new())
@@ -915,6 +929,71 @@ mod tests {
         (state, server)
     }
 
+    async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch_with_module_catalog(
+            dogfood_loop_config(),
+            cwd.path().to_path_buf(),
+            None,
+            dogfood_loop_catalog(),
+        )
+        .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+        (state, server)
+    }
+
+    fn dogfood_loop_config() -> AppConfig {
+        let mut config = AppConfig::default();
+        config.model.stream = false;
+        config.modules.workflow = "coding.single_loop".to_owned();
+        config.modules.context = "simple".to_owned();
+        config.modules.policy = "ask_write".to_owned();
+        config.modules.patch = "null".to_owned();
+        config.modules.renderer = "plain".to_owned();
+        config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
+        config.module_config.insert(
+            "policy".to_owned(),
+            BTreeMap::from([(
+                "ask_write".to_owned(),
+                json!({
+                    "ask_before": ["apply_patch"],
+                    "allow": ["request_user_input"],
+                }),
+            )]),
+        );
+        config
+    }
+
+    fn dogfood_loop_catalog() -> BuiltinModuleCatalog {
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog
+            .register_plugin_context_builder(
+                "simple",
+                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+            )
+            .expect("register test context builder");
+        catalog
+            .register_plugin_workflow(
+                "coding.single_loop",
+                PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
+            )
+            .expect("register test workflow");
+        catalog
+            .register_plugin_policy(
+                "ask_write",
+                PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
+            )
+            .expect("register test policy");
+        catalog
+            .register_plugin_renderer(
+                "plain",
+                Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
+            )
+            .expect("register test renderer");
+        catalog
+    }
+
     fn json_body(value: Value) -> Full<Bytes> {
         Full::new(Bytes::from(
             serde_json::to_vec(&value).expect("test JSON serializes"),
@@ -929,6 +1008,53 @@ mod tests {
             .expect("response body should collect")
             .to_bytes();
         serde_json::from_slice(&bytes).expect("response should be protocol JSON")
+    }
+
+    fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(value))
+            .expect("request")
+    }
+
+    async fn wait_for_approval_request(
+        event_rx: &mut broadcast::Receiver<AppServerEvent>,
+    ) -> crate::app_server::AppApprovalRequest {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+                .await
+                .expect("approval request event should arrive")
+                .expect("event stream should stay open");
+            match event {
+                AppServerEvent::ApprovalRequested { request } => return request,
+                AppServerEvent::Error { message } => {
+                    panic!("unexpected app-server error: {message}")
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn wait_for_user_input_request(
+        event_rx: &mut broadcast::Receiver<AppServerEvent>,
+    ) -> ContractUserInputRequest {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+                .await
+                .expect("user-input request event should arrive")
+                .expect("event stream should stay open");
+            match event {
+                AppServerEvent::UserInputRequested { request } => return request,
+                AppServerEvent::Error { message } => {
+                    panic!("unexpected app-server error: {message}")
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]
@@ -1495,6 +1621,165 @@ mod tests {
                 UserInputAnswer::new(vec!["small".to_owned()])
             )])
         );
+        assert!(server.pending_user_inputs.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_send_approval_loop_completes_after_http_approval() {
+        let (state, server) = dogfood_loop_state().await;
+        let mut event_rx = server.subscribe();
+        let send_state = state.clone();
+        let send_task = tokio::spawn(async move {
+            let request = authed_json_request(
+                "/send",
+                json!({
+                    "id": "turn-approval",
+                    "text": "apply_patch",
+                }),
+            );
+            route_request(send_state, request)
+                .await
+                .expect("send response")
+        });
+
+        let approval = wait_for_approval_request(&mut event_rx).await;
+        assert_eq!(approval.call.name, "apply_patch");
+        assert_eq!(
+            approval.tool_spec.as_ref().map(|spec| spec.name.as_str()),
+            Some("apply_patch")
+        );
+
+        let approval_response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/approval",
+                json!({
+                    "id": "approval-response",
+                    "approval_id": approval.approval_id,
+                    "approved": true,
+                    "note": "approved by route loop test",
+                    "cache": "exact_call",
+                }),
+            ),
+        )
+        .await
+        .expect("approval response");
+        assert_eq!(approval_response.status(), StatusCode::OK);
+        match response_output(approval_response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("approval-response"));
+                assert!(ok, "approval response should succeed: {error:?}");
+            }
+            other => panic!("expected approval response output, got {other:?}"),
+        }
+
+        let send_response = tokio::time::timeout(Duration::from_secs(2), send_task)
+            .await
+            .expect("send should finish after approval")
+            .expect("send task should join");
+        assert_eq!(send_response.status(), StatusCode::OK);
+        match response_output(send_response).await {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("turn-approval"));
+                assert!(ok, "send should succeed after approval: {error:?}");
+                let text = output
+                    .as_ref()
+                    .and_then(|value| value.get("text"))
+                    .and_then(Value::as_str)
+                    .expect("send output text");
+                assert!(text.contains("Fake final answer after tool result"));
+                assert!(text.contains("patch applier is disabled"));
+            }
+            other => panic!("expected send response output, got {other:?}"),
+        }
+        assert!(server.pending_approvals.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_send_user_input_loop_completes_after_http_response() {
+        let (state, server) = dogfood_loop_state().await;
+        let mut event_rx = server.subscribe();
+        let send_state = state.clone();
+        let send_task = tokio::spawn(async move {
+            let request = authed_json_request(
+                "/send",
+                json!({
+                    "id": "turn-input",
+                    "text": "request_user_input",
+                }),
+            );
+            route_request(send_state, request)
+                .await
+                .expect("send response")
+        });
+
+        let input = wait_for_user_input_request(&mut event_rx).await;
+        assert_eq!(input.questions.len(), 1);
+        assert_eq!(
+            input.questions[0].question,
+            "Which smoke path should continue?"
+        );
+
+        let input_response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/user-input",
+                json!({
+                    "id": "input-response",
+                    "request_id": input.request_id,
+                    "response": {
+                        "answers": {
+                            "Choice": {
+                                "answers": ["Approve"]
+                            }
+                        }
+                    }
+                }),
+            ),
+        )
+        .await
+        .expect("user-input response");
+        assert_eq!(input_response.status(), StatusCode::OK);
+        match response_output(input_response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("input-response"));
+                assert!(ok, "user-input response should succeed: {error:?}");
+            }
+            other => panic!("expected user-input response output, got {other:?}"),
+        }
+
+        let send_response = tokio::time::timeout(Duration::from_secs(2), send_task)
+            .await
+            .expect("send should finish after user input")
+            .expect("send task should join");
+        assert_eq!(send_response.status(), StatusCode::OK);
+        match response_output(send_response).await {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("turn-input"));
+                assert!(ok, "send should succeed after user input: {error:?}");
+                let text = output
+                    .as_ref()
+                    .and_then(|value| value.get("text"))
+                    .and_then(Value::as_str)
+                    .expect("send output text");
+                assert!(text.contains("Fake final answer after tool result"));
+                assert!(text.contains("User answered:"));
+                assert!(text.contains("Choice: Approve"));
+            }
+            other => panic!("expected send response output, got {other:?}"),
+        }
         assert!(server.pending_user_inputs.lock().await.is_empty());
         server.shutdown().await;
     }
