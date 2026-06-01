@@ -879,9 +879,10 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     use super::*;
+    use crate::contracts::UserInputAnswer;
     use crate::core::AppConfig;
 
     fn empty_body() -> Full<Bytes> {
@@ -912,6 +913,22 @@ mod tests {
         let (shutdown, _) = broadcast::channel(1);
         let state = HttpAppState::new(server.clone(), shutdown, test_security());
         (state, server)
+    }
+
+    fn json_body(value: Value) -> Full<Bytes> {
+        Full::new(Bytes::from(
+            serde_json::to_vec(&value).expect("test JSON serializes"),
+        ))
+    }
+
+    async fn response_output(response: HttpResponse) -> StdioOutput {
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("response body should collect")
+            .to_bytes();
+        serde_json::from_slice(&bytes).expect("response should be protocol JSON")
     }
 
     #[test]
@@ -1369,6 +1386,116 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(false)
         );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_approval_resolves_pending_request_with_auth_and_cors() {
+        let (state, server) = test_state().await;
+        let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
+        let approval_id = "approval-route".to_owned();
+        server
+            .pending_approvals
+            .lock()
+            .await
+            .insert(approval_id.clone(), approval_tx);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/approval")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(json!({
+                "id": "approval-1",
+                "approval_id": approval_id,
+                "approved": true,
+                "note": "route approval",
+                "cache": "exact_call",
+            })))
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        match response_output(response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("approval-1"));
+                assert!(ok, "approval response should succeed: {error:?}");
+            }
+            other => panic!("expected response output, got {other:?}"),
+        }
+
+        let approval = approval_rx.await.expect("approval should resolve");
+        assert!(approval.approved);
+        assert_eq!(approval.note.as_deref(), Some("route approval"));
+        assert_eq!(approval.cache, ApprovalCacheScope::ExactCall);
+        assert!(server.pending_approvals.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
+        let (state, server) = test_state().await;
+        let (input_tx, input_rx) = tokio::sync::oneshot::channel();
+        let request_id = "input-route".to_owned();
+        server
+            .pending_user_inputs
+            .lock()
+            .await
+            .insert(request_id.clone(), input_tx);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/user-input")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(json!({
+                "id": "input-1",
+                "request_id": request_id,
+                "response": {
+                    "answers": {
+                        "scope": {
+                            "answers": ["small"]
+                        }
+                    }
+                }
+            })))
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        match response_output(response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("input-1"));
+                assert!(ok, "user-input response should succeed: {error:?}");
+            }
+            other => panic!("expected response output, got {other:?}"),
+        }
+
+        let response = input_rx.await.expect("user input should resolve");
+        assert_eq!(
+            response.answers,
+            HashMap::from([(
+                "scope".to_owned(),
+                UserInputAnswer::new(vec!["small".to_owned()])
+            )])
+        );
+        assert!(server.pending_user_inputs.lock().await.is_empty());
         server.shutdown().await;
     }
 
