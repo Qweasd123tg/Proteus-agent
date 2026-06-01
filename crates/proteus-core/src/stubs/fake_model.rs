@@ -127,6 +127,40 @@ impl FakeModelClient {
         // full tool-call round trip without depending on any tool that lives
         // in a plugin. Historical "read_file <path>" trigger was retired when
         // file tools moved to the file-tools plugin.
+        if let Some(patch) = parse_apply_patch_request(&user_text) {
+            let call = ToolCall::new(new_call_id(), "apply_patch", json!({ "patch": patch }));
+            let message = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            );
+            return Ok(
+                CanonicalModelResponse::new(message, vec![call], FinishReason::ToolCalls)
+                    .with_provider_metadata(json!({"provider": "fake"})),
+            );
+        }
+        if let Some(question) = parse_request_user_input_request(&user_text) {
+            let call = ToolCall::new(
+                new_call_id(),
+                "request_user_input",
+                json!({
+                    "title": "Smoke input",
+                    "header": "Choice",
+                    "question": question,
+                    "options": [
+                        { "label": "Approve", "description": "approve the smoke request" },
+                        { "label": "Deny", "description": "deny the smoke request" }
+                    ]
+                }),
+            );
+            let message = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            );
+            return Ok(
+                CanonicalModelResponse::new(message, vec![call], FinishReason::ToolCalls)
+                    .with_provider_metadata(json!({"provider": "fake"})),
+            );
+        }
         if let Some(fact) = parse_remember_fact_request(&user_text) {
             let call = ToolCall::new(
                 new_call_id(),
@@ -197,6 +231,31 @@ fn parse_remember_fact_request(text: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn parse_apply_patch_request(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.eq_ignore_ascii_case("apply_patch")
+        || trimmed.starts_with("apply_patch ")
+        || trimmed.starts_with("apply_patch:")
+    {
+        Some("*** Begin Patch\n*** Add File: smoke.txt\n+smoke\n*** End Patch".to_owned())
+    } else {
+        None
+    }
+}
+
+fn parse_request_user_input_request(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.eq_ignore_ascii_case("request_user_input")
+        || trimmed.starts_with("request_user_input ")
+        || trimmed.starts_with("request_user_input:")
+        || trimmed.eq_ignore_ascii_case("ask_user_input")
+    {
+        Some("Which smoke path should continue?".to_owned())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +301,51 @@ mod tests {
         assert!(
             joined.contains("Fake final answer"),
             "joined deltas should contain the full response text, got {joined:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fake_model_triggers_apply_patch_tool_call() {
+        let client = FakeModelClient::default();
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "x"),
+            vec![CanonicalMessage::text(MessageRole::User, "apply_patch")],
+        );
+        let mut stream = client.stream(request).await.unwrap();
+        let event = stream.next().await.unwrap().unwrap();
+        let response = match event {
+            ModelStreamEvent::Response { response } => response,
+            other => panic!("expected response event, got {other:?}"),
+        };
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "apply_patch");
+        assert_eq!(
+            response.tool_calls[0].args["patch"].as_str(),
+            Some("*** Begin Patch\n*** Add File: smoke.txt\n+smoke\n*** End Patch")
+        );
+    }
+
+    #[tokio::test]
+    async fn fake_model_triggers_request_user_input_tool_call() {
+        let client = FakeModelClient::default();
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "x"),
+            vec![CanonicalMessage::text(
+                MessageRole::User,
+                "request_user_input",
+            )],
+        );
+        let mut stream = client.stream(request).await.unwrap();
+        let event = stream.next().await.unwrap().unwrap();
+        let response = match event {
+            ModelStreamEvent::Response { response } => response,
+            other => panic!("expected response event, got {other:?}"),
+        };
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "request_user_input");
+        assert_eq!(
+            response.tool_calls[0].args["question"].as_str(),
+            Some("Which smoke path should continue?")
         );
     }
 }
