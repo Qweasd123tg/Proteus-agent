@@ -92,7 +92,7 @@ pub(crate) fn App() -> impl IntoView {
 
     if session_token.is_missing() {
         set_transport_status.set(TransportStatus::Error(
-            "auth token missing from URL; launch Proteus through the wrapper".to_owned(),
+            missing_session_token_message().to_owned(),
         ));
     }
 
@@ -1136,6 +1136,10 @@ fn current_path() -> String {
         .unwrap_or_else(|| "/".to_owned())
 }
 
+fn missing_session_token_message() -> &'static str {
+    "auth token missing from URL; open /?session=<token> or launch Proteus through the wrapper"
+}
+
 fn load_i32_setting(key: &str, fallback: i32) -> i32 {
     window()
         .and_then(|window| window.local_storage().ok().flatten())
@@ -1195,4 +1199,17 @@ fn scroll_results_to_bottom(
 
 fn seed_messages() -> Vec<Message> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::missing_session_token_message;
+
+    #[test]
+    fn missing_session_token_message_points_to_query_token() {
+        let message = missing_session_token_message();
+
+        assert!(message.contains("/?session=<token>"));
+        assert!(message.contains("wrapper"));
+    }
 }
