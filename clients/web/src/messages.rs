@@ -10,13 +10,14 @@ pub(crate) fn report_error(
     prefix: &str,
     error: String,
 ) {
-    set_transport_status.set(TransportStatus::Error(error.clone()));
+    let message = format!("{prefix}: {error}");
+    set_transport_status.set(TransportStatus::Error(message.clone()));
     push_message(
         set_messages,
         next_message_id,
         set_next_message_id,
         MessageRole::System,
-        format!("{prefix}: {error}"),
+        message,
     );
 }
 

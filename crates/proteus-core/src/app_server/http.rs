@@ -12,7 +12,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full, StreamBody, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
-    body::{Frame, Incoming},
+    body::{Body, Frame},
     header::{AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, HeaderValue, ORIGIN},
     server::conn::http1,
     service::service_fn,
@@ -202,10 +202,14 @@ pub async fn run_http_app_server(
     Ok(())
 }
 
-async fn route_request(
+async fn route_request<B>(
     state: HttpAppState,
-    request: Request<Incoming>,
-) -> Result<HttpResponse, Infallible> {
+    request: Request<B>,
+) -> Result<HttpResponse, Infallible>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::fmt::Display,
+{
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let cors_origin = match validate_origin(&request, &state.security) {
@@ -242,13 +246,13 @@ async fn route_request(
             let transcript = state.current_server().await.transcript().await;
             json_response(StatusCode::OK, &transcript)
         }
-        (Method::POST, "/request") => match read_json::<StdioRequest>(request).await {
+        (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/send") => match read_json::<SendRequest>(request).await {
+        (Method::POST, "/send") => match read_json::<SendRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -262,7 +266,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/approval") => match read_json::<ApprovalRequest>(request).await {
+        (Method::POST, "/approval") => match read_json::<ApprovalRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -279,7 +283,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/user-input") => match read_json::<UserInputRequest>(request).await {
+        (Method::POST, "/user-input") => match read_json::<UserInputRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -294,7 +298,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/cancel") => match read_json::<CancelRequest>(request).await {
+        (Method::POST, "/cancel") => match read_json::<CancelRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -308,7 +312,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest>(request).await {
+        (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -322,7 +326,7 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/model") => match read_json::<SetModelRequest>(request).await {
+        (Method::POST, "/model") => match read_json::<SetModelRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -336,7 +340,8 @@ async fn route_request(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest>(request).await {
+        (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest, _>(request).await
+        {
             Ok(command) => {
                 let output = execute_app_request(
                     &state,
@@ -351,7 +356,7 @@ async fn route_request(
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
         (Method::POST, "/reasoning") => {
-            match read_json::<SetReasoningEnabledRequest>(request).await {
+            match read_json::<SetReasoningEnabledRequest, _>(request).await {
                 Ok(command) => {
                     let output = execute_app_request(
                         &state,
@@ -366,7 +371,7 @@ async fn route_request(
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }
-        (Method::POST, "/resume") => match read_json::<ResumeSessionRequest>(request).await {
+        (Method::POST, "/resume") => match read_json::<ResumeSessionRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
                 json_response(StatusCode::OK, &output)
@@ -459,9 +464,56 @@ fn bearer_token(value: &str) -> Option<&str> {
 fn query_has_valid_token(query: &str, expected: &str) -> bool {
     query.split('&').any(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode_query_value(value);
         (key == SESSION_TOKEN_QUERY || SESSION_TOKEN_QUERY_ALIASES.contains(&key))
-            && token_matches(value, expected)
+            && token_matches(value.as_ref(), expected)
     })
+}
+
+fn percent_decode_query_value(value: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut changed = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                if let Some(byte) = hex_pair(bytes[index + 1], bytes[index + 2]) {
+                    decoded.push(byte);
+                    changed = true;
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    if changed {
+        String::from_utf8(decoded)
+            .map(std::borrow::Cow::Owned)
+            .unwrap_or(std::borrow::Cow::Borrowed(value))
+    } else {
+        std::borrow::Cow::Borrowed(value)
+    }
+}
+
+fn hex_pair(high: u8, low: u8) -> Option<u8> {
+    Some(hex_digit(high)? << 4 | hex_digit(low)?)
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn token_matches(provided: &str, expected: &str) -> bool {
@@ -503,7 +555,12 @@ fn default_allowed_origins() -> Vec<String> {
     ]
 }
 
-async fn read_json<T: DeserializeOwned>(request: Request<Incoming>) -> Result<T> {
+async fn read_json<T, B>(request: Request<B>) -> Result<T>
+where
+    T: DeserializeOwned,
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::fmt::Display,
+{
     let bytes = request
         .into_body()
         .collect()
@@ -707,9 +764,11 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
     let server = state.current_server().await;
     let mut events = server.subscribe();
     let body = StreamBody::new(stream! {
+        yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
+
         if let Err(error) = server.start_session().await {
             let output = command_response(None, Err(error));
-            yield Ok::<Frame<Bytes>, Infallible>(Frame::data(encode_sse_output(&output)));
+            yield Ok(Frame::data(encode_sse_output(&output)));
             return;
         }
 
@@ -820,8 +879,29 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::{BTreeMap, HashMap},
+        time::Duration,
+    };
+
+    use coding_workflow::CodingSingleLoopWorkflow;
+    use context_pack::SimpleContextBuilderPlugin;
+    use policy_pack::AskWritePolicyPlugin;
+    use proteus_contracts::{
+        abi_stable::sabi_trait::TD_Opaque,
+        contracts::Renderer_TO,
+        plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
+    };
+    use renderer_pack::PlainRendererPlugin;
+    use serde_json::Value;
+
     use super::*;
-    use crate::core::AppConfig;
+    use crate::contracts::{UserInputAnswer, UserInputRequest as ContractUserInputRequest};
+    use crate::core::{AppConfig, BuiltinModuleCatalog};
+
+    fn empty_body() -> Full<Bytes> {
+        Full::new(Bytes::new())
+    }
 
     fn test_security() -> HttpSecurity {
         let mut allowed_origins = default_allowed_origins();
@@ -838,6 +918,143 @@ mod tests {
             builder = builder.header(ORIGIN, origin);
         }
         builder.body(()).expect("request")
+    }
+
+    async fn test_state() -> (HttpAppState, AppServerHandle) {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+            .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+        (state, server)
+    }
+
+    async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let server = AgentAppServer::launch_with_module_catalog(
+            dogfood_loop_config(),
+            cwd.path().to_path_buf(),
+            None,
+            dogfood_loop_catalog(),
+        )
+        .expect("app server");
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+        (state, server)
+    }
+
+    fn dogfood_loop_config() -> AppConfig {
+        let mut config = AppConfig::default();
+        config.model.stream = false;
+        config.modules.workflow = "coding.single_loop".to_owned();
+        config.modules.context = "simple".to_owned();
+        config.modules.policy = "ask_write".to_owned();
+        config.modules.patch = "null".to_owned();
+        config.modules.renderer = "plain".to_owned();
+        config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
+        config.module_config.insert(
+            "policy".to_owned(),
+            BTreeMap::from([(
+                "ask_write".to_owned(),
+                json!({
+                    "ask_before": ["apply_patch"],
+                    "allow": ["request_user_input"],
+                }),
+            )]),
+        );
+        config
+    }
+
+    fn dogfood_loop_catalog() -> BuiltinModuleCatalog {
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog
+            .register_plugin_context_builder(
+                "simple",
+                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
+            )
+            .expect("register test context builder");
+        catalog
+            .register_plugin_workflow(
+                "coding.single_loop",
+                PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
+            )
+            .expect("register test workflow");
+        catalog
+            .register_plugin_policy(
+                "ask_write",
+                PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
+            )
+            .expect("register test policy");
+        catalog
+            .register_plugin_renderer(
+                "plain",
+                Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
+            )
+            .expect("register test renderer");
+        catalog
+    }
+
+    fn json_body(value: Value) -> Full<Bytes> {
+        Full::new(Bytes::from(
+            serde_json::to_vec(&value).expect("test JSON serializes"),
+        ))
+    }
+
+    async fn response_output(response: HttpResponse) -> StdioOutput {
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("response body should collect")
+            .to_bytes();
+        serde_json::from_slice(&bytes).expect("response should be protocol JSON")
+    }
+
+    fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(value))
+            .expect("request")
+    }
+
+    async fn wait_for_approval_request(
+        event_rx: &mut broadcast::Receiver<AppServerEvent>,
+    ) -> crate::app_server::AppApprovalRequest {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+                .await
+                .expect("approval request event should arrive")
+                .expect("event stream should stay open");
+            match event {
+                AppServerEvent::ApprovalRequested { request } => return request,
+                AppServerEvent::Error { message } => {
+                    panic!("unexpected app-server error: {message}")
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn wait_for_user_input_request(
+        event_rx: &mut broadcast::Receiver<AppServerEvent>,
+    ) -> ContractUserInputRequest {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+                .await
+                .expect("user-input request event should arrive")
+                .expect("event stream should stay open");
+            match event {
+                AppServerEvent::UserInputRequested { request } => return request,
+                AppServerEvent::Error { message } => {
+                    panic!("unexpected app-server error: {message}")
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]
@@ -909,6 +1126,20 @@ mod tests {
         assert!(request_has_valid_token(&query_request, &security));
         assert!(request_has_valid_token(&alias_query_request, &security));
         assert!(request_has_valid_token(&web_query_request, &security));
+    }
+
+    #[test]
+    fn token_auth_accepts_percent_encoded_event_source_query_token() {
+        let security = HttpSecurity {
+            session_token: Arc::from("session secret/%"),
+            allowed_origins: Arc::from(default_allowed_origins().into_boxed_slice()),
+        };
+        let request = Request::builder()
+            .uri("/events?token=session%20secret%2F%25")
+            .body(())
+            .expect("request");
+
+        assert!(request_has_valid_token(&request, &security));
     }
 
     #[test]
@@ -999,6 +1230,146 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("authorization, content-type, x-proteus-session, x-proteus-session-token")
         );
+    }
+
+    #[tokio::test]
+    async fn route_rejects_missing_token_before_dispatching_protected_endpoint() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_event_stream_without_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/events")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_mutating_endpoint_without_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/send")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_rejects_bad_origin_even_with_valid_token() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .header(ORIGIN, "https://evil.example.test")
+            .header("x-proteus-session", "session-secret")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/config")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        assert_ne!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("*")
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn event_stream_flushes_initial_heartbeat() {
+        let (state, server) = test_state().await;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/events?token=session-secret")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .body(empty_body())
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+
+        let mut body = response.into_body();
+        let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("SSE should flush a first frame")
+            .expect("SSE body should stay open")
+            .expect("SSE frame should be valid");
+        assert_eq!(
+            frame.data_ref().expect("heartbeat should be data"),
+            &Bytes::from_static(b": connected\n\n")
+        );
+        drop(body);
+        server.shutdown().await;
     }
 
     #[tokio::test]
@@ -1141,6 +1512,275 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(false)
         );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_approval_resolves_pending_request_with_auth_and_cors() {
+        let (state, server) = test_state().await;
+        let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
+        let approval_id = "approval-route".to_owned();
+        server
+            .pending_approvals
+            .lock()
+            .await
+            .insert(approval_id.clone(), approval_tx);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/approval")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(json!({
+                "id": "approval-1",
+                "approval_id": approval_id,
+                "approved": true,
+                "note": "route approval",
+                "cache": "exact_call",
+            })))
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        match response_output(response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("approval-1"));
+                assert!(ok, "approval response should succeed: {error:?}");
+            }
+            other => panic!("expected response output, got {other:?}"),
+        }
+
+        let approval = approval_rx.await.expect("approval should resolve");
+        assert!(approval.approved);
+        assert_eq!(approval.note.as_deref(), Some("route approval"));
+        assert_eq!(approval.cache, ApprovalCacheScope::ExactCall);
+        assert!(server.pending_approvals.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
+        let (state, server) = test_state().await;
+        let (input_tx, input_rx) = tokio::sync::oneshot::channel();
+        let request_id = "input-route".to_owned();
+        server
+            .pending_user_inputs
+            .lock()
+            .await
+            .insert(request_id.clone(), input_tx);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/user-input")
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .header(CONTENT_TYPE, "application/json")
+            .body(json_body(json!({
+                "id": "input-1",
+                "request_id": request_id,
+                "response": {
+                    "answers": {
+                        "scope": {
+                            "answers": ["small"]
+                        }
+                    }
+                }
+            })))
+            .expect("request");
+
+        let response = route_request(state, request).await.expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        match response_output(response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("input-1"));
+                assert!(ok, "user-input response should succeed: {error:?}");
+            }
+            other => panic!("expected response output, got {other:?}"),
+        }
+
+        let response = input_rx.await.expect("user input should resolve");
+        assert_eq!(
+            response.answers,
+            HashMap::from([(
+                "scope".to_owned(),
+                UserInputAnswer::new(vec!["small".to_owned()])
+            )])
+        );
+        assert!(server.pending_user_inputs.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_send_approval_loop_completes_after_http_approval() {
+        let (state, server) = dogfood_loop_state().await;
+        let mut event_rx = server.subscribe();
+        let send_state = state.clone();
+        let send_task = tokio::spawn(async move {
+            let request = authed_json_request(
+                "/send",
+                json!({
+                    "id": "turn-approval",
+                    "text": "apply_patch",
+                }),
+            );
+            route_request(send_state, request)
+                .await
+                .expect("send response")
+        });
+
+        let approval = wait_for_approval_request(&mut event_rx).await;
+        assert_eq!(approval.call.name, "apply_patch");
+        assert_eq!(
+            approval.tool_spec.as_ref().map(|spec| spec.name.as_str()),
+            Some("apply_patch")
+        );
+
+        let approval_response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/approval",
+                json!({
+                    "id": "approval-response",
+                    "approval_id": approval.approval_id,
+                    "approved": true,
+                    "note": "approved by route loop test",
+                    "cache": "exact_call",
+                }),
+            ),
+        )
+        .await
+        .expect("approval response");
+        assert_eq!(approval_response.status(), StatusCode::OK);
+        match response_output(approval_response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("approval-response"));
+                assert!(ok, "approval response should succeed: {error:?}");
+            }
+            other => panic!("expected approval response output, got {other:?}"),
+        }
+
+        let send_response = tokio::time::timeout(Duration::from_secs(2), send_task)
+            .await
+            .expect("send should finish after approval")
+            .expect("send task should join");
+        assert_eq!(send_response.status(), StatusCode::OK);
+        match response_output(send_response).await {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("turn-approval"));
+                assert!(ok, "send should succeed after approval: {error:?}");
+                let text = output
+                    .as_ref()
+                    .and_then(|value| value.get("text"))
+                    .and_then(Value::as_str)
+                    .expect("send output text");
+                assert!(text.contains("Fake final answer after tool result"));
+                assert!(text.contains("patch applier is disabled"));
+            }
+            other => panic!("expected send response output, got {other:?}"),
+        }
+        assert!(server.pending_approvals.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_send_user_input_loop_completes_after_http_response() {
+        let (state, server) = dogfood_loop_state().await;
+        let mut event_rx = server.subscribe();
+        let send_state = state.clone();
+        let send_task = tokio::spawn(async move {
+            let request = authed_json_request(
+                "/send",
+                json!({
+                    "id": "turn-input",
+                    "text": "request_user_input",
+                }),
+            );
+            route_request(send_state, request)
+                .await
+                .expect("send response")
+        });
+
+        let input = wait_for_user_input_request(&mut event_rx).await;
+        assert_eq!(input.questions.len(), 1);
+        assert_eq!(
+            input.questions[0].question,
+            "Which smoke path should continue?"
+        );
+
+        let input_response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/user-input",
+                json!({
+                    "id": "input-response",
+                    "request_id": input.request_id,
+                    "response": {
+                        "answers": {
+                            "Choice": {
+                                "answers": ["Approve"]
+                            }
+                        }
+                    }
+                }),
+            ),
+        )
+        .await
+        .expect("user-input response");
+        assert_eq!(input_response.status(), StatusCode::OK);
+        match response_output(input_response).await {
+            StdioOutput::Response { id, ok, error, .. } => {
+                assert_eq!(id.as_deref(), Some("input-response"));
+                assert!(ok, "user-input response should succeed: {error:?}");
+            }
+            other => panic!("expected user-input response output, got {other:?}"),
+        }
+
+        let send_response = tokio::time::timeout(Duration::from_secs(2), send_task)
+            .await
+            .expect("send should finish after user input")
+            .expect("send task should join");
+        assert_eq!(send_response.status(), StatusCode::OK);
+        match response_output(send_response).await {
+            StdioOutput::Response {
+                id,
+                ok,
+                output,
+                error,
+            } => {
+                assert_eq!(id.as_deref(), Some("turn-input"));
+                assert!(ok, "send should succeed after user input: {error:?}");
+                let text = output
+                    .as_ref()
+                    .and_then(|value| value.get("text"))
+                    .and_then(Value::as_str)
+                    .expect("send output text");
+                assert!(text.contains("Fake final answer after tool result"));
+                assert!(text.contains("User answered:"));
+                assert!(text.contains("Choice: Approve"));
+            }
+            other => panic!("expected send response output, got {other:?}"),
+        }
+        assert!(server.pending_user_inputs.lock().await.is_empty());
         server.shutdown().await;
     }
 

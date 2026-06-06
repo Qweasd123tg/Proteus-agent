@@ -586,12 +586,24 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 
 ```text
 *** Begin Patch
+*** Add File: notes.txt
++first line
++second line
 *** Update File: src/main.rs
 @@
 -old line
 +new line
+*** Update File: old-name.txt
+*** Move to: new-name.txt
+@@
+ existing line
+*** Delete File: obsolete.txt
 *** End Patch
 ```
+
+Это не unified diff. Заголовки `diff --git`, `--- a/file`, `+++ b/file`,
+hunks вида `@@ -1,4 +1,5 @@` и команды вроде `replace file:2-3` direct patcher
+сейчас отклоняет как unsupported patch header.
 
 ## Search
 

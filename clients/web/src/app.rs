@@ -92,7 +92,7 @@ pub(crate) fn App() -> impl IntoView {
 
     if session_token.is_missing() {
         set_transport_status.set(TransportStatus::Error(
-            "auth token missing from URL; launch Proteus through the wrapper".to_owned(),
+            missing_session_token_message().to_owned(),
         ));
     }
 
@@ -150,8 +150,18 @@ pub(crate) fn App() -> impl IntoView {
             set_reasoning_enabled,
             set_effort,
             set_effort_options,
+            set_workspace_label,
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
         );
-        load_transcript(set_messages, set_next_message_id, set_transport_status);
+        load_transcript(
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        );
     }
 
     connect_event_stream(
@@ -1004,10 +1014,18 @@ fn load_runtime_settings(
     set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
+    set_workspace_label: WriteSignal<String>,
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
         match get_json::<Value>("/config").await {
             Ok(config) => {
+                if let Some(cwd) = config.get("cwd").and_then(Value::as_str) {
+                    set_workspace_label.set(cwd.to_owned());
+                }
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
                 }
@@ -1055,13 +1073,21 @@ fn load_runtime_settings(
                 }
                 set_effort_options.set(effort_options);
             }
-            Err(_) => {}
+            Err(error) => report_error(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                "Config load failed",
+                error,
+            ),
         }
     });
 }
 
 fn load_transcript(
     set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
@@ -1084,9 +1110,14 @@ fn load_transcript(
                     set_messages.set(messages);
                 }
             }
-            Err(error) => set_transport_status.set(TransportStatus::Error(format!(
-                "history load failed: {error}"
-            ))),
+            Err(error) => report_error(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                "History load failed",
+                error,
+            ),
         }
     });
 }
@@ -1103,6 +1134,10 @@ fn current_path() -> String {
     window()
         .and_then(|window| window.location().pathname().ok())
         .unwrap_or_else(|| "/".to_owned())
+}
+
+fn missing_session_token_message() -> &'static str {
+    "auth token missing from URL; open /?session=<token> or launch Proteus through the wrapper"
 }
 
 fn load_i32_setting(key: &str, fallback: i32) -> i32 {
@@ -1164,4 +1199,17 @@ fn scroll_results_to_bottom(
 
 fn seed_messages() -> Vec<Message> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::missing_session_token_message;
+
+    #[test]
+    fn missing_session_token_message_points_to_query_token() {
+        let message = missing_session_token_message();
+
+        assert!(message.contains("/?session=<token>"));
+        assert!(message.contains("wrapper"));
+    }
 }

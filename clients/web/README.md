@@ -53,7 +53,8 @@ export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
 cargo run --bin proteus -- server http \
   --port 8787 \
   --token "$PROTEUS_SESSION_TOKEN" \
-  --allow-origin http://127.0.0.1:1420
+  --allow-origin http://127.0.0.1:1420 \
+  --allow-origin http://localhost:1420
 ```
 
 В другом терминале:
@@ -65,6 +66,15 @@ trunk serve
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.
 AppServer HTTP по примеру выше слушает `http://127.0.0.1:8787`.
+Откройте web-клиент с session token из первого терминала:
+
+```text
+http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>
+```
+
+Без query token клиент сможет загрузиться, но app-server отклонит `/events`,
+`/send`, approvals, typed input, cancel и страницы config/history как
+unauthorized.
 
 ## Граница
 
