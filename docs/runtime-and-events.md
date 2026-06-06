@@ -12,8 +12,7 @@ cargo run --bin proteus -- --interactive
 ```
 
 Интерактивный режим использует line REPL. Визуальные клиенты не входят в этот
-
-binary и должны  подключаться отдельным процессом через app-server transport.
+binary и должны подключаться отдельным процессом через app-server transport.
 
 Одна задача:
 
