@@ -27,6 +27,36 @@ use crate::{
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct PluginContributions {
+    pub modules: Vec<ModuleContribution>,
+    pub tools: Vec<ToolContribution>,
+    pub context_providers: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModuleContribution {
+    pub slot: String,
+    pub id: String,
+    pub description: Option<String>,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolContribution {
+    pub name: String,
+    pub description: String,
+    pub safety: String,
+    pub input_schema: serde_json::Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModuleCatalogEntrySummary {
+    pub slot: String,
+    pub id: String,
+    pub manifest: ModuleManifest,
+}
+
 pub struct ModuleBuildContext<'a> {
     pub config: &'a AppConfig,
     pub cwd: &'a Path,
@@ -300,6 +330,55 @@ impl BuiltinModuleCatalog {
         self.plugin_tools.truncate(checkpoint.plugin_tools_len);
         self.plugin_context_providers
             .truncate(checkpoint.plugin_context_providers_len);
+    }
+
+    pub(crate) fn contributions_since(
+        &self,
+        checkpoint: &ModuleCatalogCheckpoint,
+    ) -> PluginContributions {
+        let mut modules = self
+            .entries
+            .iter()
+            .filter(|(key, _)| !checkpoint.entry_keys.contains(key))
+            .map(|((slot, id), entry)| ModuleContribution {
+                slot: slot.to_string(),
+                id: id.clone(),
+                description: entry.manifest.description.clone(),
+                capabilities: entry.manifest.capabilities.clone(),
+            })
+            .collect::<Vec<_>>();
+        modules.sort_by(|left, right| {
+            left.slot
+                .cmp(&right.slot)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+
+        let mut tools = self.plugin_tools[checkpoint.plugin_tools_len..]
+            .iter()
+            .map(|tool| {
+                let spec = tool.spec();
+                ToolContribution {
+                    name: spec.name,
+                    description: spec.description,
+                    safety: format!("{:?}", spec.safety),
+                    input_schema: spec.input_schema,
+                }
+            })
+            .collect::<Vec<_>>();
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let mut context_providers = self.plugin_context_providers
+            [checkpoint.plugin_context_providers_len..]
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        context_providers.sort();
+
+        PluginContributions {
+            modules,
+            tools,
+            context_providers,
+        }
     }
 
     /// Регистрирует Tool от плагина.
@@ -871,6 +950,24 @@ impl BuiltinModuleCatalog {
         manifests
     }
 
+    pub fn entry_summaries(&self) -> Vec<ModuleCatalogEntrySummary> {
+        let mut entries = self
+            .entries
+            .iter()
+            .map(|((slot, id), entry)| ModuleCatalogEntrySummary {
+                slot: slot.to_string(),
+                id: id.clone(),
+                manifest: entry.manifest.clone(),
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            left.slot
+                .cmp(&right.slot)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        entries
+    }
+
     pub fn manifests_by_kind(&self, kind: ModuleKind) -> Vec<ModuleManifest> {
         self.manifests()
             .into_iter()
@@ -1327,5 +1424,31 @@ mod tests {
                 .to_string()
                 .contains("plugin tool 'hello' is already registered")
         );
+    }
+
+    #[test]
+    fn contributions_since_reports_plugin_registered_items() {
+        let mut catalog = BuiltinModuleCatalog::new();
+        let checkpoint = catalog.checkpoint();
+
+        catalog
+            .register_plugin_context_provider("repo-notes", context_provider())
+            .unwrap();
+        catalog
+            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .unwrap();
+        catalog
+            .register_plugin_tool(plugin_tool("inspect_me"))
+            .unwrap();
+
+        let contributions = catalog.contributions_since(&checkpoint);
+
+        assert_eq!(contributions.context_providers, vec!["repo-notes"]);
+        assert_eq!(contributions.modules.len(), 1);
+        assert_eq!(contributions.modules[0].slot, "memory_policy");
+        assert_eq!(contributions.modules[0].id, "carry_forward");
+        assert_eq!(contributions.tools.len(), 1);
+        assert_eq!(contributions.tools[0].name, "inspect_me");
+        assert_eq!(contributions.tools[0].safety, "ReadOnly");
     }
 }
