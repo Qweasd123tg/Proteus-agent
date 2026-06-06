@@ -12,6 +12,8 @@ pub mod registry;
 pub mod runtime;
 pub mod session_store;
 pub mod tool_orchestrator;
+pub mod topology;
+pub mod topology_render;
 pub mod user_input;
 
 pub use approval::*;
@@ -27,4 +29,6 @@ pub use registry::*;
 pub use runtime::*;
 pub use session_store::*;
 pub use tool_orchestrator::*;
+pub use topology::*;
+pub use topology_render::*;
 pub use user_input::*;

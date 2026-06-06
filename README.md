@@ -17,6 +17,7 @@ Rust-first coding-agent harness с dylib плагинами.
 
 Высокоуровневая архитектура: [docs/architecture.md](docs/architecture.md).
 Плагинная система: [docs/plugin-architecture.md](docs/plugin-architecture.md).
+Runtime topology и diagnostic reports: [docs/inspect.md](docs/inspect.md).
 
 ## Структура репо
 
@@ -121,6 +122,8 @@ cargo run --bin proteus -- "describe the project layout"
 cargo run --bin proteus -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
+# посмотреть active slots, plugin contributions и tool topology
+cargo run --bin proteus -- inspect topology --format markdown
 # собрать первичный eval-отчёт по durable event log
 cargo run --bin proteus -- eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
 ```
@@ -135,6 +138,12 @@ cargo run --bin proteus -- eval report "$HOME/.config/Proteus-agent/.proteus/eve
 approvals, usage tokens, duration, changed files и failure reason. Это первый
 слой eval harness поверх runtime events; он не запускает модель и не меняет
 рабочее дерево.
+
+`inspect topology` строит `TopologySnapshot` без model request: active slots,
+module source, plugin load status/contributions, registered tools,
+plugin-provided disabled tools, Mermaid graph и warnings. HTTP app-server
+отдаёт тот же snapshot через `GET /inspect/topology` и Mermaid через
+`GET /inspect/topology.mmd`.
 
 ### Экспериментальный web client
 

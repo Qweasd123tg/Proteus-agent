@@ -18,7 +18,8 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        PendingApproval, PendingUserInput, RuntimeReloadReport, config_store_root,
+        ModuleCatalogEntrySummary, PendingApproval, PendingUserInput, RuntimeReloadReport,
+        TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
         list_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, new_thread_id},
@@ -54,6 +55,7 @@ pub struct AppServerHandle {
     config: Arc<RwLock<AppConfig>>,
     config_path: Option<PathBuf>,
     cwd: PathBuf,
+    catalog_entries: Arc<RwLock<Vec<ModuleCatalogEntrySummary>>>,
     plugin_reports: Arc<RwLock<Vec<crate::core::PluginLoadReport>>>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
@@ -191,6 +193,25 @@ impl AppServerHandle {
         })
     }
 
+    pub async fn topology_snapshot(&self) -> TopologySnapshot {
+        let mode = self.permission_mode().await;
+        let module_epoch = self.runtime.module_epoch().await;
+        let config = self.config.read().await.clone();
+        let tools = self.runtime.tool_entries().await;
+        let plugin_reports = self.plugin_reports.read().await;
+        let catalog_entries = self.catalog_entries.read().await;
+        build_topology_snapshot(TopologyBuildInput {
+            config: &config,
+            config_path: self.config_path.as_deref(),
+            cwd: &self.cwd,
+            catalog_entries: &catalog_entries,
+            tools: &tools,
+            plugin_reports: &plugin_reports,
+            module_epoch,
+            permission_mode: mode,
+        })
+    }
+
     pub fn session_summaries(&self) -> Result<Vec<crate::core::SessionSummary>> {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(Vec::new());
@@ -276,10 +297,12 @@ impl AppServerHandle {
 
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
-        let (registry, plugin_reports) = build_registry_and_plugin_reports(&config, &self.cwd)?;
+        let (registry, plugin_reports, catalog_entries) =
+            build_registry_and_plugin_reports(&config, &self.cwd)?;
         let report = self.runtime.reload_registry(registry).await?;
         *self.config.write().await = config;
         *self.plugin_reports.write().await = plugin_reports;
+        *self.catalog_entries.write().await = catalog_entries;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,
             new_epoch: report.new_epoch,
@@ -371,11 +394,15 @@ impl AgentAppServer {
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
-        let (module_catalog, plugin_reports) = match module_catalog {
-            Some(catalog) => (Some(catalog), Vec::new()),
+        let (module_catalog, plugin_reports, catalog_entries) = match module_catalog {
+            Some(catalog) => {
+                let catalog_entries = catalog.entry_summaries();
+                (Some(catalog), Vec::new(), catalog_entries)
+            }
             None => {
                 let (catalog, reports) = load_module_catalog_with_reports();
-                (Some(catalog), reports)
+                let catalog_entries = catalog.entry_summaries();
+                (Some(catalog), reports, catalog_entries)
             }
         };
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
@@ -434,6 +461,7 @@ impl AgentAppServer {
             config: config_snapshot,
             config_path: config_path_snapshot,
             cwd: cwd_snapshot,
+            catalog_entries: Arc::new(RwLock::new(catalog_entries)),
             plugin_reports: Arc::new(RwLock::new(plugin_reports)),
             events,
             pending_approvals,
@@ -469,10 +497,12 @@ fn build_registry_and_plugin_reports(
 ) -> Result<(
     crate::core::BuiltinRegistry,
     Vec<crate::core::PluginLoadReport>,
+    Vec<ModuleCatalogEntrySummary>,
 )> {
     let (catalog, reports) = load_module_catalog_with_reports();
+    let catalog_entries = catalog.entry_summaries();
     let registry = crate::core::BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), catalog)?;
-    Ok((registry, reports))
+    Ok((registry, reports, catalog_entries))
 }
 
 fn render_config_summary(

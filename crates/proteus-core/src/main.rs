@@ -21,7 +21,9 @@ use proteus_core::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
-        ModuleBuildContext, normalize_session_dir_path, session_id_from_session_dir,
+        ModuleBuildContext, ModuleEpoch, TopologyBuildInput, build_topology_snapshot,
+        normalize_session_dir_path, render_topology_markdown, render_topology_mermaid,
+        render_topology_table, session_id_from_session_dir,
     },
 };
 use serde_json::Value;
@@ -110,6 +112,16 @@ async fn main() -> Result<()> {
 
     let mut config = AppConfig::load(cli.config.as_deref()).await?;
     config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
+    if let Some(format) = parse_inspect_topology_command(&cli.task)? {
+        let snapshot = build_cli_topology(
+            &config,
+            config_path.as_deref(),
+            &cwd,
+            config.permissions.mode,
+        )?;
+        println!("{}", render_inspect_topology(&snapshot, format)?);
+        return Ok(());
+    }
     if is_tools_list_command(&cli.task) {
         let registry = build_tool_registry_for_listing(&config, &cwd)?;
         println!("{}", render_tool_list(&registry));
@@ -239,6 +251,68 @@ fn parse_app_server_http_command(task: &[String]) -> Result<Option<HttpServerCon
 
 fn app_server_http_usage() -> &'static str {
     "usage: proteus server http [--host <ip>] [--port <port>] [--token <token>] [--allow-origin <origin>]"
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InspectTopologyFormat {
+    Table,
+    Json,
+    Markdown,
+    Mermaid,
+}
+
+fn parse_inspect_topology_command(task: &[String]) -> Result<Option<InspectTopologyFormat>> {
+    let [namespace, rest @ ..] = task else {
+        return Ok(None);
+    };
+    if namespace != "inspect" {
+        return Ok(None);
+    }
+
+    match rest {
+        [] => Ok(Some(InspectTopologyFormat::Markdown)),
+        [command, args @ ..] if command == "topology" => {
+            Ok(Some(parse_inspect_topology_format(args)?))
+        }
+        _ => bail!("{}", inspect_topology_usage()),
+    }
+}
+
+fn parse_inspect_topology_format(args: &[String]) -> Result<InspectTopologyFormat> {
+    let mut format = InspectTopologyFormat::Markdown;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--format" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", inspect_topology_usage()))?;
+                format = inspect_topology_format_value(value)?;
+            }
+            value if value.starts_with("--format=") => {
+                let value = value
+                    .strip_prefix("--format=")
+                    .expect("starts_with checked");
+                format = inspect_topology_format_value(value)?;
+            }
+            _ => bail!("{}", inspect_topology_usage()),
+        }
+    }
+    Ok(format)
+}
+
+fn inspect_topology_format_value(value: &str) -> Result<InspectTopologyFormat> {
+    match value {
+        "table" => Ok(InspectTopologyFormat::Table),
+        "json" => Ok(InspectTopologyFormat::Json),
+        "markdown" | "md" => Ok(InspectTopologyFormat::Markdown),
+        "mermaid" | "mmd" => Ok(InspectTopologyFormat::Mermaid),
+        _ => bail!("unknown topology format '{value}', expected table, json, markdown, or mermaid"),
+    }
+}
+
+fn inspect_topology_usage() -> &'static str {
+    "usage: proteus inspect [topology] [--format table|json|markdown|mermaid]"
 }
 
 fn is_doctor_command(task: &[String]) -> bool {
@@ -980,6 +1054,52 @@ fn build_tool_registry_for_listing(
     catalog.build_tools(&build_ctx, search, patch, memory)
 }
 
+fn build_cli_topology(
+    config: &AppConfig,
+    config_path: Option<&std::path::Path>,
+    cwd: &std::path::Path,
+    permission_mode: PermissionMode,
+) -> Result<proteus_core::core::TopologySnapshot> {
+    let mut catalog = BuiltinModuleCatalog::new();
+    let plugin_reports = proteus_core::core::default_plugins_dir()
+        .map(|plugins_dir| proteus_core::core::load_plugins_from_dir(&plugins_dir, &mut catalog))
+        .unwrap_or_default();
+    let catalog_entries = catalog.entry_summaries();
+    let build_ctx = ModuleBuildContext {
+        config,
+        cwd,
+        context_providers: catalog.context_providers(),
+    };
+    let search = catalog.build_search(&config.modules.search, &build_ctx)?;
+    let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
+    let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
+    let tools = catalog.build_tools(&build_ctx, search, patch, memory)?;
+    let tool_entries = tools.entries();
+
+    Ok(build_topology_snapshot(TopologyBuildInput {
+        config,
+        config_path,
+        cwd,
+        catalog_entries: &catalog_entries,
+        tools: &tool_entries,
+        plugin_reports: &plugin_reports,
+        module_epoch: ModuleEpoch::initial(),
+        permission_mode,
+    }))
+}
+
+fn render_inspect_topology(
+    snapshot: &proteus_core::core::TopologySnapshot,
+    format: InspectTopologyFormat,
+) -> Result<String> {
+    match format {
+        InspectTopologyFormat::Table => Ok(render_topology_table(snapshot)),
+        InspectTopologyFormat::Json => serde_json::to_string_pretty(snapshot).map_err(Into::into),
+        InspectTopologyFormat::Markdown => Ok(render_topology_markdown(snapshot)),
+        InspectTopologyFormat::Mermaid => Ok(render_topology_mermaid(snapshot)),
+    }
+}
+
 fn render_tool_list(registry: &proteus_core::contracts::ToolRegistry) -> String {
     let rows = registry
         .entries()
@@ -1559,6 +1679,45 @@ mod tests {
             "list".to_owned(),
             "extra".to_owned()
         ]));
+    }
+
+    #[test]
+    fn inspect_topology_command_parses_default_and_formats() {
+        assert_eq!(
+            parse_inspect_topology_command(&["inspect".to_owned()])
+                .expect("parse")
+                .expect("inspect command"),
+            InspectTopologyFormat::Markdown
+        );
+        assert_eq!(
+            parse_inspect_topology_command(&[
+                "inspect".to_owned(),
+                "topology".to_owned(),
+                "--format".to_owned(),
+                "json".to_owned(),
+            ])
+            .expect("parse")
+            .expect("inspect command"),
+            InspectTopologyFormat::Json
+        );
+        assert_eq!(
+            parse_inspect_topology_command(&[
+                "inspect".to_owned(),
+                "topology".to_owned(),
+                "--format=mermaid".to_owned(),
+            ])
+            .expect("parse")
+            .expect("inspect command"),
+            InspectTopologyFormat::Mermaid
+        );
+        assert!(
+            parse_inspect_topology_command(&["inspect".to_owned(), "plugins".to_owned()]).is_err()
+        );
+        assert!(
+            parse_inspect_topology_command(&["doctor".to_owned()])
+                .expect("parse")
+                .is_none()
+        );
     }
 
     #[test]

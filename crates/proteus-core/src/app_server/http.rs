@@ -29,7 +29,7 @@ use tokio::{
 
 use crate::{
     contracts::CancellationToken,
-    core::AppConfig,
+    core::{AppConfig, render_topology_mermaid},
     domain::{AgentOutput, PermissionMode},
 };
 
@@ -237,6 +237,14 @@ where
         (Method::GET, "/config") => {
             let summary = state.current_server().await.config_summary().await;
             json_response(StatusCode::OK, &summary)
+        }
+        (Method::GET, "/inspect/topology") => {
+            let snapshot = state.current_server().await.topology_snapshot().await;
+            json_response(StatusCode::OK, &snapshot)
+        }
+        (Method::GET, "/inspect/topology.mmd") => {
+            let snapshot = state.current_server().await.topology_snapshot().await;
+            text_response(StatusCode::OK, render_topology_mermaid(&snapshot))
         }
         (Method::GET, "/sessions") => match state.current_server().await.session_summaries() {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
@@ -845,6 +853,10 @@ fn empty_response(status: StatusCode) -> HttpResponse {
     response_with_body(status, "text/plain; charset=utf-8", Bytes::new())
 }
 
+fn text_response(status: StatusCode, body: String) -> HttpResponse {
+    response_with_body(status, "text/plain; charset=utf-8", Bytes::from(body))
+}
+
 fn response_with_body(status: StatusCode, content_type: &'static str, body: Bytes) -> HttpResponse {
     let body = Full::new(body).boxed_unsync();
     Response::builder()
@@ -1010,6 +1022,25 @@ mod tests {
         serde_json::from_slice(&bytes).expect("response should be protocol JSON")
     }
 
+    async fn response_bytes(response: HttpResponse) -> Bytes {
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("response body should collect")
+            .to_bytes()
+    }
+
+    fn authed_get_request(path: &str) -> Request<Full<Bytes>> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(ORIGIN, "http://127.0.0.1:1420")
+            .header("x-proteus-session", "session-secret")
+            .body(empty_body())
+            .expect("request")
+    }
+
     fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
         Request::builder()
             .method(Method::POST)
@@ -1062,6 +1093,8 @@ mod tests {
         let protected = [
             (Method::GET, "/events"),
             (Method::GET, "/config"),
+            (Method::GET, "/inspect/topology"),
+            (Method::GET, "/inspect/topology.mmd"),
             (Method::GET, "/sessions"),
             (Method::GET, "/history"),
             (Method::POST, "/request"),
@@ -1334,6 +1367,59 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("*")
         );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_inspect_topology_returns_json_and_mermaid() {
+        let (state, server) = test_state().await;
+
+        let response = route_request(state.clone(), authed_get_request("/inspect/topology"))
+            .await
+            .expect("topology response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json")
+        );
+        let body = response_bytes(response).await;
+        let topology: Value = serde_json::from_slice(&body).expect("topology JSON");
+        assert_eq!(
+            topology.pointer("/profile").and_then(Value::as_str),
+            Some("dev-basic")
+        );
+        assert!(
+            topology
+                .pointer("/slots")
+                .and_then(Value::as_array)
+                .is_some_and(|slots| slots
+                    .iter()
+                    .any(|slot| { slot.get("id").and_then(Value::as_str) == Some("workflow") }))
+        );
+        assert!(
+            topology
+                .pointer("/tools")
+                .and_then(Value::as_array)
+                .is_some()
+        );
+
+        let response = route_request(state, authed_get_request("/inspect/topology.mmd"))
+            .await
+            .expect("mermaid response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
+        assert!(body.starts_with("flowchart LR"));
+        assert!(body.contains("workflow"));
         server.shutdown().await;
     }
 
