@@ -420,6 +420,45 @@ impl TransportStatus {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool_message(status: ToolActivityStatus, result_preview: Option<&str>) -> Message {
+        Message {
+            id: 7,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: Some(ToolActivity {
+                call_id: "call-1".to_owned(),
+                name: "apply_patch".to_owned(),
+                args_preview: "{}".to_owned(),
+                status,
+                result_preview: result_preview.map(str::to_owned),
+            }),
+            streaming: false,
+        }
+    }
+
+    #[test]
+    fn tool_message_render_key_tracks_status_and_result_preview() {
+        let running = tool_message(ToolActivityStatus::Running, None);
+        let waiting = tool_message(ToolActivityStatus::WaitingApproval, None);
+        let approved = tool_message(ToolActivityStatus::Approved, None);
+        let denied = tool_message(ToolActivityStatus::Denied, None);
+        let done = tool_message(ToolActivityStatus::Done, Some("ok"));
+        let failed = tool_message(ToolActivityStatus::Failed, Some("boom"));
+        let failed_with_new_preview = tool_message(ToolActivityStatus::Failed, Some("boom again"));
+
+        assert_ne!(running.render_key(), waiting.render_key());
+        assert_ne!(waiting.render_key(), approved.render_key());
+        assert_ne!(waiting.render_key(), denied.render_key());
+        assert_ne!(approved.render_key(), done.render_key());
+        assert_ne!(denied.render_key(), failed.render_key());
+        assert_ne!(failed.render_key(), failed_with_new_preview.render_key());
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum StdioOutput {

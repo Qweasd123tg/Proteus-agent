@@ -22,27 +22,27 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
-cat > "${bin_path}" <<EOF
+cat > "${bin_path}" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_dir="${project_dir}"
-proteus_bin="\${project_dir}/target/release/proteus"
-web_dir="\${project_dir}/clients/web"
+project_dir="__PROTEUS_PROJECT_DIR__"
+proteus_bin="${project_dir}/target/release/proteus"
+web_dir="${project_dir}/clients/web"
 app_port=8787
-web_port="\${PROTEUS_WEB_PORT:-1420}"
-session_token="\${PROTEUS_SESSION_TOKEN:-\$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')}"
+web_port="${PROTEUS_WEB_PORT:-1420}"
+session_token="${PROTEUS_SESSION_TOKEN:-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')}"
 
-if [ ! -x "\${proteus_bin}" ]; then
+if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
-  "\${project_dir}/install.sh"
-elif find "\${project_dir}/crates" "\${project_dir}/plugins/default" "\${project_dir}/Cargo.toml" "\${project_dir}/Cargo.lock" -newer "\${proteus_bin}" -print -quit | grep -q .; then
+  "${project_dir}/install.sh"
+elif find "${project_dir}/crates" "${project_dir}/plugins/default" "${project_dir}/Cargo.toml" "${project_dir}/Cargo.lock" -newer "${proteus_bin}" -print -quit | grep -q .; then
   echo "Proteus binary is stale; rebuilding release binary..." >&2
-  "\${project_dir}/install.sh"
+  "${project_dir}/install.sh"
 fi
 
-if [ "\$#" -gt 0 ]; then
-  exec "\${proteus_bin}" "\$@"
+if [ "$#" -gt 0 ]; then
+  exec "${proteus_bin}" "$@"
 fi
 
 if ! command -v trunk >/dev/null 2>&1; then
@@ -55,44 +55,46 @@ if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep 
   exit 1
 fi
 
-workspace_cwd=\$(pwd)
-echo "Proteus workspace: \${workspace_cwd}"
-echo "App server:        http://127.0.0.1:\${app_port}"
-echo "Web client:        http://127.0.0.1:\${web_port}/?session=<redacted>"
+workspace_cwd=$(pwd)
+echo "Proteus workspace: ${workspace_cwd}"
+echo "App server:        http://127.0.0.1:${app_port}"
+echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>"
 echo
 
-"\${proteus_bin}" --cwd "\${workspace_cwd}" server http \
-  --port "\${app_port}" \
-  --token "\${session_token}" \
-  --allow-origin "http://127.0.0.1:\${web_port}" \
-  --allow-origin "http://localhost:\${web_port}" &
-server_pid=\$!
+"${proteus_bin}" --cwd "${workspace_cwd}" server http \
+  --port "${app_port}" \
+  --token "${session_token}" \
+  --allow-origin "http://127.0.0.1:${web_port}" \
+  --allow-origin "http://localhost:${web_port}" &
+server_pid=$!
 
 sleep 1
-if ! kill -0 "\${server_pid}" >/dev/null 2>&1; then
-  wait "\${server_pid}" 2>/dev/null || true
-  echo "Proteus app server did not start. Port \${app_port} may already be in use." >&2
+if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
+  wait "${server_pid}" 2>/dev/null || true
+  echo "Proteus app server did not start. Port ${app_port} may already be in use." >&2
   exit 1
 fi
 
 cleanup() {
-  kill "\${server_pid}" >/dev/null 2>&1 || true
-  wait "\${server_pid}" 2>/dev/null || true
+  kill "${server_pid}" >/dev/null 2>&1 || true
+  wait "${server_pid}" 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
-cd "\${web_dir}"
-open_web_url="http://127.0.0.1:\${web_port}/?session=\${session_token}"
+cd "${web_dir}"
+open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
 (
   sleep 2
   if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "\${open_web_url}" >/dev/null 2>&1 || true
+    xdg-open "${open_web_url}" >/dev/null 2>&1 || true
   elif command -v open >/dev/null 2>&1; then
-    open "\${open_web_url}" >/dev/null 2>&1 || true
+    open "${open_web_url}" >/dev/null 2>&1 || true
   fi
 ) &
-env -u NO_COLOR trunk serve --port "\${web_port}"
-EOF
+env -u NO_COLOR trunk serve --port "${web_port}"
+WRAPPER
+escaped_project_dir=$(printf '%s' "${project_dir}" | sed 's/[&|]/\\&/g')
+sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_path}"
 chmod 755 "${bin_path}"
 
 # Install plugins. File I/O, git helpers, and shell are required for a typical
