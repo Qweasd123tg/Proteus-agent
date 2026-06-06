@@ -34,7 +34,7 @@ use proteus_contracts::{
     },
 };
 
-use crate::core::BuiltinModuleCatalog;
+use crate::core::{BuiltinModuleCatalog, PluginContributions};
 
 /// Адаптер, через который плагин регистрирует свои модули в ядре.
 struct PluginRegistryAdapter<'a> {
@@ -202,6 +202,9 @@ pub struct PluginInfo {
     /// Позволяет получить metadata плагина (version, author, tags) без
     /// зависимости от значений, которые плагин самообъявляет внутри PluginRoot.
     pub manifest: Option<PluginManifest>,
+    /// Точный diff того, что plugin зарегистрировал в catalog во время
+    /// `register_modules`.
+    pub contributions: PluginContributions,
 }
 
 /// Метаданные плагина из `plugin.toml` рядом с .so.
@@ -496,6 +499,7 @@ fn load_one_plugin_inner(
     };
     match register_result {
         RResult::ROk(()) => {
+            let contributions = catalog.contributions_since(&checkpoint);
             // Важно: leak'аем RawLibrary только после успешной регистрации —
             // иначе при drop символы плагина станут dangling, а trait objects
             // из этого dylib живут в catalog всё время процесса.
@@ -505,6 +509,7 @@ fn load_one_plugin_inner(
                 description,
                 path: path.to_path_buf(),
                 manifest,
+                contributions,
             })
         }
         RResult::RErr(err) => {
