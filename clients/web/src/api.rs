@@ -91,6 +91,11 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
 }
 
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {
+    let text = get_text(path).await?;
+    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     let token = current_session_token();
     let init = RequestInit::new();
     init.set_method("GET");
@@ -119,7 +124,7 @@ pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result
     if !response.ok() {
         return Err(http_error(status, &text));
     }
-    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+    Ok(text)
 }
 
 fn set_session_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {

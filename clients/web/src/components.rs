@@ -4,7 +4,7 @@ use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
 use web_sys::{MouseEvent, window};
 
-use crate::api::{get_json, post_json};
+use crate::api::{get_json, get_text, post_json};
 use crate::markdown::markdown_html;
 use crate::types::*;
 use crate::ui_utils::{compact_json, copy_to_clipboard, short_id, short_path};
@@ -157,6 +157,427 @@ pub(crate) fn ConfigsView() -> impl IntoView {
             }}
         </section>
     }
+}
+
+#[component]
+pub(crate) fn ArchitectureView() -> impl IntoView {
+    let (snapshot, set_snapshot) = signal(None::<TopologySnapshot>);
+    let (mermaid, set_mermaid) = signal(String::new());
+    let (status, set_status) = signal("загружаю topology".to_owned());
+
+    load_topology_snapshot(set_snapshot, set_mermaid, set_status);
+
+    let refresh = move |_| load_topology_snapshot(set_snapshot, set_mermaid, set_status);
+    let copy_mermaid = move |_| {
+        let text = mermaid.get();
+        if text.trim().is_empty() {
+            set_status.set("Mermaid недоступен".to_owned());
+        } else {
+            copy_to_clipboard(text);
+            set_status.set("Mermaid скопирован".to_owned());
+        }
+    };
+
+    view! {
+        <section class="configs-page architecture-page">
+            <div class="resume-toolbar">
+                <div>
+                    <h2>"Architecture"</h2>
+                    <p>{move || status.get()}</p>
+                </div>
+                <div class="toolbar-actions">
+                    <button type="button" class="secondary" on:click=copy_mermaid>"Mermaid"</button>
+                    <button type="button" class="secondary" on:click=refresh>"Обновить"</button>
+                </div>
+            </div>
+            {move || {
+                snapshot
+                    .get()
+                    .map(|snapshot| view! { <TopologySnapshotView snapshot mermaid=mermaid.get() /> }.into_any())
+                    .unwrap_or_else(|| {
+                        view! {
+                            <div class="empty-state">
+                                <div class="empty-state-title">"Topology недоступен"</div>
+                            </div>
+                        }
+                        .into_any()
+                    })
+            }}
+        </section>
+    }
+}
+
+fn load_topology_snapshot(
+    set_snapshot: WriteSignal<Option<TopologySnapshot>>,
+    set_mermaid: WriteSignal<String>,
+    set_status: WriteSignal<String>,
+) {
+    spawn_local(async move {
+        let snapshot_result = get_json::<TopologySnapshot>("/inspect/topology").await;
+        let mermaid_result = get_text("/inspect/topology.mmd").await;
+        match snapshot_result {
+            Ok(snapshot) => {
+                let slot_count = snapshot.slots.len();
+                let tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
+                let plugin_count = snapshot.plugins.len();
+                set_snapshot.set(Some(snapshot));
+                set_mermaid.set(mermaid_result.unwrap_or_default());
+                set_status.set(format!(
+                    "{slot_count} slots · {tool_count} tools · {plugin_count} plugins"
+                ));
+            }
+            Err(error) => {
+                set_snapshot.set(None);
+                set_mermaid.set(String::new());
+                set_status.set(format!("не удалось загрузить topology: {error}"));
+            }
+        }
+    });
+}
+
+#[component]
+fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl IntoView {
+    let model_label = snapshot
+        .model
+        .as_ref()
+        .map(|model| format!("{}/{}", model.provider, model.name))
+        .unwrap_or_else(|| "model не выбран".to_owned());
+    let config_label = snapshot
+        .config_path
+        .as_deref()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "(default discovery / none)".to_owned());
+    let registered_tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
+    let disabled_plugin_tool_count = snapshot
+        .tools
+        .iter()
+        .filter(|tool| !tool.registered && tool.provider_plugin.is_some())
+        .count();
+    let loaded_plugin_count = snapshot
+        .plugins
+        .iter()
+        .filter(|plugin| plugin.status == "loaded")
+        .count();
+    let active_slots = snapshot
+        .slots
+        .iter()
+        .filter(|slot| slot.active_module.is_some())
+        .cloned()
+        .collect::<Vec<_>>();
+    let slots = snapshot.slots.clone();
+    let modules = snapshot.modules.clone();
+    let plugins = snapshot.plugins.clone();
+    let tools = snapshot.tools.clone();
+    let warnings = snapshot.warnings.clone();
+    let mermaid_preview = mermaid.clone();
+    let (tool_filter, set_tool_filter) = signal("all".to_owned());
+    let tools_for_filter = tools.clone();
+    let filtered_tools = move || {
+        let filter = tool_filter.get();
+        tools_for_filter
+            .clone()
+            .into_iter()
+            .filter(|tool| match filter.as_str() {
+                "enabled" => tool.enabled,
+                "disabled" => !tool.enabled || !tool.registered,
+                "read" => tool.safety == "ReadOnly",
+                "write" => tool.safety != "ReadOnly",
+                "plugin" => tool.provider_plugin.is_some(),
+                _ => true,
+            })
+            .collect::<Vec<_>>()
+    };
+    let modules_for_slots = modules.clone();
+
+    view! {
+        <div class="configs-scroll architecture-scroll">
+            <section class="config-overview">
+                <article class="config-panel">
+                    <div class="config-panel-header">
+                        <span class="panel-kicker">"runtime"</span>
+                        <strong>{non_empty(snapshot.profile.as_str(), "default")}</strong>
+                    </div>
+                    <div class="config-kv">
+                        <span>"cwd"</span>
+                        <code>{non_empty(snapshot.cwd.as_str(), "-")}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"config"</span>
+                        <code>{config_label}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"epoch"</span>
+                        <code>{snapshot.module_epoch.to_string()}</code>
+                    </div>
+                </article>
+                <article class="config-panel">
+                    <div class="config-panel-header">
+                        <span class="panel-kicker">"model"</span>
+                        <strong>{model_label}</strong>
+                    </div>
+                    <div class="config-kv">
+                        <span>"mode"</span>
+                        <code>{non_empty(snapshot.permission_mode.as_str(), "-")}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"plugins"</span>
+                        <code>{format!("{loaded_plugin_count}/{}", snapshot.plugins.len())}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"warnings"</span>
+                        <code>{snapshot.warnings.len().to_string()}</code>
+                    </div>
+                </article>
+                <article class="config-panel">
+                    <div class="config-panel-header">
+                        <span class="panel-kicker">"tools"</span>
+                        <strong>{registered_tool_count.to_string()}</strong>
+                    </div>
+                    <div class="config-kv">
+                        <span>"provided"</span>
+                        <code>{snapshot.tools.len().to_string()}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"disabled"</span>
+                        <code>{disabled_plugin_tool_count.to_string()}</code>
+                    </div>
+                    <div class="config-kv">
+                        <span>"files"</span>
+                        <code>{snapshot.config_files.len().to_string()}</code>
+                    </div>
+                </article>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Pipeline"</h3>
+                    <span>{active_slots.len()}</span>
+                </div>
+                <div class="pipeline-strip">
+                    <For
+                        each=move || active_slots.clone()
+                        key=|slot| slot.id.clone()
+                        children=move |slot| {
+                            view! {
+                                <span class="pipeline-node">
+                                    <small>{slot.id}</small>
+                                    <strong>{slot.active_module.unwrap_or_else(|| "-".to_owned())}</strong>
+                                </span>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Slots"</h3>
+                    <span>{slots.len()}</span>
+                </div>
+                <div class="topology-grid">
+                    <For
+                        each=move || slots.clone()
+                        key=|slot| slot.id.clone()
+                        children=move |slot| {
+                            let source = active_module_source(&slot, &modules_for_slots);
+                            let active = slot.active_module.clone().unwrap_or_else(|| "-".to_owned());
+                            let required_class = if slot.required {
+                                "status-badge idle"
+                            } else {
+                                "status-badge disconnected"
+                            };
+                            let required_label = if slot.required { "required" } else { "optional" };
+                            view! {
+                                <article class="topology-card">
+                                    <div class="topology-card-header">
+                                        <span class="panel-kicker">{slot.id.clone()}</span>
+                                        <span class=required_class>{required_label}</span>
+                                    </div>
+                                    <strong>{active}</strong>
+                                    <code>{source}</code>
+                                    <p>{slot.responsibility}</p>
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Plugins"</h3>
+                    <span>{plugins.len()}</span>
+                </div>
+                <div class="config-list">
+                    <For
+                        each=move || plugins.clone()
+                        key=|plugin| format!("{}:{}", plugin.name, plugin.path)
+                        children=move |plugin| {
+                            let badge_class = if plugin.status.starts_with("error") {
+                                "status-badge failed"
+                            } else {
+                                "status-badge completed"
+                            };
+                            let modules = plugin.provides.modules.clone();
+                            let tools = plugin.provides.tools.clone();
+                            let module_count = modules.len();
+                            let tool_count = tools.len();
+                            let provider_count = plugin.provides.context_providers.len();
+                            let provides = format!(
+                                "{module_count} modules · {tool_count} tools · {provider_count} providers"
+                            );
+                            let name = plugin.name.clone();
+                            let version = plugin.version.clone();
+                            let status = plugin.status.clone();
+                            let description = plugin.description.clone().unwrap_or_else(|| provides.clone());
+                            view! {
+                                <article class="config-list-item topology-plugin-item">
+                                    <div class="config-list-main">
+                                        <div class="config-list-title">
+                                            <strong>{name}</strong>
+                                            <code>{version}</code>
+                                        </div>
+                                        <p>{description}</p>
+                                        <div class="config-chip-row compact-chips">
+                                            <For
+                                                each=move || modules.clone()
+                                                key=|module| format!("{}:{}", module.slot, module.id)
+                                                children=move |module| view! { <span class="config-chip">{format!("{}/{}", module.slot, module.id)}</span> }
+                                            />
+                                            <For
+                                                each=move || tools.clone()
+                                                key=|tool| tool.name.clone()
+                                                children=move |tool| view! { <span class="config-chip">{tool.name}</span> }
+                                            />
+                                        </div>
+                                    </div>
+                                    <span class=badge_class>
+                                        <span class="dot"></span>
+                                        {status}
+                                    </span>
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Tools"</h3>
+                    <span>{tools.len()}</span>
+                </div>
+                <div class="topology-filter-row">
+                    <button type="button" class:active=move || tool_filter.get() == "all" on:click=move |_| set_tool_filter.set("all".to_owned())>"all"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "enabled" on:click=move |_| set_tool_filter.set("enabled".to_owned())>"enabled"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "disabled" on:click=move |_| set_tool_filter.set("disabled".to_owned())>"disabled"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "read" on:click=move |_| set_tool_filter.set("read".to_owned())>"read"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "write" on:click=move |_| set_tool_filter.set("write".to_owned())>"write"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "plugin" on:click=move |_| set_tool_filter.set("plugin".to_owned())>"plugin"</button>
+                </div>
+                <div class="config-list">
+                    <For
+                        each=filtered_tools
+                        key=|tool| format!("{}:{}", tool.name, tool.source)
+                        children=move |tool| {
+                            let status_class = if tool.registered {
+                                "status-badge completed"
+                            } else {
+                                "status-badge disconnected"
+                            };
+                            view! {
+                                <article class="config-list-item topology-tool-item">
+                                    <div class="config-list-main">
+                                        <div class="config-list-title">
+                                            <strong>{tool.name.clone()}</strong>
+                                            <code>{tool.source.clone()}</code>
+                                        </div>
+                                        <p>{tool.description.clone()}</p>
+                                        <details class="topology-schema">
+                                            <summary>"schema"</summary>
+                                            <pre>{schema_json(&tool.input_schema)}</pre>
+                                        </details>
+                                    </div>
+                                    <div class="tool-badges">
+                                        <span class="status-badge idle">{tool.safety}</span>
+                                        <span class=status_class>{if tool.registered { "registered" } else { "provided" }}</span>
+                                    </div>
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Warnings"</h3>
+                    <span>{warnings.len()}</span>
+                </div>
+                {if warnings.is_empty() {
+                    view! { <div class="config-empty">"(none)"</div> }.into_any()
+                } else {
+                    view! {
+                        <div class="config-list">
+                            <For
+                                each=move || warnings.clone()
+                                key=|warning| format!("{}:{}", warning.severity, warning.message)
+                                children=move |warning| {
+                                    view! {
+                                        <article class="config-list-item">
+                                            <div class="config-list-main">
+                                                <div class="config-list-title">
+                                                    <strong>{warning.severity}</strong>
+                                                </div>
+                                                <p>{warning.message}</p>
+                                            </div>
+                                            <span class="status-badge disconnected">"warning"</span>
+                                        </article>
+                                    }
+                                }
+                            />
+                        </div>
+                    }.into_any()
+                }}
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Mermaid"</h3>
+                    <span>{format!("{} bytes", mermaid_preview.len())}</span>
+                </div>
+                <pre class="mermaid-preview">{mermaid_preview}</pre>
+            </section>
+        </div>
+    }
+}
+
+fn active_module_source(slot: &TopologySlot, modules: &[TopologyModule]) -> String {
+    let Some(active) = slot.active_module.as_deref() else {
+        return "-".to_owned();
+    };
+    modules
+        .iter()
+        .find(|module| module.slot == slot.id && module.id == active)
+        .map(|module| module_source_label(&module.source))
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+fn module_source_label(source: &TopologyModuleSource) -> String {
+    match source.kind.as_str() {
+        "plugin" => source
+            .name
+            .as_deref()
+            .map(|name| format!("plugin:{name}"))
+            .unwrap_or_else(|| "plugin".to_owned()),
+        "builtin" => "builtin".to_owned(),
+        "config" => "config".to_owned(),
+        _ => "unknown".to_owned(),
+    }
+}
+
+fn schema_json(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| compact_json(value))
 }
 
 fn load_config_summary(
