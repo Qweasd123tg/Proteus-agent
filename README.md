@@ -55,17 +55,18 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
   anthropic models, `null` search fallback, `none` memory, `none` memory
   policy, `none` context, `deny_all` policy, `null` patch fallback,
-  `none` compactor, `all_visible` tool exposure, `none` workflow и `text` renderer. Production workflow в core больше не
-  встроен: `coding.single_loop` и `coding.plan_execute_review` поставляет
+  `none` compactor, `all_visible` tool exposure, `none` workflow и `text`
+  renderer. Production workflow в core больше не встроен:
+  `coding.single_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
   `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и
   `carry_forward` memory policy поставляет плагин `memory-pack`;
   `allow_all`/`ask_write` поставляет `policy-pack`; `plain`/`statusline`
   поставляет `renderer-pack`.
 - Builtin tools: `apply_patch`, `search`, `remember_fact`,
-  `request_user_input`/`AskUserQuestion`. Search backend `rg` поставляется плагином `rg-search`,
-  patch backend `direct` — плагином
-  `direct-patch`. File I/O
+  `request_user_input`/`AskUserQuestion`. Search backend `rg` поставляется
+  плагином `rg-search`, patch backend `direct` — плагином `direct-patch`.
+  File I/O
   (`read_file`/`write_file`/`list_dir`/`grep`/`find_files`/`read_many_files`), git helpers
   (`git_status`/`git_diff`) и `shell` поставляются плагинами
   `file-tools`, `git-tools` и `shell-tool` — устанавливаются через
@@ -121,7 +122,7 @@ cargo run --bin proteus -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
 # собрать первичный eval-отчёт по durable event log
-cargo run --bin proteus -- eval report .proteus/events.jsonl
+cargo run --bin proteus -- eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
 ```
 
 `doctor` не делает model request. Он проверяет config source, загрузку
@@ -271,7 +272,7 @@ proteus doctor
 
 ```text
 ~/.config/Proteus-agent/sessions/<encoded-workspace>/<short-id>/messages.jsonl
-.proteus/events.jsonl   (в workspace'е)
+~/.config/Proteus-agent/.proteus/events.jsonl
 ```
 
 Подробнее: [docs/runtime-and-events.md](docs/runtime-and-events.md).
