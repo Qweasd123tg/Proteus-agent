@@ -66,12 +66,16 @@ UI/business logic в CLI.
 - `repo_aware` context вынесен в `context-pack` и добавляет provider pipeline
   за `ContextBuilder` slot.
 
+Текущий baseline:
+
+- `cargo fmt --check`, `cargo build --workspace`,
+  `cargo test --workspace` и
+  `cargo clippy --workspace --all-targets -- -D warnings` проходят на `main`.
+
 Оставшийся cleanup:
 
-- Довести `cargo clippy --all-targets -- -D warnings` до зелёного состояния.
-  Сейчас точечно очищены затронутые tool/plugin crates, но полный проход ещё
-  может падать на core предупреждениях вроде `collapsible_match`,
-  `unnecessary_sort_by`, `clone_on_copy` и одном API с `too_many_arguments`.
+- Поддерживать полный clippy/test baseline зелёным после изменений в core,
+  app-server и plugin packs.
 
 ### v0.1: Repo-Aware Context
 
@@ -141,9 +145,9 @@ Scope:
 - durable task/session metadata;
 - event-log based debugging.
 - ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
-  `StdioRequest::ReloadTools`,`StdioRequest::ReloadTools`, HTTP `POST /reload-tools`HTTP `POST /reload-tools` и
-  `ModulesReloaded` eventevent, без выгрузки dylib и без in-place мутации активного
-  turn-а. Дизайн и remaining scope зафиксированыи remaining scope зафиксированы в `docs/hot-swap.md`.
+  `StdioRequest::ReloadTools`, HTTP `POST /reload-tools` и событие
+  `ModulesReloaded`, без выгрузки dylib и без in-place мутации активного
+  turn-а. Дизайн и remaining scope зафиксированы в `docs/hot-swap.md`.
 
 ### v0.4: Web Client Protocol
 
