@@ -395,6 +395,170 @@ pub(crate) struct ConfigPlugin {
     pub(crate) description: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologySnapshot {
+    #[serde(default)]
+    pub(crate) profile: String,
+    #[serde(default)]
+    pub(crate) cwd: String,
+    #[serde(default)]
+    pub(crate) config_path: Option<String>,
+    #[serde(default)]
+    pub(crate) config_files: Vec<String>,
+    #[serde(default)]
+    pub(crate) module_epoch: u64,
+    #[serde(default)]
+    pub(crate) permission_mode: String,
+    #[serde(default)]
+    pub(crate) model: Option<TopologyModel>,
+    #[serde(default)]
+    pub(crate) slots: Vec<TopologySlot>,
+    #[serde(default)]
+    pub(crate) modules: Vec<TopologyModule>,
+    #[serde(default)]
+    pub(crate) plugins: Vec<TopologyPlugin>,
+    #[serde(default)]
+    pub(crate) tools: Vec<TopologyTool>,
+    #[serde(default)]
+    pub(crate) warnings: Vec<TopologyWarning>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyModel {
+    #[serde(default)]
+    pub(crate) provider: String,
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) stream: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologySlot {
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) title: String,
+    #[serde(default)]
+    pub(crate) responsibility: String,
+    #[serde(default)]
+    pub(crate) active_module: Option<String>,
+    #[serde(default)]
+    pub(crate) required: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyModule {
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) slot: String,
+    #[serde(default)]
+    pub(crate) active: bool,
+    #[serde(default)]
+    pub(crate) source: TopologyModuleSource,
+    #[serde(default)]
+    pub(crate) version: String,
+    #[serde(default)]
+    pub(crate) api_version: String,
+    #[serde(default)]
+    pub(crate) capabilities: Vec<String>,
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyModuleSource {
+    #[serde(default)]
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) name: Option<String>,
+    #[serde(default)]
+    pub(crate) path: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyPlugin {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) version: String,
+    #[serde(default)]
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    #[serde(default)]
+    pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) tags: Vec<String>,
+    #[serde(default)]
+    pub(crate) provides: TopologyPluginProvides,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyPluginProvides {
+    #[serde(default)]
+    pub(crate) modules: Vec<TopologyPluginModuleContribution>,
+    #[serde(default)]
+    pub(crate) tools: Vec<TopologyPluginToolContribution>,
+    #[serde(default)]
+    pub(crate) context_providers: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct TopologyPluginModuleContribution {
+    #[serde(default)]
+    pub(crate) slot: String,
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    #[serde(default)]
+    pub(crate) capabilities: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyPluginToolContribution {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) description: String,
+    #[serde(default)]
+    pub(crate) safety: String,
+    #[serde(default)]
+    pub(crate) input_schema: Value,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct TopologyTool {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) description: String,
+    #[serde(default)]
+    pub(crate) safety: String,
+    #[serde(default)]
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default)]
+    pub(crate) registered: bool,
+    #[serde(default)]
+    pub(crate) provider_plugin: Option<String>,
+    #[serde(default)]
+    pub(crate) input_schema: Value,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct TopologyWarning {
+    #[serde(default)]
+    pub(crate) severity: String,
+    #[serde(default)]
+    pub(crate) message: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct TranscriptMessage {
     pub(crate) role: String,

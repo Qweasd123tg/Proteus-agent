@@ -571,7 +571,8 @@
 }
 
 .resume-page,
-.configs-page {
+.configs-page,
+.architecture-page {
     display: flex;
     min-height: 0;
     flex: 1;
@@ -669,6 +670,10 @@
     gap: var(--space-4);
     overflow-y: auto;
     padding: var(--space-5);
+}
+
+.architecture-scroll {
+    align-content: start;
 }
 
 .config-overview {
@@ -823,4 +828,158 @@
     font-family: var(--font-mono);
     font-size: 11px;
     padding: var(--space-4);
+}
+
+.toolbar-actions,
+.tool-badges {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.pipeline-strip {
+    display: flex;
+    min-width: 0;
+    gap: var(--space-2);
+    overflow-x: auto;
+    padding: var(--space-4);
+}
+
+.pipeline-node {
+    display: grid;
+    min-width: 150px;
+    gap: 2px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel-soft);
+    padding: var(--space-3);
+}
+
+.pipeline-node small {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.pipeline-node strong {
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topology-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.topology-card {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel-soft);
+    padding: var(--space-3);
+}
+
+.topology-card-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.topology-card strong {
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topology-card code,
+.topology-schema summary {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topology-card p {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.compact-chips {
+    padding: var(--space-2) 0 0;
+}
+
+.topology-filter-row {
+    display: flex;
+    min-width: 0;
+    gap: var(--space-2);
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.topology-filter-row button {
+    min-height: 28px;
+    flex: 0 0 auto;
+    border-color: var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 0 var(--space-3);
+}
+
+.topology-filter-row button.active {
+    border-color: var(--accent-blue);
+    background: rgb(91 140 255 / 10%);
+    color: var(--text-main);
+}
+
+.topology-tool-item {
+    align-items: flex-start;
+}
+
+.topology-schema {
+    margin-top: var(--space-2);
+}
+
+.topology-schema pre,
+.mermaid-preview {
+    max-height: 280px;
+    overflow: auto;
+    margin: 0;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-root);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    padding: var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.topology-schema pre {
+    border: 1px solid var(--border-subtle);
+    margin-top: var(--space-2);
 }
