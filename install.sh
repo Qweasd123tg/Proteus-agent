@@ -81,6 +81,38 @@ close_previous_app_server() {
   exit 1
 }
 
+close_previous_web_server() {
+  pids=$(listener_pids_for_port "${web_port}")
+  if [ -z "${pids}" ]; then
+    return
+  fi
+
+  for pid in ${pids}; do
+    cmd=$(ps -p "${pid}" -o args= 2>/dev/null || true)
+    case "${cmd}" in
+      *trunk*" serve"*)
+        echo "Closing previous Proteus web server on port ${web_port} (pid ${pid})..."
+        kill "${pid}" >/dev/null 2>&1 || true
+        ;;
+      *)
+        echo "Port ${web_port} is already in use by pid ${pid}: ${cmd}" >&2
+        echo "Stop that process or set PROTEUS_WEB_PORT to another port." >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  for _ in {1..30}; do
+    if [ -z "$(listener_pids_for_port "${web_port}")" ]; then
+      return
+    fi
+    sleep 0.1
+  done
+
+  echo "Previous Proteus web server did not release port ${web_port}." >&2
+  exit 1
+}
+
 if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
   "${project_dir}/install.sh"
@@ -104,6 +136,7 @@ if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep 
 fi
 
 close_previous_app_server
+close_previous_web_server
 
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"

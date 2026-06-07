@@ -185,7 +185,8 @@ web-клиент будет использовать query token для `EventSo
 сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
 app-server не разъезжались по protocol endpoints. Если на `8787` висит старый
 `proteus server http`, wrapper закрывает его перед стартом нового workspace;
-для чужого процесса используйте `PROTEUS_APP_PORT=<port>`.
+если на `1420` висит старый `trunk serve`, закрывает и его. Для чужого
+процесса используйте `PROTEUS_APP_PORT=<port>` или `PROTEUS_WEB_PORT=<port>`.
 
 Leptos-клиент живёт в `clients/web` и уже работает как HTTP/SSE client поверх
 app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
