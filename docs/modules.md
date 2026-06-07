@@ -349,11 +349,14 @@ description, schema и `ToolSpec.metadata`. Selector пишет observability me
 `selector`, `candidate_count`, `selected_count`, `hidden_count`,
 `selected_tools` и грубую оценку schema-token savings.
 
-Этот режим пока не является deferred tool discovery: он не добавляет
-`proteus_tool_search`/`proteus_tool_describe`/`proteus_tool_call` и не меняет
-execution path. Deferred вызовы должны быть отдельным workflow-layer срезом,
-где каждый настоящий вызов всё равно проходит через `ToolOrchestrator`,
-`ApprovalPolicy`, validation, timeout и event log.
+Если selector скрывает часть policy-visible tools, `coding-workflow` добавляет
+workflow-owned meta-tools: `proteus_tool_search`, `proteus_tool_describe` и
+`proteus_tool_call`. Search/describe читают полный policy-visible каталог через
+host capability `visible_tools_json`; `proteus_tool_call` создаёт внутренний
+`ToolCall` и отправляет его через обычный `execute_tool_json`. Поэтому
+deferred discovery не обходит `ToolOrchestrator`, `ApprovalPolicy`, validation,
+timeout и event log. Результат для transcript remap-ится обратно на outer
+`proteus_tool_call` id, а inner id сохраняется в metadata.
 
 `ToolExposure` вызывается workflow host capability `select_tools_json`.
 Workflow передаёт `ToolExposureRequest` с task/cwd/query/max_tools/reason,

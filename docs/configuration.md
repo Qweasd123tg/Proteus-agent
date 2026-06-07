@@ -286,9 +286,16 @@ opt-in режим: он оставляет небольшой hot набор и 
 совпадениям с task/query, description, schema и `ToolSpec.metadata`, но
 использует только candidates, уже разрешённые `ApprovalPolicy` visibility.
 В `ToolExposureOutput.metadata` появляются `selected_tools`, `hidden_count` и
-грубая оценка сэкономленных schema tokens. В первой версии это не deferred
-catalog: скрытые tools пока нельзя вызвать через meta-tool, поэтому для
-агрессивного сокращения каталога нужен следующий workflow-layer срез.
+грубая оценка сэкономленных schema tokens.
+
+Когда active workflow — `coding.single_loop` или `coding.plan_execute_review`,
+скрытые policy-visible tools остаются reachable через workflow-owned
+meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
+`proteus_tool_call`. Они не являются registry tools. `proteus_tool_call`
+вызывает найденный tool через host `execute_tool_json`, поэтому policy,
+approval, validation, timeout и event log остаются теми же, что у прямого
+вызова. В plan phase workflow даёт только search/describe; non-ReadOnly hidden
+calls дополнительно отклоняются handler-ом.
 
 ## Renderer
 
