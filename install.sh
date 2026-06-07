@@ -32,9 +32,54 @@ set -euo pipefail
 project_dir="__PROTEUS_PROJECT_DIR__"
 proteus_bin="${project_dir}/target/release/proteus"
 web_dir="${project_dir}/clients/web"
-app_port=8787
+app_port="${PROTEUS_APP_PORT:-8787}"
 web_port="${PROTEUS_WEB_PORT:-1420}"
 session_token="${PROTEUS_SESSION_TOKEN:-}"
+
+listener_pids_for_port() {
+  port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+    return
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :${port}" 2>/dev/null \
+      | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' \
+      | sort -u
+  fi
+}
+
+close_previous_app_server() {
+  pids=$(listener_pids_for_port "${app_port}")
+  if [ -z "${pids}" ]; then
+    return
+  fi
+
+  for pid in ${pids}; do
+    cmd=$(ps -p "${pid}" -o args= 2>/dev/null || true)
+    case "${cmd}" in
+      *proteus*" server http "*--port*" ${app_port}"*)
+        echo "Closing previous Proteus app server on port ${app_port} (pid ${pid})..."
+        kill "${pid}" >/dev/null 2>&1 || true
+        ;;
+      *)
+        echo "Port ${app_port} is already in use by pid ${pid}: ${cmd}" >&2
+        echo "Stop that process or set PROTEUS_APP_PORT to another port." >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  for _ in {1..30}; do
+    if [ -z "$(listener_pids_for_port "${app_port}")" ]; then
+      return
+    fi
+    sleep 0.1
+  done
+
+  echo "Previous Proteus app server did not release port ${app_port}." >&2
+  exit 1
+}
 
 if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
@@ -57,6 +102,8 @@ if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep 
   echo "wasm32 target is missing. Run: rustup target add wasm32-unknown-unknown" >&2
   exit 1
 fi
+
+close_previous_app_server
 
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"
