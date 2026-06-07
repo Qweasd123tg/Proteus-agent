@@ -78,14 +78,17 @@ policy-visible ToolSpec candidates
     -> ToolOrchestrator executes real tool
 ```
 
-Bridge-tools вроде `tool_search`, `tool_describe` и `tool_call` должны быть
-host-owned tools текущего snapshot. Их каталог строится из policy-visible tools
-этого же snapshot и не должен видеть tools, не доступные session/profile.
+Bridge-tools называются `proteus_tool_search`, `proteus_tool_describe` и
+`proteus_tool_call` и принадлежат `coding-workflow`, а не `ToolRegistry`. Их
+каталог строится из policy-visible tools текущего snapshot через
+`visible_tools_json` и не видит tools, не доступные session/profile.
 
-При вызове `tool_call` events/debug могут показывать bridge invocation, но
-approval, timeout, safety и result metadata должны относиться к реальному tool
-name. Это сохраняет главный инвариант безопасности: dynamic discovery меняет
-только видимость и token cost, а не путь исполнения.
+При вызове `proteus_tool_call` workflow создаёт внутренний `ToolCall` с
+реальным tool name и передаёт его в `execute_tool_json`. Transcript result
+получает outer call id, чтобы provider видел ответ на свой вызов
+`proteus_tool_call`, а inner call id сохраняется в metadata. Это сохраняет
+главный инвариант безопасности: dynamic discovery меняет только видимость и
+token cost, а не путь исполнения.
 
 ## Минимальный Implementation Path
 

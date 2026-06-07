@@ -8,6 +8,8 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
+mod dynamic_tools;
+
 use proteus_contracts::{
     abi_stable::{
         export_root_module,
@@ -157,7 +159,14 @@ fn run_single_loop(
     let current_turn_messages_start = model_messages.len();
 
     for _round in 0..max_tool_rounds {
-        let request = request_from_state(&input, host, &model_messages, SYSTEM_INSTRUCTIONS, None)?;
+        let request = request_from_state(
+            &input,
+            host,
+            &model_messages,
+            SYSTEM_INSTRUCTIONS,
+            None,
+            "single_loop",
+        )?;
         emit_event(
             host,
             &Event::ModelRequestPrepared {
@@ -203,7 +212,7 @@ fn run_single_loop(
         }
 
         for call in response.tool_calls {
-            let result = execute_tool(host, &input, &call)?;
+            let result = execute_or_handle_tool(host, &input, &call, "single_loop")?;
             let call_id = result.call_id.clone();
             let tool_result_message =
                 CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
@@ -213,7 +222,14 @@ fn run_single_loop(
         }
     }
 
-    let mut request = request_from_state(&input, host, &model_messages, SYSTEM_INSTRUCTIONS, None)?;
+    let mut request = request_from_state(
+        &input,
+        host,
+        &model_messages,
+        SYSTEM_INSTRUCTIONS,
+        None,
+        "single_loop_final",
+    )?;
     request.tools.clear();
     request.tool_choice = ToolChoice::None;
     emit_event(
@@ -302,6 +318,7 @@ fn run_plan_execute_review(
         &model_messages,
         PLAN_SYSTEM_INSTRUCTIONS,
         Some(PLAN_DEVELOPER_INSTRUCTIONS),
+        "plan",
     )?;
     plan_request
         .tools
@@ -332,6 +349,7 @@ fn run_plan_execute_review(
             &model_messages,
             PLAN_SYSTEM_INSTRUCTIONS,
             Some(EXECUTE_DEVELOPER_INSTRUCTIONS),
+            "execute",
         )?;
         emit_event(
             host,
@@ -361,7 +379,7 @@ fn run_plan_execute_review(
         }
 
         for call in response.tool_calls {
-            let result = execute_tool(host, &input, &call)?;
+            let result = execute_or_handle_tool(host, &input, &call, "execute")?;
             let call_id = result.call_id.clone();
             let tool_result_message =
                 CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
@@ -437,8 +455,14 @@ fn request_from_state(
     messages: &[CanonicalMessage],
     system_instructions: &str,
     developer_instructions: Option<&str>,
+    phase: &str,
 ) -> Result<CanonicalModelRequest, PluginWorkflowError> {
-    let tools = visible_tools(host, input)?;
+    let mut tools = visible_tools(host, input)?;
+    let all_visible_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
+    let dynamic_tools_enabled = dynamic_tools::has_hidden_tools(&tools, &all_visible_tools);
+    if dynamic_tools_enabled {
+        dynamic_tools::append_meta_tools(&mut tools, phase);
+    }
     let mut instructions = vec![InstructionBlock::new(
         InstructionKind::System,
         system_instructions,
@@ -451,6 +475,13 @@ fn request_from_state(
             90,
         ));
     }
+    if dynamic_tools_enabled && phase != "review" {
+        instructions.push(InstructionBlock::new(
+            InstructionKind::Developer,
+            dynamic_tools::INSTRUCTIONS,
+            80,
+        ));
+    }
     let messages = compact_messages(input, host, messages, "before_model_request")?;
     Ok(
         CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
@@ -458,6 +489,19 @@ fn request_from_state(
             .with_tools(tools)
             .with_reasoning(input.runtime.reasoning.clone()),
     )
+}
+
+fn execute_or_handle_tool(
+    host: &mut PluginWorkflowHostMut<'_>,
+    input: &PluginWorkflowInput,
+    call: &ToolCall,
+    phase: &str,
+) -> Result<ToolResult, PluginWorkflowError> {
+    if dynamic_tools::is_meta_tool(&call.name) {
+        dynamic_tools::handle_meta_tool_call(host, input, call, phase)
+    } else {
+        execute_tool(host, input, call)
+    }
 }
 
 fn compact_messages(
@@ -928,8 +972,8 @@ mod tests {
     use proteus_contracts::{
         abi_stable::sabi_trait::TD_Opaque,
         domain::{
-            AgentTask, ContextChunk, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
-            new_turn_id,
+            AgentTask, ContextChunk, ModelRef, ReasoningConfig, new_call_id, new_session_id,
+            new_thread_id, new_turn_id,
         },
         plugin::{
             PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
@@ -1005,6 +1049,9 @@ mod tests {
         events: Mutex<Vec<Event>>,
         requests: Mutex<Vec<CanonicalModelRequest>>,
         responses: Mutex<VecDeque<CanonicalModelResponse>>,
+        visible_tools: Mutex<Vec<ToolSpec>>,
+        selected_tools: Mutex<Vec<ToolSpec>>,
+        executed_calls: Mutex<Vec<ToolCall>>,
     }
 
     impl FakeHost {
@@ -1013,7 +1060,20 @@ mod tests {
                 events: Mutex::new(Vec::new()),
                 requests: Mutex::new(Vec::new()),
                 responses: Mutex::new(VecDeque::from(responses)),
+                visible_tools: Mutex::new(Vec::new()),
+                selected_tools: Mutex::new(Vec::new()),
+                executed_calls: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_tools(
+            mut self,
+            visible_tools: Vec<ToolSpec>,
+            selected_tools: Vec<ToolSpec>,
+        ) -> Self {
+            self.visible_tools = Mutex::new(visible_tools);
+            self.selected_tools = Mutex::new(selected_tools);
+            self
         }
     }
 
@@ -1074,14 +1134,19 @@ mod tests {
         }
 
         fn visible_tools_json(&self, _cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
-            RResult::ROk(RString::from("[]"))
+            RResult::ROk(RString::from(
+                serde_json::to_string(&*self.visible_tools.lock().expect("visible tools"))
+                    .expect("visible tools json"),
+            ))
         }
 
         fn select_tools_json(
             &self,
             _request_json: RString,
         ) -> RResult<RString, PluginWorkflowHostError> {
-            let output = proteus_contracts::contracts::ToolExposureOutput::new(Vec::new());
+            let output = proteus_contracts::contracts::ToolExposureOutput::new(
+                self.selected_tools.lock().expect("selected tools").clone(),
+            );
             RResult::ROk(RString::from(
                 serde_json::to_string(&output).expect("tool exposure output json"),
             ))
@@ -1090,9 +1155,18 @@ mod tests {
         fn execute_tool_json(
             &self,
             _task_json: RString,
-            _call_json: RString,
+            call_json: RString,
         ) -> RResult<RString, PluginWorkflowHostError> {
-            RResult::RErr(PluginWorkflowHostError::new("unexpected tool call"))
+            let call: ToolCall = serde_json::from_str(call_json.as_str()).expect("tool call json");
+            self.executed_calls
+                .lock()
+                .expect("executed calls")
+                .push(call.clone());
+            let result = ToolResult::ok(call.id.clone(), format!("{} ok", call.name))
+                .with_metadata(json!({ "inner": true }));
+            RResult::ROk(RString::from(
+                serde_json::to_string(&result).expect("tool result json"),
+            ))
         }
 
         fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
@@ -1102,10 +1176,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn single_loop_calls_host_and_returns_persistent_messages() {
-        let input = PluginWorkflowInput {
-            task: AgentTask::new("hello", std::env::current_dir().expect("cwd")),
+    fn workflow_input(text: &str) -> PluginWorkflowInput {
+        PluginWorkflowInput {
+            task: AgentTask::new(text, std::env::current_dir().expect("cwd")),
             history: Vec::new(),
             runtime: PluginWorkflowRuntimeInfo {
                 session_id: new_session_id(),
@@ -1116,7 +1189,38 @@ mod tests {
                 model_timeout_ms: 120_000,
                 context_timeout_ms: 30_000,
             },
-        };
+        }
+    }
+
+    fn test_tool(name: &str, description: &str, safety: ToolSafety) -> ToolSpec {
+        ToolSpec::new(
+            name,
+            description,
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Workspace path" }
+                },
+                "required": ["path"]
+            }),
+            safety,
+        )
+    }
+
+    fn tool_call_response(call: ToolCall) -> CanonicalModelResponse {
+        CanonicalModelResponse::new(
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            ),
+            vec![call],
+            FinishReason::ToolCalls,
+        )
+    }
+
+    #[test]
+    fn single_loop_calls_host_and_returns_persistent_messages() {
+        let input = workflow_input("hello");
         let input_json = serde_json::to_string(&input).expect("input json");
         let mut host = FakeHost::default();
         let mut host_to: PluginWorkflowHostMut<'_> =
@@ -1170,6 +1274,235 @@ mod tests {
             events
                 .iter()
                 .any(|event| matches!(event, Event::TurnFinished { .. }))
+        );
+    }
+
+    #[test]
+    fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
+        let input = workflow_input("inspect history");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
+        let mut host =
+            FakeHost::default().with_tools(vec![read_file.clone(), git_log], vec![read_file]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let output_json = match CodingSingleLoopWorkflow::default()
+            .run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+        let _output: PluginWorkflowOutput =
+            serde_json::from_str(output_json.as_str()).expect("output json");
+        drop(host_to);
+
+        let requests = host.requests.lock().expect("requests");
+        let tool_names = requests[0]
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tool_names,
+            vec![
+                "read_file",
+                dynamic_tools::TOOL_SEARCH,
+                dynamic_tools::TOOL_DESCRIBE,
+                dynamic_tools::TOOL_CALL,
+            ]
+        );
+        assert!(
+            requests[0]
+                .instructions
+                .iter()
+                .any(|instruction| instruction.text.contains("full tool catalog"))
+        );
+    }
+
+    #[test]
+    fn proteus_tool_describe_returns_policy_visible_hidden_schema() {
+        let input = workflow_input("describe hidden tool");
+        let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
+        let mut host = FakeHost::default().with_tools(vec![git_log], Vec::new());
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+        let call = ToolCall::new(
+            new_call_id(),
+            dynamic_tools::TOOL_DESCRIBE,
+            json!({ "name": "git_log" }),
+        );
+
+        let result =
+            dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
+        drop(host_to);
+        let output: Value = serde_json::from_str(&result.output).expect("describe output json");
+
+        assert!(result.ok);
+        assert_eq!(result.call_id, call.id);
+        assert_eq!(output["name"], "git_log");
+        assert_eq!(output["required_args"], Value::Null);
+        assert_eq!(output["input_schema"]["required"], json!(["path"]));
+    }
+
+    #[test]
+    fn proteus_tool_search_returns_compact_policy_visible_matches() {
+        let input = workflow_input("search hidden tools");
+        let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
+        let shell = test_tool("shell", "Run terminal commands", ToolSafety::RunsCommands);
+        let mut host = FakeHost::default().with_tools(vec![git_log, shell], Vec::new());
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+        let call = ToolCall::new(
+            new_call_id(),
+            dynamic_tools::TOOL_SEARCH,
+            json!({ "query": "commit history", "limit": 3 }),
+        );
+
+        let result =
+            dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
+        drop(host_to);
+        let output: Value = serde_json::from_str(&result.output).expect("search output json");
+
+        assert!(result.ok);
+        assert_eq!(result.call_id, call.id);
+        assert_eq!(output["matches"][0]["name"], "git_log");
+        assert_eq!(output["matches"][0]["input_schema"], Value::Null);
+        assert_eq!(output["matches"][0]["required_args"], json!(["path"]));
+    }
+
+    #[test]
+    fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
+        let outer_call = ToolCall::new(
+            new_call_id(),
+            dynamic_tools::TOOL_CALL,
+            json!({
+                "name": "hidden_echo",
+                "args": { "path": "README.md" }
+            }),
+        );
+        let input = workflow_input("call hidden tool");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let hidden_echo = test_tool("hidden_echo", "Echo hidden file", ToolSafety::ReadOnly);
+        let mut host = FakeHost::with_responses(vec![
+            tool_call_response(outer_call.clone()),
+            CanonicalModelResponse::new(
+                CanonicalMessage::text(MessageRole::Assistant, "final"),
+                Vec::new(),
+                FinishReason::Stop,
+            ),
+        ])
+        .with_tools(vec![hidden_echo], Vec::new());
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let output_json = match CodingSingleLoopWorkflow::default()
+            .run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+        let output: PluginWorkflowOutput =
+            serde_json::from_str(output_json.as_str()).expect("output json");
+        drop(host_to);
+
+        let executed_calls = host.executed_calls.lock().expect("executed calls");
+        assert_eq!(executed_calls.len(), 1);
+        assert_eq!(executed_calls[0].name, "hidden_echo");
+        assert_ne!(executed_calls[0].id, outer_call.id);
+
+        let result = output
+            .messages
+            .iter()
+            .find_map(|message| {
+                message.parts.iter().find_map(|part| match part {
+                    ContentPart::ToolResult { result } => Some(result),
+                    _ => None,
+                })
+            })
+            .expect("tool result");
+        assert_eq!(result.call_id, outer_call.id);
+        assert_eq!(
+            result.metadata["deferred_tool"]["name"],
+            Value::String("hidden_echo".to_owned())
+        );
+        assert_eq!(
+            result.metadata["deferred_tool"]["inner_call_id"],
+            Value::String(executed_calls[0].id.clone())
+        );
+    }
+
+    #[test]
+    fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
+        let input = workflow_input("bad recursive call");
+        let mut host = FakeHost::default();
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+        let call = ToolCall::new(
+            new_call_id(),
+            dynamic_tools::TOOL_CALL,
+            json!({
+                "name": dynamic_tools::TOOL_SEARCH,
+                "args": { "query": "anything" }
+            }),
+        );
+
+        let result =
+            dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
+        drop(host_to);
+
+        assert!(!result.ok);
+        assert_eq!(result.call_id, call.id);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("cannot call Proteus meta-tools")
+        );
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
+        let input = workflow_input("plan write");
+        let write_file = test_tool("write_file", "Write a file", ToolSafety::WritesFiles);
+        let mut host = FakeHost::default().with_tools(vec![write_file], Vec::new());
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+        let call = ToolCall::new(
+            new_call_id(),
+            dynamic_tools::TOOL_CALL,
+            json!({
+                "name": "write_file",
+                "args": { "path": "README.md" }
+            }),
+        );
+
+        let result =
+            dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "plan").unwrap();
+        drop(host_to);
+
+        assert!(!result.ok);
+        assert_eq!(result.call_id, call.id);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("plan phase")
+        );
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
         );
     }
 
