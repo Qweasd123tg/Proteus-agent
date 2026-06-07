@@ -479,6 +479,42 @@ struct TopologyToolNode {
 }
 
 #[derive(Clone, Debug)]
+struct TopologyGraphModel {
+    width: f32,
+    height: f32,
+    lanes: Vec<TopologyGraphLane>,
+    nodes: Vec<TopologyGraphNode>,
+    lines: Vec<TopologyGraphLine>,
+}
+
+#[derive(Clone, Debug)]
+struct TopologyGraphLane {
+    label: &'static str,
+    x: f32,
+}
+
+#[derive(Clone, Debug)]
+struct TopologyGraphNode {
+    id: String,
+    label: String,
+    detail: String,
+    badge: String,
+    class_name: &'static str,
+    x: f32,
+    y: f32,
+}
+
+#[derive(Clone, Debug)]
+struct TopologyGraphLine {
+    key: String,
+    class_name: &'static str,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+}
+
+#[derive(Clone, Debug)]
 struct DanglingTopologyNode {
     id: String,
     incoming_edges: Vec<TopologyEdge>,
@@ -546,6 +582,12 @@ fn TopologyMapView(snapshot: TopologySnapshot) -> impl IntoView {
         .count();
     let has_available =
         !available_modules.is_empty() || !available_tools.is_empty() || !dangling_nodes.is_empty();
+    let graph_model = topology_graph_model(&snapshot, &slot_nodes, &plugin_nodes, &tool_nodes);
+    let graph_lanes = graph_model.lanes.clone();
+    let graph_nodes = graph_model.nodes.clone();
+    let graph_lines = graph_model.lines.clone();
+    let graph_width = graph_model.width;
+    let graph_height = graph_model.height;
 
     view! {
         <>
@@ -580,25 +622,76 @@ fn TopologyMapView(snapshot: TopologySnapshot) -> impl IntoView {
                         <small>"uses"</small>
                     </span>
                 </div>
-                <div class="topology-flow">
-                    <div class="topology-flow-node">
-                        <span>"config"</span>
-                        <strong>"selects slots"</strong>
-                    </div>
-                    <div class="topology-flow-link">"selects"</div>
-                    <div class="topology-flow-node">
-                        <span>"slots"</span>
-                        <strong>{format!("{active_slot_count}/{}", slot_nodes.len())}</strong>
-                    </div>
-                    <div class="topology-flow-link">"loads"</div>
-                    <div class="topology-flow-node">
-                        <span>"plugins"</span>
-                        <strong>{format!("{loaded_plugin_count}/{}", plugin_nodes.len())}</strong>
-                    </div>
-                    <div class="topology-flow-link">"registers"</div>
-                    <div class="topology-flow-node">
-                        <span>"ToolRegistry"</span>
-                        <strong>{registered_tool_nodes.len().to_string()}</strong>
+                <div class="topology-graph-scroll">
+                    <div
+                        class="topology-graph"
+                        style=format!("width: {graph_width}px; height: {graph_height}px;")
+                    >
+                        <svg
+                            class="topology-graph-svg"
+                            viewBox=format!("0 0 {graph_width} {graph_height}")
+                            aria-hidden="true"
+                        >
+                            <defs>
+                                <marker
+                                    id="topology-arrow"
+                                    markerWidth="8"
+                                    markerHeight="8"
+                                    refX="7"
+                                    refY="4"
+                                    orient="auto"
+                                >
+                                    <path d="M0,0 L8,4 L0,8 Z"></path>
+                                </marker>
+                            </defs>
+                            <For
+                                each=move || graph_lines.clone()
+                                key=|line| line.key.clone()
+                                children=move |line| {
+                                    view! {
+                                        <line
+                                            class=line.class_name
+                                            x1=line.x1.to_string()
+                                            y1=line.y1.to_string()
+                                            x2=line.x2.to_string()
+                                            y2=line.y2.to_string()
+                                        />
+                                    }
+                                }
+                            />
+                        </svg>
+                        <For
+                            each=move || graph_lanes.clone()
+                            key=|lane| lane.label
+                            children=move |lane| {
+                                view! {
+                                    <div
+                                        class="topology-graph-lane-label"
+                                        style=format!("left: {}px;", lane.x)
+                                    >
+                                        {lane.label}
+                                    </div>
+                                }
+                            }
+                        />
+                        <For
+                            each=move || graph_nodes.clone()
+                            key=|node| node.id.clone()
+                            children=move |node| {
+                                view! {
+                                    <article
+                                        class=node.class_name
+                                        style=format!("left: {}px; top: {}px;", node.x, node.y)
+                                    >
+                                        <div>
+                                            <strong>{node.label}</strong>
+                                            <span>{node.detail}</span>
+                                        </div>
+                                        <code>{node.badge}</code>
+                                    </article>
+                                }
+                            }
+                        />
                     </div>
                 </div>
             </section>
@@ -987,6 +1080,233 @@ fn module_source_label(source: &TopologyModuleSource) -> String {
         "builtin" => "builtin".to_owned(),
         "config" => "config".to_owned(),
         _ => "unknown".to_owned(),
+    }
+}
+
+const TOPOLOGY_GRAPH_WIDTH: f32 = 1120.0;
+const TOPOLOGY_GRAPH_NODE_WIDTH: f32 = 190.0;
+const TOPOLOGY_GRAPH_NODE_HEIGHT: f32 = 48.0;
+const TOPOLOGY_GRAPH_ROW_HEIGHT: f32 = 64.0;
+const TOPOLOGY_GRAPH_TOP: f32 = 48.0;
+const TOPOLOGY_GRAPH_BOTTOM: f32 = 32.0;
+const TOPOLOGY_GRAPH_CONFIG_X: f32 = 24.0;
+const TOPOLOGY_GRAPH_PLUGIN_X: f32 = 250.0;
+const TOPOLOGY_GRAPH_SLOT_X: f32 = 510.0;
+const TOPOLOGY_GRAPH_TARGET_X: f32 = 810.0;
+
+fn topology_graph_model(
+    snapshot: &TopologySnapshot,
+    slot_nodes: &[TopologySlotNode],
+    plugin_nodes: &[TopologyPluginNode],
+    tool_nodes: &[TopologyToolNode],
+) -> TopologyGraphModel {
+    let target_rows = snapshot.tools.len() + 1;
+    let max_rows = slot_nodes
+        .len()
+        .max(plugin_nodes.len())
+        .max(target_rows)
+        .max(1);
+    let height =
+        TOPOLOGY_GRAPH_TOP + (max_rows as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT) + TOPOLOGY_GRAPH_BOTTOM;
+    let config_y = TOPOLOGY_GRAPH_TOP
+        + ((max_rows.saturating_sub(1)) as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT / 2.0);
+    let mut nodes = vec![TopologyGraphNode {
+        id: "config".to_owned(),
+        label: "config".to_owned(),
+        detail: non_empty(snapshot.profile.as_str(), "default"),
+        badge: snapshot.permission_mode.clone(),
+        class_name: "topology-graph-node config",
+        x: TOPOLOGY_GRAPH_CONFIG_X,
+        y: config_y,
+    }];
+
+    for (index, plugin_node) in plugin_nodes.iter().enumerate() {
+        let module_count = plugin_node.plugin.provides.modules.len();
+        let tool_count = plugin_node.plugin.provides.tools.len();
+        let class_name = match plugin_node.plugin.status.as_str() {
+            "loaded" => "topology-graph-node plugin loaded",
+            "failed" | "error" => "topology-graph-node plugin error",
+            _ => "topology-graph-node plugin",
+        };
+        nodes.push(TopologyGraphNode {
+            id: format!("plugin:{}", plugin_node.plugin.name),
+            label: plugin_node.plugin.name.clone(),
+            detail: format!("{module_count} modules · {tool_count} tools"),
+            badge: non_empty(&plugin_node.plugin.version, "-"),
+            class_name,
+            x: TOPOLOGY_GRAPH_PLUGIN_X,
+            y: TOPOLOGY_GRAPH_TOP + index as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
+        });
+    }
+
+    for (index, slot_node) in slot_nodes.iter().enumerate() {
+        let active_module = slot_node
+            .slot
+            .active_module
+            .clone()
+            .unwrap_or_else(|| "module не выбран".to_owned());
+        let available_count = slot_node.available_modules.len();
+        let badge = if available_count == 0 {
+            "0 available".to_owned()
+        } else {
+            format!("{available_count} available")
+        };
+        let class_name = if slot_node.active_module.is_some() {
+            "topology-graph-node slot active"
+        } else {
+            "topology-graph-node slot missing"
+        };
+        nodes.push(TopologyGraphNode {
+            id: format!("slot:{}", slot_node.slot.id),
+            label: slot_node.slot.id.clone(),
+            detail: active_module,
+            badge,
+            class_name,
+            x: TOPOLOGY_GRAPH_SLOT_X,
+            y: TOPOLOGY_GRAPH_TOP + index as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
+        });
+    }
+
+    let registered_tool_count = tool_nodes
+        .iter()
+        .filter(|node| node.tool.registered)
+        .count();
+    nodes.push(TopologyGraphNode {
+        id: "tools".to_owned(),
+        label: "ToolRegistry".to_owned(),
+        detail: format!("{registered_tool_count} registered"),
+        badge: format!("{} provided", snapshot.tools.len()),
+        class_name: "topology-graph-node registry",
+        x: TOPOLOGY_GRAPH_TARGET_X,
+        y: TOPOLOGY_GRAPH_TOP,
+    });
+
+    for (index, tool_node) in tool_nodes.iter().enumerate() {
+        let state = if tool_node.tool.registered {
+            "registered"
+        } else if tool_node.tool.enabled {
+            "enabled"
+        } else {
+            "provided disabled"
+        };
+        let class_name = if tool_node.tool.registered {
+            "topology-graph-node tool registered"
+        } else {
+            "topology-graph-node tool disabled"
+        };
+        nodes.push(TopologyGraphNode {
+            id: format!("tool:{}", tool_node.tool.name),
+            label: tool_node.tool.name.clone(),
+            detail: tool_node
+                .tool
+                .provider_plugin
+                .clone()
+                .unwrap_or_else(|| tool_node.tool.source.clone()),
+            badge: state.to_owned(),
+            class_name,
+            x: TOPOLOGY_GRAPH_TARGET_X,
+            y: TOPOLOGY_GRAPH_TOP + (index + 1) as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
+        });
+    }
+
+    let node_positions = nodes
+        .iter()
+        .map(|node| (node.id.clone(), (node.x, node.y)))
+        .collect::<HashMap<_, _>>();
+    let mut lines = Vec::new();
+    let mut seen_lines = BTreeSet::new();
+    for edge in &snapshot.edges {
+        let from = edge.from.clone();
+        let mut to = edge.to.clone();
+        if let Some(module_id) = edge.to.strip_prefix("module:") {
+            if let Some(slot) = module_id.split(':').next() {
+                to = format!("slot:{slot}");
+            }
+        }
+        if edge.to == "tools" {
+            to = "tools".to_owned();
+        }
+        if edge.from.starts_with("context_provider:") || edge.to.starts_with("context_provider:") {
+            continue;
+        }
+        if from.starts_with("module:") {
+            continue;
+        }
+        if to.starts_with("module:") {
+            continue;
+        }
+        let line_key = format!("{from}>{to}>{}", edge.kind);
+        if !seen_lines.insert(line_key.clone()) {
+            continue;
+        }
+        if let Some(line) = topology_graph_line(&node_positions, from, to, &edge.kind, line_key) {
+            lines.push(line);
+        }
+    }
+
+    TopologyGraphModel {
+        width: TOPOLOGY_GRAPH_WIDTH,
+        height,
+        lanes: vec![
+            TopologyGraphLane {
+                label: "config",
+                x: TOPOLOGY_GRAPH_CONFIG_X,
+            },
+            TopologyGraphLane {
+                label: "plugins",
+                x: TOPOLOGY_GRAPH_PLUGIN_X,
+            },
+            TopologyGraphLane {
+                label: "slots",
+                x: TOPOLOGY_GRAPH_SLOT_X,
+            },
+            TopologyGraphLane {
+                label: "registry / tools",
+                x: TOPOLOGY_GRAPH_TARGET_X,
+            },
+        ],
+        nodes,
+        lines,
+    }
+}
+
+fn topology_graph_line(
+    node_positions: &HashMap<String, (f32, f32)>,
+    from: String,
+    to: String,
+    kind: &str,
+    key: String,
+) -> Option<TopologyGraphLine> {
+    if from == to {
+        return None;
+    }
+    let (from_x, from_y) = node_positions.get(&from)?;
+    let (to_x, to_y) = node_positions.get(&to)?;
+    let from_center_y = *from_y + TOPOLOGY_GRAPH_NODE_HEIGHT / 2.0;
+    let to_center_y = *to_y + TOPOLOGY_GRAPH_NODE_HEIGHT / 2.0;
+    let (x1, x2) = if from_x <= to_x {
+        (*from_x + TOPOLOGY_GRAPH_NODE_WIDTH, *to_x)
+    } else {
+        (*from_x, *to_x + TOPOLOGY_GRAPH_NODE_WIDTH)
+    };
+    Some(TopologyGraphLine {
+        key,
+        class_name: topology_graph_line_class(kind),
+        x1,
+        y1: from_center_y,
+        x2,
+        y2: to_center_y,
+    })
+}
+
+fn topology_graph_line_class(kind: &str) -> &'static str {
+    match kind {
+        "config_selection" | "selects" => "topology-graph-line config",
+        "provides" => "topology-graph-line provides",
+        "registered_tool" => "topology-graph-line registered",
+        "unregistered_tool" => "topology-graph-line disabled",
+        "runtime" | "uses" => "topology-graph-line runtime",
+        _ => "topology-graph-line",
     }
 }
 

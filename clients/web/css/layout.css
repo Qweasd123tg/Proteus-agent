@@ -884,7 +884,7 @@
 }
 
 .topology-map-section {
-    overflow: hidden;
+    overflow: visible;
 }
 
 .topology-map-summary {
@@ -921,15 +921,6 @@
     white-space: nowrap;
 }
 
-.topology-flow {
-    display: grid;
-    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr);
-    gap: var(--space-2);
-    overflow-x: auto;
-    padding: var(--space-4);
-}
-
-.topology-flow-node,
 .topology-node-card,
 .topology-registry-card,
 .topology-tool-node,
@@ -939,14 +930,6 @@
     background: var(--bg-panel-soft);
 }
 
-.topology-flow-node {
-    display: grid;
-    gap: 3px;
-    padding: var(--space-3);
-}
-
-.topology-flow-node span,
-.topology-flow-link,
 .topology-muted,
 .topology-available-inline > span,
 .topology-tool-title span,
@@ -957,20 +940,140 @@
     text-transform: uppercase;
 }
 
-.topology-flow-node strong {
+.topology-graph-scroll {
+    overflow-x: auto;
+    border-top: 1px solid var(--border-subtle);
+    background:
+        linear-gradient(90deg, rgb(91 140 255 / 4%) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+        var(--bg-panel);
+    background-size: 64px 64px;
+    padding: var(--space-4);
+}
+
+.topology-graph {
+    position: relative;
+    min-width: 100%;
+}
+
+.topology-graph-svg {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.topology-graph-svg marker path {
+    fill: rgb(128 142 170 / 70%);
+}
+
+.topology-graph-line {
+    stroke: rgb(128 142 170 / 36%);
+    stroke-width: 1.4;
+    marker-end: url("#topology-arrow");
+}
+
+.topology-graph-line.config {
+    stroke: rgb(91 140 255 / 58%);
+}
+
+.topology-graph-line.provides {
+    stroke: rgb(72 199 116 / 54%);
+}
+
+.topology-graph-line.runtime,
+.topology-graph-line.registered {
+    stroke: rgb(91 140 255 / 44%);
+}
+
+.topology-graph-line.disabled {
+    stroke: rgb(216 162 30 / 45%);
+    stroke-dasharray: 6 5;
+}
+
+.topology-graph-lane-label {
+    position: absolute;
+    top: 0;
+    z-index: 3;
+    width: 190px;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.topology-graph-node {
+    position: absolute;
+    z-index: 2;
+    display: flex;
+    width: 190px;
+    height: 48px;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    background: rgb(18 24 34 / 96%);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+    padding: var(--space-2) var(--space-3);
+}
+
+.topology-graph-node > div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.topology-graph-node strong {
     overflow: hidden;
     color: var(--text-main);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.topology-flow-link {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 70px;
+.topology-graph-node span,
+.topology-graph-node code {
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topology-graph-node span {
+    color: var(--text-muted);
+}
+
+.topology-graph-node code {
+    max-width: 78px;
+    color: var(--text-faint);
+}
+
+.topology-graph-node.config,
+.topology-graph-node.registry {
+    border-color: rgb(91 140 255 / 42%);
+}
+
+.topology-graph-node.plugin.loaded,
+.topology-graph-node.slot.active,
+.topology-graph-node.tool.registered {
+    border-color: rgb(72 199 116 / 36%);
+}
+
+.topology-graph-node.plugin.error {
+    border-color: rgb(224 82 82 / 40%);
+}
+
+.topology-graph-node.slot.missing,
+.topology-graph-node.tool.disabled {
+    border-color: rgb(216 162 30 / 36%);
 }
 
 .topology-node-grid,
