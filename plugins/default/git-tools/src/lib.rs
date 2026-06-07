@@ -55,7 +55,12 @@ impl PluginTool for GitStatusTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": TIMEOUT_MS,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "git",
+                "tags": ["git", "status", "workspace"],
+                "aliases": ["git status", "working tree", "changed files"]
+            }
         });
         RString::from(spec.to_string())
     }
@@ -99,7 +104,12 @@ impl PluginTool for GitDiffTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": TIMEOUT_MS,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "git",
+                "tags": ["git", "diff", "patch", "changes"],
+                "aliases": ["git diff", "show changes", "review diff"]
+            }
         });
         RString::from(spec.to_string())
     }

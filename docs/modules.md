@@ -342,10 +342,11 @@ budget стратегий, но не заменяет `MemoryStore` и `MemoryPo
 request.
 
 `modules.tool_exposure = "dynamic"` — core selector для первого слоя экономии
-tool schemas. Он берёт только уже policy-visible candidates, оставляет небольшой
-hot набор (`request_user_input`, file/search/git helpers, `apply_patch`, если
-они включены) и лексически ранжирует остальные tools по task/query,
-description, schema и `ToolSpec.metadata`. Selector пишет observability metadata:
+tool schemas. Он берёт только уже policy-visible candidates, сначала оставляет
+tools с `ToolSpec.metadata.hot = true` или именами из
+`module_config.tool_exposure.dynamic.always_include`, затем лексически ранжирует
+остальные tools по task/query, description, schema и `ToolSpec.metadata`.
+Selector пишет observability metadata:
 `selector`, `candidate_count`, `selected_count`, `hidden_count`,
 `selected_tools` и грубую оценку schema-token savings.
 

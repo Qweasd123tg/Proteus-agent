@@ -52,6 +52,12 @@ impl Tool for SearchTool {
             ToolSafety::ReadOnly,
         )
         .with_timeout(60_000)
+        .with_metadata(json!({
+            "hot": true,
+            "category": "search",
+            "tags": ["workspace", "search", "repo", "code"],
+            "aliases": ["search_text", "ripgrep", "find text", "search code"]
+        }))
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {

@@ -50,7 +50,12 @@ impl PluginTool for ReadManyFilesTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": 60000,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "filesystem",
+                "tags": ["filesystem", "read", "files", "code"],
+                "aliases": ["read files", "open multiple files", "inspect files"]
+            }
         });
         RString::from(spec.to_string())
     }

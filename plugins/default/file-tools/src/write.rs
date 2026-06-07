@@ -27,7 +27,11 @@ impl PluginTool for WriteFileTool {
             },
             "safety": "WritesFiles",
             "timeout_ms": 60000,
-            "metadata": null
+            "metadata": {
+                "category": "filesystem",
+                "tags": ["filesystem", "write", "file"],
+                "aliases": ["write file", "create file", "overwrite file"]
+            }
         });
         RString::from(spec.to_string())
     }

@@ -179,6 +179,10 @@ impl Tool for RequestUserInputTool {
         )
         .with_timeout(600_000)
         .with_metadata(json!({
+            "hot": true,
+            "category": "interaction",
+            "tags": ["user", "input", "question", "approval"],
+            "aliases": ["ask user", "clarify", "request clarification"],
             "interactive": true,
             "ui": "request_user_input"
         }))

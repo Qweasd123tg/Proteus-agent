@@ -1302,8 +1302,13 @@ fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<
     Ok(Arc::new(AllVisibleToolExposure))
 }
 
-fn build_dynamic_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
-    Ok(Arc::new(DynamicToolExposure))
+fn build_dynamic_tool_exposure(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
+    let config = ctx.config.module_config_or(
+        ModuleKind::ToolExposure,
+        "dynamic",
+        crate::stubs::DynamicToolExposureConfig::default(),
+    )?;
+    Ok(Arc::new(DynamicToolExposure::new(config)))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

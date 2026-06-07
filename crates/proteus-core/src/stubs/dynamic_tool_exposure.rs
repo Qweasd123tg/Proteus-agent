@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -10,34 +11,56 @@ use crate::{
 };
 
 const DEFAULT_MAX_HOT_TOOLS: usize = 10;
-const ALWAYS_INCLUDE: &[&str] = &[
-    "request_user_input",
-    "find_files",
-    "read_file",
-    "read_many_files",
-    "grep",
-    "search",
-    "git_status",
-    "git_diff",
-    "apply_patch",
-];
 
-#[derive(Debug, Default, Clone)]
-pub struct DynamicToolExposure;
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DynamicToolExposureConfig {
+    pub max_hot_tools: usize,
+    pub always_include: Vec<String>,
+}
+
+impl Default for DynamicToolExposureConfig {
+    fn default() -> Self {
+        Self {
+            max_hot_tools: DEFAULT_MAX_HOT_TOOLS,
+            always_include: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicToolExposure {
+    config: DynamicToolExposureConfig,
+}
+
+impl DynamicToolExposure {
+    pub fn new(config: DynamicToolExposureConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl Default for DynamicToolExposure {
+    fn default() -> Self {
+        Self::new(DynamicToolExposureConfig::default())
+    }
+}
 
 #[async_trait]
 impl ToolExposure for DynamicToolExposure {
     async fn select(&self, input: ToolExposureInput) -> Result<ToolExposureOutput> {
-        Ok(select_dynamic_tools(input))
+        Ok(select_dynamic_tools(input, &self.config))
     }
 }
 
-fn select_dynamic_tools(input: ToolExposureInput) -> ToolExposureOutput {
+fn select_dynamic_tools(
+    input: ToolExposureInput,
+    config: &DynamicToolExposureConfig,
+) -> ToolExposureOutput {
     let candidate_count = input.candidates.len();
     let max_tools = input
         .request
         .max_tools
-        .unwrap_or(DEFAULT_MAX_HOT_TOOLS)
+        .unwrap_or(config.max_hot_tools)
         .max(1);
     let query = tool_query(&input.request.task, input.request.query.as_deref());
 
@@ -49,14 +72,28 @@ fn select_dynamic_tools(input: ToolExposureInput) -> ToolExposureOutput {
     let before = estimate_tool_schema_tokens(&input.candidates);
     let mut selected = Vec::new();
     let mut selected_names = HashSet::new();
-    for name in ALWAYS_INCLUDE {
+    for name in &config.always_include {
         if selected.len() >= max_tools {
             break;
         }
-        if let Some(tool) = input.candidates.iter().find(|tool| tool.name == *name) {
+        if let Some(tool) = input.candidates.iter().find(|tool| &tool.name == name) {
             selected_names.insert(tool.name.clone());
             selected.push(tool.clone());
         }
+    }
+    let mut hot_tools = input
+        .candidates
+        .iter()
+        .filter(|tool| !selected_names.contains(&tool.name))
+        .filter(|tool| metadata_hot(&tool.metadata))
+        .collect::<Vec<_>>();
+    hot_tools.sort_by(|left, right| left.name.cmp(&right.name));
+    for tool in hot_tools {
+        if selected.len() >= max_tools {
+            break;
+        }
+        selected_names.insert(tool.name.clone());
+        selected.push(tool.clone());
     }
 
     let mut ranked = input
@@ -220,15 +257,22 @@ mod tests {
 
     #[tokio::test]
     async fn dynamic_selector_caps_tool_count_and_keeps_always_include() {
-        let output = DynamicToolExposure
+        let selector = DynamicToolExposure::new(DynamicToolExposureConfig {
+            max_hot_tools: DEFAULT_MAX_HOT_TOOLS,
+            always_include: vec!["request_user_input".to_owned()],
+        });
+        let output = selector
             .select(input(
                 "read files and inspect git diff",
                 4,
                 vec![
                     spec("shell", "Run terminal commands", ToolSafety::RunsCommands),
-                    spec("read_file", "Read a UTF-8 file", ToolSafety::ReadOnly),
-                    spec("grep", "Search for regex matches", ToolSafety::ReadOnly),
-                    spec("git_diff", "Show git diff", ToolSafety::ReadOnly),
+                    spec("read_file", "Read a UTF-8 file", ToolSafety::ReadOnly)
+                        .with_metadata(json!({ "hot": true })),
+                    spec("grep", "Search for regex matches", ToolSafety::ReadOnly)
+                        .with_metadata(json!({ "hot": true })),
+                    spec("git_diff", "Show git diff", ToolSafety::ReadOnly)
+                        .with_metadata(json!({ "hot": true })),
                     spec("deploy", "Deploy to production", ToolSafety::Dangerous),
                     spec("request_user_input", "Ask the user", ToolSafety::ReadOnly),
                 ],
@@ -243,7 +287,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             names,
-            ["request_user_input", "read_file", "grep", "git_diff"]
+            ["request_user_input", "git_diff", "grep", "read_file"]
         );
         assert_eq!(output.metadata["selector"], "dynamic");
         assert_eq!(output.metadata["candidate_count"], 6);
@@ -253,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn dynamic_selector_does_not_surface_shell_without_query_match() {
-        let output = DynamicToolExposure
+        let output = DynamicToolExposure::default()
             .select(input(
                 "read config file",
                 3,
@@ -272,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn dynamic_selector_can_rank_metadata_terms() {
-        let output = DynamicToolExposure
+        let output = DynamicToolExposure::default()
             .select(input(
                 "commit history",
                 1,

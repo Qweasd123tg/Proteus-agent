@@ -69,7 +69,11 @@ impl PluginTool for ShellTool {
             },
             "safety": "RunsCommands",
             "timeout_ms": TIMEOUT_MS,
-            "metadata": null
+            "metadata": {
+                "category": "terminal",
+                "tags": ["terminal", "command", "test", "build"],
+                "aliases": ["run command", "cargo test", "npm test", "execute"]
+            }
         });
         RString::from(spec.to_string())
     }

@@ -41,7 +41,12 @@ impl PluginTool for ReadFileTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": 60000,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "filesystem",
+                "tags": ["filesystem", "read", "file", "code"],
+                "aliases": ["cat", "open file", "inspect file", "view source"]
+            }
         });
         RString::from(spec.to_string())
     }
