@@ -228,7 +228,6 @@ fn load_topology_snapshot(
 ) {
     spawn_local(async move {
         let snapshot_result = get_json::<TopologySnapshot>("/inspect/topology").await;
-        let mermaid_result = get_text("/inspect/topology.mmd").await;
         match snapshot_result {
             Ok(snapshot) => {
                 let slot_count = snapshot.slots.len();
@@ -236,10 +235,18 @@ fn load_topology_snapshot(
                 let plugin_count = snapshot.plugins.len();
                 let edge_count = snapshot.edges.len();
                 set_snapshot.set(Some(snapshot));
-                set_mermaid.set(mermaid_result.unwrap_or_default());
                 set_status.set(format!(
                     "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {edge_count} edges"
                 ));
+                match get_text("/inspect/topology.mmd").await {
+                    Ok(mermaid) => set_mermaid.set(mermaid),
+                    Err(error) => {
+                        set_mermaid.set(String::new());
+                        set_status.set(format!(
+                            "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {edge_count} edges · Mermaid недоступен: {error}"
+                        ));
+                    }
+                }
             }
             Err(error) => {
                 set_snapshot.set(None);
