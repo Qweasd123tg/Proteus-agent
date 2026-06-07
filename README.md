@@ -183,7 +183,9 @@ web-клиент будет использовать query token для `EventSo
 например `proteus doctor` или
 `proteus --plan "inspect project"`. Если source новее release binary, wrapper
 сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
-app-server не разъезжались по protocol endpoints.
+app-server не разъезжались по protocol endpoints. Если на `8787` висит старый
+`proteus server http`, wrapper закрывает его перед стартом нового workspace;
+для чужого процесса используйте `PROTEUS_APP_PORT=<port>`.
 
 Leptos-клиент живёт в `clients/web` и уже работает как HTTP/SSE client поверх
 app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
