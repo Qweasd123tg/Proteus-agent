@@ -2,6 +2,7 @@
 
 mod all_visible_tool_exposure;
 mod deny_all_policy;
+mod dynamic_tool_exposure;
 mod empty_context;
 mod fake_model;
 mod no_compactor;
@@ -14,6 +15,7 @@ mod text_renderer;
 
 pub use all_visible_tool_exposure::*;
 pub use deny_all_policy::*;
+pub use dynamic_tool_exposure::*;
 pub use empty_context::*;
 pub use fake_model::*;
 pub use no_compactor::*;

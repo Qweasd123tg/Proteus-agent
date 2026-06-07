@@ -21,8 +21,9 @@ use crate::{
         PluginToolExposureAdapter, PluginWorkflowAdapter,
     },
     stubs::{
-        AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
-        NoMemory, NoMemoryPolicy, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
+        AllVisibleToolExposure, DenyAllPolicy, DynamicToolExposure, EmptyContextBuilder,
+        FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy, NoWorkflow, NullPatchApplier,
+        NullSearch, TextRenderer,
     },
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
@@ -285,6 +286,17 @@ impl BuiltinModuleCatalog {
                 "Expose all policy-visible tools, optionally capped by request.",
             ),
             build_all_visible_tool_exposure,
+        );
+        catalog.register_module::<dyn ToolExposure>(
+            slot::TOOL_EXPOSURE,
+            "dynamic",
+            manifest(
+                "dynamic",
+                ModuleKind::ToolExposure,
+                &["lexical", "token_savings"],
+                "Expose a small lexical-ranked hot toolset from policy-visible tools.",
+            ),
+            build_dynamic_tool_exposure,
         );
 
         // Workflows
@@ -1288,6 +1300,10 @@ fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCo
 
 fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
     Ok(Arc::new(AllVisibleToolExposure))
+}
+
+fn build_dynamic_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
+    Ok(Arc::new(DynamicToolExposure))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

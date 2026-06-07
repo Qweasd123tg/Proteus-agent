@@ -28,8 +28,8 @@ use proteus_core::{
     contracts::{
         ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
         EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
-        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolRegistry,
-        ToolSource, Workflow,
+        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput,
+        ToolExposureRequest, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
@@ -366,9 +366,47 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(policy_ids, ["deny_all"]);
     assert_eq!(workflow_ids, ["none"]);
     assert_eq!(compactor_ids, ["none"]);
-    assert_eq!(tool_exposure_ids, ["all_visible"]);
+    assert_eq!(tool_exposure_ids, ["all_visible", "dynamic"]);
     assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
+}
+
+#[tokio::test]
+async fn builtin_dynamic_tool_exposure_can_be_built_and_selects_tools() {
+    disable_plugin_loader();
+    let catalog = BuiltinModuleCatalog::new();
+    let config = AppConfig::default();
+    let dir = TempDir::new().unwrap();
+    let providers = [];
+    let ctx = proteus_core::core::ModuleBuildContext {
+        config: &config,
+        cwd: dir.path(),
+        context_providers: &providers,
+    };
+    let selector = catalog.build_tool_exposure("dynamic", &ctx).unwrap();
+    let task = AgentTask::new("inspect git diff".to_owned(), dir.path().to_path_buf());
+    let request = ToolExposureRequest::new(task)
+        .with_query("inspect git diff")
+        .with_max_tools(2);
+    let output = selector
+        .select(ToolExposureInput::new(
+            request,
+            vec![
+                ToolSpec::new("shell", "Run commands", json!({}), ToolSafety::RunsCommands),
+                ToolSpec::new("git_diff", "Show git diff", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new("read_file", "Read a file", json!({}), ToolSafety::ReadOnly),
+            ],
+        ))
+        .await
+        .unwrap();
+
+    let names = output
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["read_file", "git_diff"]);
+    assert_eq!(output.metadata["selector"], "dynamic");
 }
 
 #[test]
