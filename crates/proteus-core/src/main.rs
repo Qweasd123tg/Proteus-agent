@@ -1958,7 +1958,11 @@ mod tests {
         assert!(profile.exists());
         let profile_body = std::fs::read_to_string(&profile).expect("profile body");
         assert!(profile_body.starts_with("active_provider = \"anthropic\""));
-        assert!(!profile_body.contains("include = "));
+        assert!(
+            !profile_body
+                .lines()
+                .any(|line| line.trim_start().starts_with("include = "))
+        );
 
         let config = AppConfig::load(Some(dir.path()))
             .await

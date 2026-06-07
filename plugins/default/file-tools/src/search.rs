@@ -45,7 +45,12 @@ impl PluginTool for GrepTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": RG_TIMEOUT.as_millis() as u64,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "filesystem",
+                "tags": ["filesystem", "search", "grep", "regex", "code"],
+                "aliases": ["ripgrep", "find text", "search code", "search files"]
+            }
         });
         RString::from(spec.to_string())
     }

@@ -27,7 +27,12 @@ impl PluginTool for ListDirTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": 60000,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "filesystem",
+                "tags": ["filesystem", "directory", "list", "files"],
+                "aliases": ["ls", "list directory", "show folder"]
+            }
         });
         RString::from(spec.to_string())
     }

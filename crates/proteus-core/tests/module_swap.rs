@@ -405,7 +405,7 @@ async fn builtin_dynamic_tool_exposure_can_be_built_and_selects_tools() {
         .iter()
         .map(|tool| tool.name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["read_file", "git_diff"]);
+    assert_eq!(names, ["git_diff", "read_file"]);
     assert_eq!(output.metadata["selector"], "dynamic");
 }
 

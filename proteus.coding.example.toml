@@ -32,6 +32,10 @@ mode = "normal"
 allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 
+[module_config.tool_exposure.dynamic]
+max_hot_tools = 10
+always_include = ["request_user_input"]
+
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]
 max_context_bytes = 60000

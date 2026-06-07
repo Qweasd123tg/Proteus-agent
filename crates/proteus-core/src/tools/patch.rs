@@ -41,6 +41,10 @@ impl Tool for ApplyPatchTool {
         )
         .with_timeout(10_000)
         .with_metadata(json!({
+            "hot": true,
+            "category": "patch",
+            "tags": ["workspace", "edit", "patch", "write"],
+            "aliases": ["apply changes", "edit files", "modify workspace"],
             "format": "internal_patch",
             "accepted_headers": [
                 "*** Add File: <path>",

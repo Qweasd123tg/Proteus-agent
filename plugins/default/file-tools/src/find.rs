@@ -48,7 +48,12 @@ impl PluginTool for FindFilesTool {
             },
             "safety": "ReadOnly",
             "timeout_ms": FIND_TIMEOUT.as_millis() as u64,
-            "metadata": null
+            "metadata": {
+                "hot": true,
+                "category": "filesystem",
+                "tags": ["filesystem", "find", "glob", "files"],
+                "aliases": ["find files", "list matching files", "file glob"]
+            }
         });
         RString::from(spec.to_string())
     }
