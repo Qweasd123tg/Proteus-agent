@@ -1433,6 +1433,11 @@ mod tests {
         let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
         assert!(body.starts_with("flowchart LR"));
         assert!(body.contains("workflow"));
+        assert!(body.contains("plugin tools"));
+        assert!(body.contains("support: search, patch, memory, memory_policy, compactor"));
+        assert!(!body.contains("tool:grep"));
+        assert!(!body.contains("Warnings"));
+        assert!(!body.contains("available"));
 
         let response = route_request(state, authed_get_request("/inspect/topology.map"))
             .await

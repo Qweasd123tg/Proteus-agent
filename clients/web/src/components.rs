@@ -284,6 +284,13 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
     let tools = snapshot.tools.clone();
     let warnings = snapshot.warnings.clone();
     let mermaid_preview = mermaid.clone();
+    let mermaid_copy_text = mermaid.clone();
+    let copy_mermaid_preview = move |event: MouseEvent| {
+        event.stop_propagation();
+        if !mermaid_copy_text.trim().is_empty() {
+            copy_to_clipboard(mermaid_copy_text.clone());
+        }
+    };
     let (tool_filter, set_tool_filter) = signal("all".to_owned());
     let tools_for_filter = tools.clone();
     let filtered_tools = move || {
@@ -445,7 +452,16 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
             <details class="config-section mermaid-details">
                 <summary class="config-section-header">
                     <h3>"Mermaid"</h3>
-                    <span>{format!("{} bytes", mermaid_preview.len())}</span>
+                    <div class="mermaid-summary-actions">
+                        <span>{format!("{} bytes", mermaid_preview.len())}</span>
+                        <button
+                            type="button"
+                            class="secondary mermaid-copy-button"
+                            on:click=copy_mermaid_preview
+                        >
+                            "copy"
+                        </button>
+                    </div>
                 </summary>
                 <pre class="mermaid-preview">{mermaid_preview}</pre>
             </details>
