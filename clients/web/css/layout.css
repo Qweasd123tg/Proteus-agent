@@ -1052,7 +1052,7 @@
 }
 
 .topology-graph-node code {
-    max-width: 78px;
+    max-width: 96px;
     color: var(--text-faint);
 }
 
@@ -1065,6 +1065,15 @@
 .topology-graph-node.slot.active,
 .topology-graph-node.tool.registered {
     border-color: rgb(72 199 116 / 36%);
+}
+
+.topology-graph-node.workflow {
+    border-color: rgb(91 140 255 / 58%);
+    background: rgb(20 29 45 / 96%);
+}
+
+.topology-graph-node.support {
+    border-color: rgb(128 142 170 / 26%);
 }
 
 .topology-graph-node.plugin.error {

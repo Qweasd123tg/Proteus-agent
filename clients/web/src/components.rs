@@ -1086,13 +1086,11 @@ fn module_source_label(source: &TopologyModuleSource) -> String {
 const TOPOLOGY_GRAPH_WIDTH: f32 = 1120.0;
 const TOPOLOGY_GRAPH_NODE_WIDTH: f32 = 190.0;
 const TOPOLOGY_GRAPH_NODE_HEIGHT: f32 = 48.0;
-const TOPOLOGY_GRAPH_ROW_HEIGHT: f32 = 64.0;
-const TOPOLOGY_GRAPH_TOP: f32 = 48.0;
-const TOPOLOGY_GRAPH_BOTTOM: f32 = 32.0;
-const TOPOLOGY_GRAPH_CONFIG_X: f32 = 24.0;
-const TOPOLOGY_GRAPH_PLUGIN_X: f32 = 250.0;
-const TOPOLOGY_GRAPH_SLOT_X: f32 = 510.0;
-const TOPOLOGY_GRAPH_TARGET_X: f32 = 810.0;
+const TOPOLOGY_GRAPH_HEIGHT: f32 = 560.0;
+const TOPOLOGY_GRAPH_CONFIG_X: f32 = 32.0;
+const TOPOLOGY_GRAPH_LEFT_X: f32 = 270.0;
+const TOPOLOGY_GRAPH_RUNTIME_X: f32 = 520.0;
+const TOPOLOGY_GRAPH_TARGET_X: f32 = 820.0;
 
 fn topology_graph_model(
     snapshot: &TopologySnapshot,
@@ -1100,16 +1098,38 @@ fn topology_graph_model(
     plugin_nodes: &[TopologyPluginNode],
     tool_nodes: &[TopologyToolNode],
 ) -> TopologyGraphModel {
-    let target_rows = snapshot.tools.len() + 1;
-    let max_rows = slot_nodes
-        .len()
-        .max(plugin_nodes.len())
-        .max(target_rows)
-        .max(1);
-    let height =
-        TOPOLOGY_GRAPH_TOP + (max_rows as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT) + TOPOLOGY_GRAPH_BOTTOM;
-    let config_y = TOPOLOGY_GRAPH_TOP
-        + ((max_rows.saturating_sub(1)) as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT / 2.0);
+    let loaded_plugin_count = plugin_nodes
+        .iter()
+        .filter(|node| node.plugin.status == "loaded")
+        .count();
+    let provided_module_count = plugin_nodes
+        .iter()
+        .map(|node| node.plugin.provides.modules.len())
+        .sum::<usize>();
+    let provided_tool_count = tool_nodes.len();
+    let registered_tool_count = tool_nodes
+        .iter()
+        .filter(|node| node.tool.registered)
+        .count();
+    let enabled_tool_count = tool_nodes.iter().filter(|node| node.tool.enabled).count();
+    let disabled_tool_count = provided_tool_count.saturating_sub(registered_tool_count);
+    let support_slots = ["search", "patch", "memory", "memory_policy", "compactor"];
+    let support_detail = support_slots
+        .iter()
+        .filter_map(|id| {
+            slot_nodes
+                .iter()
+                .find(|node| node.slot.id == *id)
+                .map(|node| {
+                    format!(
+                        "{id}:{}",
+                        node.slot.active_module.as_deref().unwrap_or("missing")
+                    )
+                })
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+
     let mut nodes = vec![TopologyGraphNode {
         id: "config".to_owned(),
         label: "config".to_owned(),
@@ -1117,97 +1137,108 @@ fn topology_graph_model(
         badge: snapshot.permission_mode.clone(),
         class_name: "topology-graph-node config",
         x: TOPOLOGY_GRAPH_CONFIG_X,
-        y: config_y,
+        y: 72.0,
     }];
 
-    for (index, plugin_node) in plugin_nodes.iter().enumerate() {
-        let module_count = plugin_node.plugin.provides.modules.len();
-        let tool_count = plugin_node.plugin.provides.tools.len();
-        let class_name = match plugin_node.plugin.status.as_str() {
-            "loaded" => "topology-graph-node plugin loaded",
-            "failed" | "error" => "topology-graph-node plugin error",
-            _ => "topology-graph-node plugin",
-        };
-        nodes.push(TopologyGraphNode {
-            id: format!("plugin:{}", plugin_node.plugin.name),
-            label: plugin_node.plugin.name.clone(),
-            detail: format!("{module_count} modules · {tool_count} tools"),
-            badge: non_empty(&plugin_node.plugin.version, "-"),
-            class_name,
-            x: TOPOLOGY_GRAPH_PLUGIN_X,
-            y: TOPOLOGY_GRAPH_TOP + index as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
-        });
-    }
+    nodes.push(TopologyGraphNode {
+        id: "plugins".to_owned(),
+        label: "plugins".to_owned(),
+        detail: format!(
+            "{loaded_plugin_count}/{} loaded · {provided_module_count} modules",
+            plugin_nodes.len()
+        ),
+        badge: format!("{provided_tool_count} tools"),
+        class_name: "topology-graph-node plugin loaded",
+        x: TOPOLOGY_GRAPH_CONFIG_X,
+        y: 208.0,
+    });
 
-    for (index, slot_node) in slot_nodes.iter().enumerate() {
-        let active_module = slot_node
-            .slot
-            .active_module
-            .clone()
-            .unwrap_or_else(|| "module не выбран".to_owned());
-        let available_count = slot_node.available_modules.len();
-        let badge = if available_count == 0 {
-            "0 available".to_owned()
+    nodes.push(TopologyGraphNode {
+        id: "slot:workflow".to_owned(),
+        label: "workflow".to_owned(),
+        detail: active_slot_module_label(slot_nodes, "workflow"),
+        badge: "runtime".to_owned(),
+        class_name: "topology-graph-node slot active workflow",
+        x: TOPOLOGY_GRAPH_LEFT_X,
+        y: 248.0,
+    });
+
+    nodes.push(TopologyGraphNode {
+        id: "support-slots".to_owned(),
+        label: "support slots".to_owned(),
+        detail: non_empty(&support_detail, "none"),
+        badge: "configured".to_owned(),
+        class_name: "topology-graph-node support",
+        x: TOPOLOGY_GRAPH_LEFT_X,
+        y: 420.0,
+    });
+
+    let runtime_slots = [
+        ("context", 56.0),
+        ("model", 136.0),
+        ("tool_exposure", 216.0),
+        ("policy", 296.0),
+        ("renderer", 376.0),
+    ];
+    for (slot_id, y) in runtime_slots {
+        let available_count = slot_nodes
+            .iter()
+            .find(|node| node.slot.id == slot_id)
+            .map(|node| node.available_modules.len())
+            .unwrap_or_default();
+        let badge = if slot_id == "tool_exposure" {
+            "tool visibility".to_owned()
+        } else if available_count == 0 {
+            "active".to_owned()
         } else {
-            format!("{available_count} available")
+            format!("+{available_count} options")
         };
-        let class_name = if slot_node.active_module.is_some() {
+        let class_name = if slot_nodes
+            .iter()
+            .any(|node| node.slot.id == slot_id && node.active_module.is_some())
+        {
             "topology-graph-node slot active"
         } else {
             "topology-graph-node slot missing"
         };
         nodes.push(TopologyGraphNode {
-            id: format!("slot:{}", slot_node.slot.id),
-            label: slot_node.slot.id.clone(),
-            detail: active_module,
+            id: format!("slot:{slot_id}"),
+            label: slot_id.to_owned(),
+            detail: active_slot_module_label(slot_nodes, slot_id),
             badge,
             class_name,
-            x: TOPOLOGY_GRAPH_SLOT_X,
-            y: TOPOLOGY_GRAPH_TOP + index as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
+            x: TOPOLOGY_GRAPH_RUNTIME_X,
+            y,
         });
     }
 
-    let registered_tool_count = tool_nodes
-        .iter()
-        .filter(|node| node.tool.registered)
-        .count();
     nodes.push(TopologyGraphNode {
         id: "tools".to_owned(),
         label: "ToolRegistry".to_owned(),
         detail: format!("{registered_tool_count} registered"),
-        badge: format!("{} provided", snapshot.tools.len()),
+        badge: format!("{enabled_tool_count} enabled"),
         class_name: "topology-graph-node registry",
         x: TOPOLOGY_GRAPH_TARGET_X,
-        y: TOPOLOGY_GRAPH_TOP,
+        y: 248.0,
     });
 
-    for (index, tool_node) in tool_nodes.iter().enumerate() {
-        let state = if tool_node.tool.registered {
-            "registered"
-        } else if tool_node.tool.enabled {
-            "enabled"
+    nodes.push(TopologyGraphNode {
+        id: "plugin-tools".to_owned(),
+        label: "plugin tools".to_owned(),
+        detail: format!("{provided_tool_count} provided · {disabled_tool_count} disabled"),
+        badge: if registered_tool_count == 0 {
+            "not in registry".to_owned()
         } else {
-            "provided disabled"
-        };
-        let class_name = if tool_node.tool.registered {
+            "partial".to_owned()
+        },
+        class_name: if registered_tool_count == provided_tool_count && provided_tool_count > 0 {
             "topology-graph-node tool registered"
         } else {
             "topology-graph-node tool disabled"
-        };
-        nodes.push(TopologyGraphNode {
-            id: format!("tool:{}", tool_node.tool.name),
-            label: tool_node.tool.name.clone(),
-            detail: tool_node
-                .tool
-                .provider_plugin
-                .clone()
-                .unwrap_or_else(|| tool_node.tool.source.clone()),
-            badge: state.to_owned(),
-            class_name,
-            x: TOPOLOGY_GRAPH_TARGET_X,
-            y: TOPOLOGY_GRAPH_TOP + (index + 1) as f32 * TOPOLOGY_GRAPH_ROW_HEIGHT,
-        });
-    }
+        },
+        x: TOPOLOGY_GRAPH_TARGET_X,
+        y: 344.0,
+    });
 
     let node_positions = nodes
         .iter()
@@ -1215,58 +1246,134 @@ fn topology_graph_model(
         .collect::<HashMap<_, _>>();
     let mut lines = Vec::new();
     let mut seen_lines = BTreeSet::new();
+
+    push_topology_graph_line(
+        &node_positions,
+        &mut lines,
+        &mut seen_lines,
+        "plugins",
+        "plugin-tools",
+        "provides",
+    );
+    push_topology_graph_line(
+        &node_positions,
+        &mut lines,
+        &mut seen_lines,
+        "plugin-tools",
+        "tools",
+        if registered_tool_count == 0 {
+            "unregistered_tool"
+        } else {
+            "registered_tool"
+        },
+    );
+    push_topology_graph_line(
+        &node_positions,
+        &mut lines,
+        &mut seen_lines,
+        "plugins",
+        "support-slots",
+        "provides",
+    );
+    for slot_node in slot_nodes
+        .iter()
+        .filter(|node| !node.available_modules.is_empty())
+    {
+        let slot_id = format!("slot:{}", slot_node.slot.id);
+        if node_positions.contains_key(&slot_id) {
+            push_topology_graph_line(
+                &node_positions,
+                &mut lines,
+                &mut seen_lines,
+                "plugins",
+                &slot_id,
+                "provides",
+            );
+        }
+    }
+    push_topology_graph_line(
+        &node_positions,
+        &mut lines,
+        &mut seen_lines,
+        "config",
+        "support-slots",
+        "selects",
+    );
+
     for edge in &snapshot.edges {
         let from = edge.from.clone();
-        let mut to = edge.to.clone();
-        if let Some(module_id) = edge.to.strip_prefix("module:") {
-            if let Some(slot) = module_id.split(':').next() {
-                to = format!("slot:{slot}");
-            }
-        }
-        if edge.to == "tools" {
-            to = "tools".to_owned();
-        }
-        if edge.from.starts_with("context_provider:") || edge.to.starts_with("context_provider:") {
+        let to = edge.to.clone();
+        if edge.kind != "runtime" && edge.kind != "selects" {
             continue;
         }
-        if from.starts_with("module:") {
+        if support_slots.iter().any(|id| from == format!("slot:{id}"))
+            || support_slots.iter().any(|id| to == format!("slot:{id}"))
+        {
             continue;
         }
-        if to.starts_with("module:") {
+        if from == "config" && !node_positions.contains_key(&to) {
             continue;
         }
-        let line_key = format!("{from}>{to}>{}", edge.kind);
-        if !seen_lines.insert(line_key.clone()) {
-            continue;
-        }
-        if let Some(line) = topology_graph_line(&node_positions, from, to, &edge.kind, line_key) {
-            lines.push(line);
-        }
+        push_topology_graph_line(
+            &node_positions,
+            &mut lines,
+            &mut seen_lines,
+            &from,
+            &to,
+            &edge.kind,
+        );
     }
 
     TopologyGraphModel {
         width: TOPOLOGY_GRAPH_WIDTH,
-        height,
+        height: TOPOLOGY_GRAPH_HEIGHT,
         lanes: vec![
             TopologyGraphLane {
-                label: "config",
+                label: "configuration",
                 x: TOPOLOGY_GRAPH_CONFIG_X,
             },
             TopologyGraphLane {
-                label: "plugins",
-                x: TOPOLOGY_GRAPH_PLUGIN_X,
+                label: "workflow",
+                x: TOPOLOGY_GRAPH_LEFT_X,
             },
             TopologyGraphLane {
-                label: "slots",
-                x: TOPOLOGY_GRAPH_SLOT_X,
+                label: "runtime slots",
+                x: TOPOLOGY_GRAPH_RUNTIME_X,
             },
             TopologyGraphLane {
-                label: "registry / tools",
+                label: "tools",
                 x: TOPOLOGY_GRAPH_TARGET_X,
             },
         ],
         nodes,
         lines,
+    }
+}
+
+fn active_slot_module_label(slot_nodes: &[TopologySlotNode], slot_id: &str) -> String {
+    slot_nodes
+        .iter()
+        .find(|node| node.slot.id == slot_id)
+        .and_then(|node| node.slot.active_module.clone())
+        .unwrap_or_else(|| "module не выбран".to_owned())
+}
+
+fn push_topology_graph_line(
+    node_positions: &HashMap<String, (f32, f32)>,
+    lines: &mut Vec<TopologyGraphLine>,
+    seen_lines: &mut BTreeSet<String>,
+    from: &str,
+    to: &str,
+    kind: &str,
+) {
+    let line_key = format!("{from}>{to}>{kind}");
+    if !seen_lines.insert(line_key.clone()) {
+        return;
+    }
+    if let Some(line) =
+        topology_graph_line(node_positions, from.to_owned(), to.to_owned(), kind, line_key)
+    {
+        lines.push(line);
     }
 }
 
