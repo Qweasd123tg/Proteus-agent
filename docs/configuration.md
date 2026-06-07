@@ -281,6 +281,15 @@ model-facing messages текущего запроса, не session history.
 model-facing tools. Плагинная реализация может искать, ранжировать или
 ограничивать tools через тот же host callback `select_tools_json`.
 
+`modules.tool_exposure = "dynamic"` включает builtin lexical selector. Это
+opt-in режим: он оставляет небольшой hot набор и добирает остальные tools по
+совпадениям с task/query, description, schema и `ToolSpec.metadata`, но
+использует только candidates, уже разрешённые `ApprovalPolicy` visibility.
+В `ToolExposureOutput.metadata` появляются `selected_tools`, `hidden_count` и
+грубая оценка сэкономленных schema tokens. В первой версии это не deferred
+catalog: скрытые tools пока нельзя вызвать через meta-tool, поэтому для
+агрессивного сокращения каталога нужен следующий workflow-layer срез.
+
 ## Renderer
 
 `modules.renderer = "text"` — безопасный core default без plugin pack.

@@ -56,8 +56,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
   anthropic models, `null` search fallback, `none` memory, `none` memory
   policy, `none` context, `deny_all` policy, `null` patch fallback,
-  `none` compactor, `all_visible` tool exposure, `none` workflow и `text`
-  renderer. Production workflow в core больше не встроен:
+  `none` compactor, `all_visible`/`dynamic` tool exposure, `none` workflow и
+  `text` renderer. Production workflow в core больше не встроен:
   `coding.single_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
   `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и

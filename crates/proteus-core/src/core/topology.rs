@@ -210,7 +210,7 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
         && tools.iter().filter(|t| t.registered).count() > 10
     {
         warnings.push(TopologyWarning::warn(
-            "tool_exposure=all_visible exposes many registered tools; consider a dynamic selector when it exists",
+            "tool_exposure=all_visible exposes many registered tools; consider modules.tool_exposure=dynamic",
         ));
     }
     let edges = build_edges(&active_modules, &modules, &plugins, &tools);

@@ -341,6 +341,20 @@ budget стратегий, но не заменяет `MemoryStore` и `MemoryPo
 старое поведение: всё, что разрешила policy visibility, попадает в model
 request.
 
+`modules.tool_exposure = "dynamic"` — core selector для первого слоя экономии
+tool schemas. Он берёт только уже policy-visible candidates, оставляет небольшой
+hot набор (`request_user_input`, file/search/git helpers, `apply_patch`, если
+они включены) и лексически ранжирует остальные tools по task/query,
+description, schema и `ToolSpec.metadata`. Selector пишет observability metadata:
+`selector`, `candidate_count`, `selected_count`, `hidden_count`,
+`selected_tools` и грубую оценку schema-token savings.
+
+Этот режим пока не является deferred tool discovery: он не добавляет
+`proteus_tool_search`/`proteus_tool_describe`/`proteus_tool_call` и не меняет
+execution path. Deferred вызовы должны быть отдельным workflow-layer срезом,
+где каждый настоящий вызов всё равно проходит через `ToolOrchestrator`,
+`ApprovalPolicy`, validation, timeout и event log.
+
 `ToolExposure` вызывается workflow host capability `select_tools_json`.
 Workflow передаёт `ToolExposureRequest` с task/cwd/query/max_tools/reason,
 ядро строит список candidates через `ToolOrchestrator::visible_tool_specs`, а
