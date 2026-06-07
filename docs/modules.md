@@ -400,6 +400,12 @@ events вызывает через host API (`build_context`, `complete_model`,
 
 Workflow не знает о статусной строке. Он публикует нейтральные поля `model` и `context` в `AgentOutput.metadata`, а renderer решает, как их рисовать.
 
+Renderer slot не отвечает за `inspect topology`: topology renderer является
+diagnostic view поверх `TopologySnapshot` в core/app-client слое. Если нужно
+менять внешний вид карты связей slots/plugins/tools, меняйте renderer
+`inspect`/web view, а не добавляйте новый module implementation в
+`modules.renderer`.
+
 ## Как Добавить Новый Модуль
 
 1. Реализовать подходящий trait из `crates/proteus-contracts/src/contracts`.

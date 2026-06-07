@@ -7,7 +7,7 @@ plugin reports и `ToolRegistry`, а затем строит единый `Topol
 Это не отдельный plugin slot. Introspection находится в core, потому что ей
 нужно видеть одновременно config, `BuiltinModuleCatalog`, plugin loader,
 runtime tools и module epoch. Новые визуализации и debug reports должны читать
-этот snapshot, а не заново угадывать topology из `/config`.
+этот snapshot и `snapshot.edges`, а не заново угадывать topology из `/config`.
 
 ## CLI
 
@@ -24,10 +24,16 @@ proteus inspect topology
 proteus inspect topology --format table
 proteus inspect topology --format json
 proteus inspect topology --format markdown
+proteus inspect topology --format map
 proteus inspect topology --format mermaid
 ```
 
-Mermaid удобно сохранять для preview в GitHub/Obsidian:
+`map` выводит текстовую карту runtime path, slot/module wiring, plugin
+contributions, ToolRegistry, edge summary, dangling nodes и warnings. Markdown
+report включает ту же карту первым диагностическим блоком, а затем оставляет
+табличные детали.
+
+Mermaid остаётся export/debug fallback для preview в GitHub/Obsidian:
 
 ```bash
 proteus inspect topology --format mermaid > proteus-topology.mmd
@@ -43,11 +49,13 @@ App-server отдаёт тот же snapshot через protected endpoints:
 ```text
 GET /inspect/topology
 GET /inspect/topology.mmd
+GET /inspect/topology.map
 ```
 
-Оба endpoint требуют session token так же, как `/config`, `/events` и
+Все endpoint требуют session token так же, как `/config`, `/events` и
 control-plane endpoints. `/inspect/topology` возвращает JSON, а
-`/inspect/topology.mmd` возвращает `text/plain` Mermaid graph.
+`/inspect/topology.mmd` и `/inspect/topology.map` возвращают `text/plain`
+rendered/export views поверх того же snapshot.
 
 ## Что Входит В Snapshot
 
@@ -60,10 +68,12 @@ control-plane endpoints. `/inspect/topology` возвращает JSON, а
 - plugin load status и точные contributions;
 - registered tools и plugin-provided tools, которые загрузились, но не
   включены через `tools.enabled`;
-- edges для config → slots, plugins → modules/tools, workflow pipeline и
-  tool → backend slot связей;
+- edges для config → slots, slot → active/available modules,
+  plugins → modules/tools/context providers, context providers → context slot,
+  workflow pipeline, ToolRegistry → tools и tool → backend slot связей;
 - warnings по plugin errors, нескольким config files, неизвестным active
-  modules и plugin tools, которые предоставлены, но disabled.
+  modules, ошибкам best-effort сборки backend/tool registry и plugin tools,
+  которые предоставлены, но disabled.
 
 ## Plugin Contributions
 
@@ -98,5 +108,7 @@ enabled tools, registered tools и список plugins.
 - как workflow связан с context, model, tool exposure, policy, tools и
   renderer.
 
-Web Architecture view должен отображать именно `TopologySnapshot`: slot cards,
-plugin contribution cards, tool cards, warnings panel и copy Mermaid action.
+Web Architecture view должен отображать именно `TopologySnapshot`: визуальную
+карту `snapshot.edges`, slot cards, plugin contribution cards, tool cards,
+warnings panel и copy Mermaid action. Mermaid не является primary UI renderer:
+он нужен для copy/export, когда внешний viewer полезнее встроенной карты.

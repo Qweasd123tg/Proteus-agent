@@ -122,8 +122,8 @@ cargo run --bin proteus -- "describe the project layout"
 cargo run --bin proteus -- init coding
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
-# посмотреть active slots, plugin contributions и tool topology
-cargo run --bin proteus -- inspect topology --format markdown
+# посмотреть карту active slots, plugin contributions и tool topology
+cargo run --bin proteus -- inspect topology --format map
 # собрать первичный eval-отчёт по durable event log
 cargo run --bin proteus -- eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
 ```
@@ -141,8 +141,9 @@ approvals, usage tokens, duration, changed files и failure reason. Это пе�
 
 `inspect topology` строит `TopologySnapshot` без model request: active slots,
 module source, plugin load status/contributions, registered tools,
-plugin-provided disabled tools, Mermaid graph и warnings. HTTP app-server
-отдаёт тот же snapshot через `GET /inspect/topology` и Mermaid через
+plugin-provided disabled tools, edge-based rendered map, Mermaid export и
+warnings. HTTP app-server отдаёт тот же snapshot через `GET /inspect/topology`,
+текстовую карту через `GET /inspect/topology.map` и Mermaid через
 `GET /inspect/topology.mmd`.
 
 ### Экспериментальный web client

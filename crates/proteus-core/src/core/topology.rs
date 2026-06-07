@@ -20,6 +20,7 @@ pub struct TopologyBuildInput<'a> {
     pub plugin_reports: &'a [PluginLoadReport],
     pub module_epoch: ModuleEpoch,
     pub permission_mode: PermissionMode,
+    pub extra_warnings: Vec<TopologyWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,14 +139,14 @@ pub struct TopologyWarning {
 }
 
 impl TopologyWarning {
-    fn warn(message: impl Into<String>) -> Self {
+    pub fn warn(message: impl Into<String>) -> Self {
         Self {
             severity: "warning".to_owned(),
             message: message.into(),
         }
     }
 
-    fn error(message: impl Into<String>) -> Self {
+    pub fn error(message: impl Into<String>) -> Self {
         Self {
             severity: "error".to_owned(),
             message: message.into(),
@@ -164,7 +165,7 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
     let active_modules = active_modules(input.config, model.as_ref());
     let plugin_module_sources = plugin_module_sources(input.plugin_reports);
     let plugin_tool_sources = plugin_tool_sources(input.plugin_reports);
-    let mut warnings = Vec::new();
+    let mut warnings = input.extra_warnings;
 
     if let Err(error) = &model_config {
         warnings.push(TopologyWarning::error(format!(
@@ -212,7 +213,7 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
             "tool_exposure=all_visible exposes many registered tools; consider a dynamic selector when it exists",
         ));
     }
-    let edges = build_edges(&active_modules, &plugins, &tools);
+    let edges = build_edges(&active_modules, &modules, &plugins, &tools);
 
     TopologySnapshot {
         profile: input.config.profile.name.clone(),
@@ -506,15 +507,48 @@ fn build_tools(
 
 fn build_edges(
     active_modules: &BTreeMap<String, String>,
+    modules: &[ModuleTopology],
     plugins: &[PluginTopology],
     tools: &[ToolTopology],
 ) -> Vec<TopologyEdge> {
     let mut edges = Vec::new();
-    for slot in active_modules.keys() {
-        edges.push(edge("config", &format!("slot:{slot}"), "selects", None));
+    for (slot, module) in active_modules {
+        edges.push(edge(
+            "config",
+            &format!("slot:{slot}"),
+            "selects",
+            Some(module),
+        ));
     }
-    for plugin in plugins.iter().filter(|plugin| plugin.status == "loaded") {
+    for module in modules {
+        let module_node = format!("module:{}:{}", module.slot, module.id);
+        if module.active {
+            edges.push(edge(
+                &format!("slot:{}", module.slot),
+                &module_node,
+                "active_module",
+                Some("active"),
+            ));
+        } else {
+            edges.push(edge(
+                &format!("slot:{}", module.slot),
+                &module_node,
+                "available_module",
+                Some("available"),
+            ));
+        }
+    }
+    for plugin in plugins {
         let plugin_node = format!("plugin:{}", plugin.name);
+        if plugin.status != "loaded" {
+            edges.push(edge(
+                &plugin_node,
+                "warnings",
+                "load_error",
+                Some("load error"),
+            ));
+            continue;
+        }
         for module in &plugin.provides.modules {
             edges.push(edge(
                 &plugin_node,
@@ -532,10 +566,17 @@ fn build_edges(
             ));
         }
         for provider in &plugin.provides.context_providers {
+            let provider_node = format!("context_provider:{provider}");
             edges.push(edge(
                 &plugin_node,
-                &format!("context_provider:{provider}"),
+                &provider_node,
                 "provides",
+                Some("context provider"),
+            ));
+            edges.push(edge(
+                &provider_node,
+                "slot:context",
+                "feeds",
                 Some("context provider"),
             ));
         }
@@ -547,6 +588,7 @@ fn build_edges(
         ("slot:workflow", "slot:model", "model call"),
         ("slot:workflow", "slot:policy", "approval gate"),
         ("slot:workflow", "slot:renderer", "final output"),
+        ("slot:tool", "tools", "registry"),
         ("slot:tool_exposure", "tools", "visible tools"),
         ("slot:policy", "tools", "execution policy"),
     ] {
@@ -555,6 +597,19 @@ fn build_edges(
 
     for tool in tools.iter().filter(|tool| tool.registered) {
         let tool_node = format!("tool:{}", tool.name);
+        edges.push(edge(
+            "tools",
+            &tool_node,
+            "registered_tool",
+            Some(if tool.enabled {
+                "enabled"
+            } else {
+                "registered"
+            }),
+        ));
+        if tool.enabled {
+            edges.push(edge("config", &tool_node, "enables", Some("enabled")));
+        }
         match tool.name.as_str() {
             "apply_patch" => edges.push(edge(&tool_node, "slot:patch", "uses", None)),
             "search" | "grep" | "find_files" => {
@@ -564,6 +619,22 @@ fn build_edges(
                 edges.push(edge(&tool_node, "slot:memory", "uses", None));
             }
             _ => {}
+        }
+    }
+    for tool in tools.iter().filter(|tool| !tool.registered) {
+        let tool_node = format!("tool:{}", tool.name);
+        edges.push(edge(
+            &tool_node,
+            "tools",
+            "unregistered_tool",
+            Some(if tool.enabled {
+                "enabled but not registered"
+            } else {
+                "provided but disabled"
+            }),
+        ));
+        if tool.enabled {
+            edges.push(edge("config", &tool_node, "enables", Some("enabled")));
         }
     }
 
@@ -805,5 +876,123 @@ fn first_line(text: &str) -> String {
         format!("{head} ...")
     } else {
         head
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn build_edges_connects_slots_plugins_modules_tools_and_registry() {
+        let active_modules = BTreeMap::from([
+            ("workflow".to_owned(), "coding.single_loop".to_owned()),
+            ("tool_exposure".to_owned(), "all_visible".to_owned()),
+        ]);
+        let modules = vec![
+            ModuleTopology {
+                id: "coding.single_loop".to_owned(),
+                slot: "workflow".to_owned(),
+                active: true,
+                source: ModuleSourceTopology::Plugin {
+                    name: "coding-workflow".to_owned(),
+                    path: "/plugins/coding-workflow".to_owned(),
+                },
+                version: "0.1.0".to_owned(),
+                api_version: "1".to_owned(),
+                capabilities: Vec::new(),
+                description: None,
+            },
+            ModuleTopology {
+                id: "none".to_owned(),
+                slot: "workflow".to_owned(),
+                active: false,
+                source: ModuleSourceTopology::Builtin,
+                version: "0.1.0".to_owned(),
+                api_version: "1".to_owned(),
+                capabilities: Vec::new(),
+                description: None,
+            },
+        ];
+        let plugins = vec![PluginTopology {
+            name: "coding-workflow".to_owned(),
+            version: "0.1.0".to_owned(),
+            path: "/plugins/coding-workflow".to_owned(),
+            status: "loaded".to_owned(),
+            description: None,
+            author: None,
+            tags: Vec::new(),
+            provides: PluginProvidesTopology {
+                modules: vec![PluginModuleContributionTopology {
+                    slot: "workflow".to_owned(),
+                    id: "coding.single_loop".to_owned(),
+                    description: None,
+                    capabilities: Vec::new(),
+                }],
+                tools: vec![PluginToolContributionTopology {
+                    name: "grep".to_owned(),
+                    description: "Search files".to_owned(),
+                    safety: "ReadOnly".to_owned(),
+                    input_schema: json!({ "type": "object" }),
+                }],
+                context_providers: vec!["repo".to_owned()],
+            },
+        }];
+        let tools = vec![ToolTopology {
+            name: "grep".to_owned(),
+            description: "Search files".to_owned(),
+            safety: "ReadOnly".to_owned(),
+            source: "dynamic/plugin:coding-workflow".to_owned(),
+            enabled: true,
+            registered: true,
+            provider_plugin: Some("coding-workflow".to_owned()),
+            input_schema: json!({ "type": "object" }),
+        }];
+
+        let edges = build_edges(&active_modules, &modules, &plugins, &tools);
+
+        assert!(has_edge(
+            &edges,
+            "slot:workflow",
+            "module:workflow:coding.single_loop",
+            "active_module"
+        ));
+        assert!(has_edge(
+            &edges,
+            "slot:workflow",
+            "module:workflow:none",
+            "available_module"
+        ));
+        assert!(has_edge(
+            &edges,
+            "plugin:coding-workflow",
+            "module:workflow:coding.single_loop",
+            "provides"
+        ));
+        assert!(has_edge(
+            &edges,
+            "plugin:coding-workflow",
+            "tool:grep",
+            "provides"
+        ));
+        assert!(has_edge(&edges, "tools", "tool:grep", "registered_tool"));
+        assert!(has_edge(&edges, "config", "tool:grep", "enables"));
+        assert!(has_edge(
+            &edges,
+            "context_provider:repo",
+            "slot:context",
+            "feeds"
+        ));
+        assert!(has_edge(&edges, "slot:tool", "tools", "runtime"));
+    }
+
+    fn has_edge(edges: &[TopologyEdge], from: &str, to: &str, kind: &str) -> bool {
+        edges
+            .iter()
+            .any(|edge| edge.from == from && edge.to == to && edge.kind == kind)
     }
 }

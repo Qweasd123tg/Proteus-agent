@@ -420,6 +420,8 @@ pub(crate) struct TopologySnapshot {
     #[serde(default)]
     pub(crate) tools: Vec<TopologyTool>,
     #[serde(default)]
+    pub(crate) edges: Vec<TopologyEdge>,
+    #[serde(default)]
     pub(crate) warnings: Vec<TopologyWarning>,
 }
 
@@ -549,6 +551,18 @@ pub(crate) struct TopologyTool {
     pub(crate) provider_plugin: Option<String>,
     #[serde(default)]
     pub(crate) input_schema: Value,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct TopologyEdge {
+    #[serde(default)]
+    pub(crate) from: String,
+    #[serde(default)]
+    pub(crate) to: String,
+    #[serde(default)]
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) label: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]

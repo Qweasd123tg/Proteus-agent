@@ -123,6 +123,25 @@ canonical DTO не ломаются.
 - tool safety или policy: `docs/security-and-policy.md`;
 - архитектурные правила: `docs/architecture.md` и `AGENTS.md`.
 
+## Inspect Topology Tests
+
+`inspect topology` не должен запускать turn или model request. Проверки вокруг
+него должны фиксировать именно boundary contract:
+
+- JSON `/inspect/topology` содержит slots, modules, plugins, tools, warnings и
+  `edges`;
+- `edges` связывает config -> slots, slot -> active/available modules,
+  plugins -> contributions, context providers -> context slot, ToolRegistry ->
+  tools и tool -> backend slots;
+- renderer-ы `map`, Markdown и Mermaid читают `TopologySnapshot`, а не
+  реконструируют связи из `/config`;
+- HTTP endpoints `/inspect/topology`, `/inspect/topology.map` и
+  `/inspect/topology.mmd` требуют session token;
+- plugin-provided disabled tools, plugin load errors, unknown active modules и
+  multiple config files остаются видимыми как warnings/diagnostic nodes;
+- CLI inspect строит best-effort snapshot при сломанном backend/tool registry и
+  добавляет ошибку в warnings вместо abort до renderer-а.
+
 ## Eval Harness
 
 Следующий уровень проверок - eval harness поверх event log. Он должен
