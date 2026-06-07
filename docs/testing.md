@@ -136,7 +136,8 @@ canonical DTO не ломаются.
 - renderer-ы `map`, Markdown и Mermaid читают `TopologySnapshot`, а не
   реконструируют связи из `/config`;
 - HTTP endpoints `/inspect/topology`, `/inspect/topology.map` и
-  `/inspect/topology.mmd` требуют session token;
+  `/inspect/topology.mmd` доступны без token в default loopback dogfood, но
+  требуют session token, если app-server запущен с `--token`;
 - plugin-provided disabled tools, plugin load errors, unknown active modules и
   multiple config files остаются видимыми как warnings/diagnostic nodes;
 - CLI inspect строит best-effort snapshot при сломанном backend/tool registry и

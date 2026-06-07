@@ -119,10 +119,6 @@ impl SessionToken {
     pub(crate) fn as_deref(&self) -> Option<&str> {
         self.0.as_deref()
     }
-
-    pub(crate) fn is_missing(&self) -> bool {
-        self.0.is_none()
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -44,7 +44,7 @@ JSON является основным machine-readable форматом для 
 
 ## HTTP
 
-App-server отдаёт тот же snapshot через protected endpoints:
+App-server отдаёт тот же snapshot через HTTP endpoints:
 
 ```text
 GET /inspect/topology
@@ -52,9 +52,10 @@ GET /inspect/topology.mmd
 GET /inspect/topology.map
 ```
 
-Все endpoint требуют session token так же, как `/config`, `/events` и
-control-plane endpoints. `/inspect/topology` возвращает полный JSON snapshot,
-`/inspect/topology.map` — текстовую диагностическую карту, а
+В обычном loopback dogfood эти endpoint доступны без token. Если app-server
+запущен с `--token`, они требуют session token так же, как `/config`,
+`/events` и control-plane endpoints. `/inspect/topology` возвращает полный JSON
+snapshot, `/inspect/topology.map` — текстовую диагностическую карту, а
 `/inspect/topology.mmd` — компактный Mermaid export без полного dump-а
 tool/module/warning списков.
 

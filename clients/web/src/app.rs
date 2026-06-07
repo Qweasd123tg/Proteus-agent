@@ -37,7 +37,7 @@ pub(crate) fn App() -> impl IntoView {
     let is_architecture_route = route == "/architecture";
     let is_chat_route = !is_resume_route && !is_configs_route && !is_architecture_route;
     let (messages, set_messages) = signal(seed_messages());
-    let session_token = match load_session_token() {
+    let _session_token = match load_session_token() {
         Ok(token) => token,
         Err(error) => {
             let message = format!("Session token storage failed: {error}");
@@ -90,12 +90,6 @@ pub(crate) fn App() -> impl IntoView {
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
     let (resize_start_composer, set_resize_start_composer) = signal(150_i32);
-
-    if session_token.is_missing() {
-        set_transport_status.set(TransportStatus::Error(
-            missing_session_token_message().to_owned(),
-        ));
-    }
 
     Effect::new(move |_| {
         let _ = (
@@ -1143,10 +1137,6 @@ fn current_path() -> String {
         .unwrap_or_else(|| "/".to_owned())
 }
 
-fn missing_session_token_message() -> &'static str {
-    "auth token missing from URL; open /?session=<token> or launch Proteus through the wrapper"
-}
-
 fn load_i32_setting(key: &str, fallback: i32) -> i32 {
     window()
         .and_then(|window| window.local_storage().ok().flatten())
@@ -1206,17 +1196,4 @@ fn scroll_results_to_bottom(
 
 fn seed_messages() -> Vec<Message> {
     Vec::new()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::missing_session_token_message;
-
-    #[test]
-    fn missing_session_token_message_points_to_query_token() {
-        let message = missing_session_token_message();
-
-        assert!(message.contains("/?session=<token>"));
-        assert!(message.contains("wrapper"));
-    }
 }

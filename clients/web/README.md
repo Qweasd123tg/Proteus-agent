@@ -41,8 +41,9 @@ core `ModeAwarePolicy`. `Ask Plan` отправляет topic как planning in
 transcript с question tabs, choices и свободным `Other`.
 
 Dogfood запуск предполагает локальный app-server на `127.0.0.1`. HTTP boundary
-требует local session token и ограниченный CORS. Для SSE token можно передавать
-query параметром, для `fetch` — header `X-Proteus-Session` или
+по умолчанию не требует local session token для loopback dogfood и ограничивает
+CORS локальными origins. Если server запущен с `--token`, для SSE token можно
+передавать query параметром, для `fetch` — header `X-Proteus-Session` или
 `Authorization: Bearer <token>`; raw token не хранить в `localStorage`.
 
 ## Запуск
@@ -52,10 +53,8 @@ query параметром, для `fetch` — header `X-Proteus-Session` или
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
-export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
 cargo run --bin proteus -- server http \
   --port 8787 \
-  --token "$PROTEUS_SESSION_TOKEN" \
   --allow-origin http://127.0.0.1:1420 \
   --allow-origin http://localhost:1420
 ```
@@ -69,15 +68,15 @@ trunk serve
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.
 AppServer HTTP по примеру выше слушает `http://127.0.0.1:8787`.
-Откройте web-клиент с session token из первого терминала:
+Откройте web-клиент:
 
 ```text
-http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>
+http://127.0.0.1:1420/
 ```
 
-Без query token клиент сможет загрузиться, но app-server отклонит `/events`,
-`/send`, approvals, typed input, cancel и страницы config/history как
-unauthorized.
+Для строгого token smoke можно задать `PROTEUS_SESSION_TOKEN`, передать
+`--token "$PROTEUS_SESSION_TOKEN"` app-server и открыть
+`http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`.
 
 ## Граница
 

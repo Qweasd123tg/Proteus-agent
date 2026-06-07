@@ -49,6 +49,7 @@ const SESSION_TOKEN_QUERY_ALIASES: [&str; 3] = ["session", "session_token", "pro
 pub struct HttpServerConfig {
     pub bind: SocketAddr,
     pub session_token: String,
+    pub require_session_token: bool,
     pub allowed_origins: Vec<String>,
 }
 
@@ -57,6 +58,7 @@ impl Default for HttpServerConfig {
         Self {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8787),
             session_token: new_session_token(),
+            require_session_token: false,
             allowed_origins: default_allowed_origins(),
         }
     }
@@ -92,6 +94,7 @@ impl HttpAppState {
 #[derive(Clone)]
 struct HttpSecurity {
     session_token: Arc<str>,
+    require_session_token: bool,
     allowed_origins: Arc<[String]>,
 }
 
@@ -99,6 +102,7 @@ impl HttpSecurity {
     fn from_config(config: &HttpServerConfig) -> Self {
         Self {
             session_token: Arc::from(config.session_token.as_str()),
+            require_session_token: config.require_session_token,
             allowed_origins: Arc::from(config.allowed_origins.clone().into_boxed_slice()),
         }
     }
@@ -183,6 +187,11 @@ pub async fn run_http_app_server(
         "Proteus app-server HTTP listening on http://{}",
         listener.local_addr()?
     );
+    if http_config.require_session_token {
+        println!("HTTP session token auth: enabled");
+    } else {
+        println!("HTTP session token auth: disabled for local dogfood");
+    }
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -221,7 +230,8 @@ where
         return Ok(options_response(&request, cors_origin));
     }
 
-    if endpoint_requires_auth(&method, &path) && !request_has_valid_token(&request, &state.security)
+    if request_requires_session_token(&method, &path, &state.security)
+        && !request_has_valid_token(&request, &state.security)
     {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
@@ -415,6 +425,10 @@ fn endpoint_requires_auth(method: &Method, path: &str) -> bool {
         (method, path),
         (&Method::OPTIONS, _) | (&Method::GET, "/health")
     )
+}
+
+fn request_requires_session_token(method: &Method, path: &str, security: &HttpSecurity) -> bool {
+    security.require_session_token && endpoint_requires_auth(method, path)
 }
 
 fn validate_origin<B>(
@@ -924,6 +938,7 @@ mod tests {
         allowed_origins.push("https://app.example.test".to_owned());
         HttpSecurity {
             session_token: Arc::from("session-secret"),
+            require_session_token: true,
             allowed_origins: Arc::from(allowed_origins.into_boxed_slice()),
         }
     }
@@ -1094,6 +1109,7 @@ mod tests {
 
     #[test]
     fn protected_endpoints_require_session_token_except_health_and_preflight() {
+        let security = test_security();
         let protected = [
             (Method::GET, "/events"),
             (Method::GET, "/config"),
@@ -1122,9 +1138,36 @@ mod tests {
                 endpoint_requires_auth(&method, path),
                 "{method} {path} must require auth"
             );
+            assert!(
+                request_requires_session_token(&method, path, &security),
+                "{method} {path} must require session token when token auth is enabled"
+            );
         }
         assert!(!endpoint_requires_auth(&Method::GET, "/health"));
         assert!(!endpoint_requires_auth(&Method::OPTIONS, "/config"));
+        assert!(!request_requires_session_token(
+            &Method::GET,
+            "/health",
+            &security
+        ));
+        assert!(!request_requires_session_token(
+            &Method::OPTIONS,
+            "/config",
+            &security
+        ));
+    }
+
+    #[test]
+    fn default_http_config_does_not_require_session_token() {
+        let config = HttpServerConfig::default();
+        let security = HttpSecurity::from_config(&config);
+
+        assert!(!config.require_session_token);
+        assert!(!request_requires_session_token(
+            &Method::GET,
+            "/config",
+            &security
+        ));
     }
 
     #[test]
@@ -1170,6 +1213,7 @@ mod tests {
     fn token_auth_accepts_percent_encoded_event_source_query_token() {
         let security = HttpSecurity {
             session_token: Arc::from("session secret/%"),
+            require_session_token: true,
             allowed_origins: Arc::from(default_allowed_origins().into_boxed_slice()),
         };
         let request = Request::builder()
