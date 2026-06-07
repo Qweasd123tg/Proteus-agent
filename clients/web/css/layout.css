@@ -1341,3 +1341,16 @@
 .mermaid-details > summary::-webkit-details-marker {
     display: none;
 }
+
+.mermaid-summary-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.mermaid-copy-button {
+    min-height: 26px;
+    padding: 0 var(--space-2);
+    font-size: 11px;
+}

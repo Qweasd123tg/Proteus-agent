@@ -53,9 +53,10 @@ GET /inspect/topology.map
 ```
 
 Все endpoint требуют session token так же, как `/config`, `/events` и
-control-plane endpoints. `/inspect/topology` возвращает JSON, а
-`/inspect/topology.mmd` и `/inspect/topology.map` возвращают `text/plain`
-rendered/export views поверх того же snapshot.
+control-plane endpoints. `/inspect/topology` возвращает полный JSON snapshot,
+`/inspect/topology.map` — текстовую диагностическую карту, а
+`/inspect/topology.mmd` — компактный Mermaid export без полного dump-а
+tool/module/warning списков.
 
 ## Что Входит В Snapshot
 
