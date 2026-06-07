@@ -29,7 +29,7 @@ use tokio::{
 
 use crate::{
     contracts::CancellationToken,
-    core::{AppConfig, render_topology_mermaid},
+    core::{AppConfig, render_topology_map, render_topology_mermaid},
     domain::{AgentOutput, PermissionMode},
 };
 
@@ -245,6 +245,10 @@ where
         (Method::GET, "/inspect/topology.mmd") => {
             let snapshot = state.current_server().await.topology_snapshot().await;
             text_response(StatusCode::OK, render_topology_mermaid(&snapshot))
+        }
+        (Method::GET, "/inspect/topology.map") => {
+            let snapshot = state.current_server().await.topology_snapshot().await;
+            text_response(StatusCode::OK, render_topology_map(&snapshot))
         }
         (Method::GET, "/sessions") => match state.current_server().await.session_summaries() {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
@@ -1095,6 +1099,7 @@ mod tests {
             (Method::GET, "/config"),
             (Method::GET, "/inspect/topology"),
             (Method::GET, "/inspect/topology.mmd"),
+            (Method::GET, "/inspect/topology.map"),
             (Method::GET, "/sessions"),
             (Method::GET, "/history"),
             (Method::POST, "/request"),
@@ -1405,8 +1410,16 @@ mod tests {
                 .and_then(Value::as_array)
                 .is_some()
         );
+        let edges = topology
+            .pointer("/edges")
+            .and_then(Value::as_array)
+            .expect("topology edges");
+        assert!(edges.iter().any(|edge| {
+            edge.get("kind").and_then(Value::as_str) == Some("selects")
+                || edge.get("kind").and_then(Value::as_str) == Some("runtime")
+        }));
 
-        let response = route_request(state, authed_get_request("/inspect/topology.mmd"))
+        let response = route_request(state.clone(), authed_get_request("/inspect/topology.mmd"))
             .await
             .expect("mermaid response");
         assert_eq!(response.status(), StatusCode::OK);
@@ -1420,6 +1433,21 @@ mod tests {
         let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
         assert!(body.starts_with("flowchart LR"));
         assert!(body.contains("workflow"));
+
+        let response = route_request(state, authed_get_request("/inspect/topology.map"))
+            .await
+            .expect("map response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
+        assert!(body.starts_with("Proteus topology map"));
+        assert!(body.contains("Slot/module map"));
         server.shutdown().await;
     }
 

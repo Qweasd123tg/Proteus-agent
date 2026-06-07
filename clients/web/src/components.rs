@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
@@ -8,6 +8,20 @@ use crate::api::{get_json, get_text, post_json};
 use crate::markdown::markdown_html;
 use crate::types::*;
 use crate::ui_utils::{compact_json, copy_to_clipboard, short_id, short_path};
+
+const RUNTIME_SLOT_ORDER: [&str; 11] = [
+    "model",
+    "workflow",
+    "context",
+    "tool_exposure",
+    "policy",
+    "search",
+    "patch",
+    "memory",
+    "memory_policy",
+    "compactor",
+    "renderer",
+];
 
 #[component]
 pub(crate) fn ResumeView() -> impl IntoView {
@@ -220,10 +234,11 @@ fn load_topology_snapshot(
                 let slot_count = snapshot.slots.len();
                 let tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
                 let plugin_count = snapshot.plugins.len();
+                let edge_count = snapshot.edges.len();
                 set_snapshot.set(Some(snapshot));
                 set_mermaid.set(mermaid_result.unwrap_or_default());
                 set_status.set(format!(
-                    "{slot_count} slots · {tool_count} tools · {plugin_count} plugins"
+                    "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {edge_count} edges"
                 ));
             }
             Err(error) => {
@@ -258,15 +273,7 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
         .iter()
         .filter(|plugin| plugin.status == "loaded")
         .count();
-    let active_slots = snapshot
-        .slots
-        .iter()
-        .filter(|slot| slot.active_module.is_some())
-        .cloned()
-        .collect::<Vec<_>>();
-    let slots = snapshot.slots.clone();
-    let modules = snapshot.modules.clone();
-    let plugins = snapshot.plugins.clone();
+    let topology_snapshot = snapshot.clone();
     let tools = snapshot.tools.clone();
     let warnings = snapshot.warnings.clone();
     let mermaid_preview = mermaid.clone();
@@ -287,7 +294,6 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
             })
             .collect::<Vec<_>>()
     };
-    let modules_for_slots = modules.clone();
 
     view! {
         <div class="configs-scroll architecture-scroll">
@@ -348,119 +354,7 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
                 </article>
             </section>
 
-            <section class="config-section">
-                <div class="config-section-header">
-                    <h3>"Pipeline"</h3>
-                    <span>{active_slots.len()}</span>
-                </div>
-                <div class="pipeline-strip">
-                    <For
-                        each=move || active_slots.clone()
-                        key=|slot| slot.id.clone()
-                        children=move |slot| {
-                            view! {
-                                <span class="pipeline-node">
-                                    <small>{slot.id}</small>
-                                    <strong>{slot.active_module.unwrap_or_else(|| "-".to_owned())}</strong>
-                                </span>
-                            }
-                        }
-                    />
-                </div>
-            </section>
-
-            <section class="config-section">
-                <div class="config-section-header">
-                    <h3>"Slots"</h3>
-                    <span>{slots.len()}</span>
-                </div>
-                <div class="topology-grid">
-                    <For
-                        each=move || slots.clone()
-                        key=|slot| slot.id.clone()
-                        children=move |slot| {
-                            let source = active_module_source(&slot, &modules_for_slots);
-                            let active = slot.active_module.clone().unwrap_or_else(|| "-".to_owned());
-                            let required_class = if slot.required {
-                                "status-badge idle"
-                            } else {
-                                "status-badge disconnected"
-                            };
-                            let required_label = if slot.required { "required" } else { "optional" };
-                            view! {
-                                <article class="topology-card">
-                                    <div class="topology-card-header">
-                                        <span class="panel-kicker">{slot.id.clone()}</span>
-                                        <span class=required_class>{required_label}</span>
-                                    </div>
-                                    <strong>{active}</strong>
-                                    <code>{source}</code>
-                                    <p>{slot.responsibility}</p>
-                                </article>
-                            }
-                        }
-                    />
-                </div>
-            </section>
-
-            <section class="config-section">
-                <div class="config-section-header">
-                    <h3>"Plugins"</h3>
-                    <span>{plugins.len()}</span>
-                </div>
-                <div class="config-list">
-                    <For
-                        each=move || plugins.clone()
-                        key=|plugin| format!("{}:{}", plugin.name, plugin.path)
-                        children=move |plugin| {
-                            let badge_class = if plugin.status.starts_with("error") {
-                                "status-badge failed"
-                            } else {
-                                "status-badge completed"
-                            };
-                            let modules = plugin.provides.modules.clone();
-                            let tools = plugin.provides.tools.clone();
-                            let module_count = modules.len();
-                            let tool_count = tools.len();
-                            let provider_count = plugin.provides.context_providers.len();
-                            let provides = format!(
-                                "{module_count} modules · {tool_count} tools · {provider_count} providers"
-                            );
-                            let name = plugin.name.clone();
-                            let version = plugin.version.clone();
-                            let status = plugin.status.clone();
-                            let description = plugin.description.clone().unwrap_or_else(|| provides.clone());
-                            view! {
-                                <article class="config-list-item topology-plugin-item">
-                                    <div class="config-list-main">
-                                        <div class="config-list-title">
-                                            <strong>{name}</strong>
-                                            <code>{version}</code>
-                                        </div>
-                                        <p>{description}</p>
-                                        <div class="config-chip-row compact-chips">
-                                            <For
-                                                each=move || modules.clone()
-                                                key=|module| format!("{}:{}", module.slot, module.id)
-                                                children=move |module| view! { <span class="config-chip">{format!("{}/{}", module.slot, module.id)}</span> }
-                                            />
-                                            <For
-                                                each=move || tools.clone()
-                                                key=|tool| tool.name.clone()
-                                                children=move |tool| view! { <span class="config-chip">{tool.name}</span> }
-                                            />
-                                        </div>
-                                    </div>
-                                    <span class=badge_class>
-                                        <span class="dot"></span>
-                                        {status}
-                                    </span>
-                                </article>
-                            }
-                        }
-                    />
-                </div>
-            </section>
+            <TopologyMapView snapshot=topology_snapshot />
 
             <section class="config-section">
                 <div class="config-section-header">
@@ -541,26 +435,539 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
                 }}
             </section>
 
-            <section class="config-section">
-                <div class="config-section-header">
+            <details class="config-section mermaid-details">
+                <summary class="config-section-header">
                     <h3>"Mermaid"</h3>
                     <span>{format!("{} bytes", mermaid_preview.len())}</span>
-                </div>
+                </summary>
                 <pre class="mermaid-preview">{mermaid_preview}</pre>
-            </section>
+            </details>
         </div>
     }
 }
 
-fn active_module_source(slot: &TopologySlot, modules: &[TopologyModule]) -> String {
-    let Some(active) = slot.active_module.as_deref() else {
-        return "-".to_owned();
-    };
-    modules
+#[derive(Clone, Debug)]
+struct TopologySlotNode {
+    slot: TopologySlot,
+    active_module: Option<TopologyModule>,
+    available_modules: Vec<TopologyModule>,
+    incoming_edges: Vec<TopologyEdge>,
+    outgoing_edges: Vec<TopologyEdge>,
+}
+
+#[derive(Clone, Debug)]
+struct TopologyPluginNode {
+    plugin: TopologyPlugin,
+    contribution_edges: Vec<TopologyEdge>,
+    module_edges: Vec<TopologyEdge>,
+    tool_edges: Vec<TopologyEdge>,
+    provider_edges: Vec<TopologyEdge>,
+}
+
+#[derive(Clone, Debug)]
+struct TopologyToolNode {
+    tool: TopologyTool,
+    incoming_edges: Vec<TopologyEdge>,
+    outgoing_edges: Vec<TopologyEdge>,
+}
+
+#[derive(Clone, Debug)]
+struct DanglingTopologyNode {
+    id: String,
+    incoming_edges: Vec<TopologyEdge>,
+    outgoing_edges: Vec<TopologyEdge>,
+}
+
+#[component]
+fn TopologyMapView(snapshot: TopologySnapshot) -> impl IntoView {
+    let slot_nodes = topology_slot_nodes(&snapshot);
+    let plugin_nodes = topology_plugin_nodes(&snapshot);
+    let tool_nodes = topology_tool_nodes(&snapshot);
+    let mut available_modules = snapshot
+        .modules
         .iter()
-        .find(|module| module.slot == slot.id && module.id == active)
-        .map(|module| module_source_label(&module.source))
-        .unwrap_or_else(|| "unknown".to_owned())
+        .filter(|module| !module.active)
+        .cloned()
+        .collect::<Vec<_>>();
+    available_modules.sort_by(|left, right| {
+        left.slot
+            .cmp(&right.slot)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut available_tools = snapshot
+        .tools
+        .iter()
+        .filter(|tool| !tool.enabled || !tool.registered)
+        .cloned()
+        .collect::<Vec<_>>();
+    available_tools.sort_by(|left, right| left.name.cmp(&right.name));
+    let dangling_nodes = dangling_topology_nodes(&snapshot);
+    let registry_edges = snapshot
+        .edges
+        .iter()
+        .filter(|edge| edge.from == "tools" || edge.to == "tools")
+        .cloned()
+        .collect::<Vec<_>>();
+    let registered_tool_nodes = tool_nodes
+        .iter()
+        .filter(|node| node.tool.registered)
+        .cloned()
+        .collect::<Vec<_>>();
+    let edge_count = snapshot.edges.len();
+    let runtime_edge_count = snapshot
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == "runtime")
+        .count();
+    let provides_edge_count = snapshot
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == "provides")
+        .count();
+    let uses_edge_count = snapshot
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == "uses")
+        .count();
+    let active_slot_count = slot_nodes
+        .iter()
+        .filter(|node| node.active_module.is_some())
+        .count();
+    let loaded_plugin_count = plugin_nodes
+        .iter()
+        .filter(|node| node.plugin.status == "loaded")
+        .count();
+    let has_available =
+        !available_modules.is_empty() || !available_tools.is_empty() || !dangling_nodes.is_empty();
+
+    view! {
+        <>
+            <section class="config-section topology-map-section">
+                <div class="config-section-header">
+                    <h3>"Topology map"</h3>
+                    <span>{format!("{edge_count} edges")}</span>
+                </div>
+                <div class="topology-map-summary">
+                    <span>
+                        <strong>{active_slot_count}</strong>
+                        <small>"active slots"</small>
+                    </span>
+                    <span>
+                        <strong>{loaded_plugin_count}</strong>
+                        <small>"loaded plugins"</small>
+                    </span>
+                    <span>
+                        <strong>{registered_tool_nodes.len()}</strong>
+                        <small>"registry tools"</small>
+                    </span>
+                    <span>
+                        <strong>{runtime_edge_count}</strong>
+                        <small>"runtime"</small>
+                    </span>
+                    <span>
+                        <strong>{provides_edge_count}</strong>
+                        <small>"provides"</small>
+                    </span>
+                    <span>
+                        <strong>{uses_edge_count}</strong>
+                        <small>"uses"</small>
+                    </span>
+                </div>
+                <div class="topology-flow">
+                    <div class="topology-flow-node">
+                        <span>"config"</span>
+                        <strong>"selects slots"</strong>
+                    </div>
+                    <div class="topology-flow-link">"selects"</div>
+                    <div class="topology-flow-node">
+                        <span>"slots"</span>
+                        <strong>{format!("{active_slot_count}/{}", slot_nodes.len())}</strong>
+                    </div>
+                    <div class="topology-flow-link">"loads"</div>
+                    <div class="topology-flow-node">
+                        <span>"plugins"</span>
+                        <strong>{format!("{loaded_plugin_count}/{}", plugin_nodes.len())}</strong>
+                    </div>
+                    <div class="topology-flow-link">"registers"</div>
+                    <div class="topology-flow-node">
+                        <span>"ToolRegistry"</span>
+                        <strong>{registered_tool_nodes.len().to_string()}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="config-section topology-map-section">
+                <div class="config-section-header">
+                    <h3>"Active slots"</h3>
+                    <span>{format!("{active_slot_count}/{}", slot_nodes.len())}</span>
+                </div>
+                <div class="topology-node-grid">
+                    <For
+                        each=move || slot_nodes.clone()
+                        key=|node| node.slot.id.clone()
+                        children=move |node| {
+                            let slot_id = node.slot.id.clone();
+                            let title = non_empty(&node.slot.title, &slot_id);
+                            let active_label = node
+                                .slot
+                                .active_module
+                                .clone()
+                                .unwrap_or_else(|| "module не выбран".to_owned());
+                            let active_source = node
+                                .active_module
+                                .as_ref()
+                                .map(|module| module_source_label(&module.source))
+                                .unwrap_or_else(|| "-".to_owned());
+                            let description = node
+                                .active_module
+                                .as_ref()
+                                .and_then(|module| module.description.clone())
+                                .unwrap_or_else(|| node.slot.responsibility.clone());
+                            let card_class = if node.active_module.is_some() {
+                                "topology-node-card active"
+                            } else {
+                                "topology-node-card missing"
+                            };
+                            let status_class = if node.active_module.is_some() {
+                                "status-badge completed"
+                            } else {
+                                "status-badge disconnected"
+                            };
+                            let status_label = if node.active_module.is_some() { "active" } else { "missing" };
+                            let required_class = if node.slot.required {
+                                "status-badge idle"
+                            } else {
+                                "status-badge disconnected"
+                            };
+                            let required_label = if node.slot.required { "required" } else { "optional" };
+                            let incoming_edges = node.incoming_edges.clone();
+                            let outgoing_edges = node.outgoing_edges.clone();
+                            let available_modules = node.available_modules.clone();
+                            view! {
+                                <article class=card_class>
+                                    <div class="topology-node-head">
+                                        <div>
+                                            <span class="panel-kicker">{slot_id}</span>
+                                            <strong>{title}</strong>
+                                        </div>
+                                        <div class="tool-badges">
+                                            <span class=status_class>{status_label}</span>
+                                            <span class=required_class>{required_label}</span>
+                                        </div>
+                                    </div>
+                                    <div class="topology-node-body">
+                                        <code>{active_label}</code>
+                                        <span>{active_source}</span>
+                                        <p>{description}</p>
+                                    </div>
+                                    {if incoming_edges.is_empty() && outgoing_edges.is_empty() {
+                                        view! { <div class="topology-muted">"edge-связей нет"</div> }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="topology-edge-row">
+                                                <For
+                                                    each=move || incoming_edges.clone()
+                                                    key=topology_edge_key
+                                                    children=move |edge| {
+                                                        view! { <span class="topology-edge-chip incoming">{incoming_edge_chip_label(&edge)}</span> }
+                                                    }
+                                                />
+                                                <For
+                                                    each=move || outgoing_edges.clone()
+                                                    key=topology_edge_key
+                                                    children=move |edge| {
+                                                        view! { <span class="topology-edge-chip outgoing">{outgoing_edge_chip_label(&edge)}</span> }
+                                                    }
+                                                />
+                                            </div>
+                                        }.into_any()
+                                    }}
+                                    {if available_modules.is_empty() {
+                                        view! { <></> }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="topology-available-inline">
+                                                <span>"available"</span>
+                                                <div class="config-chip-row compact-chips">
+                                                    <For
+                                                        each=move || available_modules.clone()
+                                                        key=|module| format!("{}:{}", module.slot, module.id)
+                                                        children=move |module| {
+                                                            view! { <span class="config-chip">{module.id}</span> }
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                        }.into_any()
+                                    }}
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section topology-map-section">
+                <div class="config-section-header">
+                    <h3>"Plugins -> contributions"</h3>
+                    <span>{plugin_nodes.len()}</span>
+                </div>
+                <div class="topology-node-grid plugins">
+                    <For
+                        each=move || plugin_nodes.clone()
+                        key=|node| format!("{}:{}", node.plugin.name, node.plugin.path)
+                        children=move |node| {
+                            let name = node.plugin.name.clone();
+                            let version = non_empty(&node.plugin.version, "-");
+                            let status = non_empty(&node.plugin.status, "unknown");
+                            let badge_class = topology_plugin_badge_class(&status);
+                            let module_count = node.module_edges.len();
+                            let tool_count = node.tool_edges.len();
+                            let provider_count = node.provider_edges.len();
+                            let description = node
+                                .plugin
+                                .description
+                                .clone()
+                                .unwrap_or_else(|| format!("{module_count} modules · {tool_count} tools · {provider_count} providers"));
+                            let contribution_edges = node.contribution_edges.clone();
+                            let fallback_modules = node.plugin.provides.modules.clone();
+                            let fallback_tools = node.plugin.provides.tools.clone();
+                            let fallback_providers = node.plugin.provides.context_providers.clone();
+                            view! {
+                                <article class="topology-node-card plugin">
+                                    <div class="topology-node-head">
+                                        <div>
+                                            <span class="panel-kicker">"plugin"</span>
+                                            <strong>{name}</strong>
+                                        </div>
+                                        <span class=badge_class>
+                                            <span class="dot"></span>
+                                            {status}
+                                        </span>
+                                    </div>
+                                    <div class="topology-node-body">
+                                        <code>{version}</code>
+                                        <p>{description}</p>
+                                    </div>
+                                    {if contribution_edges.is_empty() {
+                                        view! {
+                                            <div class="topology-edge-row">
+                                                <For
+                                                    each=move || fallback_modules.clone()
+                                                    key=|module| format!("{}:{}", module.slot, module.id)
+                                                    children=move |module| {
+                                                        view! { <span class="topology-edge-chip available">{format!("module: {}/{}", module.slot, module.id)}</span> }
+                                                    }
+                                                />
+                                                <For
+                                                    each=move || fallback_tools.clone()
+                                                    key=|tool| tool.name.clone()
+                                                    children=move |tool| {
+                                                        view! { <span class="topology-edge-chip available">{format!("tool: {}", tool.name)}</span> }
+                                                    }
+                                                />
+                                                <For
+                                                    each=move || fallback_providers.clone()
+                                                    key=|provider| provider.clone()
+                                                    children=move |provider| {
+                                                        view! { <span class="topology-edge-chip available">{format!("context: {provider}")}</span> }
+                                                    }
+                                                />
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="topology-edge-row">
+                                                <For
+                                                    each=move || contribution_edges.clone()
+                                                    key=topology_edge_key
+                                                    children=move |edge| {
+                                                        view! { <span class="topology-edge-chip outgoing">{outgoing_edge_chip_label(&edge)}</span> }
+                                                    }
+                                                />
+                                            </div>
+                                        }.into_any()
+                                    }}
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section topology-map-section">
+                <div class="config-section-header">
+                    <h3>"Tool registry"</h3>
+                    <span>{registered_tool_nodes.len()}</span>
+                </div>
+                <div class="topology-registry">
+                    <article class="topology-registry-card">
+                        <div class="topology-node-head">
+                            <div>
+                                <span class="panel-kicker">"registry"</span>
+                                <strong>"ToolRegistry"</strong>
+                            </div>
+                            <span class="status-badge completed">{format!("{} registered", registered_tool_nodes.len())}</span>
+                        </div>
+                        <div class="topology-edge-row">
+                            <For
+                                each=move || registry_edges.clone()
+                                key=topology_edge_key
+                                children=move |edge| {
+                                    let label = if edge.to == "tools" {
+                                        incoming_edge_chip_label(&edge)
+                                    } else {
+                                        outgoing_edge_chip_label(&edge)
+                                    };
+                                    view! { <span class="topology-edge-chip runtime">{label}</span> }
+                                }
+                            />
+                        </div>
+                    </article>
+                    <div class="topology-tool-grid">
+                        <For
+                            each=move || registered_tool_nodes.clone()
+                            key=|node| format!("{}:{}", node.tool.name, node.tool.source)
+                            children=move |node| {
+                                let tool = node.tool.clone();
+                                let provider = tool
+                                    .provider_plugin
+                                    .clone()
+                                    .map(|plugin| format!("plugin:{plugin}"))
+                                    .unwrap_or_else(|| tool.source.clone());
+                                let outgoing_edges = node.outgoing_edges.clone();
+                                let incoming_edges = node.incoming_edges.clone();
+                                let card_class = if tool.enabled {
+                                    "topology-tool-node enabled"
+                                } else {
+                                    "topology-tool-node disabled"
+                                };
+                                view! {
+                                    <article class=card_class>
+                                        <div class="topology-tool-title">
+                                            <strong>{tool.name.clone()}</strong>
+                                            <span>{tool.safety.clone()}</span>
+                                        </div>
+                                        <code>{provider}</code>
+                                        {if incoming_edges.is_empty() && outgoing_edges.is_empty() {
+                                            view! { <span class="topology-muted">"registry only"</span> }.into_any()
+                                        } else {
+                                            view! {
+                                                <div class="topology-edge-row tight">
+                                                    <For
+                                                        each=move || incoming_edges.clone()
+                                                        key=topology_edge_key
+                                                        children=move |edge| {
+                                                            view! { <span class="topology-edge-chip incoming">{incoming_edge_chip_label(&edge)}</span> }
+                                                        }
+                                                    />
+                                                    <For
+                                                        each=move || outgoing_edges.clone()
+                                                        key=topology_edge_key
+                                                        children=move |edge| {
+                                                            view! { <span class="topology-edge-chip outgoing">{outgoing_edge_chip_label(&edge)}</span> }
+                                                        }
+                                                    />
+                                                </div>
+                                            }.into_any()
+                                        }}
+                                    </article>
+                                }
+                            }
+                        />
+                    </div>
+                </div>
+            </section>
+
+            {if has_available {
+                view! {
+                    <section class="config-section topology-map-section">
+                        <div class="config-section-header">
+                            <h3>"Dangling / available"</h3>
+                            <span>{format!("{} items", available_modules.len() + available_tools.len() + dangling_nodes.len())}</span>
+                        </div>
+                        <div class="topology-available-grid">
+                            {if available_modules.is_empty() {
+                                view! { <></> }.into_any()
+                            } else {
+                                view! {
+                                    <div class="topology-available-group">
+                                        <h4>"available modules"</h4>
+                                        <div class="topology-edge-row">
+                                            <For
+                                                each=move || available_modules.clone()
+                                                key=|module| format!("{}:{}", module.slot, module.id)
+                                                children=move |module| {
+                                                    let source = module_source_label(&module.source);
+                                                    view! {
+                                                        <span class="topology-edge-chip available">
+                                                            {format!("{}/{} · {source}", module.slot, module.id)}
+                                                        </span>
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }}
+                            {if available_tools.is_empty() {
+                                view! { <></> }.into_any()
+                            } else {
+                                view! {
+                                    <div class="topology-available-group">
+                                        <h4>"available tools"</h4>
+                                        <div class="topology-edge-row">
+                                            <For
+                                                each=move || available_tools.clone()
+                                                key=|tool| format!("{}:{}", tool.name, tool.source)
+                                                children=move |tool| {
+                                                    let state = if tool.registered { "disabled" } else { "provided" };
+                                                    view! {
+                                                        <span class="topology-edge-chip available">
+                                                            {format!("{} · {state}", tool.name)}
+                                                        </span>
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }}
+                            {if dangling_nodes.is_empty() {
+                                view! { <></> }.into_any()
+                            } else {
+                                view! {
+                                    <div class="topology-available-group">
+                                        <h4>"dangling edge nodes"</h4>
+                                        <div class="topology-edge-row">
+                                            <For
+                                                each=move || dangling_nodes.clone()
+                                                key=|node| node.id.clone()
+                                                children=move |node| {
+                                                    view! {
+                                                        <span class="topology-edge-chip dangling">
+                                                            {format!(
+                                                                "{} · in:{} out:{}",
+                                                                topology_node_label(&node.id),
+                                                                node.incoming_edges.len(),
+                                                                node.outgoing_edges.len()
+                                                            )}
+                                                        </span>
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }}
+                        </div>
+                    </section>
+                }.into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
+        </>
+    }
 }
 
 fn module_source_label(source: &TopologyModuleSource) -> String {
@@ -573,6 +980,265 @@ fn module_source_label(source: &TopologyModuleSource) -> String {
         "builtin" => "builtin".to_owned(),
         "config" => "config".to_owned(),
         _ => "unknown".to_owned(),
+    }
+}
+
+fn topology_slot_nodes(snapshot: &TopologySnapshot) -> Vec<TopologySlotNode> {
+    let mut nodes = snapshot
+        .slots
+        .iter()
+        .map(|slot| {
+            let slot_node_id = format!("slot:{}", slot.id);
+            let active_module = slot.active_module.as_ref().and_then(|active| {
+                snapshot
+                    .modules
+                    .iter()
+                    .find(|module| module.slot == slot.id && module.id == *active)
+                    .cloned()
+            });
+            let mut available_modules = snapshot
+                .modules
+                .iter()
+                .filter(|module| module.slot == slot.id && !module.active)
+                .cloned()
+                .collect::<Vec<_>>();
+            available_modules.sort_by(|left, right| left.id.cmp(&right.id));
+            TopologySlotNode {
+                slot: slot.clone(),
+                active_module,
+                available_modules,
+                incoming_edges: snapshot
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.to == slot_node_id)
+                    .cloned()
+                    .collect(),
+                outgoing_edges: snapshot
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.from == slot_node_id)
+                    .cloned()
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| {
+        runtime_slot_rank(&left.slot.id)
+            .cmp(&runtime_slot_rank(&right.slot.id))
+            .then_with(|| left.slot.id.cmp(&right.slot.id))
+    });
+    nodes
+}
+
+fn topology_plugin_nodes(snapshot: &TopologySnapshot) -> Vec<TopologyPluginNode> {
+    let mut nodes = snapshot
+        .plugins
+        .iter()
+        .map(|plugin| {
+            let plugin_node_id = format!("plugin:{}", plugin.name);
+            let contribution_edges = snapshot
+                .edges
+                .iter()
+                .filter(|edge| edge.from == plugin_node_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            let module_edges = contribution_edges
+                .iter()
+                .filter(|edge| edge.to.starts_with("module:"))
+                .cloned()
+                .collect::<Vec<_>>();
+            let tool_edges = contribution_edges
+                .iter()
+                .filter(|edge| edge.to.starts_with("tool:"))
+                .cloned()
+                .collect::<Vec<_>>();
+            let provider_edges = contribution_edges
+                .iter()
+                .filter(|edge| edge.to.starts_with("context_provider:"))
+                .cloned()
+                .collect::<Vec<_>>();
+            TopologyPluginNode {
+                plugin: plugin.clone(),
+                contribution_edges,
+                module_edges,
+                tool_edges,
+                provider_edges,
+            }
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.plugin.name.cmp(&right.plugin.name));
+    nodes
+}
+
+fn topology_tool_nodes(snapshot: &TopologySnapshot) -> Vec<TopologyToolNode> {
+    let mut nodes = snapshot
+        .tools
+        .iter()
+        .map(|tool| {
+            let tool_node_id = format!("tool:{}", tool.name);
+            TopologyToolNode {
+                tool: tool.clone(),
+                incoming_edges: snapshot
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.to == tool_node_id)
+                    .cloned()
+                    .collect(),
+                outgoing_edges: snapshot
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.from == tool_node_id)
+                    .cloned()
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.tool.name.cmp(&right.tool.name));
+    nodes
+}
+
+fn dangling_topology_nodes(snapshot: &TopologySnapshot) -> Vec<DanglingTopologyNode> {
+    let known_nodes = known_topology_nodes(snapshot);
+    let mut dangling_ids = BTreeSet::new();
+    for edge in &snapshot.edges {
+        if !edge.from.trim().is_empty() && !known_nodes.contains(&edge.from) {
+            dangling_ids.insert(edge.from.clone());
+        }
+        if !edge.to.trim().is_empty() && !known_nodes.contains(&edge.to) {
+            dangling_ids.insert(edge.to.clone());
+        }
+    }
+
+    dangling_ids
+        .into_iter()
+        .map(|id| DanglingTopologyNode {
+            incoming_edges: snapshot
+                .edges
+                .iter()
+                .filter(|edge| edge.to == id)
+                .cloned()
+                .collect(),
+            outgoing_edges: snapshot
+                .edges
+                .iter()
+                .filter(|edge| edge.from == id)
+                .cloned()
+                .collect(),
+            id,
+        })
+        .collect()
+}
+
+fn known_topology_nodes(snapshot: &TopologySnapshot) -> BTreeSet<String> {
+    let mut nodes = BTreeSet::new();
+    nodes.insert("config".to_owned());
+    nodes.insert("tools".to_owned());
+    if !snapshot.warnings.is_empty() {
+        nodes.insert("warnings".to_owned());
+    }
+    for slot in &snapshot.slots {
+        nodes.insert(format!("slot:{}", slot.id));
+    }
+    for module in &snapshot.modules {
+        nodes.insert(format!("module:{}:{}", module.slot, module.id));
+    }
+    for plugin in &snapshot.plugins {
+        nodes.insert(format!("plugin:{}", plugin.name));
+        for provider in &plugin.provides.context_providers {
+            nodes.insert(format!("context_provider:{provider}"));
+        }
+    }
+    for tool in &snapshot.tools {
+        nodes.insert(format!("tool:{}", tool.name));
+    }
+    nodes
+}
+
+fn runtime_slot_rank(id: &str) -> usize {
+    RUNTIME_SLOT_ORDER
+        .iter()
+        .position(|candidate| *candidate == id)
+        .unwrap_or(RUNTIME_SLOT_ORDER.len())
+}
+
+fn topology_edge_key(edge: &TopologyEdge) -> String {
+    format!(
+        "{}>{}>{}>{}",
+        edge.from,
+        edge.to,
+        edge.kind,
+        edge.label.as_deref().unwrap_or_default()
+    )
+}
+
+fn incoming_edge_chip_label(edge: &TopologyEdge) -> String {
+    format!(
+        "{} <- {}",
+        topology_edge_label(edge),
+        topology_node_label(&edge.from)
+    )
+}
+
+fn outgoing_edge_chip_label(edge: &TopologyEdge) -> String {
+    format!(
+        "{} -> {}",
+        topology_edge_label(edge),
+        topology_node_label(&edge.to)
+    )
+}
+
+fn topology_edge_label(edge: &TopologyEdge) -> String {
+    if let Some(label) = edge
+        .label
+        .as_deref()
+        .filter(|label| !label.trim().is_empty())
+    {
+        label.to_owned()
+    } else if edge.kind.trim().is_empty() {
+        "edge".to_owned()
+    } else {
+        edge.kind.clone()
+    }
+}
+
+fn topology_node_label(node_id: &str) -> String {
+    if node_id == "config" {
+        return "config".to_owned();
+    }
+    if node_id == "tools" {
+        return "ToolRegistry".to_owned();
+    }
+    if let Some(id) = node_id.strip_prefix("slot:") {
+        return format!("slot:{id}");
+    }
+    if let Some(name) = node_id.strip_prefix("plugin:") {
+        return format!("plugin:{name}");
+    }
+    if let Some(name) = node_id.strip_prefix("tool:") {
+        return format!("tool:{name}");
+    }
+    if let Some(name) = node_id.strip_prefix("context_provider:") {
+        return format!("context:{name}");
+    }
+    if let Some(rest) = node_id.strip_prefix("module:") {
+        let mut parts = rest.splitn(2, ':');
+        let slot = parts.next().unwrap_or_default();
+        let module = parts.next().unwrap_or_default();
+        if module.is_empty() {
+            return format!("module:{slot}");
+        }
+        return format!("{slot}/{module}");
+    }
+    node_id.to_owned()
+}
+
+fn topology_plugin_badge_class(status: &str) -> &'static str {
+    if status.starts_with("error") || status == "failed" {
+        "status-badge failed"
+    } else if status == "loaded" {
+        "status-badge completed"
+    } else {
+        "status-badge disconnected"
     }
 }
 

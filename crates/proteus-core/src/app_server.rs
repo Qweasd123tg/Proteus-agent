@@ -209,6 +209,7 @@ impl AppServerHandle {
             plugin_reports: &plugin_reports,
             module_epoch,
             permission_mode: mode,
+            extra_warnings: Vec::new(),
         })
     }
 

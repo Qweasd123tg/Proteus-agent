@@ -21,9 +21,10 @@ use proteus_core::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
-        ModuleBuildContext, ModuleEpoch, TopologyBuildInput, build_topology_snapshot,
-        normalize_session_dir_path, render_topology_markdown, render_topology_mermaid,
-        render_topology_table, session_id_from_session_dir,
+        ModuleBuildContext, ModuleEpoch, TopologyBuildInput, TopologyWarning,
+        build_topology_snapshot, normalize_session_dir_path, render_topology_map,
+        render_topology_markdown, render_topology_mermaid, render_topology_table,
+        session_id_from_session_dir,
     },
 };
 use serde_json::Value;
@@ -258,6 +259,7 @@ enum InspectTopologyFormat {
     Table,
     Json,
     Markdown,
+    Map,
     Mermaid,
 }
 
@@ -306,13 +308,16 @@ fn inspect_topology_format_value(value: &str) -> Result<InspectTopologyFormat> {
         "table" => Ok(InspectTopologyFormat::Table),
         "json" => Ok(InspectTopologyFormat::Json),
         "markdown" | "md" => Ok(InspectTopologyFormat::Markdown),
+        "map" => Ok(InspectTopologyFormat::Map),
         "mermaid" | "mmd" => Ok(InspectTopologyFormat::Mermaid),
-        _ => bail!("unknown topology format '{value}', expected table, json, markdown, or mermaid"),
+        _ => bail!(
+            "unknown topology format '{value}', expected table, json, markdown, map, or mermaid"
+        ),
     }
 }
 
 fn inspect_topology_usage() -> &'static str {
-    "usage: proteus inspect [topology] [--format table|json|markdown|mermaid]"
+    "usage: proteus inspect [topology] [--format table|json|markdown|map|mermaid]"
 }
 
 fn is_doctor_command(task: &[String]) -> bool {
@@ -1070,11 +1075,51 @@ fn build_cli_topology(
         cwd,
         context_providers: catalog.context_providers(),
     };
-    let search = catalog.build_search(&config.modules.search, &build_ctx)?;
-    let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-    let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
-    let tools = catalog.build_tools(&build_ctx, search, patch, memory)?;
-    let tool_entries = tools.entries();
+    let mut extra_warnings = Vec::new();
+    let search = match catalog.build_search(&config.modules.search, &build_ctx) {
+        Ok(search) => Some(search),
+        Err(error) => {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect could not build search module {}: {error:#}",
+                config.modules.search
+            )));
+            None
+        }
+    };
+    let patch = match catalog.build_patch(&config.modules.patch, &build_ctx) {
+        Ok(patch) => Some(patch),
+        Err(error) => {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect could not build patch module {}: {error:#}",
+                config.modules.patch
+            )));
+            None
+        }
+    };
+    let memory = match catalog.build_memory(&config.modules.memory, &build_ctx) {
+        Ok(memory) => Some(memory),
+        Err(error) => {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect could not build memory module {}: {error:#}",
+                config.modules.memory
+            )));
+            None
+        }
+    };
+    let tool_entries = match (search, patch, memory) {
+        (Some(search), Some(patch), Some(memory)) => {
+            match catalog.build_tools(&build_ctx, search, patch, memory) {
+                Ok(tools) => tools.entries(),
+                Err(error) => {
+                    extra_warnings.push(TopologyWarning::error(format!(
+                        "inspect could not build ToolRegistry: {error:#}"
+                    )));
+                    Vec::new()
+                }
+            }
+        }
+        _ => Vec::new(),
+    };
 
     Ok(build_topology_snapshot(TopologyBuildInput {
         config,
@@ -1085,6 +1130,7 @@ fn build_cli_topology(
         plugin_reports: &plugin_reports,
         module_epoch: ModuleEpoch::initial(),
         permission_mode,
+        extra_warnings,
     }))
 }
 
@@ -1096,6 +1142,7 @@ fn render_inspect_topology(
         InspectTopologyFormat::Table => Ok(render_topology_table(snapshot)),
         InspectTopologyFormat::Json => serde_json::to_string_pretty(snapshot).map_err(Into::into),
         InspectTopologyFormat::Markdown => Ok(render_topology_markdown(snapshot)),
+        InspectTopologyFormat::Map => Ok(render_topology_map(snapshot)),
         InspectTopologyFormat::Mermaid => Ok(render_topology_mermaid(snapshot)),
     }
 }
@@ -1704,6 +1751,16 @@ mod tests {
             parse_inspect_topology_command(&[
                 "inspect".to_owned(),
                 "topology".to_owned(),
+                "--format=map".to_owned(),
+            ])
+            .expect("parse")
+            .expect("inspect command"),
+            InspectTopologyFormat::Map
+        );
+        assert_eq!(
+            parse_inspect_topology_command(&[
+                "inspect".to_owned(),
+                "topology".to_owned(),
                 "--format=mermaid".to_owned(),
             ])
             .expect("parse")
@@ -1718,6 +1775,33 @@ mod tests {
                 .expect("parse")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn inspect_topology_builds_snapshot_when_tool_backend_is_invalid() {
+        disable_plugins();
+        let mut config = AppConfig::default();
+        config.modules.search = "missing-search".to_owned();
+
+        let snapshot = build_cli_topology(
+            &config,
+            None,
+            std::path::Path::new("."),
+            config.permissions.mode,
+        )
+        .expect("best-effort topology snapshot");
+
+        assert!(snapshot.slots.iter().any(|slot| slot.id == "search"));
+        assert!(snapshot.warnings.iter().any(|warning| {
+            warning
+                .message
+                .contains("inspect could not build search module missing-search")
+        }));
+        assert!(snapshot.warnings.iter().any(|warning| {
+            warning
+                .message
+                .contains("active module is not registered: search/missing-search")
+        }));
     }
 
     #[test]
