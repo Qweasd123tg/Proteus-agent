@@ -22,7 +22,10 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
-cat > "${bin_path}" <<'WRAPPER'
+bin_tmp="${bin_path}.tmp.$$"
+rm -f "${bin_tmp}"
+trap 'rm -f "${bin_tmp}"' EXIT HUP INT TERM
+cat > "${bin_tmp}" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -94,8 +97,10 @@ open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
 env -u NO_COLOR trunk serve --port "${web_port}"
 WRAPPER
 escaped_project_dir=$(printf '%s' "${project_dir}" | sed 's/[&|]/\\&/g')
-sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_path}"
-chmod 755 "${bin_path}"
+sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
+chmod 755 "${bin_tmp}"
+mv "${bin_tmp}" "${bin_path}"
+trap - EXIT HUP INT TERM
 
 # Install plugins. File I/O, git helpers, and shell are required for a typical
 # coding workflow; other sample plugins are optional proofs.
