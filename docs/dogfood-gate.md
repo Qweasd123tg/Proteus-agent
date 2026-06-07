@@ -49,13 +49,14 @@ boundary. Активное направление — Leptos web client в `clie
 подключается к `proteus server http` через HTTP/SSE.
 
 App-server запускается только на loopback (`127.0.0.1`) для v0 dogfood.
-HTTP boundary требует local session token для `/events`, `/send`,
-approval/user-input/cancel/config/history/resume/reload/shutdown endpoints и
-ограничивает CORS локальным или явно разрешённым web origin. Browser
-`EventSource` не умеет произвольные headers, поэтому для SSE допустим query
-token; для `fetch` предпочтителен header `X-Proteus-Session` или
-`Authorization: Bearer <token>`. Raw token не логировать и не хранить в
-`localStorage`.
+HTTP boundary по умолчанию не требует local session token для loopback dogfood
+и ограничивает CORS локальным или явно разрешённым web origin. Строгий token
+режим включается через `--token`; тогда `/events`, `/send`,
+approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
+требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
+для SSE допустим query token; для `fetch` предпочтителен header
+`X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token не
+логировать и не хранить в `localStorage`.
 
 Минимальный сценарий:
 
@@ -80,13 +81,11 @@ Gate зелёный, если сценарий можно пройти без п
 Используйте этот чеклист, когда браузерную автоматику нельзя запустить
 надёжно. Он проверяет именно web/app-server loop, а не только HTTP endpoints.
 
-1. Запустить app-server с явным token и разрешённым origin:
+1. Запустить app-server на loopback с разрешённым origin:
 
    ```bash
-   export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
    proteus server http \
      --port 8787 \
-     --token "$PROTEUS_SESSION_TOKEN" \
      --allow-origin http://127.0.0.1:1420 \
      --allow-origin http://localhost:1420
    ```
@@ -98,17 +97,17 @@ Gate зелёный, если сценарий можно пройти без п
    trunk serve
    ```
 
-3. Открыть UI с query token:
+3. Открыть UI без query token:
 
    ```text
-   http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>
+   http://127.0.0.1:1420/
    ```
 
-   Если открыть `http://127.0.0.1:1420/` без query token, ожидаемое поведение -
-   `waiting for session`, disconnected event stream и HTTP 401 на `/config` /
-   `/history`.
+   Для строгого token smoke можно отдельно запустить server с
+   `--token "$PROTEUS_SESSION_TOKEN"` и открыть
+   `http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`.
 
-4. Проверить, что в sidebar нет `waiting for session`, event stream подключён,
+4. Проверить, что в sidebar нет auth-token ошибки, event stream подключён,
    `/config` и `/history` не показывают HTTP 401.
 5. Отправить маленькую задачу, которая требует tool call и approval.
 6. Убедиться, что tool activity card меняет состояние во время выполнения.

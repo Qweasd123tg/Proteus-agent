@@ -152,10 +152,8 @@ warnings. HTTP app-server отдаёт тот же snapshot через `GET /ins
 ./install.sh
 proteus init coding
 proteus doctor
-export PROTEUS_SESSION_TOKEN="$(openssl rand -hex 16)"
 cargo run --bin proteus -- server http \
   --port 8787 \
-  --token "$PROTEUS_SESSION_TOKEN" \
   --allow-origin http://127.0.0.1:1420 \
   --allow-origin http://localhost:1420
 ```
@@ -176,11 +174,13 @@ proteus
 ```
 
 Wrapper использует текущую директорию как workspace, поднимает app-server на
-`http://127.0.0.1:8787`, web-клиент на `http://127.0.0.1:1420` и генерирует
-per-launch session token. В консоль печатается только redacted URL, а browser
-открывается с `?session=<token>`; web-клиент использует query token для
-`EventSource` и header `X-Proteus-Session` для `fetch`. Для обычных CLI команд
-передайте аргументы, например `proteus doctor` или
+`http://127.0.0.1:8787` и web-клиент на `http://127.0.0.1:1420`. Локальный
+dogfood по умолчанию не требует session token: можно открыть
+`http://127.0.0.1:1420/` напрямую. Если нужен строгий token-режим, задайте
+`PROTEUS_SESSION_TOKEN`; wrapper откроет browser с `?session=<token>`, а
+web-клиент будет использовать query token для `EventSource` и header
+`X-Proteus-Session` для `fetch`. Для обычных CLI команд передайте аргументы,
+например `proteus doctor` или
 `proteus --plan "inspect project"`. Если source новее release binary, wrapper
 сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
 app-server не разъезжались по protocol endpoints.
@@ -194,9 +194,10 @@ HTTP/SSE transport запускается через `proteus server http`; CLI 
 
 Для dogfood запуска держите app-server на loopback (`127.0.0.1`) и не
 выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood,
-требует session token на app-control endpoints и ограничивает browser CORS
-локальными/явно разрешёнными origins, но не является shared-network deployment
-моделью.
+по умолчанию открывается без session token и ограничивает browser CORS
+локальными/явно разрешёнными origins. Token auth включается через `--token`,
+если нужен строгий локальный smoke, но это не shared-network deployment
+модель.
 Reference snapshots для web-клиента лежат вне production-каталога:
 
 - `examples/source/leptos` — git-ignored clone `leptos-rs/leptos`;

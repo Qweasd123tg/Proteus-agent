@@ -34,7 +34,7 @@ proteus_bin="${project_dir}/target/release/proteus"
 web_dir="${project_dir}/clients/web"
 app_port=8787
 web_port="${PROTEUS_WEB_PORT:-1420}"
-session_token="${PROTEUS_SESSION_TOKEN:-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')}"
+session_token="${PROTEUS_SESSION_TOKEN:-}"
 
 if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
@@ -61,12 +61,20 @@ fi
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"
 echo "App server:        http://127.0.0.1:${app_port}"
-echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>"
+if [ -n "${session_token}" ]; then
+  echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>"
+  server_auth_args=(--token "${session_token}")
+  open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
+else
+  echo "Web client:        http://127.0.0.1:${web_port}/"
+  server_auth_args=()
+  open_web_url="http://127.0.0.1:${web_port}/"
+fi
 echo
 
 "${proteus_bin}" --cwd "${workspace_cwd}" server http \
   --port "${app_port}" \
-  --token "${session_token}" \
+  "${server_auth_args[@]}" \
   --allow-origin "http://127.0.0.1:${web_port}" \
   --allow-origin "http://localhost:${web_port}" &
 server_pid=$!
@@ -85,7 +93,6 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 cd "${web_dir}"
-open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
 (
   sleep 2
   if command -v xdg-open >/dev/null 2>&1; then

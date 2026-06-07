@@ -236,6 +236,7 @@ fn parse_app_server_http_command(task: &[String]) -> Result<Option<HttpServerCon
                     bail!("--token must not be empty");
                 }
                 config.session_token = value.clone();
+                config.require_session_token = true;
             }
             "--allow-origin" => {
                 let value = args
@@ -1825,6 +1826,7 @@ mod tests {
                 .expect("parse")
                 .expect("http command");
         assert_eq!(default_config.bind.to_string(), "127.0.0.1:8787");
+        assert!(!default_config.require_session_token);
 
         let custom_config = parse_app_server_http_command(&[
             "server".to_owned(),
@@ -1837,6 +1839,16 @@ mod tests {
         .expect("parse")
         .expect("http command");
         assert_eq!(custom_config.bind.to_string(), "0.0.0.0:9000");
+
+        let token_config = parse_app_server_http_command(&[
+            "server".to_owned(),
+            "http".to_owned(),
+            "--token".to_owned(),
+            "secret".to_owned(),
+        ])
+        .expect("parse")
+        .expect("http command");
+        assert!(token_config.require_session_token);
 
         assert!(
             parse_app_server_http_command(&["server".to_owned(), "web".to_owned()])
