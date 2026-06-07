@@ -328,6 +328,22 @@ Scope:
   вернуться к blueprint в `docs/memory-research.md`: per-call capability +
   mailbox/background job boundary.
 
+### Architecture Cleanup
+
+- Свести topology slot metadata в единый `SlotDescriptor` source-of-truth:
+  id, title, responsibility, required, render order и canonical runtime edges.
+  Сейчас эти сведения частично дублируются между topology builder/render
+  helper-ами, что повышает риск рассинхронизации при добавлении slot.
+- Разделить в topology DTO обычные module slots и synthetic runtime nodes.
+  `ToolRegistry` сейчас представлен через pseudo-slot `tool`; UI должен
+  показывать его как registry node, а не как выбираемый module slot.
+- Следить за ростом `RuntimeContext`/`BuiltinRegistry`: они неизбежно wiring
+  layer, но каждый новый slot не должен добавлять provider-specific детали или
+  обходить existing contracts.
+- При дальнейшем развитии dynamic tools вынести общий lexical scoring/tokenize
+  helper в shared contract/support слой либо сознательно оставить duplication
+  между core selector и workflow meta-tools как ABI-boundary tradeoff.
+
 ## Не Делать Сейчас
 
 - marketplace и signed plugins;
