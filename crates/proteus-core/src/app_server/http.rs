@@ -29,7 +29,7 @@ use tokio::{
 
 use crate::{
     contracts::CancellationToken,
-    core::{AppConfig, render_topology_map, render_topology_mermaid},
+    core::{AppConfig, render_topology_map, render_topology_mermaid, render_topology_runtime_path},
     domain::{AgentOutput, PermissionMode},
 };
 
@@ -259,6 +259,10 @@ where
         (Method::GET, "/inspect/topology.map") => {
             let snapshot = state.current_server().await.topology_snapshot().await;
             text_response(StatusCode::OK, render_topology_map(&snapshot))
+        }
+        (Method::GET, "/inspect/topology.runtime") => {
+            let snapshot = state.current_server().await.topology_snapshot().await;
+            text_response(StatusCode::OK, render_topology_runtime_path(&snapshot))
         }
         (Method::GET, "/sessions") => match state.current_server().await.session_summaries() {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
@@ -1116,6 +1120,7 @@ mod tests {
             (Method::GET, "/inspect/topology"),
             (Method::GET, "/inspect/topology.mmd"),
             (Method::GET, "/inspect/topology.map"),
+            (Method::GET, "/inspect/topology.runtime"),
             (Method::GET, "/sessions"),
             (Method::GET, "/history"),
             (Method::POST, "/request"),
@@ -1483,7 +1488,7 @@ mod tests {
         assert!(!body.contains("Warnings"));
         assert!(!body.contains("available"));
 
-        let response = route_request(state, authed_get_request("/inspect/topology.map"))
+        let response = route_request(state.clone(), authed_get_request("/inspect/topology.map"))
             .await
             .expect("map response");
         assert_eq!(response.status(), StatusCode::OK);
@@ -1497,6 +1502,23 @@ mod tests {
         let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
         assert!(body.starts_with("Proteus topology map"));
         assert!(body.contains("Slot/module map"));
+
+        let response = route_request(state, authed_get_request("/inspect/topology.runtime"))
+            .await
+            .expect("runtime response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
+        assert!(body.starts_with("Proteus runtime path"));
+        assert!(body.contains("Active product path"));
+        assert!(body.contains("tools"));
+        assert!(!body.contains("Plugin contribution map"));
         server.shutdown().await;
     }
 

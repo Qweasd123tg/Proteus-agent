@@ -1,5 +1,5 @@
 [profile]
-name = "advanced-external-tools"
+name = "external-tools"
 
 [model]
 provider = "fake"

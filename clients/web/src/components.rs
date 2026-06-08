@@ -495,6 +495,15 @@ struct TopologyToolNode {
 }
 
 #[derive(Clone, Debug)]
+struct TopologyRuntimeItem {
+    label: String,
+    detail: String,
+    source: String,
+    role: &'static str,
+    class_name: String,
+}
+
+#[derive(Clone, Debug)]
 struct TopologyGraphModel {
     width: f32,
     height: f32,
@@ -604,12 +613,38 @@ fn TopologyMapView(snapshot: TopologySnapshot) -> impl IntoView {
     let graph_lines = graph_model.lines.clone();
     let graph_width = graph_model.width;
     let graph_height = graph_model.height;
+    let runtime_items = topology_runtime_items(&snapshot, &slot_nodes);
 
     view! {
         <>
             <section class="config-section topology-map-section">
                 <div class="config-section-header">
-                    <h3>"Topology map"</h3>
+                    <h3>"Runtime path"</h3>
+                    <span>"active product path"</span>
+                </div>
+                <div class="topology-tool-grid">
+                    <For
+                        each=move || runtime_items.clone()
+                        key=|item| item.label.clone()
+                        children=move |item| {
+                            view! {
+                                <article class=item.class_name>
+                                    <div class="topology-tool-title">
+                                        <strong>{item.label}</strong>
+                                        <span>{item.role}</span>
+                                    </div>
+                                    <code>{item.detail}</code>
+                                    <span class="topology-muted">{item.source}</span>
+                                </article>
+                            }
+                        }
+                    />
+                </div>
+            </section>
+
+            <section class="config-section topology-map-section">
+                <div class="config-section-header">
+                    <h3>"Diagnostic graph"</h3>
                     <span>{format!("{edge_count} edges")}</span>
                 </div>
                 <div class="topology-map-summary">
@@ -999,7 +1034,7 @@ fn TopologyMapView(snapshot: TopologySnapshot) -> impl IntoView {
                 view! {
                     <section class="config-section topology-map-section">
                         <div class="config-section-header">
-                            <h3>"Dangling / available"</h3>
+                            <h3>"Diagnostic dangling / available"</h3>
                             <span>{format!("{} items", available_modules.len() + available_tools.len() + dangling_nodes.len())}</span>
                         </div>
                         <div class="topology-available-grid">
@@ -1097,6 +1132,73 @@ fn module_source_label(source: &TopologyModuleSource) -> String {
         "config" => "config".to_owned(),
         _ => "unknown".to_owned(),
     }
+}
+
+fn topology_runtime_items(
+    snapshot: &TopologySnapshot,
+    slot_nodes: &[TopologySlotNode],
+) -> Vec<TopologyRuntimeItem> {
+    let mut items = [
+        ("workflow", "turn loop"),
+        ("context", "context build"),
+        ("tool_exposure", "tool selection"),
+        ("model", "model call"),
+        ("policy", "approval gate"),
+    ]
+    .into_iter()
+    .filter_map(|(slot_id, role)| topology_runtime_slot_item(slot_nodes, slot_id, role))
+    .collect::<Vec<_>>();
+
+    let registered = snapshot.tools.iter().filter(|tool| tool.registered).count();
+    let enabled = snapshot.tools.iter().filter(|tool| tool.enabled).count();
+    items.push(TopologyRuntimeItem {
+        label: "tools".to_owned(),
+        detail: format!("{registered} registered · {enabled} enabled"),
+        source: "ToolRegistry".to_owned(),
+        role: "capabilities",
+        class_name: if registered == 0 {
+            "topology-tool-node disabled".to_owned()
+        } else {
+            "topology-tool-node enabled".to_owned()
+        },
+    });
+
+    items.extend(
+        [("patch", "edit backend"), ("search", "repo search"), ("renderer", "final output")]
+            .into_iter()
+            .filter_map(|(slot_id, role)| topology_runtime_slot_item(slot_nodes, slot_id, role)),
+    );
+    items
+}
+
+fn topology_runtime_slot_item(
+    slot_nodes: &[TopologySlotNode],
+    slot_id: &str,
+    role: &'static str,
+) -> Option<TopologyRuntimeItem> {
+    let node = slot_nodes.iter().find(|node| node.slot.id == slot_id)?;
+    let detail = node
+        .slot
+        .active_module
+        .clone()
+        .unwrap_or_else(|| "module не выбран".to_owned());
+    let source = node
+        .active_module
+        .as_ref()
+        .map(|module| module_source_label(&module.source))
+        .unwrap_or_else(|| "missing".to_owned());
+    let class_name = if node.slot.active_module.is_some() {
+        "topology-tool-node enabled"
+    } else {
+        "topology-tool-node disabled"
+    };
+    Some(TopologyRuntimeItem {
+        label: slot_id.to_owned(),
+        detail,
+        source,
+        role,
+        class_name: class_name.to_owned(),
+    })
 }
 
 const TOPOLOGY_GRAPH_WIDTH: f32 = 1120.0;

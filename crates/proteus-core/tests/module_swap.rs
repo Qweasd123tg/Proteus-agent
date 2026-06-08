@@ -306,6 +306,21 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
     ]
 }
 
+fn dev_slim_tool_names() -> Vec<&'static str> {
+    vec![
+        "search",
+        "read_file",
+        "list_dir",
+        "find_files",
+        "grep",
+        "git_status",
+        "git_diff",
+        "request_user_input",
+        "apply_patch",
+        "shell",
+    ]
+}
+
 #[test]
 fn builtin_module_catalog_lists_builtin_slots() {
     let catalog = BuiltinModuleCatalog::new();
@@ -2485,6 +2500,63 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
             .iter()
             .any(|entry| entry == "target")
     );
+}
+
+#[tokio::test]
+async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "proteus.dev-slim.example.toml",
+    )))
+    .await
+    .unwrap();
+
+    assert_eq!(config.profile.name, "dev-slim");
+    assert_eq!(config.modules.workflow, "coding.single_loop");
+    assert_eq!(config.modules.context, "repo_aware");
+    assert_eq!(config.modules.search, "rg");
+    assert_eq!(config.modules.tool_exposure, "dynamic");
+    assert_eq!(config.modules.memory, "none");
+    assert_eq!(config.modules.memory_policy, "none");
+    assert_eq!(config.tools.enabled, dev_slim_tool_names());
+    assert!(configured_tool_names(&config).is_empty());
+
+    let dynamic = config.module_config_value(ModuleKind::ToolExposure, "dynamic");
+    assert_eq!(dynamic["max_hot_tools"], 8);
+    assert!(
+        dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "request_user_input")
+    );
+
+    let repo_aware = config.module_config_value(ModuleKind::Context, "repo_aware");
+    assert_eq!(repo_aware["max_context_bytes"], 25000);
+    assert_eq!(repo_aware["max_search_results"], 15);
+    assert!(
+        !repo_aware["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|provider| provider == "memory")
+    );
+}
+
+#[tokio::test]
+async fn external_tools_toml_config_keeps_enabled_tools_empty() {
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "proteus.external-tools.example.toml",
+    )))
+    .await
+    .unwrap();
+
+    assert_eq!(config.profile.name, "external-tools");
+    assert_eq!(config.modules.workflow, "coding.plan_execute_review");
+    assert_eq!(config.modules.context, "simple");
+    assert_eq!(config.modules.search, "null");
+    assert_eq!(config.modules.patch, "null");
+    assert!(config.tools.enabled.is_empty());
+    assert!(configured_tool_names(&config).is_empty());
 }
 
 #[tokio::test]

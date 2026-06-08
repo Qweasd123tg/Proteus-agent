@@ -204,7 +204,8 @@ HTTP/SSE transport:
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`;
 - `GET /config` - текущий config summary;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
-- `GET /inspect/topology.map` - текстовая карта из того же snapshot;
+- `GET /inspect/topology.runtime` - короткий runtime path из того же snapshot;
+- `GET /inspect/topology.map` - полный diagnostic graph из того же snapshot;
 - `GET /inspect/topology.mmd` - Mermaid export/debug view из того же snapshot;
 - `GET /sessions` - durable session summaries из config store;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;

@@ -124,7 +124,12 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 поставляется `context-pack`, так что runtime всё равно требует установленный
 context plugin.
 
-`proteus.advanced.example.toml` - advanced пример для bring-your-own tools:
+`proteus.dev-slim.example.toml` - узкий профиль для разработки самого Proteus:
+`tool_exposure = "dynamic"`, меньший context budget и только hot coding tools.
+Используйте его явно через `--config proteus.dev-slim.example.toml`; `proteus
+init` пока создаёт только основной `coding` profile.
+
+`proteus.external-tools.example.toml` - пример для bring-your-own tools:
 `tools.enabled = []`, а полный набор tools приходит из директории `tools`
 рядом с config root.
 
