@@ -25,6 +25,7 @@ proteus inspect topology --format table
 proteus inspect topology --format json
 proteus inspect topology --format markdown
 proteus inspect topology --format runtime
+proteus inspect topology --format runtime-mermaid
 proteus inspect topology --format map
 proteus inspect topology --format mermaid
 ```
@@ -36,7 +37,13 @@ contributions, ToolRegistry, edge summary, dangling nodes и warnings. Markdown
 report включает runtime path и diagnostic map, а затем оставляет табличные
 детали.
 
-Mermaid остаётся export/debug fallback для preview в GitHub/Obsidian:
+Короткий Mermaid export показывает только active product path:
+
+```bash
+proteus inspect topology --format runtime-mermaid > proteus-runtime.mmd
+```
+
+Обычный Mermaid остаётся diagnostic fallback для preview в GitHub/Obsidian:
 
 ```bash
 proteus inspect topology --format mermaid > proteus-topology.mmd
@@ -52,6 +59,7 @@ App-server отдаёт тот же snapshot через HTTP endpoints:
 ```text
 GET /inspect/topology
 GET /inspect/topology.runtime
+GET /inspect/topology.runtime.mmd
 GET /inspect/topology.mmd
 GET /inspect/topology.map
 ```
@@ -60,9 +68,10 @@ GET /inspect/topology.map
 запущен с `--token`, они требуют session token так же, как `/config`,
 `/events` и control-plane endpoints. `/inspect/topology` возвращает полный JSON
 snapshot, `/inspect/topology.runtime` — короткий runtime path,
+`/inspect/topology.runtime.mmd` — короткую Mermaid runtime-схему,
 `/inspect/topology.map` — текстовую диагностическую карту, а
-`/inspect/topology.mmd` — компактный Mermaid export без полного dump-а
-tool/module/warning списков.
+`/inspect/topology.mmd` — diagnostic Mermaid export без полного dump-а
+tool/module/warning списков. Web-клиент копирует runtime Mermaid по умолчанию.
 
 ## Что Входит В Snapshot
 

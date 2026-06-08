@@ -146,8 +146,9 @@ module source, plugin load status/contributions, registered tools,
 plugin-provided disabled tools, runtime path, full diagnostic map, Mermaid
 export и warnings. HTTP app-server отдаёт тот же snapshot через
 `GET /inspect/topology`, runtime path через `GET /inspect/topology.runtime`,
-текстовую диагностическую карту через `GET /inspect/topology.map` и Mermaid
-через `GET /inspect/topology.mmd`.
+короткую Mermaid runtime-схему через `GET /inspect/topology.runtime.mmd`,
+текстовую диагностическую карту через `GET /inspect/topology.map` и
+diagnostic Mermaid через `GET /inspect/topology.mmd`.
 
 ### Экспериментальный web client
 

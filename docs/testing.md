@@ -133,12 +133,12 @@ canonical DTO не ломаются.
 - `edges` связывает config -> slots, slot -> active/available modules,
   plugins -> contributions, context providers -> context slot, ToolRegistry ->
   tools и tool -> backend slots;
-- renderer-ы `runtime`, `map`, Markdown и Mermaid читают `TopologySnapshot`, а
-  не реконструируют связи из `/config`;
+- renderer-ы `runtime`, `runtime-mermaid`, `map`, Markdown и Mermaid читают
+  `TopologySnapshot`, а не реконструируют связи из `/config`;
 - HTTP endpoints `/inspect/topology`, `/inspect/topology.runtime`,
-  `/inspect/topology.map` и `/inspect/topology.mmd` доступны без token в
-  default loopback dogfood, но требуют session token, если app-server запущен с
-  `--token`;
+  `/inspect/topology.runtime.mmd`, `/inspect/topology.map` и
+  `/inspect/topology.mmd` доступны без token в default loopback dogfood, но
+  требуют session token, если app-server запущен с `--token`;
 - plugin-provided disabled tools, plugin load errors, unknown active modules и
   multiple config files остаются видимыми как warnings/diagnostic nodes;
 - CLI inspect строит best-effort snapshot при сломанном backend/tool registry и

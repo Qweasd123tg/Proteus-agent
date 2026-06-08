@@ -205,6 +205,7 @@ HTTP/SSE transport:
 - `GET /config` - текущий config summary;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
 - `GET /inspect/topology.runtime` - короткий runtime path из того же snapshot;
+- `GET /inspect/topology.runtime.mmd` - короткая Mermaid runtime-схема;
 - `GET /inspect/topology.map` - полный diagnostic graph из того же snapshot;
 - `GET /inspect/topology.mmd` - Mermaid export/debug view из того же snapshot;
 - `GET /sessions` - durable session summaries из config store;

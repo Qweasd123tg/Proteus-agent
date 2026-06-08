@@ -114,7 +114,7 @@ crates/proteus-core/src/stubs/*.rs               -> no-op/fake fallbacks
 - parsing `--config`, `--cwd`, `--interactive`, `--plan`, `--auto`, `--permission-mode`, `TASK...`;
 - обработку introspection-команды `modules list`;
 - обработку core-introspection команды `inspect topology`, которая строит
-  `TopologySnapshot` и рендерит table/JSON/Markdown/map/Mermaid;
+  `TopologySnapshot` и рендерит table/JSON/Markdown/runtime/runtime-Mermaid/map/Mermaid;
 - загрузку `AppConfig`;
 - создание `AgentRuntime`;
 - запуск REPL или одной задачи.
