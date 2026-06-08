@@ -23,8 +23,8 @@ use proteus_core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
         ModuleBuildContext, ModuleEpoch, TopologyBuildInput, TopologyWarning,
         build_topology_snapshot, normalize_session_dir_path, render_topology_map,
-        render_topology_markdown, render_topology_mermaid, render_topology_table,
-        session_id_from_session_dir,
+        render_topology_markdown, render_topology_mermaid, render_topology_runtime_path,
+        render_topology_table, session_id_from_session_dir,
     },
 };
 use serde_json::Value;
@@ -260,6 +260,7 @@ enum InspectTopologyFormat {
     Table,
     Json,
     Markdown,
+    Runtime,
     Map,
     Mermaid,
 }
@@ -309,16 +310,17 @@ fn inspect_topology_format_value(value: &str) -> Result<InspectTopologyFormat> {
         "table" => Ok(InspectTopologyFormat::Table),
         "json" => Ok(InspectTopologyFormat::Json),
         "markdown" | "md" => Ok(InspectTopologyFormat::Markdown),
+        "runtime" | "path" => Ok(InspectTopologyFormat::Runtime),
         "map" => Ok(InspectTopologyFormat::Map),
         "mermaid" | "mmd" => Ok(InspectTopologyFormat::Mermaid),
         _ => bail!(
-            "unknown topology format '{value}', expected table, json, markdown, map, or mermaid"
+            "unknown topology format '{value}', expected table, json, markdown, runtime, map, or mermaid"
         ),
     }
 }
 
 fn inspect_topology_usage() -> &'static str {
-    "usage: proteus inspect [topology] [--format table|json|markdown|map|mermaid]"
+    "usage: proteus inspect [topology] [--format table|json|markdown|runtime|map|mermaid]"
 }
 
 fn is_doctor_command(task: &[String]) -> bool {
@@ -1143,6 +1145,7 @@ fn render_inspect_topology(
         InspectTopologyFormat::Table => Ok(render_topology_table(snapshot)),
         InspectTopologyFormat::Json => serde_json::to_string_pretty(snapshot).map_err(Into::into),
         InspectTopologyFormat::Markdown => Ok(render_topology_markdown(snapshot)),
+        InspectTopologyFormat::Runtime => Ok(render_topology_runtime_path(snapshot)),
         InspectTopologyFormat::Map => Ok(render_topology_map(snapshot)),
         InspectTopologyFormat::Mermaid => Ok(render_topology_mermaid(snapshot)),
     }
@@ -1757,6 +1760,16 @@ mod tests {
             .expect("parse")
             .expect("inspect command"),
             InspectTopologyFormat::Map
+        );
+        assert_eq!(
+            parse_inspect_topology_command(&[
+                "inspect".to_owned(),
+                "topology".to_owned(),
+                "--format=runtime".to_owned(),
+            ])
+            .expect("parse")
+            .expect("inspect command"),
+            InspectTopologyFormat::Runtime
         );
         assert_eq!(
             parse_inspect_topology_command(&[

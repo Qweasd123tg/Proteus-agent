@@ -24,14 +24,17 @@ proteus inspect topology
 proteus inspect topology --format table
 proteus inspect topology --format json
 proteus inspect topology --format markdown
+proteus inspect topology --format runtime
 proteus inspect topology --format map
 proteus inspect topology --format mermaid
 ```
 
-`map` выводит текстовую карту runtime path, slot/module wiring, plugin
+`runtime` выводит короткую человеческую карту active product path: workflow,
+context, tool exposure, model, policy, ToolRegistry, patch/search и renderer.
+`map` остаётся full diagnostic graph: slot/module wiring, plugin
 contributions, ToolRegistry, edge summary, dangling nodes и warnings. Markdown
-report включает ту же карту первым диагностическим блоком, а затем оставляет
-табличные детали.
+report включает runtime path и diagnostic map, а затем оставляет табличные
+детали.
 
 Mermaid остаётся export/debug fallback для preview в GitHub/Obsidian:
 
@@ -48,6 +51,7 @@ App-server отдаёт тот же snapshot через HTTP endpoints:
 
 ```text
 GET /inspect/topology
+GET /inspect/topology.runtime
 GET /inspect/topology.mmd
 GET /inspect/topology.map
 ```
@@ -55,7 +59,8 @@ GET /inspect/topology.map
 В обычном loopback dogfood эти endpoint доступны без token. Если app-server
 запущен с `--token`, они требуют session token так же, как `/config`,
 `/events` и control-plane endpoints. `/inspect/topology` возвращает полный JSON
-snapshot, `/inspect/topology.map` — текстовую диагностическую карту, а
+snapshot, `/inspect/topology.runtime` — короткий runtime path,
+`/inspect/topology.map` — текстовую диагностическую карту, а
 `/inspect/topology.mmd` — компактный Mermaid export без полного dump-а
 tool/module/warning списков.
 
@@ -70,6 +75,7 @@ tool/module/warning списков.
 - plugin load status и точные contributions;
 - registered tools и plugin-provided tools, которые загрузились, но не
   включены через `tools.enabled`;
+- короткий runtime path для повседневного чтения;
 - edges для config → slots, slot → active/available modules,
   plugins → modules/tools/context providers, context providers → context slot,
   workflow pipeline, ToolRegistry → tools и tool → backend slot связей;
@@ -101,7 +107,9 @@ contributions = catalog.contributions_since(checkpoint)
 `/config` остаётся лёгким summary для UI controls: текущая модель, profile,
 enabled tools, registered tools и список plugins.
 
-`/inspect/topology` — диагностическая карта системы. Она отвечает на вопросы:
+`/inspect/topology.runtime` — повседневная карта active product path.
+`/inspect/topology.map` и JSON snapshot — диагностическая карта системы. Она
+отвечает на вопросы:
 
 - почему этот slot активен;
 - откуда module пришёл — builtin или plugin;
@@ -110,7 +118,8 @@ enabled tools, registered tools и список plugins.
 - как workflow связан с context, model, tool exposure, policy, tools и
   renderer.
 
-Web Architecture view должен отображать именно `TopologySnapshot`: визуальную
-карту `snapshot.edges`, slot cards, plugin contribution cards, tool cards,
-warnings panel и copy Mermaid action. Mermaid не является primary UI renderer:
-он нужен для copy/export, когда внешний viewer полезнее встроенной карты.
+Web Architecture view должен отображать именно `TopologySnapshot`: сначала
+короткий runtime path, затем диагностическую карту `snapshot.edges`, slot
+cards, plugin contribution cards, tool cards, warnings panel и copy Mermaid
+action. Mermaid не является primary UI renderer: он нужен для copy/export,
+когда внешний viewer полезнее встроенной карты.

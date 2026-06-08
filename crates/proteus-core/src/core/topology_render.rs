@@ -40,7 +40,12 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
         out.push_str(&format!("config_path: `{}`\n", md_inline(path)));
     }
 
-    out.push_str("\n## Topology Map\n\n");
+    out.push_str("\n## Runtime Path\n\n");
+    out.push_str("```text\n");
+    out.push_str(&render_topology_runtime_path(snapshot));
+    out.push_str("\n```\n");
+
+    out.push_str("\n## Diagnostic Map\n\n");
     out.push_str("```text\n");
     out.push_str(&render_topology_map(snapshot));
     out.push_str("\n```\n");
@@ -159,6 +164,79 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     out
 }
 
+pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
+    let mut out = String::new();
+    out.push_str("Proteus runtime path\n");
+    out.push_str(&format!(
+        "profile: {} | mode: {} | epoch: {}\n",
+        plain_text(&snapshot.profile),
+        plain_text(&snapshot.permission_mode),
+        snapshot.module_epoch
+    ));
+    if let Some(model) = &snapshot.model {
+        out.push_str(&format!(
+            "model: {}/{}\n",
+            plain_text(&model.provider),
+            plain_text(&model.name)
+        ));
+    }
+    if let Some(config_path) = &snapshot.config_path {
+        out.push_str(&format!("config: {}\n", plain_text(config_path)));
+    }
+
+    out.push_str("\nActive product path\n");
+    render_runtime_slot(snapshot, "workflow", "turn loop", &mut out);
+    render_runtime_slot(snapshot, "context", "context build", &mut out);
+    render_runtime_slot(snapshot, "tool_exposure", "tool selection", &mut out);
+    render_runtime_slot(snapshot, "model", "model call", &mut out);
+    render_runtime_slot(snapshot, "policy", "approval gate", &mut out);
+    out.push_str(&format!(
+        "  tools           -> ToolRegistry             [{} registered, {} enabled]\n",
+        snapshot.tools.iter().filter(|tool| tool.registered).count(),
+        snapshot.tools.iter().filter(|tool| tool.enabled).count()
+    ));
+    render_runtime_slot(snapshot, "patch", "edit backend", &mut out);
+    render_runtime_slot(snapshot, "search", "repo search", &mut out);
+    render_runtime_slot(snapshot, "renderer", "final output", &mut out);
+
+    let parked = ["memory", "memory_policy", "compactor"];
+    let parked = parked
+        .into_iter()
+        .filter_map(|slot_id| {
+            let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
+            let active = slot.active_module.as_deref().unwrap_or("-");
+            Some(format!("{slot_id}={active}"))
+        })
+        .collect::<Vec<_>>();
+    if !parked.is_empty() {
+        out.push_str(&format!("\nParked/support slots: {}\n", parked.join(", ")));
+    }
+
+    let loaded_plugins = snapshot
+        .plugins
+        .iter()
+        .filter(|plugin| plugin.status == "loaded")
+        .count();
+    out.push_str(&format!(
+        "Plugins: {}/{} loaded\n",
+        loaded_plugins,
+        snapshot.plugins.len()
+    ));
+
+    if !snapshot.warnings.is_empty() {
+        out.push_str("\nWarnings\n");
+        for warning in &snapshot.warnings {
+            out.push_str(&format!(
+                "  - {}: {}\n",
+                plain_text(&warning.severity),
+                plain_text(&warning.message)
+            ));
+        }
+    }
+
+    out.trim_end().to_owned()
+}
+
 pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
     let mut out = String::new();
     out.push_str("Proteus topology map\n");
@@ -274,6 +352,22 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
     }
 
     out.trim_end().to_owned()
+}
+
+fn render_runtime_slot(snapshot: &TopologySnapshot, slot_id: &str, label: &str, out: &mut String) {
+    let Some(slot) = snapshot.slots.iter().find(|slot| slot.id == slot_id) else {
+        return;
+    };
+    let active = slot.active_module.as_deref().unwrap_or("-");
+    let source = if active == "-" {
+        "-".to_owned()
+    } else {
+        active_module_source(snapshot, slot_id, active)
+    };
+    out.push_str(&format!(
+        "  {:<15} -> {:<24} [{:<20}] {}\n",
+        slot_id, active, source, label
+    ));
 }
 
 pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {

@@ -2,6 +2,7 @@
 resolver = "2"
 exclude = [
     "clients/web",
+    "plugins/research/tool-output-artifacts",
 ]
 members = [
     "crates/proteus-contracts",
@@ -17,5 +18,4 @@ members = [
     "plugins/default/memory-pack",
     "plugins/default/policy-pack",
     "plugins/default/renderer-pack",
-    "plugins/default/tool-output-artifacts",
 ]
