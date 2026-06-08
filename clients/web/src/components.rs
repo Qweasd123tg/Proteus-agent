@@ -238,7 +238,7 @@ fn load_topology_snapshot(
                 set_status.set(format!(
                     "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {edge_count} edges"
                 ));
-                match get_text("/inspect/topology.mmd").await {
+                match get_text("/inspect/topology.runtime.mmd").await {
                     Ok(mermaid) => set_mermaid.set(mermaid),
                     Err(error) => {
                         set_mermaid.set(String::new());

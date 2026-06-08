@@ -28,6 +28,7 @@ http --port 8787` должен открываться из web UI без `?sessi
 per-server local session token на всех non-trivial endpoints (`/events`,
 `/send`, `/approval`, `/user-input`, `/cancel`, `/mode`, `/model`,
 `/reasoning`, `/effort`, `/config`, `/inspect/topology`,
+`/inspect/topology.runtime`, `/inspect/topology.runtime.mmd`,
 `/inspect/topology.map`, `/inspect/topology.mmd`, `/sessions`, `/history`,
 `/resume`, `/clear`, `/reload-tools`, `/shutdown`; `/health` может оставаться
 публичным). Для SSE допустим query token, потому что browser `EventSource` не
