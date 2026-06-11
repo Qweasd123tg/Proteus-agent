@@ -17,7 +17,7 @@ use crate::components::{
 use crate::events::connect_event_stream;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, compact_title, short_path};
+use crate::ui_utils::{compact_text, compact_title, short_id, short_path};
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
@@ -73,6 +73,9 @@ pub(crate) fn App() -> impl IntoView {
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
+    let (sidebar_sessions, set_sidebar_sessions) = signal(Vec::<SessionSummary>::new());
+    let (sidebar_sessions_status, set_sidebar_sessions_status) =
+        signal("сессии не загружены".to_owned());
     let (toasts, set_toasts) = signal(Vec::<ToastMessage>::new());
     let (next_toast_id, set_next_toast_id) = signal(1_u64);
     let (last_error_toast, set_last_error_toast) = signal(None::<String>);
@@ -164,6 +167,7 @@ pub(crate) fn App() -> impl IntoView {
             set_transport_status,
         );
     }
+    load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
 
     connect_event_stream(
         set_messages,
@@ -233,6 +237,7 @@ pub(crate) fn App() -> impl IntoView {
                     );
                 }
             }
+            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         });
     };
 
@@ -546,6 +551,40 @@ pub(crate) fn App() -> impl IntoView {
     let toggle_sidebar = move |_| {
         set_sidebar_collapsed.update(|value| *value = !*value);
     };
+    let refresh_sidebar_sessions =
+        move |_| load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+    let open_sidebar_session = move |session_dir: String| {
+        set_sidebar_sessions_status.set("открываю сессию".to_owned());
+        spawn_local(async move {
+            match post_json(
+                "/resume",
+                &ResumeSessionRequest {
+                    id: Some("sidebar-resume".to_owned()),
+                    session_dir,
+                },
+            )
+            .await
+            {
+                Ok(StdioOutput::Response { ok: true, .. }) => {
+                    set_sidebar_sessions_status.set("сессия открыта".to_owned());
+                    if let Some(window) = window() {
+                        let _ = window.location().set_href("/");
+                    }
+                }
+                Ok(StdioOutput::Response { error, .. }) => {
+                    set_sidebar_sessions_status
+                        .set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
+                }
+                Ok(StdioOutput::Event { .. }) => {
+                    set_sidebar_sessions_status.set("неожиданное событие resume".to_owned());
+                }
+                Err(error) => {
+                    set_sidebar_sessions_status.set(format!("не удалось открыть сессию: {error}"));
+                }
+            }
+            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+        });
+    };
     let global_keydown =
         Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
             if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
@@ -591,6 +630,9 @@ pub(crate) fn App() -> impl IntoView {
                         <span>"web"</span>
                     </h2>
                     <div class="sidebar-header-actions">
+                        <button type="button" title="Обновить сессии" on:click=refresh_sidebar_sessions>
+                            "↻"
+                        </button>
                         <button type="button" title="Новая сессия" on:click=clear_transcript>
                             "+"
                         </button>
@@ -606,7 +648,7 @@ pub(crate) fn App() -> impl IntoView {
                 ></div>
 
                 <div class="sidebar-search">
-                    <input type="text" placeholder="Поиск сессий" readonly=true />
+                    <input type="text" placeholder=move || sidebar_sessions_status.get() readonly=true />
                 </div>
 
                 <div class="sessions-list">
@@ -622,6 +664,49 @@ pub(crate) fn App() -> impl IntoView {
                                 </div>
                             </div>
                         </li>
+                        <For
+                            each=move || sidebar_sessions.get()
+                            key=|session| session.session_dir.clone()
+                            children=move |session| {
+                                let session_dir = session.session_dir.clone();
+                                let workspace = session
+                                    .workspace_path
+                                    .clone()
+                                    .unwrap_or_else(|| "неизвестный workspace".to_owned());
+                                let session_id = session
+                                    .session_id
+                                    .as_deref()
+                                    .map(short_id)
+                                    .unwrap_or("legacy")
+                                    .to_owned();
+                                let preview = session
+                                    .preview
+                                    .clone()
+                                    .unwrap_or_else(|| "Нет превью диалога".to_owned());
+                                let message_count = session.message_count;
+                                let resumable = session.resumable;
+                                view! {
+                                    <li class="session-list-item">
+                                        <button
+                                            type="button"
+                                            class="session-item session-history-item"
+                                            disabled=!resumable
+                                            title=workspace.clone()
+                                            on:click=move |_| open_sidebar_session(session_dir.clone())
+                                        >
+                                            <div class="session-item-header">
+                                                <span class="session-id">{short_path(&workspace)}</span>
+                                                <code class="session-code">{session_id}</code>
+                                            </div>
+                                            <div class="session-preview">{compact_text(&preview, 80)}</div>
+                                            <div class="session-meta">
+                                                <span class="session-time">{format!("{message_count} сообщений")}</span>
+                                            </div>
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        />
                     </ul>
                 </div>
 
@@ -1153,6 +1238,30 @@ fn load_transcript(
                 "History load failed",
                 error,
             ),
+        }
+    });
+}
+
+fn load_sidebar_sessions(
+    set_sessions: WriteSignal<Vec<SessionSummary>>,
+    set_status: WriteSignal<String>,
+) {
+    set_status.set("загружаю сессии".to_owned());
+    spawn_local(async move {
+        match get_json::<Vec<SessionSummary>>("/sessions").await {
+            Ok(items) => {
+                let count = items.len();
+                set_sessions.set(items);
+                set_status.set(if count == 0 {
+                    "прошлых сессий нет".to_owned()
+                } else {
+                    format!("{count} сессий")
+                });
+            }
+            Err(error) => {
+                set_sessions.set(Vec::new());
+                set_status.set(format!("сессии недоступны: {error}"));
+            }
         }
     });
 }
