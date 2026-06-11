@@ -10,22 +10,6 @@ pub(crate) fn compact_title(text: &str) -> String {
     compact_text(title, 72)
 }
 
-pub(crate) fn first_words_title(text: &str, word_limit: usize) -> String {
-    let title = text
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("Новая сессия")
-        .split_whitespace()
-        .take(word_limit)
-        .collect::<Vec<_>>()
-        .join(" ");
-    if title.trim().is_empty() {
-        "Новая сессия".to_owned()
-    } else {
-        compact_text(&title, 72)
-    }
-}
-
 pub(crate) fn compact_text(text: &str, limit: usize) -> String {
     if text.chars().count() > limit {
         format!("{}...", text.chars().take(limit).collect::<String>())

@@ -17,9 +17,7 @@ use crate::components::{
 use crate::events::connect_event_stream;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{
-    compact_text, compact_title, first_words_title, relative_time_from_now, short_id, short_path,
-};
+use crate::ui_utils::{compact_text, compact_title, relative_time_from_now, short_id, short_path};
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
@@ -408,17 +406,6 @@ pub(crate) fn App() -> impl IntoView {
             .map(|message| compact_title(&message.text))
             .unwrap_or_else(|| short_path(&workspace_label.get()))
     };
-    let session_dot_class = move || match transport_status.get() {
-        TransportStatus::Connecting => "session-status-dot warning",
-        TransportStatus::Connected => {
-            if is_sending.get() {
-                "session-status-dot running"
-            } else {
-                "session-status-dot success"
-            }
-        }
-        TransportStatus::Error(_) | TransportStatus::Shutdown => "session-status-dot error",
-    };
     let transport_badge_class = move || match transport_status.get() {
         TransportStatus::Connecting => "status-badge disconnected",
         TransportStatus::Connected => "status-badge completed",
@@ -740,7 +727,7 @@ pub(crate) fn App() -> impl IntoView {
                                     .preview
                                     .clone()
                                     .unwrap_or_else(|| "Нет превью диалога".to_owned());
-                                let title = first_words_title(&preview, 3);
+                                let title = compact_title(&preview);
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
@@ -761,11 +748,7 @@ pub(crate) fn App() -> impl IntoView {
                                         >
                                             <div class="session-item-header">
                                                 <span class="session-id">{title}</span>
-                                                {if active_session {
-                                                    view! { <span class=session_dot_class></span> }.into_any()
-                                                } else {
-                                                    view! { <code class="session-code">{session_id}</code> }.into_any()
-                                                }}
+                                                <code class="session-code">{session_id}</code>
                                             </div>
                                             <div class="session-preview">{compact_text(&preview, 80)}</div>
                                             <div class="session-meta">
