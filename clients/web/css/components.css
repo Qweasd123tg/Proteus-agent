@@ -501,84 +501,53 @@
     margin: calc(var(--space-2) * -1) 0 var(--space-5) var(--space-5);
 }
 
-.agent-chain-card {
-    border-left: 0;
-    padding-bottom: 0;
-    padding-left: 0;
-}
-
-.agent-chain-card::before {
-    display: none;
-}
-
-.agent-chain-list {
-    position: relative;
-    display: grid;
-    gap: var(--space-2);
-    padding-left: var(--space-4);
-}
-
-.agent-chain-list::before {
-    position: absolute;
-    top: 16px;
-    bottom: 16px;
-    left: 3px;
-    width: 2px;
-    background: rgb(91 140 255 / 42%);
-    content: "";
-}
-
-.agent-chain-item {
-    position: relative;
-    min-width: 0;
-}
-
-.agent-chain-item::before {
-    position: absolute;
-    top: 14px;
-    left: -17px;
-    z-index: 1;
-    width: 9px;
-    height: 9px;
-    border: 2px solid var(--bg-root);
-    background: var(--border-strong);
-    content: "";
-}
-
-.agent-chain-item.role-assistant::before,
-.agent-chain-item.status-done::before {
-    background: var(--accent-green);
-}
-
-.agent-chain-item.role-system::before,
-.agent-chain-item.status-running::before,
-.agent-chain-item.status-waiting_approval::before,
-.agent-chain-item.status-approved::before {
-    background: var(--accent-blue);
-}
-
-.agent-chain-item.status-running::before,
-.agent-chain-item.status-waiting_approval::before {
-    animation: pulse 2s infinite;
-}
-
-.agent-chain-item.status-denied::before,
-.agent-chain-item.status-failed::before {
-    background: var(--accent-red);
-}
-
-.agent-chain-item-header {
-    margin-bottom: var(--space-2);
-}
-
-.message-chain-item .assistant-message,
-.message-chain-item .system-message {
-    background: var(--bg-panel-soft);
-}
-
 .tool-card {
     position: relative;
     background: transparent;
+}
+
+.agent-turn-item {
+    margin-bottom: 0;
+    border-left-color: rgb(91 140 255 / 42%);
+    border-left-width: 2px;
+    padding-bottom: var(--space-3);
+}
+
+.agent-turn-item::before {
+    top: 12px;
+    left: -5px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--bg-root);
+}
+
+.agent-turn-item + .agent-turn-item {
+    margin-top: calc(var(--space-3) * -1);
+    padding-top: var(--space-3);
+}
+
+.agent-turn-item + .agent-turn-item::before {
+    top: calc(var(--space-3) + 12px);
+}
+
+.agent-turn-item:has(+ :not(.agent-turn-item)),
+.agent-turn-item:last-child {
+    margin-bottom: var(--space-5);
+}
+
+.agent-turn-item.status-done::before {
+    background: var(--accent-green);
+}
+
+.agent-turn-item.status-running::before,
+.agent-turn-item.status-waiting_approval::before,
+.agent-turn-item.status-approved::before {
+    background: var(--accent-blue);
+}
+
+.agent-turn-item.status-denied::before,
+.agent-turn-item.status-failed::before {
+    background: var(--accent-red);
 }
 
 .tool-card-summary {

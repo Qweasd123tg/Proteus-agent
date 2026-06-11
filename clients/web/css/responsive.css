@@ -90,6 +90,15 @@
         padding-left: var(--space-4);
     }
 
+    .agent-turn-item {
+        margin-bottom: 0;
+    }
+
+    .agent-turn-item:has(+ :not(.agent-turn-item)),
+    .agent-turn-item:last-child {
+        margin-bottom: var(--space-4);
+    }
+
     .task-card-header,
     .input-chat-header {
         flex-wrap: wrap;

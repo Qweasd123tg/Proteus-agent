@@ -140,8 +140,8 @@ impl MessageRole {
     pub(crate) fn card_class(&self) -> &'static str {
         match self {
             Self::User => "task-card",
-            Self::Assistant => "task-card success",
-            Self::System => "task-card running",
+            Self::Assistant => "task-card success agent-turn-item role-assistant",
+            Self::System => "task-card running agent-turn-item role-system",
         }
     }
 
