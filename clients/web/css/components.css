@@ -168,23 +168,16 @@
     color: var(--text-faint);
 }
 
-.control-plane {
-    display: grid;
-    flex-shrink: 0;
-    gap: var(--space-3);
-    max-height: 36vh;
-    overflow-y: auto;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
-    padding: var(--space-3);
-}
-
 .control-card {
     display: grid;
     gap: var(--space-3);
     border: 1px solid var(--border-strong);
     background: var(--bg-panel-soft);
     padding: var(--space-4);
+}
+
+.approval-card {
+    margin-bottom: var(--space-5);
 }
 
 .control-card-header {
