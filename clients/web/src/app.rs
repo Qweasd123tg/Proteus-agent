@@ -365,15 +365,6 @@ pub(crate) fn App() -> impl IntoView {
         TransportStatus::Error(message) => compact_text(&message, 34),
         TransportStatus::Shutdown => "остановлен".to_owned(),
     };
-    let current_session_sidebar_title = move || {
-        messages
-            .get()
-            .iter()
-            .find(|message| message.role == MessageRole::User)
-            .map(|message| first_words_title(&message.text, 3))
-            .unwrap_or_else(|| short_path(&workspace_label.get()))
-    };
-
     let draft_stats = move || {
         let text = draft.get();
         let lines = text.lines().count().max(1);
@@ -566,6 +557,9 @@ pub(crate) fn App() -> impl IntoView {
     let refresh_sidebar_sessions =
         move |_| load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
     let open_sidebar_session = move |session: SessionSummary| {
+        if active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
+            return;
+        }
         let session_dir = session.session_dir.clone();
         set_sidebar_sessions_status.set("открываю сессию".to_owned());
         spawn_local(async move {
@@ -718,28 +712,15 @@ pub(crate) fn App() -> impl IntoView {
 
                 <div class="sessions-list">
                     <ul class="session-list">
-                        <li class="session-list-item">
-                            <div class="session-item active">
-                                <div class="session-item-header">
-                                    <span class="session-id">{current_session_sidebar_title}</span>
-                                    <span class=session_dot_class></span>
-                                </div>
-                                <div class="session-meta">
-                                    <span class="session-time">{move || session_label.get()}</span>
-                                </div>
-                            </div>
-                        </li>
                         <For
                             each=move || {
                                 let workspace = workspace_label.get();
-                                let active_session_dir = active_session_dir.get();
                                 sidebar_sessions
                                     .get()
                                     .into_iter()
                                     .filter(|session| {
                                         workspace != "waiting for session"
                                             && session.workspace_path.as_deref() == Some(workspace.as_str())
-                                            && active_session_dir.as_deref() != Some(session.session_dir.as_str())
                                     })
                                     .collect::<Vec<_>>()
                             }
@@ -763,19 +744,28 @@ pub(crate) fn App() -> impl IntoView {
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
+                                let active_session = active_session_dir
+                                    .get()
+                                    .as_deref()
+                                    == Some(session.session_dir.as_str());
                                 let session_for_click = session.clone();
                                 view! {
                                     <li class="session-list-item">
                                         <button
                                             type="button"
                                             class="session-item session-history-item"
+                                            class:active=active_session
                                             disabled=!resumable
                                             title=workspace.clone()
                                             on:click=move |_| open_sidebar_session(session_for_click.clone())
                                         >
                                             <div class="session-item-header">
                                                 <span class="session-id">{title}</span>
-                                                <code class="session-code">{session_id}</code>
+                                                {if active_session {
+                                                    view! { <span class=session_dot_class></span> }.into_any()
+                                                } else {
+                                                    view! { <code class="session-code">{session_id}</code> }.into_any()
+                                                }}
                                             </div>
                                             <div class="session-preview">{compact_text(&preview, 80)}</div>
                                             <div class="session-meta">
