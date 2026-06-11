@@ -8,11 +8,23 @@
     user-select: none;
 }
 
+.app-layout.sidebar-collapsed .sidebar {
+    width: 0 !important;
+    min-width: 0;
+    max-width: 0;
+    border-right: 0;
+    visibility: hidden;
+}
+
+.app-layout.sidebar-collapsed .sidebar-resize-handle {
+    display: none;
+}
+
 .sidebar {
     position: relative;
     display: flex;
     width: var(--sidebar-width);
-    min-width: 210px;
+    min-width: 196px;
     max-width: min(520px, 55vw);
     min-height: 0;
     flex-direction: column;
@@ -54,7 +66,7 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--border-subtle);
-    padding: 0 var(--space-4);
+    padding: 0 var(--space-3);
 }
 
 .sidebar-header h2 {
@@ -71,13 +83,20 @@
     font-weight: 400;
 }
 
+.sidebar-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
 .sidebar-header button {
+    width: 28px;
     min-height: 26px;
     border-color: var(--border-subtle);
     background: transparent;
     color: var(--text-muted);
     font-size: 13px;
-    padding: 0 var(--space-3);
+    padding: 0;
 }
 
 .sidebar-search {
@@ -114,7 +133,7 @@
     display: block;
     border-left: 2px solid transparent;
     color: var(--text-main);
-    padding: var(--space-3) var(--space-4);
+    padding: 10px var(--space-3);
 }
 
 .session-item.active {
@@ -167,9 +186,41 @@
 .sidebar-panel {
     display: grid;
     flex-shrink: 0;
-    gap: var(--space-2);
+    gap: var(--space-3);
     border-top: 1px solid var(--border-subtle);
     padding: var(--space-3);
+}
+
+.runtime-summary {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.runtime-summary strong,
+.runtime-summary code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-summary strong {
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.runtime-summary code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.activity-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
 }
 
 .workspace-main {
@@ -187,10 +238,10 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-3);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-panel);
-    padding: 0 var(--space-5);
+    padding: 0 var(--space-3);
 }
 
 .topbar-left,
@@ -198,7 +249,18 @@
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: var(--space-3);
+    gap: var(--space-2);
+}
+
+.sidebar-toggle {
+    width: 28px;
+    min-height: 28px;
+    flex: 0 0 auto;
+    border-color: var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 0;
 }
 
 .brand {
@@ -231,11 +293,11 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-3);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-panel);
     color: var(--text-muted);
-    padding: var(--space-3) var(--space-5);
+    padding: 10px var(--space-3);
 }
 
 .session-header > div {
@@ -264,7 +326,7 @@
     display: flex;
     flex-shrink: 0;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-3);
     color: var(--text-muted);
     font-size: 12px;
 }
@@ -307,7 +369,7 @@
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-5);
+    padding: var(--space-4);
 }
 
 .results-panel.sticky-bottom {
@@ -356,7 +418,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.06em;
-    padding: var(--space-4) var(--space-5) var(--space-2);
+    padding: var(--space-3) var(--space-4) var(--space-1);
     text-transform: uppercase;
 }
 
@@ -366,7 +428,7 @@
     border: none;
     background: transparent;
     color: var(--text-main);
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-2) var(--space-4) var(--space-3);
 }
 
 .composer textarea:focus {
@@ -380,14 +442,14 @@
     gap: var(--space-4);
     border-top: 1px solid var(--border-subtle);
     background: var(--bg-panel-soft);
-    padding: var(--space-2) var(--space-5);
+    padding: var(--space-2) var(--space-3);
 }
 
 .composer-menu {
     position: relative;
-    flex: 1 1 240px;
-    min-width: 220px;
-    max-width: 360px;
+    flex: 1 1 220px;
+    min-width: 200px;
+    max-width: 340px;
 }
 
 .composer-menu[open] {
@@ -396,7 +458,7 @@
 
 .composer-menu-trigger {
     display: flex;
-    min-height: 32px;
+    min-height: 30px;
     max-width: 100%;
     cursor: pointer;
     list-style: none;
@@ -551,6 +613,11 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+}
+
+.composer-buttons button {
+    min-height: 30px;
+    padding: 0 var(--space-3);
 }
 
 .empty-state {
