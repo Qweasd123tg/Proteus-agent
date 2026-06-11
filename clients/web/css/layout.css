@@ -136,9 +136,29 @@
     padding: 10px var(--space-3);
 }
 
+button.session-item {
+    width: 100%;
+    min-height: 0;
+    justify-content: stretch;
+    border-width: 0 0 0 2px;
+    border-color: transparent;
+    background: transparent;
+    text-align: left;
+    white-space: normal;
+}
+
 .session-item.active {
     border-left-color: var(--accent-blue);
     background: var(--bg-panel-soft);
+}
+
+.session-history-item:hover {
+    border-left-color: var(--border-strong);
+    background: var(--bg-panel-soft);
+}
+
+.session-history-item:disabled {
+    cursor: not-allowed;
 }
 
 .session-item-header {
@@ -147,6 +167,16 @@
     justify-content: space-between;
     gap: var(--space-2);
     margin-bottom: 2px;
+}
+
+.session-code {
+    max-width: 62px;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .session-id {
