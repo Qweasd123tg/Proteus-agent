@@ -32,7 +32,6 @@
 
 @media (max-width: 620px) {
     .topbar,
-    .session-header,
     .composer-actions {
         height: auto;
         align-items: flex-start;
@@ -42,7 +41,6 @@
 
     .topbar-left,
     .topnav,
-    .session-summary-meta,
     .composer-menu,
     .composer-buttons {
         width: 100%;
@@ -53,18 +51,9 @@
     }
 
     .topnav,
-    .session-summary-meta,
     .composer-buttons {
         flex-wrap: wrap;
         justify-content: flex-start;
-    }
-
-    .session-summary-meta {
-        gap: var(--space-2) var(--space-4);
-    }
-
-    .session-header h1 {
-        white-space: normal;
     }
 
     .control-plane,
