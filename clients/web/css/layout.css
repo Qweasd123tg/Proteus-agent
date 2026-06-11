@@ -154,11 +154,17 @@ button.session-item {
 
 button.session-item.active {
     border-left-color: var(--accent-blue);
-    background: rgb(91 140 255 / 12%);
+    background: rgb(91 140 255 / 16%);
+    box-shadow: inset 2px 0 0 var(--accent-blue);
 }
 
 button.session-item.active .session-id {
     color: var(--text-main);
+}
+
+button.session-item.active .session-preview,
+button.session-item.active .session-meta {
+    color: var(--text-muted);
 }
 
 .session-history-item:hover {

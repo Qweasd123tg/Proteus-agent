@@ -731,17 +731,16 @@ pub(crate) fn App() -> impl IntoView {
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
-                                let active_session = active_session_dir
-                                    .get()
-                                    .as_deref()
-                                    == Some(session.session_dir.as_str());
+                                let active_session_dir_value = session.session_dir.clone();
                                 let session_for_click = session.clone();
                                 view! {
                                     <li class="session-list-item">
                                         <button
                                             type="button"
                                             class="session-item session-history-item"
-                                            class:active=active_session
+                                            class:active=move || {
+                                                active_session_dir.get().as_deref() == Some(active_session_dir_value.as_str())
+                                            }
                                             disabled=!resumable
                                             title=workspace.clone()
                                             on:click=move |_| open_sidebar_session(session_for_click.clone())
