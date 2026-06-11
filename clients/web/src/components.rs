@@ -2477,162 +2477,6 @@ where
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum TimelineItem {
-    Message(Message),
-    AgentChain(Vec<Message>),
-}
-
-fn message_timeline_items(messages: Vec<Message>) -> Vec<TimelineItem> {
-    fn flush_agent_chain(items: &mut Vec<TimelineItem>, chain: &mut Vec<Message>) {
-        if chain.is_empty() {
-            return;
-        }
-
-        items.push(TimelineItem::AgentChain(std::mem::take(chain)));
-    }
-
-    let mut items = Vec::new();
-    let mut agent_chain = Vec::new();
-
-    for message in messages {
-        if message.role == MessageRole::User {
-            flush_agent_chain(&mut items, &mut agent_chain);
-            items.push(TimelineItem::Message(message));
-        } else {
-            agent_chain.push(message);
-        }
-    }
-
-    flush_agent_chain(&mut items, &mut agent_chain);
-    items
-}
-
-#[component]
-pub(crate) fn MessageTimeline(messages: ReadSignal<Vec<Message>>) -> impl IntoView {
-    move || {
-        message_timeline_items(messages.get())
-            .into_iter()
-            .map(|item| match item {
-                TimelineItem::Message(message) => view! { <MessageView message /> }.into_any(),
-                TimelineItem::AgentChain(messages) => {
-                    view! { <AgentChainView messages /> }.into_any()
-                }
-            })
-            .collect::<Vec<_>>()
-    }
-}
-
-#[component]
-fn AgentChainView(messages: Vec<Message>) -> impl IntoView {
-    let messages_for_list = messages.clone();
-    view! {
-        <article class="task-card running agent-chain-card">
-            <div class="agent-chain-list">
-                <For
-                    each=move || messages_for_list.clone()
-                    key=|message| message.render_key()
-                    children=move |message| view! { <AgentChainItem message /> }
-                />
-            </div>
-        </article>
-    }
-}
-
-#[component]
-fn AgentChainItem(message: Message) -> impl IntoView {
-    let item_class = agent_chain_item_class(&message);
-    if let Some(tool) = message.tool {
-        return view! {
-            <section class=item_class>
-                <ToolActivityCard tool />
-            </section>
-        }
-        .into_any();
-    }
-
-    view! {
-        <section class=item_class>
-            <ChainMessageView message />
-        </section>
-    }
-    .into_any()
-}
-
-fn agent_chain_item_class(message: &Message) -> String {
-    if let Some(tool) = &message.tool {
-        return format!("agent-chain-item tool-chain-item status-{}", tool.status.key());
-    }
-
-    let role = match message.role {
-        MessageRole::User => "user",
-        MessageRole::Assistant => "assistant",
-        MessageRole::System => "system",
-    };
-    format!("agent-chain-item message-chain-item role-{role}")
-}
-
-#[component]
-fn ChainMessageView(message: Message) -> impl IntoView {
-    let message_class = message.role.message_class();
-    let badge_class = message.role.badge_class();
-    let text = message.text.clone();
-    let html = markdown_html(&text);
-    let content_class = if message.streaming {
-        format!("{message_class} streaming-message")
-    } else {
-        message_class.to_owned()
-    };
-    let (collapsed, set_collapsed) = signal(false);
-    let copy_text = text.clone();
-    let toggle_title = move || {
-        if collapsed.get() {
-            "Развернуть"
-        } else {
-            "Свернуть"
-        }
-    };
-    view! {
-        <div class="task-card-header agent-chain-item-header">
-            <span class=badge_class>
-                <span class="dot"></span>
-                {message.role.label()}
-            </span>
-            <div class="message-actions">
-                <button
-                    type="button"
-                    class="icon-button"
-                    title="Скопировать markdown"
-                    on:click=move |_| copy_to_clipboard(copy_text.clone())
-                >
-                    "Копировать"
-                </button>
-                <button
-                    type="button"
-                    class="icon-button"
-                    title=toggle_title
-                    on:click=move |_| set_collapsed.update(|value| *value = !*value)
-                >
-                    {move || if collapsed.get() { "Открыть" } else { "Скрыть" }}
-                </button>
-            </div>
-        </div>
-        {move || {
-            if collapsed.get() {
-                view! {
-                    <div class="message collapsed-message">
-                        "Сообщение скрыто"
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <div class=content_class.clone() inner_html=html.clone()></div>
-                }.into_any()
-            }
-        }}
-    }
-}
-
 #[component]
 fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
@@ -2690,7 +2534,14 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 #[component]
 pub(crate) fn MessageView(message: Message) -> impl IntoView {
     if message.tool.is_some() {
-        return view! { <AgentChainView messages=vec![message] /> }.into_any();
+        let tool = message.tool.expect("checked above");
+        let card_class = tool_turn_card_class(tool.status);
+        return view! {
+            <article class=card_class>
+                <ToolActivityCard tool />
+            </article>
+        }
+        .into_any();
     }
 
     let card_class = message.role.card_class();
@@ -2754,4 +2605,18 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
         </article>
     }
     .into_any()
+}
+
+fn tool_turn_card_class(status: ToolActivityStatus) -> String {
+    let state_class = match status {
+        ToolActivityStatus::Running
+        | ToolActivityStatus::WaitingApproval
+        | ToolActivityStatus::Approved => "running",
+        ToolActivityStatus::Done => "success",
+        ToolActivityStatus::Denied | ToolActivityStatus::Failed => "error",
+    };
+    format!(
+        "task-card {state_class} agent-turn-item tool-turn-item status-{}",
+        status.key()
+    )
 }
