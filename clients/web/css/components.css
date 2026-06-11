@@ -301,6 +301,35 @@
     background: var(--accent-red);
 }
 
+.tool-chat-card {
+    margin-bottom: 0;
+    padding-bottom: var(--space-2);
+}
+
+.tool-chat-card::before {
+    top: 14px;
+}
+
+.tool-chat-card + .tool-chat-card {
+    margin-top: calc(var(--space-2) * -1);
+}
+
+.tool-chat-card + .tool-chat-card::before {
+    top: calc(var(--space-2) + 14px);
+}
+
+.tool-chat-card + .tool-chat-card .tool-card {
+    padding-top: var(--space-2);
+}
+
+.tool-chat-card:has(+ :not(.tool-chat-card)) {
+    margin-bottom: var(--space-5);
+}
+
+.tool-chat-card:last-child {
+    margin-bottom: var(--space-5);
+}
+
 .task-card-header {
     display: flex;
     min-width: 0;
@@ -502,7 +531,6 @@
 }
 
 .tool-card {
-    border-left: 1px solid var(--border-subtle);
     background: transparent;
 }
 

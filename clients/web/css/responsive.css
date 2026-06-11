@@ -90,6 +90,15 @@
         padding-left: var(--space-4);
     }
 
+    .tool-chat-card {
+        margin-bottom: 0;
+    }
+
+    .tool-chat-card:has(+ :not(.tool-chat-card)),
+    .tool-chat-card:last-child {
+        margin-bottom: var(--space-4);
+    }
+
     .task-card-header,
     .input-chat-header {
         flex-wrap: wrap;
