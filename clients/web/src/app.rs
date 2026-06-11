@@ -67,6 +67,7 @@ pub(crate) fn App() -> impl IntoView {
     let (event_count, set_event_count) = signal(0_u64);
     let (workspace_label, set_workspace_label) = signal("waiting for session".to_owned());
     let (session_label, set_session_label) = signal("not started".to_owned());
+    let (active_session_dir, set_active_session_dir) = signal(None::<String>);
     let (is_sending, set_is_sending) = signal(false);
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
     let (active_stream_message_id, set_active_stream_message_id) = signal(None::<u64>);
@@ -179,6 +180,7 @@ pub(crate) fn App() -> impl IntoView {
         set_event_count,
         set_workspace_label,
         set_session_label,
+        set_active_session_dir,
         set_is_sending,
         set_active_turn_id,
         active_stream_message_id,
@@ -578,6 +580,7 @@ pub(crate) fn App() -> impl IntoView {
             {
                 Ok(StdioOutput::Response { ok: true, .. }) => {
                     set_sidebar_sessions_status.set("сессия открыта".to_owned());
+                    set_active_session_dir.set(Some(session.session_dir.clone()));
                     if let Some(workspace) = session.workspace_path {
                         set_workspace_label.set(workspace);
                     }
@@ -729,12 +732,14 @@ pub(crate) fn App() -> impl IntoView {
                         <For
                             each=move || {
                                 let workspace = workspace_label.get();
+                                let active_session_dir = active_session_dir.get();
                                 sidebar_sessions
                                     .get()
                                     .into_iter()
                                     .filter(|session| {
                                         workspace != "waiting for session"
                                             && session.workspace_path.as_deref() == Some(workspace.as_str())
+                                            && active_session_dir.as_deref() != Some(session.session_dir.as_str())
                                     })
                                     .collect::<Vec<_>>()
                             }
