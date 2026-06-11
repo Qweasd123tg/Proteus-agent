@@ -82,8 +82,10 @@ pub(crate) fn App() -> impl IntoView {
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
     let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
+    let (sidebar_collapsed, set_sidebar_collapsed) =
+        signal(load_bool_setting("proteus.sidebarCollapsed", false));
     let (composer_height, set_composer_height) =
-        signal(load_i32_setting("proteus.composerHeight", 150));
+        signal(load_i32_setting("proteus.composerHeight", 128));
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (resize_start_x, set_resize_start_x) = signal(0_i32);
@@ -115,6 +117,10 @@ pub(crate) fn App() -> impl IntoView {
 
     Effect::new(move |_| {
         save_i32_setting("proteus.sidebarWidth", sidebar_width.get());
+    });
+
+    Effect::new(move |_| {
+        save_bool_setting("proteus.sidebarCollapsed", sidebar_collapsed.get());
     });
 
     Effect::new(move |_| {
@@ -322,32 +328,33 @@ pub(crate) fn App() -> impl IntoView {
     };
 
     let activity = move || {
+        let pending_total = pending_approvals.get().len() + pending_user_inputs.get().len();
         vec![
-            ActivityItem {
-                label: "адрес",
-                value: APP_SERVER_ORIGIN.to_owned(),
-            },
             ActivityItem {
                 label: "события",
                 value: event_count.get().to_string(),
-            },
-            ActivityItem {
-                label: "запрос",
-                value: agent_status.get(),
             },
             ActivityItem {
                 label: "tools",
                 value: tool_activities.get().len().to_string(),
             },
             ActivityItem {
-                label: "доступы",
-                value: pending_approvals.get().len().to_string(),
-            },
-            ActivityItem {
-                label: "ввод",
-                value: pending_user_inputs.get().len().to_string(),
+                label: "pending",
+                value: pending_total.to_string(),
             },
         ]
+    };
+    let runtime_state = move || match transport_status.get() {
+        TransportStatus::Connecting => "подключение".to_owned(),
+        TransportStatus::Connected => {
+            if is_sending.get() {
+                agent_status.get()
+            } else {
+                "готов".to_owned()
+            }
+        }
+        TransportStatus::Error(message) => compact_text(&message, 34),
+        TransportStatus::Shutdown => "остановлен".to_owned(),
     };
 
     let draft_stats = move || {
@@ -486,6 +493,9 @@ pub(crate) fn App() -> impl IntoView {
     };
     let begin_sidebar_resize = move |ev: MouseEvent| {
         ev.prevent_default();
+        if sidebar_collapsed.get() {
+            return;
+        }
         set_dragging_sidebar.set(true);
         set_resize_start_x.set(ev.client_x());
         set_resize_start_sidebar.set(sidebar_width.get());
@@ -533,6 +543,9 @@ pub(crate) fn App() -> impl IntoView {
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
+    let toggle_sidebar = move |_| {
+        set_sidebar_collapsed.update(|value| *value = !*value);
+    };
     let global_keydown =
         Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
             if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
@@ -565,6 +578,7 @@ pub(crate) fn App() -> impl IntoView {
         <div
             class="app-layout"
             class:resizing=is_resizing
+            class:sidebar-collapsed=sidebar_collapsed
             on:mousemove=resize_drag
             on:mouseup=stop_resize
             on:mouseleave=stop_resize
@@ -576,9 +590,14 @@ pub(crate) fn App() -> impl IntoView {
                         "Proteus"
                         <span>"web"</span>
                     </h2>
-                    <button type="button" title="Новая сессия" on:click=clear_transcript>
-                        "+"
-                    </button>
+                    <div class="sidebar-header-actions">
+                        <button type="button" title="Новая сессия" on:click=clear_transcript>
+                            "+"
+                        </button>
+                        <button type="button" title="Свернуть меню" on:click=toggle_sidebar>
+                            "‹"
+                        </button>
+                    </div>
                 </div>
                 <div
                     class="sidebar-resize-handle"
@@ -607,7 +626,12 @@ pub(crate) fn App() -> impl IntoView {
                 </div>
 
                 <section class="sidebar-panel">
-                    <div class="panel-kicker">"Состояние"</div>
+                    <div class="runtime-summary">
+                        <span class="panel-kicker">"Runtime"</span>
+                        <strong>{runtime_state}</strong>
+                        <code>{APP_SERVER_ORIGIN}</code>
+                    </div>
+                    <div class="activity-grid">
                     <For
                         each=activity
                         key=|item| item.label
@@ -620,12 +644,22 @@ pub(crate) fn App() -> impl IntoView {
                             }
                         }
                     />
+                    </div>
                 </section>
             </aside>
 
             <main class="workspace-main">
                 <header class="topbar">
                     <div class="topbar-left">
+                        <button
+                            type="button"
+                            class="sidebar-toggle"
+                            title=move || if sidebar_collapsed.get() { "Показать меню" } else { "Свернуть меню" }
+                            aria-label=move || if sidebar_collapsed.get() { "Показать меню" } else { "Свернуть меню" }
+                            on:click=toggle_sidebar
+                        >
+                            {move || if sidebar_collapsed.get() { "☰" } else { "‹" }}
+                        </button>
                         <a class="brand" href="#">"Proteus Agent"</a>
                         <span class=transport_badge_class>
                             <span class="dot"></span>
@@ -1148,6 +1182,20 @@ fn load_i32_setting(key: &str, fallback: i32) -> i32 {
 fn save_i32_setting(key: &str, value: i32) {
     if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
         let _ = storage.set_item(key, &value.to_string());
+    }
+}
+
+fn load_bool_setting(key: &str, fallback: bool) -> bool {
+    window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(key).ok().flatten())
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(fallback)
+}
+
+fn save_bool_setting(key: &str, value: bool) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.set_item(key, if value { "true" } else { "false" });
     }
 }
 

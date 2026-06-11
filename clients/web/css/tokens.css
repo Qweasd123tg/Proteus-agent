@@ -23,9 +23,9 @@
     --space-5: 20px;
     --space-6: 24px;
     --space-8: 32px;
-    --sidebar-width: 260px;
-    --topbar-height: 48px;
-    --input-min-height: 150px;
+    --sidebar-width: 252px;
+    --topbar-height: 42px;
+    --input-min-height: 128px;
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.5;
