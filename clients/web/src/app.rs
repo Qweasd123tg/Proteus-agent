@@ -17,7 +17,9 @@ use crate::components::{
 use crate::events::connect_event_stream;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, compact_title, first_words_title, short_id, short_path};
+use crate::ui_utils::{
+    compact_text, compact_title, first_words_title, relative_time_from_now, short_id, short_path,
+};
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
@@ -719,6 +721,7 @@ pub(crate) fn App() -> impl IntoView {
                                     .unwrap_or_else(|| "Нет превью диалога".to_owned());
                                 let title = first_words_title(&preview, 3);
                                 let message_count = session.message_count;
+                                let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
                                 view! {
                                     <li class="session-list-item">
@@ -736,6 +739,7 @@ pub(crate) fn App() -> impl IntoView {
                                             <div class="session-preview">{compact_text(&preview, 80)}</div>
                                             <div class="session-meta">
                                                 <span class="session-time">{format!("{message_count} сообщений")}</span>
+                                                <span class="session-time">{updated_at}</span>
                                             </div>
                                         </button>
                                     </li>
