@@ -34,6 +34,55 @@ pub(crate) fn compact_text(text: &str, limit: usize) -> String {
     }
 }
 
+pub(crate) fn relative_time_from_now(timestamp_ms: Option<u64>) -> String {
+    let Some(timestamp_ms) = timestamp_ms else {
+        return "давно".to_owned();
+    };
+    let now_ms = js_sys::Date::now().max(0.0) as u64;
+    let elapsed_seconds = now_ms.saturating_sub(timestamp_ms) / 1000;
+
+    if elapsed_seconds < 60 {
+        "сейчас".to_owned()
+    } else if elapsed_seconds < 60 * 60 {
+        format!("{} назад", ru_count(elapsed_seconds / 60, "минуту", "минуты", "минут"))
+    } else if elapsed_seconds < 60 * 60 * 24 {
+        format!(
+            "{} назад",
+            ru_count(elapsed_seconds / 60 / 60, "час", "часа", "часов")
+        )
+    } else if elapsed_seconds < 60 * 60 * 24 * 30 {
+        format!(
+            "{} назад",
+            ru_count(elapsed_seconds / 60 / 60 / 24, "день", "дня", "дней")
+        )
+    } else if elapsed_seconds < 60 * 60 * 24 * 365 {
+        format!(
+            "{} назад",
+            ru_count(elapsed_seconds / 60 / 60 / 24 / 30, "месяц", "месяца", "месяцев")
+        )
+    } else {
+        format!(
+            "{} назад",
+            ru_count(elapsed_seconds / 60 / 60 / 24 / 365, "год", "года", "лет")
+        )
+    }
+}
+
+fn ru_count(value: u64, one: &str, few: &str, many: &str) -> String {
+    let rem_100 = value % 100;
+    let rem_10 = value % 10;
+    let word = if (11..=14).contains(&rem_100) {
+        many
+    } else {
+        match rem_10 {
+            1 => one,
+            2..=4 => few,
+            _ => many,
+        }
+    };
+    format!("{value} {word}")
+}
+
 pub(crate) fn output_text(output: &Value) -> String {
     output
         .get("text")
