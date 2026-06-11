@@ -20,6 +20,7 @@ pub(crate) fn connect_event_stream(
     set_event_count: WriteSignal<u64>,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -74,6 +75,7 @@ pub(crate) fn connect_event_stream(
                     output_event_count,
                     set_workspace_label,
                     set_session_label,
+                    set_active_session_dir,
                     set_is_sending,
                     set_active_turn_id,
                     active_stream_message_id,
@@ -117,6 +119,7 @@ fn handle_app_output(
     set_event_count: WriteSignal<u64>,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -139,6 +142,7 @@ fn handle_app_output(
                 set_transport_status,
                 set_workspace_label,
                 set_session_label,
+                set_active_session_dir,
                 set_is_sending,
                 set_active_turn_id,
                 active_stream_message_id,
@@ -169,6 +173,7 @@ fn handle_app_event(
     set_transport_status: WriteSignal<TransportStatus>,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -193,7 +198,12 @@ fn handle_app_event(
                 set_agent_status,
                 set_tool_activities,
             );
-            update_session_labels(envelope, set_workspace_label, set_session_label);
+            update_session_labels(
+                envelope,
+                set_workspace_label,
+                set_session_label,
+                set_active_session_dir,
+            );
         }
         AppServerEvent::UserMessageSubmitted { text } => {
             set_streamed_this_turn.set(false);
@@ -310,6 +320,7 @@ fn update_session_labels(
     envelope: Value,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    set_active_session_dir: WriteSignal<Option<String>>,
 ) {
     let Some(started) = envelope.pointer("/event/SessionStarted") else {
         return;
@@ -318,6 +329,7 @@ fn update_session_labels(
         set_workspace_label.set(cwd.to_owned());
     }
     if let Some(session_dir) = started.get("session_dir").and_then(Value::as_str) {
+        set_active_session_dir.set(Some(session_dir.to_owned()));
         set_session_label.set(short_path(session_dir));
     } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
         set_session_label.set(short_id(session_id).to_owned());
