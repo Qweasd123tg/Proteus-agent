@@ -9,7 +9,7 @@ use crate::actions::{
     AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
     revise_plan_prompt, send_planning_request, send_prompt_for_mode, take_request_id,
 };
-use crate::api::{APP_SERVER_ORIGIN, get_json, load_session_token, post_json};
+use crate::api::{get_json, load_session_token, post_json};
 use crate::components::{
     ApprovalCard, ArchitectureView, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard,
     ResumeView, ToastStack, UserInputCard, WorkingCard,
@@ -17,7 +17,7 @@ use crate::components::{
 use crate::events::connect_event_stream;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, compact_title, short_id, short_path};
+use crate::ui_utils::{compact_text, compact_title, first_words_title, short_id, short_path};
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
@@ -361,6 +361,14 @@ pub(crate) fn App() -> impl IntoView {
         TransportStatus::Error(message) => compact_text(&message, 34),
         TransportStatus::Shutdown => "остановлен".to_owned(),
     };
+    let current_session_sidebar_title = move || {
+        messages
+            .get()
+            .iter()
+            .find(|message| message.role == MessageRole::User)
+            .map(|message| first_words_title(&message.text, 3))
+            .unwrap_or_else(|| short_path(&workspace_label.get()))
+    };
 
     let draft_stats = move || {
         let text = draft.get();
@@ -648,7 +656,23 @@ pub(crate) fn App() -> impl IntoView {
                 ></div>
 
                 <div class="sidebar-search">
-                    <input type="text" placeholder=move || sidebar_sessions_status.get() readonly=true />
+                    <input
+                        type="text"
+                        placeholder=move || {
+                            let workspace = workspace_label.get();
+                            if workspace == "waiting for session" {
+                                sidebar_sessions_status.get()
+                            } else {
+                                let count = sidebar_sessions
+                                    .get()
+                                    .iter()
+                                    .filter(|session| session.workspace_path.as_deref() == Some(workspace.as_str()))
+                                    .count();
+                                format!("{count} сессий в текущей папке")
+                            }
+                        }
+                        readonly=true
+                    />
                 </div>
 
                 <div class="sessions-list">
@@ -656,7 +680,7 @@ pub(crate) fn App() -> impl IntoView {
                         <li class="session-list-item">
                             <div class="session-item active">
                                 <div class="session-item-header">
-                                    <span class="session-id">{move || short_path(&workspace_label.get())}</span>
+                                    <span class="session-id">{current_session_sidebar_title}</span>
                                     <span class=session_dot_class></span>
                                 </div>
                                 <div class="session-meta">
@@ -665,7 +689,17 @@ pub(crate) fn App() -> impl IntoView {
                             </div>
                         </li>
                         <For
-                            each=move || sidebar_sessions.get()
+                            each=move || {
+                                let workspace = workspace_label.get();
+                                sidebar_sessions
+                                    .get()
+                                    .into_iter()
+                                    .filter(|session| {
+                                        workspace != "waiting for session"
+                                            && session.workspace_path.as_deref() == Some(workspace.as_str())
+                                    })
+                                    .collect::<Vec<_>>()
+                            }
                             key=|session| session.session_dir.clone()
                             children=move |session| {
                                 let session_dir = session.session_dir.clone();
@@ -683,6 +717,7 @@ pub(crate) fn App() -> impl IntoView {
                                     .preview
                                     .clone()
                                     .unwrap_or_else(|| "Нет превью диалога".to_owned());
+                                let title = first_words_title(&preview, 3);
                                 let message_count = session.message_count;
                                 let resumable = session.resumable;
                                 view! {
@@ -695,7 +730,7 @@ pub(crate) fn App() -> impl IntoView {
                                             on:click=move |_| open_sidebar_session(session_dir.clone())
                                         >
                                             <div class="session-item-header">
-                                                <span class="session-id">{short_path(&workspace)}</span>
+                                                <span class="session-id">{title}</span>
                                                 <code class="session-code">{session_id}</code>
                                             </div>
                                             <div class="session-preview">{compact_text(&preview, 80)}</div>
@@ -714,7 +749,7 @@ pub(crate) fn App() -> impl IntoView {
                     <div class="runtime-summary">
                         <span class="panel-kicker">"Runtime"</span>
                         <strong>{runtime_state}</strong>
-                        <code>{APP_SERVER_ORIGIN}</code>
+                        <code title=move || workspace_label.get()>{move || workspace_label.get()}</code>
                     </div>
                     <div class="activity-grid">
                     <For
