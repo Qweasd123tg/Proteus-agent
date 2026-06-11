@@ -518,8 +518,7 @@
 
 .agent-turn-item {
     margin-bottom: 0;
-    border-left-color: rgb(91 140 255 / 42%);
-    border-left-width: 2px;
+    border-left: 0;
     padding-bottom: var(--space-3);
 }
 
@@ -529,6 +528,18 @@
     width: 8px;
     height: 8px;
     border: 2px solid var(--bg-root);
+    z-index: 1;
+}
+
+.agent-turn-item::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: rgb(91 140 255 / 42%);
+    content: "";
+    pointer-events: none;
 }
 
 .agent-turn-item + .agent-turn-item {
@@ -545,27 +556,26 @@
     margin-bottom: var(--space-5);
 }
 
-.agent-turn-item:not(.agent-turn-item + .agent-turn-item)::before {
-    box-shadow: 0 -18px 0 0 var(--bg-root);
+.agent-turn-item:not(.agent-turn-item + .agent-turn-item)::after {
+    top: 18px;
 }
 
-.agent-turn-item:has(+ :not(.agent-turn-item))::before,
-.agent-turn-item:last-child::before {
-    box-shadow: 0 18px 0 0 var(--bg-root);
+.agent-turn-item:has(+ :not(.agent-turn-item))::after,
+.agent-turn-item:last-child::after {
+    bottom: auto;
+    height: 18px;
 }
 
 .agent-turn-item:not(.agent-turn-item + .agent-turn-item):has(
         + :not(.agent-turn-item)
-    )::before,
-.agent-turn-item:not(.agent-turn-item + .agent-turn-item):last-child::before {
-    box-shadow:
-        0 -18px 0 0 var(--bg-root),
-        0 18px 0 0 var(--bg-root);
+    )::after,
+.agent-turn-item:not(.agent-turn-item + .agent-turn-item):last-child::after {
+    display: none;
 }
 
-.agent-turn-item + .agent-turn-item:has(+ :not(.agent-turn-item))::before,
-.agent-turn-item + .agent-turn-item:last-child::before {
-    box-shadow: 0 24px 0 0 var(--bg-root);
+.agent-turn-item + .agent-turn-item:has(+ :not(.agent-turn-item))::after,
+.agent-turn-item + .agent-turn-item:last-child::after {
+    height: calc(var(--space-3) + 18px);
 }
 
 .agent-turn-item.status-done::before {
