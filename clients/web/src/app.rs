@@ -563,7 +563,8 @@ pub(crate) fn App() -> impl IntoView {
     };
     let refresh_sidebar_sessions =
         move |_| load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
-    let open_sidebar_session = move |session_dir: String| {
+    let open_sidebar_session = move |session: SessionSummary| {
+        let session_dir = session.session_dir.clone();
         set_sidebar_sessions_status.set("открываю сессию".to_owned());
         spawn_local(async move {
             match post_json(
@@ -577,9 +578,44 @@ pub(crate) fn App() -> impl IntoView {
             {
                 Ok(StdioOutput::Response { ok: true, .. }) => {
                     set_sidebar_sessions_status.set("сессия открыта".to_owned());
-                    if let Some(window) = window() {
-                        let _ = window.location().set_href("/");
+                    if let Some(workspace) = session.workspace_path {
+                        set_workspace_label.set(workspace);
                     }
+                    if let Some(session_id) = session.session_id {
+                        set_session_label.set(short_id(&session_id).to_owned());
+                    } else {
+                        set_session_label.set(short_path(&session.session_dir));
+                    }
+                    set_messages.set(Vec::new());
+                    set_next_message_id.set(1);
+                    set_queued_prompt.set(None);
+                    set_is_sending.set(false);
+                    set_active_turn_id.set(None);
+                    set_active_stream_message_id.set(None);
+                    set_streamed_this_turn.set(false);
+                    set_agent_status.set("ожидает".to_owned());
+                    set_tool_activities.set(Vec::new());
+                    set_pending_approvals.set(Vec::new());
+                    set_pending_user_inputs.set(Vec::new());
+                    load_runtime_settings(
+                        set_mode,
+                        set_model_name,
+                        set_model_options,
+                        set_reasoning_enabled,
+                        set_effort,
+                        set_effort_options,
+                        set_workspace_label,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                    replace_transcript(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
                     set_sidebar_sessions_status
@@ -704,7 +740,6 @@ pub(crate) fn App() -> impl IntoView {
                             }
                             key=|session| session.session_dir.clone()
                             children=move |session| {
-                                let session_dir = session.session_dir.clone();
                                 let workspace = session
                                     .workspace_path
                                     .clone()
@@ -723,6 +758,7 @@ pub(crate) fn App() -> impl IntoView {
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
+                                let session_for_click = session.clone();
                                 view! {
                                     <li class="session-list-item">
                                         <button
@@ -730,7 +766,7 @@ pub(crate) fn App() -> impl IntoView {
                                             class="session-item session-history-item"
                                             disabled=!resumable
                                             title=workspace.clone()
-                                            on:click=move |_| open_sidebar_session(session_dir.clone())
+                                            on:click=move |_| open_sidebar_session(session_for_click.clone())
                                         >
                                             <div class="session-item-header">
                                                 <span class="session-id">{title}</span>
@@ -1253,21 +1289,50 @@ fn load_transcript(
     spawn_local(async move {
         match get_json::<Vec<TranscriptMessage>>("/history").await {
             Ok(items) => {
-                let messages = items
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| Message {
-                        id: index as u64 + 1,
-                        role: message_role_from_wire(&item.role),
-                        text: item.text,
-                        tool: None,
-                        streaming: false,
-                    })
-                    .collect::<Vec<_>>();
+                let messages = transcript_messages(items);
                 if !messages.is_empty() {
                     set_next_message_id.set(messages.len() as u64 + 1);
                     set_messages.set(messages);
                 }
+            }
+            Err(error) => report_error(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_transport_status,
+                "History load failed",
+                error,
+            ),
+        }
+    });
+}
+
+fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| Message {
+            id: index as u64 + 1,
+            role: message_role_from_wire(&item.role),
+            text: item.text,
+            tool: None,
+            streaming: false,
+        })
+        .collect()
+}
+
+fn replace_transcript(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
+    spawn_local(async move {
+        match get_json::<Vec<TranscriptMessage>>("/history").await {
+            Ok(items) => {
+                let messages = transcript_messages(items);
+                set_next_message_id.set(messages.len() as u64 + 1);
+                set_messages.set(messages);
             }
             Err(error) => report_error(
                 set_messages,
