@@ -301,6 +301,16 @@
     background: var(--accent-red);
 }
 
+.task-card:not(.agent-turn-item):not(.running):not(.success):not(.error) {
+    border-left-color: rgb(143 148 158 / 26%);
+}
+
+.task-card:not(.agent-turn-item):not(.running):not(.success):not(
+        .error
+    )::before {
+    display: none;
+}
+
 .task-card-header {
     display: flex;
     min-width: 0;
@@ -533,6 +543,29 @@
 .agent-turn-item:has(+ :not(.agent-turn-item)),
 .agent-turn-item:last-child {
     margin-bottom: var(--space-5);
+}
+
+.agent-turn-item:not(.agent-turn-item + .agent-turn-item)::before {
+    box-shadow: 0 -18px 0 0 var(--bg-root);
+}
+
+.agent-turn-item:has(+ :not(.agent-turn-item))::before,
+.agent-turn-item:last-child::before {
+    box-shadow: 0 18px 0 0 var(--bg-root);
+}
+
+.agent-turn-item:not(.agent-turn-item + .agent-turn-item):has(
+        + :not(.agent-turn-item)
+    )::before,
+.agent-turn-item:not(.agent-turn-item + .agent-turn-item):last-child::before {
+    box-shadow:
+        0 -18px 0 0 var(--bg-root),
+        0 18px 0 0 var(--bg-root);
+}
+
+.agent-turn-item + .agent-turn-item:has(+ :not(.agent-turn-item))::before,
+.agent-turn-item + .agent-turn-item:last-child::before {
+    box-shadow: 0 24px 0 0 var(--bg-root);
 }
 
 .agent-turn-item.status-done::before {
