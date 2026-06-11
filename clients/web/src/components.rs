@@ -2477,6 +2477,100 @@ where
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TimelineItem {
+    Message(Message),
+    ToolChain { key: String, tools: Vec<ToolActivity> },
+}
+
+impl TimelineItem {
+    fn key(&self) -> String {
+        match self {
+            Self::Message(message) => message.render_key(),
+            Self::ToolChain { key, .. } => key.clone(),
+        }
+    }
+}
+
+fn message_timeline_items(messages: Vec<Message>) -> Vec<TimelineItem> {
+    fn flush_tool_chain(
+        items: &mut Vec<TimelineItem>,
+        tools: &mut Vec<ToolActivity>,
+        key_parts: &mut Vec<String>,
+    ) {
+        if tools.is_empty() {
+            return;
+        }
+
+        items.push(TimelineItem::ToolChain {
+            key: format!("tools:{}", key_parts.join("|")),
+            tools: std::mem::take(tools),
+        });
+        key_parts.clear();
+    }
+
+    let mut items = Vec::new();
+    let mut tools = Vec::new();
+    let mut key_parts = Vec::new();
+
+    for message in messages {
+        if let Some(tool) = message.tool.clone() {
+            key_parts.push(message.render_key());
+            tools.push(tool);
+        } else {
+            flush_tool_chain(&mut items, &mut tools, &mut key_parts);
+            items.push(TimelineItem::Message(message));
+        }
+    }
+
+    flush_tool_chain(&mut items, &mut tools, &mut key_parts);
+    items
+}
+
+#[component]
+pub(crate) fn MessageTimeline(messages: ReadSignal<Vec<Message>>) -> impl IntoView {
+    view! {
+        <For
+            each=move || message_timeline_items(messages.get())
+            key=|item| item.key()
+            children=move |item| {
+                match item {
+                    TimelineItem::Message(message) => view! { <MessageView message /> }.into_any(),
+                    TimelineItem::ToolChain { tools, .. } => {
+                        view! { <ToolChainView tools /> }.into_any()
+                    }
+                }
+            }
+        />
+    }
+}
+
+#[component]
+fn ToolChainView(tools: Vec<ToolActivity>) -> impl IntoView {
+    let tools_for_list = tools.clone();
+    view! {
+        <article class="task-card running tool-chain-card">
+            <div class="tool-chain-list">
+                <For
+                    each=move || tools_for_list.clone()
+                    key=tool_activity_key
+                    children=move |tool| view! { <ToolActivityCard tool /> }
+                />
+            </div>
+        </article>
+    }
+}
+
+fn tool_activity_key(tool: &ToolActivity) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        tool.call_id,
+        tool.name,
+        tool.status.key(),
+        tool.result_preview.as_deref().unwrap_or("")
+    )
+}
+
 #[component]
 fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
@@ -2534,11 +2628,7 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 #[component]
 pub(crate) fn MessageView(message: Message) -> impl IntoView {
     if let Some(tool) = message.tool {
-        return view! {
-            <article class="task-card tool-chat-card">
-                <ToolActivityCard tool />
-            </article>
-        }
+        return view! { <ToolChainView tools=vec![tool] /> }
         .into_any();
     }
 
