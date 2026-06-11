@@ -502,7 +502,13 @@
 }
 
 .agent-chain-card {
+    border-left: 0;
     padding-bottom: 0;
+    padding-left: 0;
+}
+
+.agent-chain-card::before {
+    display: none;
 }
 
 .agent-chain-list {
@@ -539,8 +545,26 @@
     content: "";
 }
 
-.agent-chain-item:first-child::before {
+.agent-chain-item.role-assistant::before,
+.agent-chain-item.status-done::before {
+    background: var(--accent-green);
+}
+
+.agent-chain-item.role-system::before,
+.agent-chain-item.status-running::before,
+.agent-chain-item.status-waiting_approval::before,
+.agent-chain-item.status-approved::before {
     background: var(--accent-blue);
+}
+
+.agent-chain-item.status-running::before,
+.agent-chain-item.status-waiting_approval::before {
+    animation: pulse 2s infinite;
+}
+
+.agent-chain-item.status-denied::before,
+.agent-chain-item.status-failed::before {
+    background: var(--accent-red);
 }
 
 .agent-chain-item-header {

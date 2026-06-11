@@ -2541,9 +2541,10 @@ fn AgentChainView(messages: Vec<Message>) -> impl IntoView {
 
 #[component]
 fn AgentChainItem(message: Message) -> impl IntoView {
+    let item_class = agent_chain_item_class(&message);
     if let Some(tool) = message.tool {
         return view! {
-            <section class="agent-chain-item tool-chain-item">
+            <section class=item_class>
                 <ToolActivityCard tool />
             </section>
         }
@@ -2551,11 +2552,24 @@ fn AgentChainItem(message: Message) -> impl IntoView {
     }
 
     view! {
-        <section class="agent-chain-item message-chain-item">
+        <section class=item_class>
             <ChainMessageView message />
         </section>
     }
     .into_any()
+}
+
+fn agent_chain_item_class(message: &Message) -> String {
+    if let Some(tool) = &message.tool {
+        return format!("agent-chain-item tool-chain-item status-{}", tool.status.key());
+    }
+
+    let role = match message.role {
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::System => "system",
+    };
+    format!("agent-chain-item message-chain-item role-{role}")
 }
 
 #[component]
