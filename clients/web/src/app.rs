@@ -813,25 +813,6 @@ pub(crate) fn App() -> impl IntoView {
                         view! { <ConfigsView /> }.into_any()
                     } else {
                         view! {
-                            {move || {
-                                let approvals = pending_approvals.get();
-                                if approvals.is_empty() {
-                                    view! { <></> }.into_any()
-                                } else {
-                                    view! {
-                                        <section class="control-plane" aria-label="Ожидающие действия">
-                                            <For
-                                                each=move || pending_approvals.get()
-                                                key=|request| request.approval_id.clone()
-                                                children=move |request| {
-                                                    view! { <ApprovalCard request on_resolve=resolve_approval /> }
-                                                }
-                                            />
-                                        </section>
-                                    }.into_any()
-                                }
-                            }}
-
                             <section
                                 class="results-panel"
                                 class:sticky-bottom=stick_to_bottom
@@ -852,9 +833,11 @@ pub(crate) fn App() -> impl IntoView {
                                 }
                             >
                                 {move || {
+                                    let approvals_empty = pending_approvals.get().is_empty();
                                     let user_inputs_empty = pending_user_inputs.get().is_empty();
                                     let working = is_sending.get() && user_inputs_empty;
                                     if messages.get().is_empty()
+                                        && approvals_empty
                                         && user_inputs_empty
                                         && queued_prompt.get().is_none()
                                         && !working
@@ -873,6 +856,13 @@ pub(crate) fn App() -> impl IntoView {
                                     each=move || messages.get()
                                     key=|message| message.render_key()
                                     children=move |message| view! { <MessageView message /> }
+                                />
+                                <For
+                                    each=move || pending_approvals.get()
+                                    key=|request| request.approval_id.clone()
+                                    children=move |request| {
+                                        view! { <ApprovalCard request on_resolve=resolve_approval /> }
+                                    }
                                 />
                                 <For
                                     each=move || pending_user_inputs.get()
