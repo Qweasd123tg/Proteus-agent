@@ -301,35 +301,6 @@
     background: var(--accent-red);
 }
 
-.tool-chat-card {
-    margin-bottom: 0;
-    padding-bottom: var(--space-2);
-}
-
-.tool-chat-card::before {
-    top: 14px;
-}
-
-.tool-chat-card + .tool-chat-card {
-    margin-top: calc(var(--space-2) * -1);
-}
-
-.tool-chat-card + .tool-chat-card::before {
-    top: calc(var(--space-2) + 14px);
-}
-
-.tool-chat-card + .tool-chat-card .tool-card {
-    padding-top: var(--space-2);
-}
-
-.tool-chat-card:has(+ :not(.tool-chat-card)) {
-    margin-bottom: var(--space-5);
-}
-
-.tool-chat-card:last-child {
-    margin-bottom: var(--space-5);
-}
-
 .task-card-header {
     display: flex;
     min-width: 0;
@@ -530,8 +501,46 @@
     margin: calc(var(--space-2) * -1) 0 var(--space-5) var(--space-5);
 }
 
+.tool-chain-card {
+    padding-bottom: 0;
+}
+
+.tool-chain-list {
+    position: relative;
+    display: grid;
+    gap: var(--space-2);
+    padding-left: var(--space-4);
+}
+
+.tool-chain-list::before {
+    position: absolute;
+    top: 16px;
+    bottom: 16px;
+    left: 3px;
+    width: 1px;
+    background: var(--border-subtle);
+    content: "";
+}
+
 .tool-card {
+    position: relative;
     background: transparent;
+}
+
+.tool-chain-list .tool-card::before {
+    position: absolute;
+    top: 14px;
+    left: -15px;
+    z-index: 1;
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--bg-root);
+    background: var(--border-strong);
+    content: "";
+}
+
+.tool-chain-list .tool-card:first-child::before {
+    background: var(--accent-blue);
 }
 
 .tool-card-summary {

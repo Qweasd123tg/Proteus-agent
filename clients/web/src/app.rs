@@ -11,7 +11,7 @@ use crate::actions::{
 };
 use crate::api::{get_json, load_session_token, post_json};
 use crate::components::{
-    ApprovalCard, ArchitectureView, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard,
+    ApprovalCard, ArchitectureView, ConfigsView, MessageTimeline, PlanActionsCard, QueuedPromptCard,
     ResumeView, ToastStack, UserInputCard, WorkingCard,
 };
 use crate::events::connect_event_stream;
@@ -866,11 +866,7 @@ pub(crate) fn App() -> impl IntoView {
                                         view! { <></> }.into_any()
                                     }
                                 }}
-                                <For
-                                    each=move || messages.get()
-                                    key=|message| message.render_key()
-                                    children=move |message| view! { <MessageView message /> }
-                                />
+                                <MessageTimeline messages />
                                 <For
                                     each=move || pending_user_inputs.get()
                                     key=|request| request.request_id.clone()
