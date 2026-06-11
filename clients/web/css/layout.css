@@ -152,6 +152,15 @@ button.session-item {
     background: var(--bg-panel-soft);
 }
 
+button.session-item.active {
+    border-left-color: var(--accent-blue);
+    background: rgb(91 140 255 / 12%);
+}
+
+button.session-item.active .session-id {
+    color: var(--text-main);
+}
+
 .session-history-item:hover {
     border-left-color: var(--border-strong);
     background: var(--bg-panel-soft);

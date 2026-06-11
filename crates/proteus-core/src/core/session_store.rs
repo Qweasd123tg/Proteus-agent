@@ -10,7 +10,7 @@ use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
 use crate::{
     domain::SessionId,
-    model_standard::{CanonicalMessage, ContentPart},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
 const SESSION_METADATA_FILE: &str = "session.json";
@@ -272,16 +272,22 @@ fn messages_summary(messages_path: &Path) -> Result<(usize, Option<String>)> {
     };
 
     let mut count = 0;
-    let mut preview = None;
+    let mut first_text_preview = None;
+    let mut first_user_preview = None;
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         count += 1;
         if let Ok(message) = serde_json::from_str::<CanonicalMessage>(line)
             && let Some(text) = message_text_preview(&message)
         {
-            preview = Some(text);
+            if first_text_preview.is_none() {
+                first_text_preview = Some(text.clone());
+            }
+            if message.role == MessageRole::User && first_user_preview.is_none() {
+                first_user_preview = Some(text);
+            }
         }
     }
-    Ok((count, preview))
+    Ok((count, first_user_preview.or(first_text_preview)))
 }
 
 fn message_text_preview(message: &CanonicalMessage) -> Option<String> {
@@ -532,7 +538,10 @@ mod tests {
         assert_eq!(summaries[0].session_id, Some(session_id));
         assert_eq!(summaries[0].workspace_path.as_deref(), Some(cwd.path()));
         assert_eq!(summaries[0].message_count, 2);
-        assert_eq!(summaries[0].preview.as_deref(), Some("done"));
+        assert_eq!(
+            summaries[0].preview.as_deref(),
+            Some("inspect this project")
+        );
         assert!(summaries[0].resumable);
     }
 
