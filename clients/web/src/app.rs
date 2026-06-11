@@ -84,7 +84,7 @@ pub(crate) fn App() -> impl IntoView {
     let composer_ref = NodeRef::<html::Textarea>::new();
     let (stick_to_bottom, set_stick_to_bottom) = signal(true);
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
-    let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
+    let (_last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (sidebar_collapsed, set_sidebar_collapsed) =
         signal(load_bool_setting("proteus.sidebarCollapsed", false));
@@ -281,6 +281,7 @@ pub(crate) fn App() -> impl IntoView {
 
     let submit_user_input =
         move |request_id_value: String, answers: HashMap<String, Vec<String>>| {
+            set_stick_to_bottom.set(true);
             let request_id = take_request_id(next_request_id, set_next_request_id, "input");
             let response = UserInputResponseBody {
                 answers: answers
@@ -407,6 +408,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
+        set_stick_to_bottom.set(true);
         actions
             .clone()
             .send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
@@ -415,6 +417,7 @@ pub(crate) fn App() -> impl IntoView {
         if is_sending.get() {
             return;
         }
+        set_stick_to_bottom.set(true);
         actions
             .clone()
             .send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
@@ -429,6 +432,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
 
+        set_stick_to_bottom.set(true);
         set_draft.set(String::new());
         if is_sending.get() {
             set_queued_prompt.set(Some(text));
@@ -505,6 +509,7 @@ pub(crate) fn App() -> impl IntoView {
         let Some(text) = queued_prompt.get() else {
             return;
         };
+        set_stick_to_bottom.set(true);
         set_queued_prompt.set(None);
         send_prompt_for_mode(actions.clone(), mode.get(), text);
     };
@@ -837,14 +842,10 @@ pub(crate) fn App() -> impl IntoView {
                                 }
                                 on:scroll=move |_| {
                                     if let Some(results) = results_ref.get() {
-                                        let scroll_top = results.scroll_top();
-                                        let was_scroll_up = scroll_top + 2 < last_results_scroll_top.get();
-                                        if was_scroll_up {
-                                            set_stick_to_bottom.set(false);
-                                        } else if is_at_bottom(&results) {
+                                        if is_at_bottom(&results) {
                                             set_stick_to_bottom.set(true);
                                         }
-                                        set_last_results_scroll_top.set(scroll_top);
+                                        set_last_results_scroll_top.set(results.scroll_top());
                                     }
                                 }
                             >
