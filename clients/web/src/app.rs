@@ -64,7 +64,7 @@ pub(crate) fn App() -> impl IntoView {
     let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
     let (event_count, set_event_count) = signal(0_u64);
     let (workspace_label, set_workspace_label) = signal("waiting for session".to_owned());
-    let (session_label, set_session_label) = signal("not started".to_owned());
+    let (_session_label, set_session_label) = signal("not started".to_owned());
     let (active_session_dir, set_active_session_dir) = signal(None::<String>);
     let (is_sending, set_is_sending) = signal(false);
     let (active_turn_id, set_active_turn_id) = signal(None::<String>);
@@ -381,30 +381,6 @@ pub(crate) fn App() -> impl IntoView {
             "reasoning off".to_owned()
         };
         format!("{} · {} · {}", model, mode.get().label(), reasoning)
-    };
-    let request_state = move || {
-        if is_sending.get() {
-            "в работе"
-        } else {
-            "ожидает"
-        }
-    };
-    let session_title = move || {
-        if is_architecture_route {
-            return "Architecture".to_owned();
-        }
-        if is_configs_route {
-            return "Configs".to_owned();
-        }
-        if is_resume_route {
-            return "Сессии".to_owned();
-        }
-        messages
-            .get()
-            .iter()
-            .find(|message| message.role == MessageRole::User)
-            .map(|message| compact_title(&message.text))
-            .unwrap_or_else(|| short_path(&workspace_label.get()))
     };
     let transport_badge_class = move || match transport_status.get() {
         TransportStatus::Connecting => "status-badge disconnected",
@@ -820,23 +796,6 @@ pub(crate) fn App() -> impl IntoView {
                         <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                     </nav>
                 </header>
-
-                <section class="session-header">
-                    <div>
-                        <h1>{session_title}</h1>
-                        <p>{move || format!("{} · {}", short_path(&workspace_label.get()), session_label.get())}</p>
-                    </div>
-                    <div class="session-summary-meta">
-                        <span>
-                            <span class="label">"запрос"</span>
-                            <span class="value">{request_state}</span>
-                        </span>
-                        <span>
-                            <span class="label">"агент"</span>
-                            <span class="value">{move || agent_status.get()}</span>
-                        </span>
-                    </div>
-                </section>
 
                 <section class="session-workspace">
                     {if is_resume_route {

@@ -333,69 +333,6 @@ button.session-item.active .session-meta {
     color: var(--text-main);
 }
 
-.session-header {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
-    color: var(--text-muted);
-    padding: 10px var(--space-3);
-}
-
-.session-header > div {
-    min-width: 0;
-}
-
-.session-header h1 {
-    overflow: hidden;
-    color: var(--text-main);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.session-header p {
-    margin-top: 2px;
-    overflow-wrap: anywhere;
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.session-summary-meta {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: var(--space-3);
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.session-summary-meta span {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.session-summary-meta .label {
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-}
-
-.session-summary-meta .value {
-    color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-}
-
 .session-workspace {
     display: flex;
     min-height: 0;
