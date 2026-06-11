@@ -155,6 +155,10 @@ impl AppServerHandle {
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>(),
             "cwd": self.cwd.display().to_string(),
+            "session_dir": self
+                .runtime
+                .session_dir()
+                .map(|path| path.display().to_string()),
             "profile": config.profile.name,
             "model": {
                 "provider": model_ref.provider.clone(),
@@ -1523,6 +1527,35 @@ mod tests {
             message.role == "assistant" && message.text.contains("Fake final answer")
         }));
 
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn config_summary_includes_current_session_dir_field() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let config_path = config_dir.path().join("config.toml");
+        let handle = AgentAppServer::launch_with_module_catalog(
+            AppConfig::default(),
+            cwd.path().to_path_buf(),
+            Some(&config_path),
+            test_catalog(),
+        )
+        .expect("app server");
+
+        let summary = handle.config_summary().await;
+
+        let session_dir = summary
+            .get("session_dir")
+            .and_then(|value| value.as_str())
+            .expect("session_dir");
+        let expected = handle
+            .runtime
+            .session_dir()
+            .expect("runtime session dir")
+            .display()
+            .to_string();
+        assert_eq!(session_dir, expected);
         handle.shutdown().await;
     }
 

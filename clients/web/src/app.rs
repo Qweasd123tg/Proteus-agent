@@ -156,6 +156,7 @@ pub(crate) fn App() -> impl IntoView {
             set_effort,
             set_effort_options,
             set_workspace_label,
+            set_active_session_dir,
             set_messages,
             next_message_id,
             set_next_message_id,
@@ -570,6 +571,7 @@ pub(crate) fn App() -> impl IntoView {
                         set_effort,
                         set_effort_options,
                         set_workspace_label,
+                        set_active_session_dir,
                         set_messages,
                         next_message_id,
                         set_next_message_id,
@@ -1147,6 +1149,7 @@ fn load_runtime_settings(
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
     set_workspace_label: WriteSignal<String>,
+    set_active_session_dir: WriteSignal<Option<String>>,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -1158,6 +1161,12 @@ fn load_runtime_settings(
                 if let Some(cwd) = config.get("cwd").and_then(Value::as_str) {
                     set_workspace_label.set(cwd.to_owned());
                 }
+                set_active_session_dir.set(
+                    config
+                        .get("session_dir")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                );
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
                 }

@@ -202,7 +202,8 @@ HTTP/SSE transport:
 
 - `GET /health` - healthcheck;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`;
-- `GET /config` - текущий config summary;
+- `GET /config` - текущий config summary, включая активный `session_dir`, если
+  runtime подключён к session store;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
 - `GET /inspect/topology.runtime` - короткий runtime path из того же snapshot;
 - `GET /inspect/topology.runtime.mmd` - короткая Mermaid runtime-схема;
@@ -281,7 +282,9 @@ in-memory history и следующие turns дописывают только 
 логикой. HTTP app-server отдаёт список sessions через `GET /sessions`,
 переключает текущий runtime через `POST /resume` и отдаёт transcript текущего
 runtime через `GET /history`, чтобы web-клиент мог сразу восстановить чат после
-resume. Клиент может читать директории из
+resume. Текущий `session_dir` также возвращается в `GET /config`, чтобы UI мог
+пометить активную сессию после reload без ожидания нового `SessionStarted`.
+Клиент может читать директории из
 `<config-root>/sessions/<encoded-workspace>/`, фильтровать список по
 conversation title/branch/session id и затем перезапускать или переподключать
 transport с `--resume-session <session-dir>`. Runtime вызывает

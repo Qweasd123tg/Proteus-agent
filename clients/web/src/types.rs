@@ -316,6 +316,8 @@ pub(crate) struct ConfigSummary {
     #[serde(default)]
     pub(crate) cwd: String,
     #[serde(default)]
+    pub(crate) session_dir: Option<String>,
+    #[serde(default)]
     pub(crate) profile: String,
     #[serde(default)]
     pub(crate) model: ConfigModel,
