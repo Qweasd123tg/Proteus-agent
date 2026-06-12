@@ -445,6 +445,10 @@ pub(crate) struct TopologySlot {
     pub(crate) active_module: Option<String>,
     #[serde(default)]
     pub(crate) required: bool,
+    #[serde(default)]
+    pub(crate) category: String,
+    #[serde(default)]
+    pub(crate) order: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
