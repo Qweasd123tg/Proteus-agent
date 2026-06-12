@@ -5,6 +5,7 @@ use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, js_error};
+use crate::app::replace_transcript;
 use crate::messages::{
     append_streaming_assistant_delta, finish_streaming_assistant_message, push_message,
     push_tool_message, push_user_message_once, update_tool_status,
@@ -17,6 +18,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_messages: WriteSignal<Vec<Message>>,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
+    pub(crate) transport_status: ReadSignal<TransportStatus>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
     pub(crate) set_event_count: WriteSignal<u64>,
     pub(crate) set_workspace_label: WriteSignal<String>,
@@ -69,9 +71,26 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
         }
     };
 
-    let set_transport_status = bindings.set_transport_status;
     let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
-        set_transport_status.set(TransportStatus::Connected);
+        let was_disconnected = matches!(
+            bindings.transport_status.get_untracked(),
+            TransportStatus::Error(_)
+        );
+        bindings
+            .set_transport_status
+            .set(TransportStatus::Connected);
+        if was_disconnected {
+            // События за время обрыва потеряны: стрим-состояние невалидно,
+            // транскрипт перечитывается с сервера целиком.
+            bindings.set_active_stream_message_id.set(None);
+            bindings.set_streamed_this_turn.set(false);
+            replace_transcript(
+                bindings.set_messages,
+                bindings.next_message_id,
+                bindings.set_next_message_id,
+                bindings.set_transport_status,
+            );
+        }
     }));
     source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     on_open.forget();

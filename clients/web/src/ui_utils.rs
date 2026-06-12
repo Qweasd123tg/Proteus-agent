@@ -1,5 +1,16 @@
 use serde_json::Value;
+use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::window;
+
+pub(crate) fn set_timeout(duration_ms: i32, callback: impl FnOnce() + 'static) {
+    if let Some(window) = window() {
+        let closure = Closure::once_into_js(callback);
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.unchecked_ref(),
+            duration_ms,
+        );
+    }
+}
 
 pub(crate) fn compact_title(text: &str) -> String {
     let title = text

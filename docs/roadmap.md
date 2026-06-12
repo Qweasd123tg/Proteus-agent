@@ -306,17 +306,19 @@ Scope:
 - Hot-swap/reload для config-defined tools и MCP discovery: агент может
   добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
   snapshot видит discovered tools, старые turns доживают на прежнем snapshot.
-- UX backlog для web-клиента:
-  - очередь следующего composer request во время running turn;
-  - persistent layout sizes для sidebar/composer;
-  - message actions: copy/copy markdown/collapse/retry/continue;
+- UX backlog для web-клиента. Сделано: очередь composer requests во время
+  running turn (несколько карточек, ручная отправка), persistent layout sizes
+  для sidebar/composer, message copy/collapse, streaming transcript по deltas,
+  auto-dismiss toast для transport errors, resync transcript после SSE
+  reconnect, autoscroll unstick при любом скролле вверх. Осталось:
+  - message actions: retry/continue;
   - compact typed controls и sticky latest controls для approval/user-input/plan;
-  - tool call rendering как отдельные cards/rows с duration/status/expand output;
-  - streaming transcript по app-server deltas, без ожидания final output;
-  - toast/banner для transport errors вместо transcript spam;
+  - tool call rendering: duration в tool cards;
+  - авто-отправка очереди после завершения turn (сейчас ручная кнопка);
+  - восстановление pending approvals после SSE reconnect (нужен list endpoint
+    на app-server, клиент сейчас перечитывает только /history);
   - Markdown polish: code block copy, language label, wrap toggle, LaTeX styling.
-  Эти пункты остаются client concerns поверх app-server protocol; streaming и
-  tool rendering требуют проверки текущего event shape перед реализацией.
+  Эти пункты остаются client concerns поверх app-server protocol.
 
 ### Memory / Skills
 
