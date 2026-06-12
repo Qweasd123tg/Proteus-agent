@@ -43,7 +43,10 @@ report включает runtime path и diagnostic map, а затем остав
 proteus inspect topology --format runtime-mermaid > proteus-runtime.mmd
 ```
 
-Обычный Mermaid остаётся diagnostic fallback для preview в GitHub/Obsidian:
+Обычный Mermaid — полная диагностическая карта: пер-плагинные ноды, slots в
+subgraph-группах по `category` (Turn pipeline, ToolRegistry, Backends,
+Plugins), реальные tool ноды и рёбра runtime/provides/uses. Активные
+contributions рисуются сплошными рёбрами, available/disabled — пунктиром:
 
 ```bash
 proteus inspect topology --format mermaid > proteus-topology.mmd
@@ -70,8 +73,9 @@ GET /inspect/topology.map
 snapshot, `/inspect/topology.runtime` — короткий runtime path,
 `/inspect/topology.runtime.mmd` — короткую Mermaid runtime-схему,
 `/inspect/topology.map` — текстовую диагностическую карту, а
-`/inspect/topology.mmd` — diagnostic Mermaid export без полного dump-а
-tool/module/warning списков. Web-клиент копирует runtime Mermaid по умолчанию.
+`/inspect/topology.mmd` — диагностическую Mermaid-карту с пер-плагинными
+нодами и subgraph-группами. Web-клиент рендерит её в секции Map на странице
+`/architecture` (через mermaid.js) и её же копирует кнопкой Mermaid.
 
 ## Что Входит В Snapshot
 

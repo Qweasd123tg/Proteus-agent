@@ -8,11 +8,20 @@
 
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
+use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::MouseEvent;
 
 use crate::api::{get_json, get_text};
 use crate::types::*;
 use crate::ui_utils::{compact_json, copy_to_clipboard};
+
+const TOPOLOGY_MAP_ELEMENT_ID: &str = "topology-map-canvas";
+
+#[wasm_bindgen]
+unsafe extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = proteusRenderMermaid, catch)]
+    fn proteus_render_mermaid(element_id: &str, code: &str) -> Result<(), wasm_bindgen::JsValue>;
+}
 
 #[component]
 pub(crate) fn ArchitectureView() -> impl IntoView {
@@ -32,6 +41,16 @@ pub(crate) fn ArchitectureView() -> impl IntoView {
             set_status.set("Mermaid скопирован".to_owned());
         }
     };
+
+    // Карта рендерится после того, как и snapshot (DOM-секция), и mermaid
+    // source загружены; повторная загрузка перерисовывает карту.
+    Effect::new(move |_| {
+        let code = mermaid.get();
+        if code.trim().is_empty() || snapshot.with(Option::is_none) {
+            return;
+        }
+        let _ = proteus_render_mermaid(TOPOLOGY_MAP_ELEMENT_ID, &code);
+    });
 
     view! {
         <section class="configs-page architecture-page">
@@ -78,7 +97,7 @@ fn load_topology_snapshot(
                 set_status.set(format!(
                     "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {warning_count} warnings"
                 ));
-                match get_text("/inspect/topology.runtime.mmd").await {
+                match get_text("/inspect/topology.mmd").await {
                     Ok(mermaid) => set_mermaid.set(mermaid),
                     Err(error) => {
                         set_mermaid.set(String::new());
@@ -495,6 +514,18 @@ fn TopologySnapshotView(snapshot: TopologySnapshot, mermaid: String) -> impl Int
                         <code>{snapshot.config_files.len().to_string()}</code>
                     </div>
                 </article>
+            </section>
+
+            <section class="config-section">
+                <div class="config-section-header">
+                    <h3>"Map"</h3>
+                    <span>"slots · plugins · tools · связи"</span>
+                </div>
+                <div class="mermaid-map-scroll">
+                    <div id="topology-map-canvas" class="mermaid-map">
+                        "Карта рендерится через mermaid.js (нужен CDN); без сети используйте кнопку Mermaid для копирования источника."
+                    </div>
+                </div>
             </section>
 
             <section class="config-section">

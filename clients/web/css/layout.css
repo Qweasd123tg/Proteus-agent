@@ -939,6 +939,23 @@ button.session-item.active .session-meta {
     text-transform: uppercase;
 }
 
+.mermaid-map-scroll {
+    overflow: auto;
+    max-height: 72vh;
+    padding: var(--space-4);
+}
+
+.mermaid-map {
+    min-width: 0;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.mermaid-map svg {
+    display: block;
+}
+
 .pipeline-flow {
     display: flex;
     flex-wrap: wrap;
