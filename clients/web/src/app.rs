@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use leptos::{html, prelude::*, task::spawn_local};
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
-use web_sys::{HtmlElement, KeyboardEvent, MouseEvent, SubmitEvent, WheelEvent, window};
+use web_sys::{
+    EventSource, HtmlElement, KeyboardEvent, MouseEvent, SubmitEvent, WheelEvent, window,
+};
 
 use crate::actions::{
     AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
@@ -14,7 +16,7 @@ use crate::components::{
     ApprovalCard, ArchitectureView, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard,
     ResumeView, ToastStack, UserInputCard, WorkingCard,
 };
-use crate::events::connect_event_stream;
+use crate::events::{EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, relative_time_from_now, short_id, short_path};
@@ -171,7 +173,8 @@ pub(crate) fn App() -> impl IntoView {
     }
     load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
 
-    connect_event_stream(
+    let event_source = StoredValue::new_local(None::<EventSource>);
+    let event_stream_bindings = EventStreamBindings {
         set_messages,
         next_message_id,
         set_next_message_id,
@@ -190,13 +193,14 @@ pub(crate) fn App() -> impl IntoView {
         set_tool_activities,
         set_pending_approvals,
         set_pending_user_inputs,
-    );
+    };
+    reconnect_event_stream(event_source, event_stream_bindings);
 
     let actions = AppActions {
+        messages,
         set_messages,
         next_message_id,
         set_next_message_id,
-        transport_status,
         set_transport_status,
         next_request_id,
         set_next_request_id,
@@ -210,6 +214,7 @@ pub(crate) fn App() -> impl IntoView {
         set_effort,
         is_sending,
         set_is_sending,
+        active_turn_id,
         set_active_turn_id,
     };
 
@@ -563,6 +568,7 @@ pub(crate) fn App() -> impl IntoView {
                     set_tool_activities.set(Vec::new());
                     set_pending_approvals.set(Vec::new());
                     set_pending_user_inputs.set(Vec::new());
+                    reconnect_event_stream(event_source, event_stream_bindings);
                     load_runtime_settings(
                         set_mode,
                         set_model_name,
