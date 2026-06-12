@@ -733,10 +733,15 @@ async fn execute_resume(
 }
 
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
-    if !state.running_turns.lock().await.is_empty() {
-        return Err(anyhow!(
-            "cannot resume another session while a turn is running"
-        ));
+    let active_turns = {
+        let mut running_turns = state.running_turns.lock().await;
+        running_turns
+            .drain()
+            .map(|(_, cancellation)| cancellation)
+            .collect::<Vec<_>>()
+    };
+    for cancellation in active_turns {
+        cancellation.cancel();
     }
 
     let current = state.current_server().await;

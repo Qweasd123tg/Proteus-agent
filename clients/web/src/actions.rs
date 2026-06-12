@@ -2,16 +2,16 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::post_json;
-use crate::messages::{push_message, report_error};
+use crate::messages::{push_assistant_message_once, push_message, push_user_message_once, report_error};
 use crate::types::*;
 use crate::ui_utils::output_text;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppActions {
+    pub(crate) messages: ReadSignal<Vec<Message>>,
     pub(crate) set_messages: WriteSignal<Vec<Message>>,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
-    pub(crate) transport_status: ReadSignal<TransportStatus>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
     pub(crate) next_request_id: ReadSignal<u64>,
     pub(crate) set_next_request_id: WriteSignal<u64>,
@@ -25,6 +25,7 @@ pub(crate) struct AppActions {
     pub(crate) set_effort: WriteSignal<ReasoningEffort>,
     pub(crate) is_sending: ReadSignal<bool>,
     pub(crate) set_is_sending: WriteSignal<bool>,
+    pub(crate) active_turn_id: ReadSignal<Option<String>>,
     pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
 }
 
@@ -184,10 +185,18 @@ impl AppActions {
         }
 
         self.set_is_sending.set(true);
+        let message_floor = self.next_message_id.get();
+        push_user_message_once(
+            self.set_messages,
+            self.next_message_id,
+            self.set_next_message_id,
+            text.clone(),
+        );
         let mode_request_id = forced_mode
             .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
-        self.set_active_turn_id.set(Some(request_id.clone()));
+        let turn_id = request_id.clone();
+        self.set_active_turn_id.set(Some(turn_id.clone()));
 
         spawn_local(async move {
             if let Some(new_mode) = forced_mode {
@@ -201,6 +210,9 @@ impl AppActions {
                 .await
                 {
                     Ok(output) => {
+                        if !self.is_active_turn(&turn_id) {
+                            return;
+                        }
                         let ok = command_succeeded(&output);
                         handle_command_response(
                             output,
@@ -215,6 +227,9 @@ impl AppActions {
                         }
                     }
                     Err(error) => {
+                        if !self.is_active_turn(&turn_id) {
+                            return;
+                        }
                         self.finish_turn();
                         self.push_error("Mode update failed", error);
                         return;
@@ -232,21 +247,30 @@ impl AppActions {
             .await
             {
                 Ok(output) => {
+                    if !self.is_active_turn(&turn_id) {
+                        return;
+                    }
                     self.finish_turn();
                     if let StdioOutput::Response {
                         ok: true,
                         output: Some(value),
                         ..
                     } = &output
-                        && !matches!(self.transport_status.get(), TransportStatus::Connected)
                     {
-                        push_message(
-                            self.set_messages,
-                            self.next_message_id,
-                            self.set_next_message_id,
-                            MessageRole::Assistant,
-                            output_text(value),
-                        );
+                        let assistant_arrived = self.messages.with(|items| {
+                            items.iter().any(|message| {
+                                message.id > message_floor
+                                    && message.role == MessageRole::Assistant
+                            })
+                        });
+                        if !assistant_arrived {
+                            push_assistant_message_once(
+                                self.set_messages,
+                                self.next_message_id,
+                                self.set_next_message_id,
+                                output_text(value),
+                            );
+                        }
                     }
                     handle_command_response(
                         output,
@@ -257,6 +281,9 @@ impl AppActions {
                     );
                 }
                 Err(error) => {
+                    if !self.is_active_turn(&turn_id) {
+                        return;
+                    }
                     self.finish_turn();
                     self.push_error("Send failed", error);
                 }
@@ -278,6 +305,10 @@ impl AppActions {
             prefix,
             error,
         );
+    }
+
+    fn is_active_turn(self, turn_id: &str) -> bool {
+        self.active_turn_id.get().as_deref() == Some(turn_id)
     }
 
     fn set_control_error(self, prefix: &str, error: String) {

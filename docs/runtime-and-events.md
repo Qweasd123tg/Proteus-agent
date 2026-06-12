@@ -215,15 +215,16 @@ HTTP/SSE transport:
   `/reasoning`, `/effort` - короткие
   endpoint'ы над соответствующими `StdioRequest` вариантами;
 - `POST /resume` - переключает текущий HTTP app-server на выбранный
-  `session_dir`, если сейчас нет running turn;
+  `session_dir`, отменяя активный running turn и pending approval/user-input
+  старой session;
 - `POST /clear` и `/shutdown` - control-plane команды без body.
 
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`.
-После `/resume` web-клиент открывает новый SSE connection: pending
-approval/user-input старой session закрываются, новый runtime стартует уже с
-history выбранной session.
+После `/resume` web-клиент открывает новый SSE connection: активный turn и
+pending approval/user-input старой session закрываются, новый runtime стартует
+уже с history выбранной session.
 
 ## Session Store
 

@@ -41,6 +41,66 @@ pub(crate) fn push_message(
     });
 }
 
+pub(crate) fn push_user_message_once(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    text: impl Into<String>,
+) {
+    let text = text.into();
+    let id = next_message_id.get();
+    let mut pushed = false;
+    set_messages.update(|items| {
+        if items
+            .last()
+            .is_some_and(|message| message.role == MessageRole::User && message.text == text)
+        {
+            return;
+        }
+        items.push(Message {
+            id,
+            role: MessageRole::User,
+            text,
+            tool: None,
+            streaming: false,
+        });
+        pushed = true;
+    });
+    if pushed {
+        set_next_message_id.set(id + 1);
+    }
+}
+
+pub(crate) fn push_assistant_message_once(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    text: impl Into<String>,
+) {
+    let text = text.into();
+    let id = next_message_id.get();
+    let mut pushed = false;
+    set_messages.update(|items| {
+        if items
+            .last()
+            .is_some_and(|message| message.role == MessageRole::Assistant && message.text == text)
+        {
+            return;
+        }
+        items.push(Message {
+            id,
+            role: MessageRole::Assistant,
+            text,
+            tool: None,
+            streaming: false,
+        });
+        pushed = true;
+    });
+    if pushed {
+        set_next_message_id.set(id + 1);
+    }
+}
+
 pub(crate) fn push_tool_message(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
@@ -111,11 +171,10 @@ pub(crate) fn finish_streaming_assistant_message(
         });
         set_active_stream_message_id.set(None);
     } else {
-        push_message(
+        push_assistant_message_once(
             set_messages,
             next_message_id,
             set_next_message_id,
-            MessageRole::Assistant,
             final_text,
         );
     }
