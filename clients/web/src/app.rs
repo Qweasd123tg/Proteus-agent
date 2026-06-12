@@ -12,9 +12,10 @@ use crate::actions::{
     revise_plan_prompt, send_planning_request, send_prompt_for_mode, take_request_id,
 };
 use crate::api::{get_json, load_session_token, post_json};
+use crate::architecture::ArchitectureView;
 use crate::components::{
-    ApprovalCard, ArchitectureView, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard,
-    ResumeView, ToastStack, UserInputCard, WorkingCard,
+    ApprovalCard, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
+    ToastStack, UserInputCard, WorkingCard,
 };
 use crate::events::{EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;

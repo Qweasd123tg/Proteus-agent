@@ -54,6 +54,15 @@ pub struct SlotTopology {
     pub responsibility: String,
     pub active_module: Option<String>,
     pub required: bool,
+    /// Группа slot для рендереров: orchestrator | pipeline | registry |
+    /// backend | post_turn | custom. Группировка задаётся здесь, чтобы
+    /// клиенты не хардкодили свои списки.
+    #[serde(default)]
+    pub category: String,
+    /// Порядок отображения внутри snapshot: turn pipeline сначала, затем
+    /// backends и post-turn. Custom slots получают большой order.
+    #[serde(default)]
+    pub order: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,16 +316,20 @@ fn build_slots(
     .collect::<BTreeSet<_>>();
     slot_ids.extend(catalog_entries.iter().map(|entry| entry.slot.clone()));
 
-    slot_ids
+    let mut slots = slot_ids
         .into_iter()
         .map(|id| SlotTopology {
             title: slot_title(&id).to_owned(),
             responsibility: slot_responsibility(&id).to_owned(),
             active_module: active_modules.get(&id).cloned(),
             required: slot_required(&id),
+            category: slot_category(&id).to_owned(),
+            order: slot_order(&id),
             id,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    slots.sort_by(|left, right| left.order.cmp(&right.order).then_with(|| left.id.cmp(&right.id)));
+    slots
 }
 
 fn build_modules(
@@ -855,6 +868,35 @@ fn slot_responsibility(id: &str) -> &'static str {
     }
 }
 
+fn slot_category(id: &str) -> &'static str {
+    match id {
+        "workflow" => "orchestrator",
+        "context" | "compactor" | "model" | "tool_exposure" | "policy" | "renderer" => "pipeline",
+        "tool" => "registry",
+        "search" | "patch" | "memory" => "backend",
+        "memory_policy" => "post_turn",
+        _ => "custom",
+    }
+}
+
+fn slot_order(id: &str) -> u32 {
+    match id {
+        "workflow" => 0,
+        "context" => 1,
+        "compactor" => 2,
+        "model" => 3,
+        "tool_exposure" => 4,
+        "policy" => 5,
+        "tool" => 6,
+        "renderer" => 7,
+        "search" => 8,
+        "patch" => 9,
+        "memory" => 10,
+        "memory_policy" => 11,
+        _ => 100,
+    }
+}
+
 fn slot_required(id: &str) -> bool {
     matches!(
         id,
@@ -994,5 +1036,42 @@ mod tests {
         edges
             .iter()
             .any(|edge| edge.from == from && edge.to == to && edge.kind == kind)
+    }
+
+    #[test]
+    fn build_slots_orders_pipeline_first_and_categorizes_slots() {
+        let slots = build_slots(&[], &BTreeMap::new());
+
+        let ids = slots.iter().map(|slot| slot.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                "workflow",
+                "context",
+                "compactor",
+                "model",
+                "tool_exposure",
+                "policy",
+                "tool",
+                "renderer",
+                "search",
+                "patch",
+                "memory",
+                "memory_policy",
+            ]
+        );
+
+        let category = |id: &str| {
+            slots
+                .iter()
+                .find(|slot| slot.id == id)
+                .map(|slot| slot.category.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(category("workflow"), "orchestrator");
+        assert_eq!(category("model"), "pipeline");
+        assert_eq!(category("tool"), "registry");
+        assert_eq!(category("search"), "backend");
+        assert_eq!(category("memory_policy"), "post_turn");
     }
 }

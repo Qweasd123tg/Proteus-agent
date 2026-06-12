@@ -79,7 +79,10 @@ tool/module/warning списков. Web-клиент копирует runtime Me
 
 - активный profile, cwd, config path/files, permission mode и module epoch;
 - active model provider/name;
-- slots с active module и responsibility;
+- slots с active module, responsibility, `category` и `order`: category
+  (`orchestrator | pipeline | registry | backend | post_turn | custom`) и
+  порядок отображения задаются сервером, чтобы каждый renderer не хардкодил
+  свою группировку slots;
 - все modules из catalog с `source = builtin | plugin | config | unknown`;
 - plugin load status и точные contributions;
 - registered tools и plugin-provided tools, которые загрузились, но не
@@ -127,8 +130,13 @@ enabled tools, registered tools и список plugins.
 - как workflow связан с context, model, tool exposure, policy, tools и
   renderer.
 
-Web Architecture view должен отображать именно `TopologySnapshot`: сначала
-короткий runtime path, затем диагностическую карту `snapshot.edges`, slot
-cards, plugin contribution cards, tool cards, warnings panel и copy Mermaid
-action. Mermaid не является primary UI renderer: он нужен для copy/export,
-когда внешний viewer полезнее встроенной карты.
+Web Architecture view отображает именно `TopologySnapshot` и показывает каждый
+факт один раз: turn pipeline по `slot.category`/`slot.order` (config →
+workflow → context → compactor → model → tool_exposure → policy →
+ToolRegistry → renderer), backend/post-turn slots с tool→backend связями из
+`edges` kind `uses`, slot cards с альтернативными modules, plugin cards с
+contributions строго из `provides` (состояние вычисляется по
+`modules`/`tools`), единый tools список с фильтрами, warnings panel и copy
+Mermaid action. Dangling edge nodes — диагностика для CLI `--format map`, в
+web UI они не показываются. Mermaid не является primary UI renderer: он нужен
+для copy/export, когда внешний viewer полезнее встроенной карты.
