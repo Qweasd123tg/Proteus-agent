@@ -9,9 +9,11 @@ production-клиентом.
 
 Текущий статус: Leptos/Trunk app-server client с transcript, composer,
 permission mode controls, approval queue, пошаговой typed user-input карточкой,
-cancel action, `Ctrl+Enter` submit shortcut, queued next prompt, autoscroll,
+cancel action, `Ctrl+Enter` submit shortcut, очередью отложенных prompts во
+время running turn, autoscroll с отлипанием при любом скролле вверх,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
-message copy/collapse actions, toast errors, MathJax LaTeX rendering, экран
+message copy/collapse actions, auto-dismiss toast errors, перечитыванием
+transcript после SSE reconnect, MathJax LaTeX rendering, экран
 `/configs` с активными modules/tools/plugins/config files, экран `/architecture`
 с topology map по `TopologySnapshot.edges` и HTTP/SSE client.
 Sidebar показывает только session/runtime metadata, без transcript preview.

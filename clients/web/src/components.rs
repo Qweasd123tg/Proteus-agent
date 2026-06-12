@@ -2400,8 +2400,8 @@ pub(crate) fn QueuedPromptCard<S, C>(
     on_clear: C,
 ) -> impl IntoView
 where
-    S: Fn(MouseEvent) + Copy + 'static,
-    C: Fn(MouseEvent) + Copy + 'static,
+    S: Fn(MouseEvent) + 'static,
+    C: Fn(MouseEvent) + 'static,
 {
     let preview = text.clone();
     view! {

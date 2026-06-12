@@ -355,7 +355,11 @@ pub(crate) fn handle_command_response(
         error,
     } = output
     {
-        if !ok {
+        if ok {
+            // Ответ дошёл — транспорт жив; ошибка прошлой команды не должна
+            // оставлять бейдж в состоянии "ошибка" навсегда.
+            set_transport_status.set(TransportStatus::Connected);
+        } else {
             let message = error.unwrap_or_else(|| "request failed".to_owned());
             set_transport_status.set(TransportStatus::Error(message.clone()));
             push_message(

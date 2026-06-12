@@ -19,9 +19,12 @@ use crate::components::{
 use crate::events::{EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, compact_title, relative_time_from_now, short_id, short_path};
+use crate::ui_utils::{
+    compact_text, compact_title, relative_time_from_now, set_timeout, short_id, short_path,
+};
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
+const TOAST_DISMISS_MS: i32 = 6000;
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -54,7 +57,8 @@ pub(crate) fn App() -> impl IntoView {
         }
     };
     let (draft, set_draft) = signal(String::new());
-    let (queued_prompt, set_queued_prompt) = signal(None::<String>);
+    let (queued_prompts, set_queued_prompts) = signal(Vec::<(u64, String)>::new());
+    let (next_queued_id, set_next_queued_id) = signal(1_u64);
     let (mode, set_mode) = signal(PermissionMode::Normal);
     let (model_name, set_model_name) = signal(String::new());
     let (model_options, set_model_options) = signal(Vec::<String>::new());
@@ -86,7 +90,7 @@ pub(crate) fn App() -> impl IntoView {
     let composer_ref = NodeRef::<html::Textarea>::new();
     let (stick_to_bottom, set_stick_to_bottom) = signal(true);
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
-    let (_last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
+    let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (sidebar_collapsed, set_sidebar_collapsed) =
         signal(load_bool_setting("proteus.sidebarCollapsed", false));
@@ -103,7 +107,7 @@ pub(crate) fn App() -> impl IntoView {
         let _ = (
             messages.get().len(),
             pending_user_inputs.get().len(),
-            queued_prompt.get().is_some(),
+            queued_prompts.get().len(),
             is_sending.get(),
         );
         let streaming_active = active_stream_message_id.get().is_some();
@@ -134,18 +138,29 @@ pub(crate) fn App() -> impl IntoView {
     });
 
     Effect::new(move |_| {
-        if let TransportStatus::Error(message) = transport_status.get() {
-            if last_error_toast.get().as_deref() != Some(message.as_str()) {
-                let id = next_toast_id.get();
-                set_next_toast_id.set(id + 1);
-                set_toasts.update(|items| {
-                    items.push(ToastMessage {
-                        id,
-                        text: message.clone(),
+        match transport_status.get() {
+            TransportStatus::Error(message) => {
+                if last_error_toast.get_untracked().as_deref() != Some(message.as_str()) {
+                    let id = next_toast_id.get_untracked();
+                    set_next_toast_id.set(id + 1);
+                    set_toasts.update(|items| {
+                        items.push(ToastMessage {
+                            id,
+                            text: message.clone(),
+                        });
                     });
-                });
-                set_last_error_toast.set(Some(message));
+                    set_last_error_toast.set(Some(message));
+                    set_timeout(TOAST_DISMISS_MS, move || {
+                        set_toasts.update(|items| items.retain(|toast| toast.id != id));
+                    });
+                }
             }
+            TransportStatus::Connected => {
+                if last_error_toast.get_untracked().is_some() {
+                    set_last_error_toast.set(None);
+                }
+            }
+            TransportStatus::Connecting | TransportStatus::Shutdown => {}
         }
     });
 
@@ -178,6 +193,7 @@ pub(crate) fn App() -> impl IntoView {
         set_messages,
         next_message_id,
         set_next_message_id,
+        transport_status,
         set_transport_status,
         set_event_count,
         set_workspace_label,
@@ -224,7 +240,13 @@ pub(crate) fn App() -> impl IntoView {
         set_active_stream_message_id.set(None);
         set_streamed_this_turn.set(false);
         set_tool_activities.set(Vec::new());
-        set_queued_prompt.set(None);
+        set_queued_prompts.set(Vec::new());
+        set_pending_approvals.set(Vec::new());
+        set_pending_user_inputs.set(Vec::new());
+        set_is_sending.set(false);
+        set_active_turn_id.set(None);
+        set_agent_status.set("ожидает".to_owned());
+        set_stick_to_bottom.set(true);
         spawn_local(async move {
             match post_json("/clear", &json!({})).await {
                 Ok(output) => handle_command_response(
@@ -373,7 +395,7 @@ pub(crate) fn App() -> impl IntoView {
     let draft_stats = move || {
         let text = draft.get();
         let lines = text.lines().count().max(1);
-        format!("{} симв. · {} строк", text.len(), lines)
+        format!("{} симв. · {} строк", text.chars().count(), lines)
     };
     let settings_summary = move || {
         let model = model_name.get();
@@ -441,7 +463,9 @@ pub(crate) fn App() -> impl IntoView {
         set_stick_to_bottom.set(true);
         set_draft.set(String::new());
         if is_sending.get() {
-            set_queued_prompt.set(Some(text));
+            let id = next_queued_id.get();
+            set_next_queued_id.set(id + 1);
+            set_queued_prompts.update(|items| items.push((id, text)));
             return;
         }
 
@@ -451,25 +475,11 @@ pub(crate) fn App() -> impl IntoView {
         ev.prevent_default();
         submit_prompt();
     };
+    // Escape обрабатывает глобальный keydown-listener, иначе отмена уходит дважды.
     let submit_shortcut = move |ev: KeyboardEvent| {
         if ev.ctrl_key() && ev.key() == "Enter" {
             ev.prevent_default();
             submit_prompt();
-        } else if ev.key() == "Escape" {
-            if active_turn_id.get().is_some() {
-                ev.prevent_default();
-                cancel_active_turn(
-                    active_turn_id,
-                    next_request_id,
-                    set_next_request_id,
-                    set_is_sending,
-                    set_active_turn_id,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                );
-            }
         }
     };
     let begin_sidebar_resize = move |ev: MouseEvent| {
@@ -508,20 +518,6 @@ pub(crate) fn App() -> impl IntoView {
             .last()
             .is_some_and(|message| message.role == MessageRole::Assistant)
     };
-    let send_queued_prompt = move |_| {
-        if is_sending.get() {
-            return;
-        }
-        let Some(text) = queued_prompt.get() else {
-            return;
-        };
-        set_stick_to_bottom.set(true);
-        set_queued_prompt.set(None);
-        send_prompt_for_mode(actions.clone(), mode.get(), text);
-    };
-    let clear_queued_prompt = move |_| {
-        set_queued_prompt.set(None);
-    };
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
@@ -559,7 +555,7 @@ pub(crate) fn App() -> impl IntoView {
                     }
                     set_messages.set(Vec::new());
                     set_next_message_id.set(1);
-                    set_queued_prompt.set(None);
+                    set_queued_prompts.set(Vec::new());
                     set_is_sending.set(false);
                     set_active_turn_id.set(None);
                     set_active_stream_message_id.set(None);
@@ -831,10 +827,17 @@ pub(crate) fn App() -> impl IntoView {
                                 }
                                 on:scroll=move |_| {
                                     if let Some(results) = results_ref.get() {
+                                        let scroll_top = results.scroll_top();
                                         if is_at_bottom(&results) {
                                             set_stick_to_bottom.set(true);
+                                        } else if scroll_top + CHAT_REATTACH_THRESHOLD_PX
+                                            < last_results_scroll_top.get()
+                                        {
+                                            // Скролл вверх любым способом (scrollbar, touch,
+                                            // PageUp) отключает прилипание, не только колесо.
+                                            set_stick_to_bottom.set(false);
                                         }
-                                        set_last_results_scroll_top.set(results.scroll_top());
+                                        set_last_results_scroll_top.set(scroll_top);
                                     }
                                 }
                             >
@@ -845,7 +848,7 @@ pub(crate) fn App() -> impl IntoView {
                                     if messages.get().is_empty()
                                         && approvals_empty
                                         && user_inputs_empty
-                                        && queued_prompt.get().is_none()
+                                        && queued_prompts.get().is_empty()
                                         && !working
                                     {
                                         view! {
@@ -895,20 +898,35 @@ pub(crate) fn App() -> impl IntoView {
                                         view! { <></> }.into_any()
                                     }
                                 }}
-                                {move || {
-                                    if let Some(text) = queued_prompt.get() {
+                                <For
+                                    each=move || queued_prompts.get()
+                                    key=|(id, _)| *id
+                                    children=move |(queued_id, text)| {
+                                        let send_text = text.clone();
+                                        let on_send = move |_| {
+                                            if is_sending.get() {
+                                                return;
+                                            }
+                                            set_stick_to_bottom.set(true);
+                                            set_queued_prompts
+                                                .update(|items| items.retain(|(id, _)| *id != queued_id));
+                                            send_prompt_for_mode(actions.clone(), mode.get(), send_text.clone());
+                                        };
+                                        let on_clear = move |_| {
+                                            set_queued_prompts
+                                                .update(|items| items.retain(|(id, _)| *id != queued_id));
+                                        };
                                         view! {
                                             <QueuedPromptCard
                                                 text
                                                 is_sending=is_sending
-                                                on_send=send_queued_prompt
-                                                on_clear=clear_queued_prompt
+                                                on_send
+                                                on_clear
                                             />
-                                        }.into_any()
-                                    } else {
-                                        view! { <></> }.into_any()
+                                        }
                                     }
-                                }}
+                                />
+
                                 {move || {
                                     if is_sending.get() && pending_user_inputs.get().is_empty() {
                                         view! { <WorkingCard status=agent_status /> }.into_any()
@@ -1263,7 +1281,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         .collect()
 }
 
-fn replace_transcript(
+pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
