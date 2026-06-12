@@ -5,20 +5,6 @@ use crate::core::{
     TopologySnapshot,
 };
 
-const RUNTIME_SLOT_ORDER: [&str; 11] = [
-    "model",
-    "workflow",
-    "context",
-    "tool_exposure",
-    "policy",
-    "search",
-    "patch",
-    "memory",
-    "memory_policy",
-    "compactor",
-    "renderer",
-];
-
 pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     let mut out = String::new();
     out.push_str("# Proteus Topology\n\n");
@@ -539,163 +525,264 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
     lines.join("\n")
 }
 
+/// Diagnostic Mermaid map: пер-плагинные ноды, slots по `category`/`order`
+/// в subgraph-группах, ToolRegistry как контейнер реальных tool нод и
+/// рёбра runtime/provides/uses из snapshot. Активные contributions —
+/// сплошные рёбра, available/disabled — пунктир.
 pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
-    let mut labels = BTreeMap::<String, String>::new();
-    let runtime_slots = [
-        "workflow",
-        "context",
-        "model",
-        "tool_exposure",
-        "policy",
-        "renderer",
-    ];
-    labels.insert(
-        "config".to_owned(),
-        format!(
-            "config: {}",
+    let mut ids = MermaidIds::default();
+    let mut classes: Vec<(String, &'static str)> = Vec::new();
+    let mut out = String::from("flowchart LR\n");
+    for def in [
+        "classDef config fill:#1f2937,stroke:#5b8cff,color:#e6e7ea",
+        "classDef slot fill:#172033,stroke:#5b8cff,color:#e6e7ea",
+        "classDef missing fill:#172033,stroke:#d8a21e,color:#e6e7ea",
+        "classDef backend fill:#161d2b,stroke:#808eaa,color:#e6e7ea",
+        "classDef plugin fill:#261f14,stroke:#d8a21e,color:#e6e7ea",
+        "classDef pluginerror fill:#2a1414,stroke:#e05252,color:#e6e7ea",
+        "classDef tool fill:#14261f,stroke:#3fbf7f,color:#e6e7ea",
+        "classDef tooldisabled fill:#241a1a,stroke:#e05252,color:#e6e7ea",
+        "classDef context fill:#161d2b,stroke:#808eaa,color:#e6e7ea",
+        "classDef zone fill:transparent,stroke:#3a4358,color:#aab3c5",
+    ] {
+        out.push_str(&format!("    {def}\n"));
+    }
+
+    let config_id = ids.get("config");
+    out.push_str(&format!(
+        "    {config_id}([\"{}\"])\n",
+        mermaid_label(&format!(
+            "config<br/>{}",
             if snapshot.profile.trim().is_empty() {
                 "default"
             } else {
                 snapshot.profile.as_str()
             }
-        ),
-    );
-    labels.insert(
-        "plugins".to_owned(),
-        format!(
-            "plugins: {}/{} loaded",
-            snapshot
-                .plugins
+        ))
+    ));
+    classes.push((config_id, "config"));
+
+    let mut pipeline_slots = Vec::new();
+    let mut backend_slots = Vec::new();
+    for slot in ordered_slots(snapshot) {
+        match slot.category.as_str() {
+            "orchestrator" | "pipeline" => pipeline_slots.push(slot),
+            "registry" => {}
+            _ => backend_slots.push(slot),
+        }
+    }
+
+    out.push_str("    subgraph sg_pipeline[\"Turn pipeline\"]\n");
+    out.push_str("        direction LR\n");
+    for slot in &pipeline_slots {
+        let id = ids.get(&format!("slot:{}", slot.id));
+        let active = slot.active_module.as_deref().unwrap_or("missing");
+        out.push_str(&format!(
+            "        {id}[\"{}\"]\n",
+            mermaid_label(&format!("{}<br/>{active}", slot.id))
+        ));
+        classes.push((
+            id,
+            if slot.active_module.is_some() {
+                "slot"
+            } else {
+                "missing"
+            },
+        ));
+    }
+    out.push_str("    end\n");
+    classes.push(("sg_pipeline".to_owned(), "zone"));
+
+    let registered_tools = snapshot
+        .tools
+        .iter()
+        .filter(|tool| tool.registered)
+        .collect::<Vec<_>>();
+    if !registered_tools.is_empty() {
+        ids.alias("tools", "sg_registry");
+        out.push_str(&format!(
+            "    subgraph sg_registry[\"ToolRegistry · {} registered\"]\n",
+            registered_tools.len()
+        ));
+        for tool in &registered_tools {
+            let id = ids.get(&format!("tool:{}", tool.name));
+            out.push_str(&format!("        {id}[\"{}\"]\n", mermaid_label(&tool.name)));
+            classes.push((id, if tool.enabled { "tool" } else { "tooldisabled" }));
+        }
+        out.push_str("    end\n");
+        classes.push(("sg_registry".to_owned(), "zone"));
+    }
+
+    let unregistered_tools = snapshot
+        .tools
+        .iter()
+        .filter(|tool| !tool.registered)
+        .collect::<Vec<_>>();
+    if !unregistered_tools.is_empty() {
+        out.push_str("    subgraph sg_disabled[\"Provided · не в registry\"]\n");
+        for tool in &unregistered_tools {
+            let id = ids.get(&format!("tool:{}", tool.name));
+            out.push_str(&format!("        {id}[\"{}\"]\n", mermaid_label(&tool.name)));
+            classes.push((id, "tooldisabled"));
+        }
+        out.push_str("    end\n");
+        classes.push(("sg_disabled".to_owned(), "zone"));
+    }
+
+    if !backend_slots.is_empty() {
+        out.push_str("    subgraph sg_backends[\"Backends / post-turn\"]\n");
+        for slot in &backend_slots {
+            let id = ids.get(&format!("slot:{}", slot.id));
+            let active = slot.active_module.as_deref().unwrap_or("missing");
+            out.push_str(&format!(
+                "        {id}[\"{}\"]\n",
+                mermaid_label(&format!("{}<br/>{active}", slot.id))
+            ));
+            classes.push((id, "backend"));
+        }
+        out.push_str("    end\n");
+        classes.push(("sg_backends".to_owned(), "zone"));
+    }
+
+    if !snapshot.plugins.is_empty() {
+        out.push_str("    subgraph sg_plugins[\"Plugins\"]\n");
+        for plugin in &snapshot.plugins {
+            let id = ids.get(&format!("plugin:{}", plugin.name));
+            let loaded = plugin.status == "loaded";
+            let label = if loaded {
+                format!("{}<br/>{}", plugin.name, plugin.version)
+            } else {
+                format!("{}<br/>load error", plugin.name)
+            };
+            out.push_str(&format!("        {id}([\"{}\"])\n", mermaid_label(&label)));
+            classes.push((id, if loaded { "plugin" } else { "pluginerror" }));
+        }
+        out.push_str("    end\n");
+        classes.push(("sg_plugins".to_owned(), "zone"));
+    }
+
+    for plugin in &snapshot.plugins {
+        for provider in &plugin.provides.context_providers {
+            let id = ids.get(&format!("context_provider:{provider}"));
+            out.push_str(&format!(
+                "    {id}[/\"{}\"/]\n",
+                mermaid_label(&format!("context: {provider}"))
+            ));
+            classes.push((id, "context"));
+        }
+    }
+
+    for (id, class) in classes {
+        out.push_str(&format!("    class {id} {class}\n"));
+    }
+
+    let mut edges = BTreeSet::<String>::new();
+    let mut add_edge = |ids: &MermaidIds,
+                        out: &mut String,
+                        from_key: &str,
+                        to_key: &str,
+                        label: &str,
+                        dashed: bool| {
+        let (Some(from), Some(to)) = (ids.lookup(from_key), ids.lookup(to_key)) else {
+            return;
+        };
+        let arrow = if dashed { "-.->" } else { "-->" };
+        let line = if label.is_empty() {
+            format!("    {from} {arrow} {to}\n")
+        } else {
+            format!("    {from} {arrow}|{}| {to}\n", mermaid_label(label))
+        };
+        if edges.insert(line.clone()) {
+            out.push_str(&line);
+        }
+    };
+
+    add_edge(&ids, &mut out, "config", "slot:workflow", "selects modules", false);
+    for edge in &snapshot.edges {
+        match edge.kind.as_str() {
+            "runtime" if edge.from != "slot:tool" => {
+                add_edge(
+                    &ids,
+                    &mut out,
+                    &edge.from,
+                    &edge.to,
+                    edge.label.as_deref().unwrap_or(""),
+                    false,
+                );
+            }
+            "uses" => add_edge(&ids, &mut out, &edge.from, &edge.to, "uses", false),
+            _ => {}
+        }
+    }
+    for plugin in &snapshot.plugins {
+        let plugin_key = format!("plugin:{}", plugin.name);
+        for module in &plugin.provides.modules {
+            let active = snapshot
+                .modules
                 .iter()
-                .filter(|plugin| plugin.status == "loaded")
-                .count(),
-            snapshot.plugins.len()
-        ),
-    );
-    labels.insert(
-        "plugin_tools".to_owned(),
-        format!(
-            "plugin tools: {} provided, {} disabled",
-            snapshot.tools.len(),
-            snapshot
+                .any(|candidate| {
+                    candidate.slot == module.slot && candidate.id == module.id && candidate.active
+                });
+            let label = if active {
+                module.id.clone()
+            } else {
+                format!("{} · available", module.id)
+            };
+            add_edge(
+                &ids,
+                &mut out,
+                &plugin_key,
+                &format!("slot:{}", module.slot),
+                &label,
+                !active,
+            );
+        }
+        for tool in &plugin.provides.tools {
+            let registered = snapshot
                 .tools
                 .iter()
-                .filter(|tool| !tool.registered)
-                .count()
-        ),
-    );
-    labels.insert(
-        "tools".to_owned(),
-        format!(
-            "ToolRegistry: {} registered",
-            snapshot.tools.iter().filter(|tool| tool.registered).count()
-        ),
-    );
-    labels.insert(
-        "support".to_owned(),
-        "support: search, patch, memory, memory_policy, compactor".to_owned(),
-    );
-    for slot_id in runtime_slots {
-        labels.insert(
-            format!("slot:{slot_id}"),
-            clean_mermaid_slot_label(snapshot, slot_id),
-        );
-    }
-
-    let mut node_ids = BTreeMap::new();
-    for key in labels.keys() {
-        let id = format!("n{}", node_ids.len() + 1);
-        node_ids.insert(key.clone(), id);
-    }
-
-    let mut out = String::from("flowchart LR\n");
-    out.push_str("    classDef config fill:#1f2937,stroke:#5b8cff,color:#e6e7ea\n");
-    out.push_str("    classDef slot fill:#172033,stroke:#5b8cff,color:#e6e7ea\n");
-    out.push_str("    classDef plugin fill:#261f14,stroke:#d8a21e,color:#e6e7ea\n");
-    out.push_str("    classDef tool fill:#241a1a,stroke:#e05252,color:#e6e7ea\n");
-    for (key, label) in &labels {
-        let id = node_ids.get(key).expect("node id exists");
-        out.push_str(&format!(
-            "    {}\n",
-            mermaid_node(id, key, &mermaid_label(label))
-        ));
-        out.push_str(&format!("    class {id} {}\n", mermaid_class(key)));
-    }
-
-    let mut edges = BTreeSet::<(String, String, String)>::new();
-    for slot_id in runtime_slots {
-        edges.insert((
-            "config".to_owned(),
-            format!("slot:{slot_id}"),
-            clean_mermaid_config_label(snapshot, slot_id),
-        ));
-    }
-    edges.insert((
-        "config".to_owned(),
-        "support".to_owned(),
-        "selects".to_owned(),
-    ));
-    edges.insert((
-        "plugins".to_owned(),
-        "plugin_tools".to_owned(),
-        "provides".to_owned(),
-    ));
-    edges.insert((
-        "plugin_tools".to_owned(),
-        "tools".to_owned(),
-        "registered/disabled".to_owned(),
-    ));
-    edges.insert((
-        "plugins".to_owned(),
-        "support".to_owned(),
-        "provides modules".to_owned(),
-    ));
-
-    for edge in &snapshot.edges {
-        if edge.kind == "runtime"
-            && labels.contains_key(&edge.from)
-            && labels.contains_key(&edge.to)
-        {
-            edges.insert((
-                edge.from.clone(),
-                edge.to.clone(),
-                edge.label
-                    .clone()
-                    .unwrap_or_else(|| topology_edge_kind_label(&edge.kind)),
-            ));
+                .any(|candidate| candidate.name == tool.name && candidate.registered);
+            add_edge(
+                &ids,
+                &mut out,
+                &plugin_key,
+                &format!("tool:{}", tool.name),
+                "",
+                !registered,
+            );
         }
-        if edge.kind == "provides" {
-            if let Some(module_id) = edge.to.strip_prefix("module:") {
-                if let Some(slot) = module_id.split(':').next() {
-                    let slot_key = format!("slot:{slot}");
-                    if labels.contains_key(&slot_key) {
-                        edges.insert(("plugins".to_owned(), slot_key, "provides".to_owned()));
-                    }
-                }
-            }
+        for provider in &plugin.provides.context_providers {
+            let provider_key = format!("context_provider:{provider}");
+            add_edge(&ids, &mut out, &plugin_key, &provider_key, "", false);
+            add_edge(&ids, &mut out, &provider_key, "slot:context", "feeds", false);
         }
     }
 
-    for (from_key, to_key, label) in edges {
-        let Some(from) = node_ids.get(&from_key) else {
-            continue;
-        };
-        let Some(to) = node_ids.get(&to_key) else {
-            continue;
-        };
-        out.push_str(&format!("    {from} -->|{}| {to}\n", mermaid_label(&label)));
-    }
     out
 }
 
-fn clean_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> String {
-    let active = snapshot
-        .slots
-        .iter()
-        .find(|slot| slot.id == slot_id)
-        .and_then(|slot| slot.active_module.as_deref())
-        .unwrap_or("missing");
-    format!("{slot_id}: {active}")
+#[derive(Default)]
+struct MermaidIds {
+    ids: BTreeMap<String, String>,
+}
+
+impl MermaidIds {
+    fn get(&mut self, key: &str) -> String {
+        if let Some(id) = self.ids.get(key) {
+            return id.clone();
+        }
+        let id = format!("n{}", self.ids.len() + 1);
+        self.ids.insert(key.to_owned(), id.clone());
+        id
+    }
+
+    fn alias(&mut self, key: &str, id: &str) {
+        self.ids.insert(key.to_owned(), id.to_owned());
+    }
+
+    fn lookup(&self, key: &str) -> Option<String> {
+        self.ids.get(key).cloned()
+    }
 }
 
 fn runtime_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> String {
@@ -713,38 +800,13 @@ fn runtime_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> Str
     format!("{slot_id}<br/>{active}<br/>{source}")
 }
 
-fn clean_mermaid_config_label(snapshot: &TopologySnapshot, slot_id: &str) -> String {
-    snapshot
-        .slots
-        .iter()
-        .find(|slot| slot.id == slot_id)
-        .and_then(|slot| slot.active_module.clone())
-        .unwrap_or_else(|| "selects".to_owned())
-}
 
-fn topology_edge_kind_label(kind: &str) -> String {
-    if kind.trim().is_empty() {
-        "edge".to_owned()
-    } else {
-        kind.to_owned()
-    }
-}
 
 fn ordered_slots(snapshot: &TopologySnapshot) -> Vec<&SlotTopology> {
-    let mut slots = Vec::new();
-    let mut seen = BTreeSet::new();
-    for id in RUNTIME_SLOT_ORDER {
-        if let Some(slot) = snapshot.slots.iter().find(|slot| slot.id == id) {
-            if seen.insert(slot.id.clone()) {
-                slots.push(slot);
-            }
-        }
-    }
-    for slot in &snapshot.slots {
-        if seen.insert(slot.id.clone()) {
-            slots.push(slot);
-        }
-    }
+    // build_slots уже сортирует по slot.order; стабильная пересортировка
+    // оставляет порядок snapshot-а и для legacy snapshot с order=0.
+    let mut slots = snapshot.slots.iter().collect::<Vec<_>>();
+    slots.sort_by(|left, right| left.order.cmp(&right.order));
     slots
 }
 
@@ -966,23 +1028,6 @@ fn mermaid_node(id: &str, key: &str, label: &str) -> String {
     }
 }
 
-fn mermaid_class(key: &str) -> &'static str {
-    if key == "config" {
-        "config"
-    } else if key == "warnings" {
-        "warning"
-    } else if key == "tools" || key == "plugin_tools" || key.starts_with("tool:") {
-        "tool"
-    } else if key == "support" || key.starts_with("slot:") || key.starts_with("context_provider:") {
-        "slot"
-    } else if key.starts_with("module:") {
-        "module"
-    } else if key == "plugins" || key.starts_with("plugin:") {
-        "plugin"
-    } else {
-        "config"
-    }
-}
 
 fn runtime_mermaid_class(key: &str) -> &'static str {
     if key == "warnings" {
