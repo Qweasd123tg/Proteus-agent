@@ -13,7 +13,13 @@ cancel action, `Ctrl+Enter` submit shortcut, очередью отложенны
 время running turn, autoscroll с отлипанием при любом скролле вверх,
 working indicator, drag-resize sidebar/composer с сохранением размеров,
 message copy/collapse actions, auto-dismiss toast errors, перечитыванием
-transcript после SSE reconnect, MathJax LaTeX rendering, экран
+transcript после SSE reconnect, MathJax LaTeX rendering. Лента сообщений
+оформлена как диалог: запрос пользователя — правый «пузырь», ответы агента и
+tool-вызовы — связанная вертикальная лента; copy/collapse и действия в
+code-блоках появляются по наведению. Стрим ответа показывает мигающую каретку,
+а reasoning-summary (OpenAI o-series; Anthropic не шлёт) — отдельный
+сворачиваемый блок над ответом. Code-блоки в markdown имеют ярлык языка,
+copy и wrap-toggle (делегированный обработчик в `index.html`). Экран
 `/configs` с активными modules/tools/plugins/config files, экран `/architecture`
 с topology map по `TopologySnapshot.edges` и HTTP/SSE client.
 Sidebar показывает только session/runtime metadata, без transcript preview.

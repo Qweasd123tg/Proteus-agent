@@ -71,6 +71,37 @@
             src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
         ></script>
         <script>
+            // Делегированный обработчик действий в markdown code-блоках
+            // (контент вставляется как inner_html, поэтому Leptos-хендлеры
+            // к кнопкам не привязать).
+            document.addEventListener("click", (event) => {
+                const copyBtn = event.target.closest(".code-copy");
+                if (copyBtn) {
+                    const block = copyBtn.closest(".code-block");
+                    const code = block && block.querySelector("pre code");
+                    if (code && navigator.clipboard) {
+                        navigator.clipboard.writeText(code.textContent || "");
+                        const prev = copyBtn.textContent;
+                        copyBtn.textContent = "copied";
+                        copyBtn.classList.add("active");
+                        setTimeout(() => {
+                            copyBtn.textContent = prev;
+                            copyBtn.classList.remove("active");
+                        }, 1200);
+                    }
+                    return;
+                }
+                const wrapBtn = event.target.closest(".code-wrap");
+                if (wrapBtn) {
+                    const block = wrapBtn.closest(".code-block");
+                    if (block) {
+                        block.classList.toggle("nowrap");
+                        wrapBtn.classList.toggle("active");
+                    }
+                }
+            });
+        </script>
+        <script>
             // Стаб до загрузки mermaid ESM: последний вызов ставится в
             // очередь и выполняется, когда модуль ниже подменит функцию.
             window.__proteusMermaidQueue = null;

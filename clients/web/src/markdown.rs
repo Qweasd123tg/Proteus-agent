@@ -16,7 +16,58 @@ pub(crate) fn markdown_html(text: &str) -> String {
     for (token, html) in math_fragments {
         output = output.replace(&token, &html);
     }
-    output
+    enhance_code_blocks(&output)
+}
+
+/// Оборачивает каждый `<pre><code>` блок в контейнер с шапкой: ярлык языка,
+/// кнопки copy и wrap (обработчик кликов делегирован в index.html). Поиск по
+/// литералу безопасен: pulldown-cmark экранирует `<`/`>` внутри кода, поэтому
+/// `</code></pre>` не встретится в содержимом блока.
+fn enhance_code_blocks(html: &str) -> String {
+    const OPEN: &str = "<pre><code";
+    const CLOSE: &str = "</code></pre>";
+    const PRE_LEN: usize = 5; // "<pre>"
+
+    let mut out = String::with_capacity(html.len() + 96);
+    let mut rest = html;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let Some(gt) = after[PRE_LEN..].find('>').map(|index| PRE_LEN + index + 1) else {
+            out.push_str(after);
+            return out;
+        };
+        let Some(close) = after[gt..].find(CLOSE).map(|index| gt + index) else {
+            out.push_str(after);
+            return out;
+        };
+        let lang = code_block_language(&after[..gt]);
+        let block = &after[..close + CLOSE.len()];
+        out.push_str(&format!(
+            "<div class=\"code-block\"><div class=\"code-block-head\">\
+<span class=\"code-lang\">{lang}</span>\
+<span class=\"code-actions\">\
+<button class=\"code-wrap\" type=\"button\" title=\"Перенос строк\">wrap</button>\
+<button class=\"code-copy\" type=\"button\" title=\"Скопировать код\">copy</button>\
+</span></div>{block}</div>"
+        ));
+        rest = &after[close + CLOSE.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn code_block_language(open_tag: &str) -> String {
+    if let Some(index) = open_tag.find("language-") {
+        let lang = open_tag[index + "language-".len()..]
+            .chars()
+            .take_while(|ch| ch.is_alphanumeric() || matches!(ch, '_' | '-' | '+' | '#'))
+            .collect::<String>();
+        if !lang.is_empty() {
+            return lang;
+        }
+    }
+    "code".to_owned()
 }
 
 fn normalize_math_code_blocks(text: &str) -> String {
@@ -286,5 +337,32 @@ mod tests {
         assert!(html.contains("<pre><code"));
         assert!(html.contains("let price"));
         assert!(!html.contains("mathjax"));
+    }
+
+    #[test]
+    fn markdown_html_wraps_code_blocks_with_language_label_and_actions() {
+        let html = markdown_html("```rust\nfn main() {}\n```");
+
+        assert!(html.contains("class=\"code-block\""));
+        assert!(html.contains("<span class=\"code-lang\">rust</span>"));
+        assert!(html.contains("class=\"code-copy\""));
+        assert!(html.contains("class=\"code-wrap\""));
+        assert!(html.contains("<pre><code"));
+    }
+
+    #[test]
+    fn markdown_html_labels_unmarked_code_block_as_code() {
+        let html = markdown_html("```\nplain text\n```");
+
+        assert!(html.contains("<span class=\"code-lang\">code</span>"));
+    }
+
+    #[test]
+    fn markdown_html_wraps_each_of_multiple_code_blocks() {
+        let html = markdown_html("```py\na = 1\n```\n\ntext\n\n```js\nlet b = 2;\n```");
+
+        assert_eq!(html.matches("class=\"code-block\"").count(), 2);
+        assert!(html.contains("<span class=\"code-lang\">py</span>"));
+        assert!(html.contains("<span class=\"code-lang\">js</span>"));
     }
 }
