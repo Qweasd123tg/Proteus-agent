@@ -97,6 +97,11 @@
                         Math.random().toString(36).slice(2, 10);
                     const { svg } = await mermaid.render(slug, code);
                     el.innerHTML = svg;
+                    window.dispatchEvent(
+                        new CustomEvent("proteus-mermaid-rendered", {
+                            detail: id,
+                        }),
+                    );
                 } catch (error) {
                     el.textContent = "Mermaid render failed: " + error;
                 }

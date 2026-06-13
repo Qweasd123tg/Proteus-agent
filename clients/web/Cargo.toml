@@ -16,6 +16,9 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "Clipboard",
+    "Document",
+    "DomRect",
+    "Element",
     "Event",
     "EventSource",
     "EventTarget",

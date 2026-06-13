@@ -939,21 +939,54 @@ button.session-item.active .session-meta {
     text-transform: uppercase;
 }
 
-.mermaid-map-scroll {
-    overflow: auto;
-    max-height: 72vh;
-    padding: var(--space-4);
+.mermaid-map-viewport {
+    position: relative;
+    overflow: hidden;
+    height: 72vh;
+    cursor: grab;
+    user-select: none;
+    background:
+        linear-gradient(90deg, rgb(91 140 255 / 4%) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+        var(--bg-panel);
+    background-size: 48px 48px;
+}
+
+.mermaid-map-viewport.dragging {
+    cursor: grabbing;
+}
+
+.mermaid-map-stage {
+    width: max-content;
+    transform-origin: 0 0;
+    will-change: transform;
 }
 
 .mermaid-map {
     min-width: 0;
+    max-width: 480px; /* ограничивает только placeholder-текст */
     color: var(--text-faint);
     font-family: var(--font-mono);
     font-size: 11px;
+    padding: var(--space-3);
+}
+
+.mermaid-map:has(svg) {
+    max-width: none;
+    padding: 0;
 }
 
 .mermaid-map svg {
     display: block;
+    max-width: none;
+}
+
+.map-zoom-label {
+    min-width: 44px;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: right;
 }
 
 .pipeline-flow {
