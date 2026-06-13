@@ -905,6 +905,14 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
         .into_any();
     }
 
+    if message.role == MessageRole::User {
+        return user_message_view(message);
+    }
+
+    if message.role == MessageRole::Reasoning {
+        return reasoning_message_view(message);
+    }
+
     let card_class = message.role.card_class();
     let message_class = message.role.message_class();
     let badge_class = message.role.badge_class();
@@ -961,6 +969,74 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
                     view! {
                         <div class=content_class.clone() inner_html=html.clone()></div>
                     }.into_any()
+                }
+            }}
+        </article>
+    }
+    .into_any()
+}
+
+/// Запрос пользователя: правый «пузырь», без тяжёлой шапки роли; copy
+/// появляется по наведению (стиль в CSS).
+fn user_message_view(message: Message) -> AnyView {
+    let html = markdown_html(&message.text);
+    let copy_text = message.text.clone();
+    view! {
+        <article class="user-turn">
+            <div class="user-bubble">
+                <button
+                    type="button"
+                    class="icon-button user-copy"
+                    title="Скопировать"
+                    on:click=move |_| copy_to_clipboard(copy_text.clone())
+                >
+                    "Копировать"
+                </button>
+                <div class="message user-message" inner_html=html></div>
+            </div>
+        </article>
+    }
+    .into_any()
+}
+
+/// Reasoning-поток: пока стримится — развёрнут, после завершения сворачивается
+/// в строку-переключатель «Размышления».
+fn reasoning_message_view(message: Message) -> AnyView {
+    let streaming = message.streaming;
+    let html = markdown_html(&message.text);
+    let (expanded, set_expanded) = signal(streaming);
+    view! {
+        <article class="task-card running agent-turn-item reasoning-turn">
+            <button
+                type="button"
+                class="reasoning-toggle"
+                on:click=move |_| set_expanded.update(|value| *value = !*value)
+            >
+                <span class=move || {
+                    if streaming {
+                        "status-badge running"
+                    } else {
+                        "status-badge idle"
+                    }
+                }>
+                    {if streaming {
+                        view! { <span class="spinner-dot"></span> }.into_any()
+                    } else {
+                        view! { <span class="dot"></span> }.into_any()
+                    }}
+                    "Размышления"
+                </span>
+                <span class="reasoning-caret">
+                    {move || if expanded.get() { "−" } else { "+" }}
+                </span>
+            </button>
+            {move || {
+                if expanded.get() {
+                    view! {
+                        <div class="message reasoning-message" inner_html=html.clone()></div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
                 }
             }}
         </article>

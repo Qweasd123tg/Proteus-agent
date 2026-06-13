@@ -318,6 +318,84 @@
     flex-shrink: 0;
     align-items: center;
     gap: var(--space-1);
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.task-card:hover .message-actions,
+.task-card:focus-within .message-actions {
+    opacity: 1;
+}
+
+/* Запрос пользователя: правый «пузырь», отделяет ввод от ленты агента. */
+.user-turn {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-5);
+    animation: message-in 0.18s ease-out;
+}
+
+.user-bubble {
+    position: relative;
+    min-width: 0;
+    max-width: 82%;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel-soft);
+    padding: var(--space-3) var(--space-4);
+}
+
+.user-bubble .user-message {
+    color: var(--text-main);
+}
+
+.user-copy {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    min-height: 22px;
+    background: var(--bg-panel);
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.user-bubble:hover .user-copy,
+.user-bubble:focus-within .user-copy {
+    opacity: 1;
+}
+
+/* Reasoning-поток: компактный сворачиваемый блок. */
+.reasoning-turn {
+    padding-bottom: var(--space-2);
+}
+
+.reasoning-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.reasoning-toggle:hover {
+    background: transparent;
+}
+
+.reasoning-caret {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.reasoning-message {
+    margin-top: var(--space-2);
+    border-left: 2px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+    padding: var(--space-1) 0 var(--space-1) var(--space-3);
 }
 
 .icon-button {

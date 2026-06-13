@@ -121,11 +121,14 @@ impl SessionToken {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageRole {
     User,
     Assistant,
     System,
+    /// Поток reasoning-summary модели (OpenAI o-series). Рендерится
+    /// отдельным сворачиваемым блоком, не как обычное сообщение.
+    Reasoning,
 }
 
 impl MessageRole {
@@ -134,6 +137,7 @@ impl MessageRole {
             Self::User => "Вы",
             Self::Assistant => "Proteus",
             Self::System => "Система",
+            Self::Reasoning => "Размышления",
         }
     }
 
@@ -141,7 +145,7 @@ impl MessageRole {
         match self {
             Self::User => "task-card",
             Self::Assistant => "task-card success agent-turn-item role-assistant",
-            Self::System => "task-card running agent-turn-item role-system",
+            Self::System | Self::Reasoning => "task-card running agent-turn-item role-system",
         }
     }
 
@@ -149,7 +153,7 @@ impl MessageRole {
         match self {
             Self::User => "message user-message",
             Self::Assistant => "message assistant-message",
-            Self::System => "message system-message",
+            Self::System | Self::Reasoning => "message system-message",
         }
     }
 
@@ -157,7 +161,7 @@ impl MessageRole {
         match self {
             Self::User => "status-badge idle",
             Self::Assistant => "status-badge completed",
-            Self::System => "status-badge running",
+            Self::System | Self::Reasoning => "status-badge running",
         }
     }
 }

@@ -7,7 +7,8 @@ use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, js_error};
 use crate::app::replace_transcript;
 use crate::messages::{
-    append_streaming_assistant_delta, finish_streaming_assistant_message, push_message,
+    append_streaming_assistant_delta, append_streaming_reasoning_delta,
+    finish_streaming_assistant_message, finish_streaming_reasoning, push_message,
     push_tool_message, push_user_message_once, update_tool_status,
 };
 use crate::types::*;
@@ -394,6 +395,7 @@ fn update_runtime_status_and_tools(
     if event.get("TurnStarted").is_some() {
         set_streamed_this_turn.set(false);
         set_active_stream_message_id.set(None);
+        finish_streaming_reasoning(set_messages);
         set_agent_status.set("начинает".to_owned());
     } else if event.get("TaskReceived").is_some() {
         set_agent_status.set("готовит задачу".to_owned());
@@ -404,6 +406,7 @@ fn update_runtime_status_and_tools(
     } else if let Some(delta_event) = event.get("AssistantTextDelta") {
         set_agent_status.set("пишет".to_owned());
         if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
+            finish_streaming_reasoning(set_messages);
             set_streamed_this_turn.set(true);
             append_streaming_assistant_delta(
                 set_messages,
@@ -414,11 +417,20 @@ fn update_runtime_status_and_tools(
                 text,
             );
         }
-    } else if event.get("AssistantReasoningDelta").is_some() {
+    } else if let Some(reasoning_event) = event.get("AssistantReasoningDelta") {
         set_agent_status.set("думает".to_owned());
+        if let Some(text) = reasoning_event.get("text").and_then(Value::as_str) {
+            append_streaming_reasoning_delta(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                text,
+            );
+        }
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         set_agent_status.set("запускает tool".to_owned());
         set_active_stream_message_id.set(None);
+        finish_streaming_reasoning(set_messages);
         if let Some(call) = tool_event.get("call") {
             let call_id = call
                 .get("id")
@@ -506,6 +518,7 @@ fn update_runtime_status_and_tools(
             );
         }
     } else if event.get("TurnFinished").is_some() {
+        finish_streaming_reasoning(set_messages);
         set_agent_status.set("ожидает".to_owned());
     } else if event.get("Error").is_some() {
         set_agent_status.set("ошибка".to_owned());

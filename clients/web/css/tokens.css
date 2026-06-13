@@ -199,3 +199,21 @@ textarea {
         transform: rotate(360deg);
     }
 }
+
+@keyframes blink {
+    50% {
+        opacity: 0;
+    }
+}
+
+@keyframes message-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
