@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     domain::{AgentTask, ModelRef},
-    model_standard::CanonicalMessage,
+    model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +88,22 @@ impl CompactionOutput {
 }
 
 #[async_trait]
+pub trait CompactionHost: Send + Sync {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+
+    async fn complete_model(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<CanonicalModelResponse>;
+}
+
+#[async_trait]
 pub trait HistoryCompactor: Send + Sync {
-    async fn compact(&self, input: CompactionInput) -> Result<CompactionOutput>;
+    async fn compact(
+        &self,
+        input: CompactionInput,
+        host: std::sync::Arc<dyn CompactionHost>,
+    ) -> Result<CompactionOutput>;
 }

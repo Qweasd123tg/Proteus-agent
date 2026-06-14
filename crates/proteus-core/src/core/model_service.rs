@@ -85,6 +85,11 @@ impl ModelClient for ModelService {
     }
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let suppress_stream_deltas = request
+            .metadata
+            .get("suppress_stream_deltas")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let ctx = self.snapshot_context();
         let mut stream = self.stream(request).await?;
         let mut text = String::new();
@@ -100,13 +105,15 @@ impl ModelClient for ModelService {
                     return Err(anyhow!("model stream error: {message}"));
                 }
                 ModelStreamEvent::TextDelta { text: delta } => {
-                    emit_delta(
-                        &ctx,
-                        Event::AssistantTextDelta {
-                            text: delta.clone(),
-                        },
-                    )
-                    .await;
+                    if !suppress_stream_deltas {
+                        emit_delta(
+                            &ctx,
+                            Event::AssistantTextDelta {
+                                text: delta.clone(),
+                            },
+                        )
+                        .await;
+                    }
                     text.push_str(&delta);
                 }
                 ModelStreamEvent::ToolCallDelta {
@@ -115,17 +122,21 @@ impl ModelClient for ModelService {
                     ..
                 } => {
                     saw_tool_delta = true;
-                    emit_delta(
-                        &ctx,
-                        Event::AssistantToolArgsDelta {
-                            call_id,
-                            args_delta,
-                        },
-                    )
-                    .await;
+                    if !suppress_stream_deltas {
+                        emit_delta(
+                            &ctx,
+                            Event::AssistantToolArgsDelta {
+                                call_id,
+                                args_delta,
+                            },
+                        )
+                        .await;
+                    }
                 }
                 ModelStreamEvent::ReasoningSummaryDelta { text } => {
-                    emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
+                    if !suppress_stream_deltas {
+                        emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
+                    }
                 }
                 ModelStreamEvent::ToolCallFinished { .. } => {
                     saw_tool_finished = true;
@@ -295,6 +306,36 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["text", "tool", "reasoning"]);
+    }
+
+    #[tokio::test]
+    async fn request_metadata_can_suppress_stream_deltas() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![
+            ModelStreamEvent::TextDelta { text: "foo".into() },
+            ModelStreamEvent::ReasoningSummaryDelta {
+                text: "thinking".into(),
+            },
+            ModelStreamEvent::Response {
+                response: final_response(),
+            },
+        ]));
+        let service = ModelService::new(adapter);
+        let sink = Arc::new(CollectingSink::default());
+        let emitter = Arc::new(EventEmitter::new(sink.clone()));
+        service.set_event_context(DeltaEventContext {
+            emitter: Some(emitter),
+            session_id: Some(new_session_id()),
+            thread_id: Some(new_thread_id()),
+            turn_id: Some(new_turn_id()),
+        });
+
+        let request = sample_request().with_metadata(serde_json::json!({
+            "suppress_stream_deltas": true,
+        }));
+        let response = service.complete(request).await.unwrap();
+
+        assert_eq!(response.finish_reason, FinishReason::Stop);
+        assert!(sink.events.lock().await.is_empty());
     }
 
     #[tokio::test]
