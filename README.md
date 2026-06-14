@@ -38,7 +38,7 @@ plugins/
     rg-search/           — SearchBackend на ripgrep под id "rg"
     shell-tool/          — tool shell (sh -lc)
     sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
-    codex-compactor/     — HistoryCompactor под id "codex" в стиле Codex handoff summary
+    codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary + fallback
     coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
     context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
@@ -58,8 +58,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   anthropic models, `null` search fallback, `none` memory, `none` memory
   policy, `none` context, `deny_all` policy, `null` patch fallback,
   `none` compactor, `all_visible`/`dynamic` tool exposure, `none` workflow и
-  `text` renderer. Codex-style request-time compactor `codex` поставляет
-  плагин `codex-compactor`. Production workflow в core больше не встроен:
+  `text` renderer. Codex-style request-time compactor `codex` с внутренним
+  summary model call поставляет плагин `codex-compactor`. Production workflow
+  в core больше не встроен:
   `coding.single_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
   `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и

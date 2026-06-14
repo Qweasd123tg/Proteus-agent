@@ -2,9 +2,9 @@
 //!
 //! The upstream Codex compactor uses a model call to create the summary, then
 //! replaces history with recent user messages plus a prefixed handoff summary.
-//! Proteus' current `HistoryCompactor` ABI is intentionally narrower: a
-//! compactor receives only `CompactionInput` and returns `CompactionOutput`, so
-//! this plugin ports the deterministic replacement-history side of that flow.
+//! This plugin follows that shape through Proteus' narrow compactor host: it
+//! can request a model completion, but it cannot execute tools, mutate memory,
+//! or rewrite the durable session log.
 
 #![allow(non_local_definitions)]
 #![allow(non_camel_case_types)]
@@ -13,8 +13,12 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{CompactionInput, CompactionOutput},
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
-    plugin::{PluginCompactionError, PluginHistoryCompactor},
+    domain::ToolChoice,
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
+        InstructionBlock, InstructionKind, MessageRole,
+    },
+    plugin::{PluginCompactionError, PluginCompactorHostMut, PluginHistoryCompactor},
 };
 #[cfg(feature = "plugin-entrypoint")]
 use proteus_contracts::{
@@ -38,13 +42,17 @@ const SUMMARY_PREFIX: &str = "Another language model started to solve this probl
 pub struct CodexCompactorPlugin;
 
 impl PluginHistoryCompactor for CodexCompactorPlugin {
-    fn compact_json(&self, input_json: RString) -> RResult<RString, PluginCompactionError> {
+    fn compact_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginCompactorHostMut<'_>,
+    ) -> RResult<RString, PluginCompactionError> {
         let input: CompactionInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return compaction_err(error),
         };
 
-        match compact(input) {
+        match compact(input, host) {
             Ok(output) => match serde_json::to_string(&output) {
                 Ok(json) => RResult::ROk(RString::from(json)),
                 Err(error) => compaction_err(error),
@@ -54,7 +62,10 @@ impl PluginHistoryCompactor for CodexCompactorPlugin {
     }
 }
 
-fn compact(input: CompactionInput) -> Result<CompactionOutput, String> {
+fn compact(
+    input: CompactionInput,
+    host: &mut PluginCompactorHostMut<'_>,
+) -> Result<CompactionOutput, String> {
     if input.messages.is_empty() {
         return Ok(CompactionOutput::unchanged(input.messages));
     }
@@ -82,27 +93,31 @@ fn compact(input: CompactionInput) -> Result<CompactionOutput, String> {
     let user_messages = collect_user_messages(older_messages);
     let preserved_user_messages =
         select_recent_user_messages(&user_messages, user_message_budget_tokens());
-    let summary = build_summary(
-        &input,
-        older_messages,
-        &preserved_user_messages,
-        token_estimate,
-    );
-    let mut replacement = Vec::new();
-    replacement.extend(
-        preserved_user_messages
-            .into_iter()
-            .map(|message| CanonicalMessage::text(MessageRole::User, message)),
-    );
-    replacement.push(
-        CanonicalMessage::text(MessageRole::User, summary.clone()).with_metadata(json!({
-            "compactor": MODULE_ID,
-            "summary": true,
-        })),
-    );
-    replacement.extend(current_tail);
-    let output_messages = replacement.len();
-    let output_token_estimate = estimate_messages_tokens(&replacement);
+    let (mut summary, mut summary_source) = match try_model_summary(&input, older_messages, host)? {
+        Some(summary) => (summary, "model"),
+        None => (
+            build_fallback_summary(
+                &input,
+                older_messages,
+                &preserved_user_messages,
+                token_estimate,
+            ),
+            "deterministic_fallback",
+        ),
+    };
+    let mut replacement = replacement_messages(&preserved_user_messages, &summary, &current_tail);
+    let mut output_token_estimate = estimate_messages_tokens(&replacement);
+    if output_token_estimate >= token_estimate && summary_source == "model" {
+        summary = build_fallback_summary(
+            &input,
+            older_messages,
+            &preserved_user_messages,
+            token_estimate,
+        );
+        summary_source = "deterministic_fallback_after_model_too_large";
+        replacement = replacement_messages(&preserved_user_messages, &summary, &current_tail);
+        output_token_estimate = estimate_messages_tokens(&replacement);
+    }
     if output_token_estimate >= token_estimate {
         return Ok(unchanged_with_metadata(
             input.messages,
@@ -112,10 +127,12 @@ fn compact(input: CompactionInput) -> Result<CompactionOutput, String> {
         ));
     }
 
+    let output_messages = replacement.len();
     let mut output = CompactionOutput::changed(replacement, Some(summary));
     output.token_estimate = Some(output_token_estimate);
     output.metadata = json!({
         "compactor": MODULE_ID,
+        "summary_source": summary_source,
         "input_messages": input.messages.len(),
         "output_messages": output_messages,
         "original_token_estimate": token_estimate,
@@ -206,7 +223,134 @@ fn select_recent_user_messages(messages: &[String], budget_tokens: usize) -> Vec
     selected
 }
 
-fn build_summary(
+fn replacement_messages(
+    preserved_user_messages: &[String],
+    summary: &str,
+    current_tail: &[CanonicalMessage],
+) -> Vec<CanonicalMessage> {
+    let mut replacement = Vec::new();
+    replacement.extend(
+        preserved_user_messages
+            .iter()
+            .cloned()
+            .map(|message| CanonicalMessage::text(MessageRole::User, message)),
+    );
+    replacement.push(
+        CanonicalMessage::text(MessageRole::User, summary.to_owned()).with_metadata(json!({
+            "compactor": MODULE_ID,
+            "summary": true,
+        })),
+    );
+    replacement.extend(current_tail.iter().cloned());
+    replacement
+}
+
+fn try_model_summary(
+    input: &CompactionInput,
+    older_messages: &[CanonicalMessage],
+    host: &mut PluginCompactorHostMut<'_>,
+) -> Result<Option<String>, String> {
+    ensure_not_cancelled(host)?;
+    let request = model_summary_request(input, older_messages);
+    let request_json = serde_json::to_string(&request).map_err(|error| error.to_string())?;
+    let response_json = match host.complete_model_json(RString::from(request_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => {
+            if host_is_cancelled(host)? {
+                return Err(error.message.into_string());
+            }
+            return Ok(None);
+        }
+    };
+    ensure_not_cancelled(host)?;
+    let response: CanonicalModelResponse = match serde_json::from_str(response_json.as_str()) {
+        Ok(response) => response,
+        Err(_) => return Ok(None),
+    };
+    let Some(text) = message_text(&response.message) else {
+        return Ok(None);
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(summary_with_prefix(text)))
+}
+
+fn model_summary_request(
+    input: &CompactionInput,
+    older_messages: &[CanonicalMessage],
+) -> CanonicalModelRequest {
+    let mut messages = older_messages.to_vec();
+    messages.push(CanonicalMessage::text(
+        MessageRole::User,
+        model_summary_prompt(input, older_messages.len()),
+    ));
+    CanonicalModelRequest::new(input.model_ref.clone(), messages)
+        .with_instructions(vec![InstructionBlock::new(
+            InstructionKind::System,
+            "You are compressing earlier conversation history for a coding agent handoff. Summarize only; do not solve the user's task.",
+            100,
+        )])
+        .with_tool_choice(ToolChoice::None)
+        .with_metadata(json!({
+            "compactor": MODULE_ID,
+            "phase": "history_compaction",
+            "suppress_stream_deltas": true,
+        }))
+}
+
+fn model_summary_prompt(input: &CompactionInput, compacted_messages: usize) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("You are performing a CONTEXT CHECKPOINT COMPACTION.\n\n");
+    prompt.push_str("Summarize the conversation and tool state so another model can continue the same coding task without rereading all compacted messages.\n\n");
+    prompt.push_str("Return only the handoff summary body. Do not include the standard Codex prefix; the runtime will add it. Do not answer the current user task.\n\n");
+    prompt.push_str("Preserve:\n");
+    prompt.push_str("- current user goal and latest requested behavior\n");
+    prompt.push_str("- files changed or inspected, commands run, and important results\n");
+    prompt.push_str("- architectural decisions, constraints, and invariants\n");
+    prompt.push_str("- unresolved blockers, risks, and exact next steps\n");
+    prompt.push_str(
+        "- exact paths, module ids, config keys, error strings, and test names when relevant\n\n",
+    );
+    prompt.push_str("Current task:\n");
+    prompt.push_str(&input.task.text);
+    prompt.push_str("\n\n");
+    prompt.push_str(&format!("Compacted messages: {compacted_messages}\n"));
+    if let Some(reason) = input.reason.as_deref().filter(|reason| !reason.is_empty()) {
+        prompt.push_str("Compaction reason: ");
+        prompt.push_str(reason);
+        prompt.push('\n');
+    }
+    prompt
+}
+
+fn summary_with_prefix(text: &str) -> String {
+    let text = text.trim();
+    let summary = if text.starts_with(SUMMARY_PREFIX) {
+        text.to_owned()
+    } else {
+        format!("{SUMMARY_PREFIX}\n\n{text}")
+    };
+    truncate_to_tokens(&summary, summary_budget_tokens())
+}
+
+fn ensure_not_cancelled(host: &mut PluginCompactorHostMut<'_>) -> Result<(), String> {
+    if host_is_cancelled(host)? {
+        Err("turn canceled by client".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+fn host_is_cancelled(host: &mut PluginCompactorHostMut<'_>) -> Result<bool, String> {
+    match host.is_cancelled() {
+        RResult::ROk(cancelled) => Ok(cancelled),
+        RResult::RErr(error) => Err(error.message.into_string()),
+    }
+}
+
+fn build_fallback_summary(
     input: &CompactionInput,
     older_messages: &[CanonicalMessage],
     preserved_user_messages: &[String],
@@ -397,10 +541,58 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
     use proteus_contracts::{
+        abi_stable::{sabi_trait::TD_Opaque, std_types::RString},
         domain::AgentTask,
-        model_standard::{CanonicalMessage, MessageRole},
+        model_standard::{CanonicalMessage, FinishReason, MessageRole},
+        plugin::{PluginCompactorHost, PluginCompactorHost_TO},
     };
+
+    #[derive(Default)]
+    struct TestHost {
+        response_text: Option<String>,
+        cancelled: bool,
+        requests: Mutex<Vec<CanonicalModelRequest>>,
+    }
+
+    impl TestHost {
+        fn unavailable() -> Self {
+            Self::default()
+        }
+
+        fn with_response(text: impl Into<String>) -> Self {
+            Self {
+                response_text: Some(text.into()),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl PluginCompactorHost for TestHost {
+        fn is_cancelled(&self) -> RResult<bool, PluginCompactionError> {
+            RResult::ROk(self.cancelled)
+        }
+
+        fn complete_model_json(
+            &self,
+            request_json: RString,
+        ) -> RResult<RString, PluginCompactionError> {
+            let request: CanonicalModelRequest =
+                serde_json::from_str(request_json.as_str()).expect("model request json");
+            self.requests.lock().unwrap().push(request);
+            let Some(response_text) = self.response_text.as_deref() else {
+                return RResult::RErr(PluginCompactionError::new("model unavailable"));
+            };
+            let response = CanonicalModelResponse::new(
+                CanonicalMessage::text(MessageRole::Assistant, response_text),
+                Vec::new(),
+                FinishReason::Stop,
+            );
+            RResult::ROk(RString::from(serde_json::to_string(&response).unwrap()))
+        }
+    }
 
     fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> CompactionInput {
         CompactionInput::new(
@@ -413,10 +605,17 @@ mod tests {
         .with_reason("test")
     }
 
+    fn compact_with_host(input: CompactionInput, host: &mut TestHost) -> CompactionOutput {
+        let mut host_to: PluginCompactorHostMut<'_> =
+            PluginCompactorHost_TO::from_ptr(host, TD_Opaque);
+        compact(input, &mut host_to).unwrap()
+    }
+
     #[test]
     fn leaves_short_history_unchanged() {
         let messages = vec![CanonicalMessage::text(MessageRole::User, "hello")];
-        let output = compact(input(messages.clone(), 10)).unwrap();
+        let mut host = TestHost::unavailable();
+        let output = compact_with_host(input(messages.clone(), 10), &mut host);
         assert!(!output.changed);
         assert_eq!(output.messages, messages);
     }
@@ -430,7 +629,8 @@ mod tests {
             CanonicalMessage::text(MessageRole::User, "current context").with_name("context"),
         ];
 
-        let output = compact(input(messages, 500)).unwrap();
+        let mut host = TestHost::unavailable();
+        let output = compact_with_host(input(messages, 500), &mut host);
 
         assert!(output.changed);
         assert!(output.messages[0].parts.iter().any(|part| matches!(
@@ -463,7 +663,8 @@ mod tests {
             CanonicalMessage::text(MessageRole::User, "current request"),
         ];
 
-        let output = compact(input(messages, 500)).unwrap();
+        let mut host = TestHost::unavailable();
+        let output = compact_with_host(input(messages, 500), &mut host);
         let joined = output
             .messages
             .iter()
@@ -492,7 +693,8 @@ mod tests {
         )];
         let token_estimate = estimate_messages_tokens(&messages);
 
-        let output = compact(input(messages.clone(), token_estimate)).unwrap();
+        let mut host = TestHost::unavailable();
+        let output = compact_with_host(input(messages.clone(), token_estimate), &mut host);
 
         assert!(!output.changed);
         assert_eq!(output.messages, messages);
@@ -500,5 +702,34 @@ mod tests {
             output.metadata["skipped_reason"],
             "no_older_history_to_compact"
         );
+    }
+
+    #[test]
+    fn uses_model_summary_when_host_returns_text() {
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "older request"),
+            CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
+            CanonicalMessage::text(MessageRole::User, "current request"),
+        ];
+        let mut host =
+            TestHost::with_response("Model summary with /repo/src/lib.rs and next step.");
+
+        let output = compact_with_host(input(messages, 500), &mut host);
+
+        assert!(output.changed);
+        assert_eq!(output.metadata["summary_source"], "model");
+        let summary = output.summary.as_deref().unwrap();
+        assert!(summary.starts_with(SUMMARY_PREFIX), "{summary}");
+        assert!(
+            summary.contains("Model summary with /repo/src/lib.rs"),
+            "{summary}"
+        );
+        let requests = host.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].tools.is_empty());
+        assert_eq!(requests[0].tool_choice, ToolChoice::None);
+        assert_eq!(requests[0].model.model, "fake");
+        assert_eq!(requests[0].metadata["suppress_stream_deltas"], true);
+        assert!(requests[0].messages.len() >= 3);
     }
 }

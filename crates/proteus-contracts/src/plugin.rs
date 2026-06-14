@@ -438,7 +438,25 @@ pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<
 /// durable session log through this contract.
 #[sabi_trait]
 pub trait PluginHistoryCompactor: Send + Sync + 'static {
-    fn compact_json(&self, input_json: RString) -> RResult<RString, PluginCompactionError>;
+    fn compact_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginCompactorHostMut<'_>,
+    ) -> RResult<RString, PluginCompactionError>;
+}
+
+/// Host capabilities exposed to compactor plugins.
+///
+/// A compactor may ask the runtime model to summarize history, but it does not
+/// receive tool, memory, policy, or session mutation capabilities.
+#[sabi_trait]
+pub trait PluginCompactorHost: Send + Sync {
+    fn is_cancelled(&self) -> RResult<bool, PluginCompactionError>;
+
+    /// Input JSON: `CanonicalModelRequest`. Output JSON:
+    /// `CanonicalModelResponse`.
+    fn complete_model_json(&self, request_json: RString)
+    -> RResult<RString, PluginCompactionError>;
 }
 
 #[repr(C)]
@@ -465,6 +483,8 @@ impl std::fmt::Display for PluginCompactionError {
 impl std::error::Error for PluginCompactionError {}
 
 pub type CompactorObject = PluginHistoryCompactor_TO<abi_stable::std_types::RBox<()>>;
+pub type PluginCompactorHostMut<'a> =
+    PluginCompactorHost_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
 
 /// Sync ABI for tool exposure/search plugins.
 ///

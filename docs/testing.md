@@ -56,9 +56,10 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 `apply_patch` в активный `PatchApplier`.
 
 Codex-style request-time compactor `modules.compactor = "codex"` покрывается
-unit-тестами в `plugins/default/codex-compactor/src/lib.rs`; core integration
-проверяет только, что compactor выбирается через обычный slot и не требует
-изменений runtime.
+unit-тестами в `plugins/default/codex-compactor/src/lib.rs`: model-backed
+summary path, deterministic fallback, фильтрация generated user messages и
+случай, где replacement не сокращает историю. Core adapter тестирует ABI bridge
+для compactor host, включая `complete_model_json`.
 
 ## DTO И Builder-Паттерн
 

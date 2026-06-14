@@ -146,9 +146,12 @@ MCP-сервера в ToolRegistry.
   ContextBundle`. Это capability-based ABI: builder-плагин может вызывать host
   API (`search`, `recall_memory`, `context_provider`) и сам решает budget,
   порядок chunks и orchestration.
-- **compactor** - `PluginHistoryCompactor::compact_json(input_json) ->
+- **compactor** - `PluginHistoryCompactor::compact_json(input_json, host) ->
   CompactionOutput`. Это request-time history compaction: плагин возвращает
-  сообщения для model call, но не переписывает durable session history.
+  сообщения для model call, но не переписывает durable session history. Host
+  даёт только `is_cancelled` и `complete_model_json`, чтобы compactor мог
+  сделать внутренний summary model call без доступа к tools, policy, memory или
+  session mutation.
 - **tool_exposure** - `PluginToolExposure::select_json(input_json) ->
   ToolExposureOutput`. Ядро передаёт только policy-visible candidates, а
   плагин выбирает subset для model request.

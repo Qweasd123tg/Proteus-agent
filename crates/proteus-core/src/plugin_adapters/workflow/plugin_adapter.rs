@@ -28,6 +28,7 @@ use crate::{
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
+    plugin_adapters::compactor::RuntimeCompactionHost,
 };
 
 pub struct PluginWorkflowAdapter {
@@ -178,7 +179,10 @@ impl PluginWorkflowHost for WorkflowHost {
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
         let ctx = self.ctx.clone();
-        self.block_on_json(async move { ctx.compactor.compact(input).await })
+        self.block_on_json(async move {
+            let host = Arc::new(RuntimeCompactionHost::new(ctx.clone()));
+            ctx.compactor.compact(input, host).await
+        })
     }
 
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError> {

@@ -283,6 +283,9 @@ model-facing messages текущего запроса, не session history.
 plugin pack. Он срабатывает только после threshold-а
 `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS` (default `32000`) и формирует
 Codex-style handoff summary плюс bounded набор последних user-сообщений.
+Summary сначала генерируется внутренним model call на том же `model_ref`, без
+tools и без streaming deltas в UI; при ошибке model call плагин использует
+deterministic fallback.
 Дополнительные env-настройки: `PROTEUS_CODEX_COMPACTOR_USER_MESSAGE_TOKENS`
 (default `20000`) и `PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS`
 (default `4000`).
