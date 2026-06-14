@@ -55,6 +55,11 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 `plugins/default/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
 `apply_patch` в активный `PatchApplier`.
 
+Codex-style request-time compactor `modules.compactor = "codex"` покрывается
+unit-тестами в `plugins/default/codex-compactor/src/lib.rs`; core integration
+проверяет только, что compactor выбирается через обычный slot и не требует
+изменений runtime.
+
 ## DTO И Builder-Паттерн
 
 Массовые DTO помечены `#[non_exhaustive]` и конструируются через builder:

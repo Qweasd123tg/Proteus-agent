@@ -8,6 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use codex_compactor::CodexCompactorPlugin;
 use coding_workflow::{CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow};
 use context_pack::{RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin};
 use futures_util::stream;
@@ -20,8 +21,9 @@ use proteus_contracts::{
     },
     plugin::{
         ContextProviderObject, PluginApprovalPolicy_TO, PluginContextBuilder_TO,
-        PluginContextError, PluginContextProvider, PluginContextProvider_TO, PluginMemoryPolicy_TO,
-        PluginMemoryStore_TO, PluginWorkflow_TO, WorkflowObject,
+        PluginContextError, PluginContextProvider, PluginContextProvider_TO,
+        PluginHistoryCompactor_TO, PluginMemoryPolicy_TO, PluginMemoryStore_TO, PluginWorkflow_TO,
+        WorkflowObject,
     },
 };
 use proteus_core::{
@@ -195,6 +197,12 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginMemoryPolicy_TO::from_value(CarryForwardMemoryPolicyPlugin, TD_Opaque),
         )
         .expect("register test carry_forward memory policy");
+    catalog
+        .register_plugin_compactor(
+            "codex",
+            PluginHistoryCompactor_TO::from_value(CodexCompactorPlugin, TD_Opaque),
+        )
+        .expect("register test codex compactor");
     catalog
         .register_plugin_policy(
             "allow_all",
@@ -453,6 +461,19 @@ async fn swapping_context_builder_does_not_change_runtime() {
         set_repo_aware_config(&mut config, json!({ "providers": ["repo_tree"] }));
 
         let (output, events) = run_with(config, "summarize context").await;
+
+        assert!(output.contains("Fake final answer"));
+        assert!(events.events().await.len() >= 5);
+    }
+}
+
+#[tokio::test]
+async fn swapping_compactor_does_not_change_runtime() {
+    for compactor in ["none", "codex"] {
+        let mut config = test_config();
+        config.modules.compactor = compactor.to_owned();
+
+        let (output, events) = run_with(config, "summarize compacted context").await;
 
         assert!(output.contains("Fake final answer"));
         assert!(events.events().await.len() >= 5);
@@ -2474,6 +2495,7 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
     assert_eq!(config.modules.workflow, "coding.single_loop");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.context, "repo_aware");
+    assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.tools.enabled, coding_profile_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 
@@ -2515,6 +2537,7 @@ async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
     assert_eq!(config.modules.context, "repo_aware");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.tool_exposure, "dynamic");
+    assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.memory, "none");
     assert_eq!(config.modules.memory_policy, "none");
     assert_eq!(config.tools.enabled, dev_slim_tool_names());

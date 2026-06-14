@@ -270,6 +270,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "codex-compactor"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "proteus-contracts",
+ "serde_json",
+]
+
+[[package]]
 name = "coding-workflow"
 version = "0.1.0"
 dependencies = [
@@ -1141,6 +1150,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "clap",
+ "codex-compactor",
  "coding-workflow",
  "context-pack",
  "eventsource-stream",

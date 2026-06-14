@@ -176,8 +176,8 @@ Scope:
   `register_tool`, `register_approval_policy`, `register_patch_applier`,
   `register_search_backend`, `register_memory_store`; реальные плагины
   (`file-tools`, `git-tools`, `sqlite-memory`, `rg-search`, `direct-patch`,
-  `coding-workflow`, `context-pack`, `memory-pack`, `policy-pack`,
-  `renderer-pack`); политика дубликатов; `plugin.toml` manifest (видимость
+  `coding-workflow`, `context-pack`, `codex-compactor`, `memory-pack`,
+  `policy-pack`, `renderer-pack`); политика дубликатов; `plugin.toml` manifest (видимость
   плагина в `modules list` даже при ошибке загрузки); `modules list`
   показывает блок Plugins со статусом загрузки.
 - ✅ Model streaming — OpenAI и Anthropic адаптеры парсят SSE при
@@ -201,6 +201,7 @@ Scope:
   `direct-patch`, baseline/staged workflows вынесены как plugin ids
   `coding.single_loop` и `coding.plan_execute_review` в `coding-workflow`.
   Context builders `simple` и `repo_aware` вынесены в `context-pack`,
+  Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
   `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
   `allow_all`/`ask_write` вынесены в `policy-pack`, `plain`/`statusline`
   вынесены в `renderer-pack`.
