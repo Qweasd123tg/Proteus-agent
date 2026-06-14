@@ -15,11 +15,12 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p direct-patch \
   -p coding-workflow \
   -p context-pack \
+  -p codex-compactor \
   -p memory-pack \
   -p policy-pack \
   -p renderer-pack \
   -p sqlite-memory \
-  --features context-pack/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+  --features context-pack/plugin-entrypoint,codex-compactor/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
@@ -207,7 +208,7 @@ install_plugin() {
   fi
 }
 
-for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack memory-pack policy-pack renderer-pack sqlite-memory; do
+for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack codex-compactor memory-pack policy-pack renderer-pack sqlite-memory; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
 

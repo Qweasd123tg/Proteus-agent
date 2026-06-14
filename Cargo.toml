@@ -15,6 +15,7 @@ members = [
     "plugins/default/direct-patch",
     "plugins/default/coding-workflow",
     "plugins/default/context-pack",
+    "plugins/default/codex-compactor",
     "plugins/default/memory-pack",
     "plugins/default/policy-pack",
     "plugins/default/renderer-pack",

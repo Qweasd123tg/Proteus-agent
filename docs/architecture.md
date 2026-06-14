@@ -316,7 +316,7 @@ task
 
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`. `model` пока регистрируется только как builtin. Package manager, marketplace, dylib unload и общий `reload_modules` не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop` и `coding.plan_execute_review`, `context-pack` регистрирует `simple` и `repo_aware`, `codex-compactor` регистрирует `codex`. `model` пока регистрируется только как builtin. Package manager, marketplace, dylib unload и общий `reload_modules` не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors, MCP

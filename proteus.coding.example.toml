@@ -14,7 +14,7 @@ context = "repo_aware"
 policy = "ask_write"
 # Provided by the direct-patch plugin installed by ./install.sh.
 patch = "direct"
-compactor = "none"
+compactor = "codex"
 tool_exposure = "all_visible"
 renderer = "statusline"
 

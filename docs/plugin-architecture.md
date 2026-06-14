@@ -256,7 +256,9 @@ proteus-core/              # root workspace
         ...
 ```
 
-Каждый плагин - отдельный Cargo project, depends только на `proteus-contracts`.
+Каждый плагин - отдельный Cargo project, который не зависит от `proteus-core`;
+contract boundary задаёт `proteus-contracts`, а ABI glue может использовать
+`abi_stable`.
 
 Миграция на standalone repositories для плагинов произойдёт, когда появятся внешние (не собственные) плагины.
 
@@ -344,7 +346,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, declarative `memory_policy`, `compactor`,
   `tool_exposure` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`), `codex-compactor` (register_compactor id `codex`).
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
@@ -372,8 +374,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   какие вопросы/options нужны, а клиент только рендерит generic selector и
   возвращает ответы следующим turn'ом.
 - ✅ `compactor` добавлен как plugin ABI и host capability для workflow.
-  Core fallback `none` ничего не меняет; плагинная реализация может делать
-  summary/sliding-window/token-budget compaction без изменения session log.
+  Core fallback `none` ничего не меняет; `codex-compactor` даёт Codex-style
+  handoff-summary/sliding-window compaction без изменения session log.
 - ✅ `tool_exposure` добавлен как plugin ABI и host capability для workflow.
   Core fallback `all_visible` сохраняет старое поведение; плагинная реализация
   может искать и ранжировать большой tool catalog после policy visibility.

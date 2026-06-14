@@ -36,7 +36,7 @@
     "context": "simple",
     "policy": "ask_write",
     "patch": "null",
-    "compactor": "none",
+    "compactor": "codex",
     "tool_exposure": "all_visible",
     "renderer": "statusline"
   },

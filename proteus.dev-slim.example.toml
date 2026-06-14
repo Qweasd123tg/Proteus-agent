@@ -13,7 +13,7 @@ memory_policy = "none"
 context = "repo_aware"
 policy = "ask_write"
 patch = "direct"
-compactor = "none"
+compactor = "codex"
 tool_exposure = "dynamic"
 renderer = "statusline"
 

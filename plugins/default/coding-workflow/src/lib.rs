@@ -389,18 +389,15 @@ fn run_plan_execute_review(
         }
     }
 
-    let mut review_request =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), model_messages.clone())
-            .with_instructions(vec![
-                InstructionBlock::new(InstructionKind::System, PLAN_SYSTEM_INSTRUCTIONS, 100),
-                InstructionBlock::new(
-                    InstructionKind::Developer,
-                    REVIEW_DEVELOPER_INSTRUCTIONS,
-                    90,
-                ),
-            ])
-            .with_tool_choice(ToolChoice::None)
-            .with_reasoning(input.runtime.reasoning.clone());
+    let mut review_request = request_from_state(
+        &input,
+        host,
+        &model_messages,
+        PLAN_SYSTEM_INSTRUCTIONS,
+        Some(REVIEW_DEVELOPER_INSTRUCTIONS),
+        "review",
+    )?
+    .with_tool_choice(ToolChoice::None);
     review_request.tools.clear();
     emit_event(
         host,
@@ -1052,6 +1049,7 @@ mod tests {
         visible_tools: Mutex<Vec<ToolSpec>>,
         selected_tools: Mutex<Vec<ToolSpec>>,
         executed_calls: Mutex<Vec<ToolCall>>,
+        compactions: Mutex<Vec<CompactionInput>>,
     }
 
     impl FakeHost {
@@ -1063,6 +1061,7 @@ mod tests {
                 visible_tools: Mutex::new(Vec::new()),
                 selected_tools: Mutex::new(Vec::new()),
                 executed_calls: Mutex::new(Vec::new()),
+                compactions: Mutex::new(Vec::new()),
             }
         }
 
@@ -1127,6 +1126,10 @@ mod tests {
         ) -> RResult<RString, PluginWorkflowHostError> {
             let input: CompactionInput =
                 serde_json::from_str(input_json.as_str()).expect("compaction input json");
+            self.compactions
+                .lock()
+                .expect("compactions")
+                .push(input.clone());
             let output = proteus_contracts::contracts::CompactionOutput::unchanged(input.messages);
             RResult::ROk(RString::from(
                 serde_json::to_string(&output).expect("compaction output json"),
@@ -1595,5 +1598,18 @@ mod tests {
         );
         assert_eq!(requests[2].tool_choice, ToolChoice::None);
         assert_eq!(requests[2].tools.len(), 0);
+
+        let compactions = host.compactions.lock().expect("compactions");
+        assert_eq!(compactions.len(), 3);
+        assert_eq!(
+            compactions[2].reason.as_deref(),
+            Some("before_model_request")
+        );
+        assert!(
+            compactions[2]
+                .messages
+                .iter()
+                .any(|message| message_text(message) == "draft")
+        );
     }
 }

@@ -23,10 +23,12 @@ clients/
 plugins/
     default/             - стандартный набор плагинов и ABI-примеры
         file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
+        git-tools/           - read-only git_status/git_diff tool-плагин
         shell-tool/          - tool shell (sh -lc)
         rg-search/           - SearchBackend на ripgrep под id "rg"
         direct-patch/        - PatchApplier internal patch format под id "direct"
         sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
+        codex-compactor/     - HistoryCompactor под id "codex"
         coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
@@ -34,7 +36,7 @@ plugins/
         renderer-pack/       - Renderer плагины "plain" и "statusline"
 ```
 
-Плагины живут в `~/.proteus/plugins/` и зависят только от `proteus-contracts` (ABI через `abi_stable`). Детали — `docs/plugin-architecture.md`.
+Плагины живут в `~/.proteus/plugins/` и не зависят от `proteus-core`; граница проходит через `proteus-contracts` и ABI glue на `abi_stable`. Детали — `docs/plugin-architecture.md`.
 
 ## Что Нельзя Ломать
 
