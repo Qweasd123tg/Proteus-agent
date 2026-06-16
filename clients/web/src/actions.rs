@@ -2,7 +2,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::post_json;
-use crate::messages::{push_assistant_message_once, push_message, push_user_message_once, report_error};
+use crate::messages::{
+    push_assistant_message_once, push_message, push_user_message_once, report_error,
+};
 use crate::types::*;
 use crate::ui_utils::output_text;
 
@@ -259,8 +261,7 @@ impl AppActions {
                     {
                         let assistant_arrived = self.messages.with(|items| {
                             items.iter().any(|message| {
-                                message.id > message_floor
-                                    && message.role == MessageRole::Assistant
+                                message.id > message_floor && message.role == MessageRole::Assistant
                             })
                         });
                         if !assistant_arrived {

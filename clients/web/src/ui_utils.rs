@@ -39,7 +39,10 @@ pub(crate) fn relative_time_from_now(timestamp_ms: Option<u64>) -> String {
     if elapsed_seconds < 60 {
         "сейчас".to_owned()
     } else if elapsed_seconds < 60 * 60 {
-        format!("{} назад", ru_count(elapsed_seconds / 60, "минуту", "минуты", "минут"))
+        format!(
+            "{} назад",
+            ru_count(elapsed_seconds / 60, "минуту", "минуты", "минут")
+        )
     } else if elapsed_seconds < 60 * 60 * 24 {
         format!(
             "{} назад",
@@ -53,7 +56,12 @@ pub(crate) fn relative_time_from_now(timestamp_ms: Option<u64>) -> String {
     } else if elapsed_seconds < 60 * 60 * 24 * 365 {
         format!(
             "{} назад",
-            ru_count(elapsed_seconds / 60 / 60 / 24 / 30, "месяц", "месяца", "месяцев")
+            ru_count(
+                elapsed_seconds / 60 / 60 / 24 / 30,
+                "месяц",
+                "месяца",
+                "месяцев"
+            )
         )
     } else {
         format!(

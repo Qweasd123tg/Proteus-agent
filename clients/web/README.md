@@ -44,8 +44,9 @@ transcript с question tabs, choices и свободным `Other`.
 
 Config/architecture UI вынесен в отдельный web-клиент
 [`../inspector`](../inspector), который по умолчанию запускается на порту
-`1421`. Чатовый клиент оставляет только ежедневный runtime loop и ссылку на
-Inspector.
+`1421`. Wrapper после `./install.sh` поднимает его вместе с chat-клиентом
+(`PROTEUS_INSPECTOR=0` отключает), а чатовый клиент оставляет только
+ежедневный runtime loop и ссылку на Inspector.
 
 Dogfood запуск предполагает локальный app-server на `127.0.0.1`. HTTP boundary
 по умолчанию не требует local session token для loopback dogfood и ограничивает
@@ -72,7 +73,7 @@ cargo run --bin proteus -- server http \
 
 ```bash
 cd clients/web
-trunk serve
+env -u NO_COLOR trunk serve
 ```
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.

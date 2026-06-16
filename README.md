@@ -177,14 +177,14 @@ cargo run --bin proteus -- server http \
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
 cd clients/web
-trunk serve
+env -u NO_COLOR trunk serve
 ```
 
-Для config/architecture UI запустите отдельный web-клиент:
+Для ручного запуска config/architecture UI запустите отдельный web-клиент:
 
 ```bash
 cd clients/inspector
-trunk serve
+env -u NO_COLOR trunk serve
 ```
 
 После `./install.sh` короткий локальный запуск доступен из любой папки проекта:
@@ -194,10 +194,11 @@ proteus
 ```
 
 Wrapper использует текущую директорию как workspace, поднимает app-server на
-`http://127.0.0.1:8787` и chat-клиент на `http://127.0.0.1:1420`. Inspector
-запускается отдельно на `http://127.0.0.1:1421`, когда нужны config или
-architecture экраны. Локальный dogfood по умолчанию не требует session token:
-можно открыть `http://127.0.0.1:1420/` напрямую. Если нужен строгий
+`http://127.0.0.1:8787`, chat-клиент на `http://127.0.0.1:1420` и Inspector
+для config/architecture экранов на `http://127.0.0.1:1421`. Если Inspector не
+нужен, задайте `PROTEUS_INSPECTOR=0`; порт можно поменять через
+`PROTEUS_INSPECTOR_PORT`. Локальный dogfood по умолчанию не требует session
+token: можно открыть `http://127.0.0.1:1420/` напрямую. Если нужен строгий
 token-режим, задайте
 `PROTEUS_SESSION_TOKEN`; wrapper откроет browser с `?session=<token>`, а
 web-клиент будет использовать query token для `EventSource` и header
@@ -208,7 +209,8 @@ web-клиент будет использовать query token для `EventSo
 app-server не разъезжались по protocol endpoints. Если на `8787` висит старый
 `proteus server http`, wrapper закрывает его перед стартом нового workspace;
 если на `1420` висит старый `trunk serve`, закрывает и его. Для чужого
-процесса используйте `PROTEUS_APP_PORT=<port>` или `PROTEUS_WEB_PORT=<port>`.
+процесса используйте `PROTEUS_APP_PORT=<port>`, `PROTEUS_WEB_PORT=<port>` или
+`PROTEUS_INSPECTOR_PORT=<port>`.
 
 Leptos chat-клиент живёт в `clients/web` и уже работает как HTTP/SSE client
 поверх app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,

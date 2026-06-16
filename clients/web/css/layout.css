@@ -364,7 +364,8 @@ button.session-item.active {
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-6) var(--space-4) var(--space-4);
+    padding: var(--space-6) var(--space-4) var(--space-8);
+    scroll-padding-bottom: var(--space-8);
 }
 
 .results-panel.sticky-bottom {
@@ -389,7 +390,7 @@ button.session-item.active {
     max-width: var(--chat-max-width);
     margin: 0 auto;
     background: transparent;
-    padding: var(--space-2) var(--space-4) var(--space-4);
+    padding: var(--space-2) var(--space-4) var(--space-3);
 }
 
 .composer-resize-handle {
@@ -459,6 +460,7 @@ button.session-item.active {
 
 .composer-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
@@ -477,6 +479,7 @@ button.session-item.active {
 
 .composer-meta {
     flex: 1 1 auto;
+    min-width: 160px;
     overflow: hidden;
     color: var(--text-faint);
     font-family: var(--font-mono);
@@ -502,14 +505,15 @@ button.session-item.active {
 }
 
 .composer-buttons {
-    flex: 0 0 auto;
+    flex: 1 1 360px;
+    flex-wrap: wrap;
     justify-content: flex-end;
 }
 
 .composer-menu {
     position: relative;
-    flex: 0 0 auto;
-    min-width: 0;
+    flex: 1 1 180px;
+    min-width: 140px;
     max-width: 260px;
 }
 
@@ -663,6 +667,7 @@ button.session-item.active {
 
 .composer-buttons button,
 .composer-actions > button {
+    flex: 0 0 auto;
     min-height: 32px;
     border-radius: var(--radius-chip);
     padding: 0 var(--space-3);

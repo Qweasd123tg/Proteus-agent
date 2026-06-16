@@ -540,10 +540,8 @@ where
 }
 
 #[component]
-fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
+fn ToolActivityCard(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
-    let args = tool.args_preview.clone();
-    let result = tool.result_preview.clone();
     view! {
         <article class="tool-card">
             <button
@@ -552,19 +550,29 @@ fn ToolActivityCard(tool: ToolActivity) -> impl IntoView {
                 title="Показать детали tool"
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                <span class=tool.status.badge_class()>
-                    <span class=if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) { "spinner-dot" } else { "dot" }></span>
-                    {tool.status.label()}
+                <span class=move || current_tool(messages, message_id).map(|tool| tool.status.badge_class()).unwrap_or("status-badge idle")>
+                    <span class=move || {
+                        current_tool(messages, message_id)
+                            .map(|tool| {
+                                if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) {
+                                    "spinner-dot"
+                                } else {
+                                    "dot"
+                                }
+                            })
+                            .unwrap_or("dot")
+                    }></span>
+                    {move || current_tool(messages, message_id).map(|tool| tool.status.label()).unwrap_or("tool")}
                 </span>
-                <strong>{tool.name}</strong>
-                <code>{short_id(&tool.call_id).to_owned()}</code>
+                <strong>{move || current_tool(messages, message_id).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
+                <code>{move || current_tool(messages, message_id).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
             </button>
             {move || {
                 if expanded.get() {
                     view! {
                         <div class="tool-card-details">
-                            <pre>{args.clone()}</pre>
-                            {if let Some(result) = result.clone() {
+                            <pre>{move || current_tool(messages, message_id).map(|tool| tool.args_preview).unwrap_or_default()}</pre>
+                            {move || if let Some(result) = current_tool(messages, message_id).and_then(|tool| tool.result_preview) {
                                 view! { <pre>{result}</pre> }.into_any()
                             } else {
                                 view! { <></> }.into_any()
@@ -594,42 +602,38 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn MessageView(message: Message) -> impl IntoView {
-    if message.tool.is_some() {
-        let tool = message.tool.expect("checked above");
-        let card_class = tool_turn_card_class(tool.status);
+pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl IntoView {
+    let Some(initial_message) = current_message(messages, message_id) else {
+        return view! { <></> }.into_any();
+    };
+
+    if initial_message.tool.is_some() {
         return view! {
-            <article class=card_class>
-                <ToolActivityCard tool />
+            <article class=move || {
+                current_tool(messages, message_id)
+                    .map(|tool| tool_turn_card_class(tool.status))
+                    .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
+            }>
+                <ToolActivityCard message_id messages />
             </article>
         }
         .into_any();
     }
 
-    if message.role == MessageRole::User {
-        return user_message_view(message);
+    if initial_message.role == MessageRole::User {
+        return user_message_view(message_id, messages);
     }
 
-    if message.role == MessageRole::Reasoning {
-        return reasoning_message_view(message);
+    if initial_message.role == MessageRole::Reasoning {
+        return reasoning_message_view(message_id, messages);
     }
 
-    let role_label = message.role.label();
-    let message_class = message.role.message_class();
-    let turn_class = match message.role {
+    let turn_class = match initial_message.role {
         MessageRole::Assistant => "task-card assistant-turn role-assistant",
         MessageRole::System => "task-card assistant-turn role-system",
         MessageRole::User | MessageRole::Reasoning => "task-card assistant-turn",
     };
-    let text = message.text.clone();
-    let html = markdown_html(&text);
-    let content_class = if message.streaming {
-        format!("{message_class} streaming-message")
-    } else {
-        message_class.to_owned()
-    };
     let (collapsed, set_collapsed) = signal(false);
-    let copy_text = text.clone();
     let toggle_title = move || {
         if collapsed.get() {
             "Развернуть"
@@ -640,13 +644,13 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
     view! {
         <article class=turn_class>
             <div class="task-card-header">
-                <span class="assistant-role">{role_label}</span>
+                <span class="assistant-role">{move || current_message(messages, message_id).map(|message| message.role.label()).unwrap_or("Сообщение")}</span>
                 <div class="message-actions">
                     <button
                         type="button"
                         class="icon-button"
                         title="Скопировать markdown"
-                        on:click=move |_| copy_to_clipboard(copy_text.clone())
+                        on:click=move |_| copy_to_clipboard(current_message_text(messages, message_id))
                     >
                         "Копировать"
                     </button>
@@ -669,7 +673,10 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
                     }.into_any()
                 } else {
                     view! {
-                        <div class=content_class.clone() inner_html=html.clone()></div>
+                        <div
+                            class=move || current_message_content_class(messages, message_id)
+                            inner_html=move || current_message_html(messages, message_id)
+                        ></div>
                     }.into_any()
                 }
             }}
@@ -680,9 +687,7 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
 
 /// Запрос пользователя: правый «пузырь», без тяжёлой шапки роли; copy
 /// появляется по наведению (стиль в CSS).
-fn user_message_view(message: Message) -> AnyView {
-    let html = markdown_html(&message.text);
-    let copy_text = message.text.clone();
+fn user_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> AnyView {
     view! {
         <article class="user-turn">
             <div class="user-bubble">
@@ -690,11 +695,11 @@ fn user_message_view(message: Message) -> AnyView {
                     type="button"
                     class="icon-button user-copy"
                     title="Скопировать"
-                    on:click=move |_| copy_to_clipboard(copy_text.clone())
+                    on:click=move |_| copy_to_clipboard(current_message_text(messages, message_id))
                 >
                     "Копировать"
                 </button>
-                <div class="message user-message" inner_html=html></div>
+                <div class="message user-message" inner_html=move || current_message_html(messages, message_id)></div>
             </div>
         </article>
     }
@@ -703,10 +708,18 @@ fn user_message_view(message: Message) -> AnyView {
 
 /// Reasoning-поток: пока стримится — развёрнут, после завершения сворачивается
 /// в строку-переключатель «Размышления».
-fn reasoning_message_view(message: Message) -> AnyView {
-    let streaming = message.streaming;
-    let html = markdown_html(&message.text);
+fn reasoning_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> AnyView {
+    let streaming = current_message(messages, message_id).is_some_and(|message| message.streaming);
     let (expanded, set_expanded) = signal(streaming);
+    let (last_streaming, set_last_streaming) = signal(streaming);
+    Effect::new(move |_| {
+        let streaming =
+            current_message(messages, message_id).is_some_and(|message| message.streaming);
+        if last_streaming.get() && !streaming {
+            set_expanded.set(false);
+        }
+        set_last_streaming.set(streaming);
+    });
     view! {
         <article class="task-card running agent-turn-item reasoning-turn">
             <button
@@ -715,16 +728,18 @@ fn reasoning_message_view(message: Message) -> AnyView {
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
                 <span class=move || {
-                    if streaming {
+                    if current_message(messages, message_id).is_some_and(|message| message.streaming) {
                         "status-badge running"
                     } else {
                         "status-badge idle"
                     }
                 }>
-                    {if streaming {
-                        view! { <span class="spinner-dot"></span> }.into_any()
-                    } else {
-                        view! { <span class="dot"></span> }.into_any()
+                    {move || {
+                        if current_message(messages, message_id).is_some_and(|message| message.streaming) {
+                            view! { <span class="spinner-dot"></span> }.into_any()
+                        } else {
+                            view! { <span class="dot"></span> }.into_any()
+                        }
                     }}
                     "Размышления"
                 </span>
@@ -735,7 +750,7 @@ fn reasoning_message_view(message: Message) -> AnyView {
             {move || {
                 if expanded.get() {
                     view! {
-                        <div class="message reasoning-message" inner_html=html.clone()></div>
+                        <div class="message reasoning-message" inner_html=move || current_message_html(messages, message_id)></div>
                     }.into_any()
                 } else {
                     view! { <></> }.into_any()
@@ -744,6 +759,42 @@ fn reasoning_message_view(message: Message) -> AnyView {
         </article>
     }
     .into_any()
+}
+
+fn current_message(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<Message> {
+    messages.with(|items| {
+        items
+            .iter()
+            .find(|message| message.id == message_id)
+            .cloned()
+    })
+}
+
+fn current_tool(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<ToolActivity> {
+    current_message(messages, message_id).and_then(|message| message.tool)
+}
+
+fn current_message_text(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
+    current_message(messages, message_id)
+        .map(|message| message.text)
+        .unwrap_or_default()
+}
+
+fn current_message_html(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
+    markdown_html(&current_message_text(messages, message_id))
+}
+
+fn current_message_content_class(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
+    current_message(messages, message_id)
+        .map(|message| {
+            let message_class = message.role.message_class();
+            if message.streaming {
+                format!("{message_class} streaming-message")
+            } else {
+                message_class.to_owned()
+            }
+        })
+        .unwrap_or_else(|| "message system-message".to_owned())
 }
 
 fn tool_turn_card_class(status: ToolActivityStatus) -> String {

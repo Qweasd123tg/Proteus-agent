@@ -250,12 +250,7 @@ fn handle_app_event(
         AppServerEvent::UserMessageSubmitted { text } => {
             set_streamed_this_turn.set(false);
             set_active_stream_message_id.set(None);
-            push_user_message_once(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                text,
-            );
+            push_user_message_once(set_messages, next_message_id, set_next_message_id, text);
         }
         AppServerEvent::TurnOutput { output } => {
             set_is_sending.set(false);

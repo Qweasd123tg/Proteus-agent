@@ -28,6 +28,20 @@
     .workspace-main {
         min-height: 0;
     }
+
+    .composer-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .composer-meta,
+    .composer-buttons {
+        width: 100%;
+    }
+
+    .composer-buttons {
+        justify-content: flex-start;
+    }
 }
 
 @media (max-width: 620px) {
