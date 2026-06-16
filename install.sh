@@ -33,8 +33,11 @@ set -euo pipefail
 project_dir="__PROTEUS_PROJECT_DIR__"
 proteus_bin="${project_dir}/target/release/proteus"
 web_dir="${project_dir}/clients/web"
+inspector_dir="${project_dir}/clients/inspector"
 app_port="${PROTEUS_APP_PORT:-8787}"
 web_port="${PROTEUS_WEB_PORT:-1420}"
+inspector_port="${PROTEUS_INSPECTOR_PORT:-1421}"
+inspector_enabled="${PROTEUS_INSPECTOR:-1}"
 session_token="${PROTEUS_SESSION_TOKEN:-}"
 
 listener_pids_for_port() {
@@ -114,6 +117,38 @@ close_previous_web_server() {
   exit 1
 }
 
+close_previous_inspector_server() {
+  pids=$(listener_pids_for_port "${inspector_port}")
+  if [ -z "${pids}" ]; then
+    return
+  fi
+
+  for pid in ${pids}; do
+    cmd=$(ps -p "${pid}" -o args= 2>/dev/null || true)
+    case "${cmd}" in
+      *trunk*" serve"*)
+        echo "Closing previous Proteus inspector server on port ${inspector_port} (pid ${pid})..."
+        kill "${pid}" >/dev/null 2>&1 || true
+        ;;
+      *)
+        echo "Port ${inspector_port} is already in use by pid ${pid}: ${cmd}" >&2
+        echo "Stop that process or set PROTEUS_INSPECTOR_PORT to another port." >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  for _ in {1..30}; do
+    if [ -z "$(listener_pids_for_port "${inspector_port}")" ]; then
+      return
+    fi
+    sleep 0.1
+  done
+
+  echo "Previous Proteus inspector server did not release port ${inspector_port}." >&2
+  exit 1
+}
+
 if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
   "${project_dir}/install.sh"
@@ -138,16 +173,25 @@ fi
 
 close_previous_app_server
 close_previous_web_server
+if [ "${inspector_enabled}" != "0" ]; then
+  close_previous_inspector_server
+fi
 
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"
 echo "App server:        http://127.0.0.1:${app_port}"
 if [ -n "${session_token}" ]; then
   echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>"
+  if [ "${inspector_enabled}" != "0" ]; then
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>"
+  fi
   server_auth_args=(--token "${session_token}")
   open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
 else
   echo "Web client:        http://127.0.0.1:${web_port}/"
+  if [ "${inspector_enabled}" != "0" ]; then
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/"
+  fi
   server_auth_args=()
   open_web_url="http://127.0.0.1:${web_port}/"
 fi
@@ -157,7 +201,9 @@ echo
   --port "${app_port}" \
   "${server_auth_args[@]}" \
   --allow-origin "http://127.0.0.1:${web_port}" \
-  --allow-origin "http://localhost:${web_port}" &
+  --allow-origin "http://localhost:${web_port}" \
+  --allow-origin "http://127.0.0.1:${inspector_port}" \
+  --allow-origin "http://localhost:${inspector_port}" &
 server_pid=$!
 
 sleep 1
@@ -167,8 +213,30 @@ if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
   exit 1
 fi
 
+inspector_pid=""
+if [ "${inspector_enabled}" != "0" ]; then
+  (
+    cd "${inspector_dir}"
+    env -u NO_COLOR trunk serve --port "${inspector_port}"
+  ) &
+  inspector_pid=$!
+
+  sleep 1
+  if ! kill -0 "${inspector_pid}" >/dev/null 2>&1; then
+    wait "${inspector_pid}" 2>/dev/null || true
+    kill "${server_pid}" >/dev/null 2>&1 || true
+    wait "${server_pid}" 2>/dev/null || true
+    echo "Proteus inspector server did not start. Port ${inspector_port} may already be in use." >&2
+    exit 1
+  fi
+fi
+
 cleanup() {
   kill "${server_pid}" >/dev/null 2>&1 || true
+  if [ -n "${inspector_pid}" ]; then
+    kill "${inspector_pid}" >/dev/null 2>&1 || true
+    wait "${inspector_pid}" 2>/dev/null || true
+  fi
   wait "${server_pid}" 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT

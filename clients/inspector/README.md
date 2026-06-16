@@ -27,12 +27,15 @@ cargo run --bin proteus -- server http --port 8787
 
 ```bash
 cd clients/inspector
-trunk serve
+env -u NO_COLOR trunk serve
 ```
 
 По умолчанию inspector слушает `http://127.0.0.1:1421`, chat-клиент —
 `http://127.0.0.1:1420`, app-server — `http://127.0.0.1:8787`.
 Default CORS app-server разрешает оба web-порта.
+
+Обычный wrapper после `./install.sh` поднимает Inspector вместе с chat-клиентом.
+Чтобы оставить только chat loop, запускайте `PROTEUS_INSPECTOR=0 proteus`.
 
 Для строгого token smoke откройте:
 

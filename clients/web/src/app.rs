@@ -25,6 +25,9 @@ use crate::ui_utils::{
 
 const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 const TOAST_DISMISS_MS: i32 = 6000;
+const MIN_COMPOSER_HEIGHT_PX: i32 = 56;
+const DEFAULT_COMPOSER_HEIGHT_PX: i32 = 88;
+const MAX_COMPOSER_HEIGHT_PX: i32 = 240;
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -92,14 +95,16 @@ pub(crate) fn App() -> impl IntoView {
     let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
     let (sidebar_collapsed, set_sidebar_collapsed) =
         signal(load_bool_setting("proteus.sidebarCollapsed", false));
-    let (composer_height, set_composer_height) =
-        signal(load_i32_setting("proteus.composerHeight", 96));
+    let (composer_height, set_composer_height) = signal(
+        load_i32_setting("proteus.composerHeight", DEFAULT_COMPOSER_HEIGHT_PX)
+            .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
+    );
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (resize_start_x, set_resize_start_x) = signal(0_i32);
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
-    let (resize_start_composer, set_resize_start_composer) = signal(96_i32);
+    let (resize_start_composer, set_resize_start_composer) = signal(DEFAULT_COMPOSER_HEIGHT_PX);
 
     Effect::new(move |_| {
         let _ = (
@@ -491,7 +496,10 @@ pub(crate) fn App() -> impl IntoView {
         }
         if dragging_composer.get() {
             let delta = ev.client_y() - resize_start_y.get();
-            set_composer_height.set((resize_start_composer.get() - delta).clamp(56, 320));
+            set_composer_height.set(
+                (resize_start_composer.get() - delta)
+                    .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
+            );
         }
     };
     let stop_resize = move |_| {
@@ -840,9 +848,15 @@ pub(crate) fn App() -> impl IntoView {
                                     }
                                 }}
                                 <For
-                                    each=move || messages.get()
-                                    key=|message| message.render_key()
-                                    children=move |message| view! { <MessageView message /> }
+                                    each=move || {
+                                        messages
+                                            .get()
+                                            .into_iter()
+                                            .map(|message| message.id)
+                                            .collect::<Vec<_>>()
+                                    }
+                                    key=|message_id| *message_id
+                                    children=move |message_id| view! { <MessageView message_id messages /> }
                                 />
                                 <For
                                     each=move || pending_approvals.get()
