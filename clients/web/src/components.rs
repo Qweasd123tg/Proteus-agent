@@ -616,6 +616,11 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
 
     let role_label = message.role.label();
     let message_class = message.role.message_class();
+    let turn_class = match message.role {
+        MessageRole::Assistant => "task-card assistant-turn role-assistant",
+        MessageRole::System => "task-card assistant-turn role-system",
+        MessageRole::User | MessageRole::Reasoning => "task-card assistant-turn",
+    };
     let text = message.text.clone();
     let html = markdown_html(&text);
     let content_class = if message.streaming {
@@ -633,7 +638,7 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
         }
     };
     view! {
-        <article class="task-card assistant-turn">
+        <article class=turn_class>
             <div class="task-card-header">
                 <span class="assistant-role">{role_label}</span>
                 <div class="message-actions">

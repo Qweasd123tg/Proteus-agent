@@ -9,23 +9,43 @@
 }
 
 .app-layout.sidebar-collapsed .sidebar {
-    width: 0 !important;
-    min-width: 0;
-    max-width: 0;
-    border-right: 0;
-    visibility: hidden;
+    width: 52px !important;
+    min-width: 52px;
+    max-width: 52px;
 }
 
-.app-layout.sidebar-collapsed .sidebar-resize-handle {
+.app-layout.sidebar-collapsed .sidebar-resize-handle,
+.app-layout.sidebar-collapsed .sidebar-search,
+.app-layout.sidebar-collapsed .sessions-list,
+.app-layout.sidebar-collapsed .sidebar-panel,
+.app-layout.sidebar-collapsed .sidebar-header h2 {
     display: none;
+}
+
+.app-layout.sidebar-collapsed .sidebar-header {
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+    padding: var(--space-2);
+}
+
+.app-layout.sidebar-collapsed .sidebar-header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+}
+
+.app-layout.sidebar-collapsed .sidebar-header button {
+    width: 100%;
 }
 
 .sidebar {
     position: relative;
     display: flex;
     width: var(--sidebar-width);
-    min-width: 196px;
-    max-width: min(520px, 55vw);
+    min-width: 220px;
+    max-width: min(360px, 30vw);
     min-height: 0;
     flex-direction: column;
     overflow: hidden;
@@ -51,11 +71,11 @@
     height: 44px;
     background: var(--border-strong);
     content: "";
-    opacity: 0.65;
+    opacity: 0;
+    transition: opacity 0.15s;
 }
 
 .sidebar-resize-handle:hover::before {
-    background: var(--accent-blue);
     opacity: 1;
 }
 
@@ -65,22 +85,18 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid var(--border-subtle);
-    padding: 0 var(--space-3);
+    padding: 0 var(--space-4);
 }
 
 .sidebar-header h2 {
-    font-size: 13px;
+    color: var(--text-main);
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: 0;
 }
 
 .sidebar-header h2 span {
-    margin-left: var(--space-2);
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 400;
+    display: none;
 }
 
 .sidebar-header-actions {
@@ -90,26 +106,32 @@
 }
 
 .sidebar-header button {
-    width: 28px;
-    min-height: 26px;
-    border-color: var(--border-subtle);
+    width: 30px;
+    min-height: 30px;
+    border: 0;
+    border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 15px;
     padding: 0;
+}
+
+.sidebar-header button:hover {
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
 }
 
 .sidebar-search {
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border-subtle);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4) var(--space-3);
 }
 
 .sidebar-search input {
-    height: 30px;
-    border-color: var(--border-subtle);
+    height: 32px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     background: var(--bg-panel-soft);
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 12px;
     padding: 0 var(--space-3);
 }
@@ -118,7 +140,7 @@
     min-height: 110px;
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-1) 0;
+    padding: var(--space-1) var(--space-2);
 }
 
 .session-list {
@@ -131,44 +153,27 @@
 
 .session-item {
     display: block;
-    border-left: 2px solid transparent;
+    border-radius: 8px;
     color: var(--text-main);
-    padding: 10px var(--space-3);
+    padding: var(--space-2) var(--space-3);
 }
 
 button.session-item {
     width: 100%;
     min-height: 0;
     justify-content: stretch;
-    border-width: 0 0 0 2px;
-    border-color: transparent;
+    border: 0;
     background: transparent;
     text-align: left;
     white-space: normal;
 }
 
-.session-item.active {
-    border-left-color: var(--accent-blue);
+button.session-item:hover {
     background: var(--bg-panel-soft);
 }
 
+.session-item.active,
 button.session-item.active {
-    border-left-color: var(--accent-blue);
-    background: rgb(91 140 255 / 16%);
-    box-shadow: inset 2px 0 0 var(--accent-blue);
-}
-
-button.session-item.active .session-id {
-    color: var(--text-main);
-}
-
-button.session-item.active .session-preview,
-button.session-item.active .session-meta {
-    color: var(--text-muted);
-}
-
-.session-history-item:hover {
-    border-left-color: var(--border-strong);
     background: var(--bg-panel-soft);
 }
 
@@ -185,19 +190,13 @@ button.session-item.active .session-meta {
 }
 
 .session-code {
-    max-width: 62px;
-    overflow: hidden;
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none;
 }
 
 .session-id {
     overflow: hidden;
     color: var(--text-main);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -206,7 +205,7 @@ button.session-item.active .session-meta {
 .session-preview {
     overflow: hidden;
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.4;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -218,12 +217,11 @@ button.session-item.active .session-meta {
     gap: var(--space-2);
     margin-top: 3px;
     color: var(--text-faint);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .session-time {
     overflow: hidden;
-    font-family: var(--font-mono);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -231,9 +229,9 @@ button.session-item.active .session-meta {
 .sidebar-panel {
     display: grid;
     flex-shrink: 0;
-    gap: var(--space-3);
+    gap: var(--space-2);
     border-top: 1px solid var(--border-subtle);
-    padding: var(--space-3);
+    padding: var(--space-3) var(--space-4);
 }
 
 .runtime-summary {
@@ -253,13 +251,13 @@ button.session-item.active .session-meta {
 .runtime-summary strong {
     color: var(--text-main);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .runtime-summary code {
     color: var(--text-faint);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .activity-grid {
@@ -284,9 +282,8 @@ button.session-item.active .session-meta {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
-    padding: 0 var(--space-3);
+    background: var(--bg-root);
+    padding: 0 var(--space-4);
 }
 
 .topbar-left,
@@ -294,23 +291,29 @@ button.session-item.active .session-meta {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-3);
 }
 
 .sidebar-toggle {
-    width: 28px;
-    min-height: 28px;
+    width: 30px;
+    min-height: 30px;
     flex: 0 0 auto;
-    border-color: var(--border-subtle);
+    border: 0;
+    border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 15px;
     padding: 0;
+}
+
+.sidebar-toggle:hover {
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
 }
 
 .brand {
     color: var(--text-main);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: 0;
     text-decoration: none;
@@ -319,17 +322,27 @@ button.session-item.active .session-meta {
 
 .topnav {
     color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
 }
 
-.topnav-link {
-    color: var(--text-muted);
-    text-decoration: none;
+.topnav-status {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
     white-space: nowrap;
 }
 
+.topnav-link {
+    border-radius: 8px;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+}
+
 .topnav-link:hover {
+    background: var(--bg-panel-soft);
     color: var(--text-main);
 }
 
@@ -351,20 +364,32 @@ button.session-item.active .session-meta {
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-4);
+    padding: var(--space-6) var(--space-4) var(--space-4);
 }
 
 .results-panel.sticky-bottom {
     overflow-anchor: none;
 }
 
+/* Центрирующая колонка: на все прямые дети results-panel наводим max-width.
+   Это держит DOM без обёрток, но даёт ChatGPT-подобную чат-rail. */
+.results-panel > * {
+    width: 100%;
+    max-width: var(--chat-max-width);
+    margin-right: auto;
+    margin-left: auto;
+}
+
 .composer {
     position: relative;
-    display: grid;
+    display: flex;
     flex-shrink: 0;
-    gap: 0;
-    border-top: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
+    flex-direction: column;
+    width: 100%;
+    max-width: var(--chat-max-width);
+    margin: 0 auto;
+    background: transparent;
+    padding: var(--space-2) var(--space-4) var(--space-4);
 }
 
 .composer-resize-handle {
@@ -381,36 +406,51 @@ button.session-item.active .session-meta {
     position: absolute;
     top: 4px;
     left: 50%;
-    width: 52px;
+    width: 48px;
     height: 1px;
     background: var(--border-strong);
     content: "";
-    opacity: 0.7;
+    opacity: 0;
     transform: translateX(-50%);
+    transition: opacity 0.15s;
 }
 
 .composer-resize-handle:hover::before {
-    background: var(--accent-blue);
     opacity: 1;
 }
 
-.composer-label {
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    padding: var(--space-3) var(--space-4) var(--space-1);
-    text-transform: uppercase;
+.composer-shell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-panel);
+    box-shadow: 0 1px 0 rgb(0 0 0 / 25%);
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+}
+
+.composer-shell:focus-within {
+    border-color: var(--border-strong);
+    box-shadow:
+        0 1px 0 rgb(0 0 0 / 25%),
+        0 0 0 1px var(--border-strong);
 }
 
 .composer textarea {
     min-height: var(--input-min-height);
     max-height: 360px;
     border: none;
+    border-radius: 0;
     background: transparent;
     color: var(--text-main);
-    padding: var(--space-2) var(--space-4) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
 }
 
 .composer textarea:focus {
@@ -421,17 +461,56 @@ button.session-item.active .session-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-3);
     border-top: 1px solid var(--border-subtle);
-    background: var(--bg-panel-soft);
-    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+}
+
+.composer-meta,
+.composer-buttons {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.composer-meta {
+    flex: 1 1 auto;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.composer-meta span {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-mode {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-chip);
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    text-transform: uppercase;
+}
+
+.composer-buttons {
+    flex: 0 0 auto;
+    justify-content: flex-end;
 }
 
 .composer-menu {
     position: relative;
-    flex: 1 1 220px;
-    min-width: 200px;
-    max-width: 340px;
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: 260px;
 }
 
 .composer-menu[open] {
@@ -446,11 +525,12 @@ button.session-item.active .session-meta {
     list-style: none;
     align-items: center;
     gap: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: 6px;
-    background: var(--bg-panel);
-    color: var(--text-main);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
     padding: 0 var(--space-2);
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
 .composer-menu-trigger::-webkit-details-marker {
@@ -474,18 +554,22 @@ button.session-item.active .session-meta {
 
 .composer-menu-trigger:hover,
 .composer-menu-trigger:focus {
-    border-color: var(--border-strong);
+    border-color: var(--border-subtle);
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
     outline: none;
 }
 
-.composer-menu-kicker,
+.composer-menu-kicker {
+    display: none;
+}
+
 .composer-menu-label {
     color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-size: 11px;
+    font-weight: 500;
     text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 .composer-menu-summary {
@@ -493,8 +577,7 @@ button.session-item.active .session-meta {
     flex: 1;
     overflow: hidden;
     color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -502,14 +585,16 @@ button.session-item.active .session-meta {
 .composer-menu-panel {
     position: absolute;
     bottom: calc(100% + var(--space-2));
-    left: 0;
-    width: min(560px, calc(100vw - 32px));
+    right: 0;
+    left: auto;
+    width: min(360px, calc(100vw - 32px));
     max-height: min(520px, 72vh);
     overflow: auto;
     border: 1px solid var(--border-strong);
-    border-radius: 8px;
+    border-radius: var(--radius-card);
     background: var(--bg-panel);
-    box-shadow: 0 18px 52px rgb(15 23 42 / 18%);
+    box-shadow: 0 18px 52px rgb(0 0 0 / 55%);
+    z-index: 20;
 }
 
 .composer-menu-section {
@@ -544,11 +629,10 @@ button.session-item.active .session-meta {
     justify-content: center;
     overflow: hidden;
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
+    border-radius: 8px;
     background: var(--bg-panel-soft);
     color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     padding: 0 var(--space-3);
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -567,8 +651,8 @@ button.session-item.active .session-meta {
 }
 
 .menu-option.active {
-    border-color: var(--accent-blue);
-    background: rgb(91 140 255 / 10%);
+    border-color: var(--text-main);
+    background: var(--bg-panel-hover);
     color: var(--text-main);
 }
 
@@ -577,29 +661,15 @@ button.session-item.active .session-meta {
     opacity: 0.55;
 }
 
-.composer-stats {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: var(--space-3);
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.composer-stats span {
-    white-space: nowrap;
-}
-
-.composer-buttons {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.composer-buttons button {
-    min-height: 30px;
+.composer-buttons button,
+.composer-actions > button {
+    min-height: 32px;
+    border-radius: var(--radius-chip);
     padding: 0 var(--space-3);
+}
+
+.composer-buttons .btn-primary {
+    padding: 0 var(--space-4);
 }
 
 .empty-state {
@@ -615,7 +685,7 @@ button.session-item.active .session-meta {
 
 .empty-state-title {
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
 }
 
@@ -643,14 +713,13 @@ button.session-item.active .session-meta {
 
 .resume-toolbar h2 {
     color: var(--text-main);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
 }
 
 .resume-toolbar p {
     color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .resume-list {
@@ -666,6 +735,7 @@ button.session-item.active .session-meta {
     justify-content: space-between;
     gap: var(--space-4);
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
     background: var(--bg-panel);
     padding: var(--space-4);
 }
@@ -687,7 +757,7 @@ button.session-item.active .session-meta {
 .resume-item-header strong {
     overflow: hidden;
     color: var(--text-main);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -703,7 +773,7 @@ button.session-item.active .session-meta {
 .resume-item p {
     overflow: hidden;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -734,6 +804,7 @@ button.session-item.active .session-meta {
 .config-panel,
 .config-section {
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
     background: var(--bg-panel);
 }
 
@@ -831,10 +902,11 @@ button.session-item.active .session-meta {
     max-width: 100%;
     overflow: hidden;
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-chip);
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
-    padding: 3px 8px;
+    padding: 3px 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -902,6 +974,7 @@ button.session-item.active .session-meta {
     min-width: 150px;
     gap: 2px;
     border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     background: var(--bg-panel-soft);
     padding: var(--space-3);
 }
@@ -928,6 +1001,7 @@ button.session-item.active .session-meta {
 .topology-node-card {
     min-width: 0;
     border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     background: var(--bg-panel-soft);
 }
 
@@ -964,7 +1038,7 @@ button.session-item.active .session-meta {
 
 .mermaid-map {
     min-width: 0;
-    max-width: 480px; /* ограничивает только placeholder-текст */
+    max-width: 480px;
     color: var(--text-faint);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -1003,16 +1077,17 @@ button.session-item.active .session-meta {
     align-content: start;
     gap: 3px;
     border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     background: var(--bg-panel-soft);
     padding: var(--space-2) var(--space-3);
 }
 
 .pipeline-step.anchor {
-    border-color: rgb(91 140 255 / 50%);
+    border-color: rgb(107 158 255 / 50%);
 }
 
 .pipeline-step.missing {
-    border-color: rgb(224 82 82 / 45%);
+    border-color: rgb(239 107 107 / 45%);
 }
 
 .pipeline-step code {
@@ -1053,6 +1128,7 @@ button.session-item.active .session-meta {
     align-content: start;
     gap: var(--space-2);
     border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     background: var(--bg-panel-soft);
     padding: var(--space-2) var(--space-3);
 }
@@ -1082,17 +1158,18 @@ button.session-item.active .session-meta {
     max-width: 100%;
     overflow: hidden;
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-chip);
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 10px;
     line-height: 1.3;
-    padding: 4px 7px;
+    padding: 4px 8px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .contribution-chip.active {
-    border-color: rgb(72 199 116 / 30%);
+    border-color: rgb(92 199 132 / 30%);
     color: var(--accent-green);
 }
 
@@ -1125,7 +1202,7 @@ button.session-item.active .session-meta {
 }
 
 .topology-node-card.active {
-    border-color: rgb(72 199 116 / 32%);
+    border-color: rgb(92 199 132 / 32%);
 }
 
 .topology-node-card.missing {
@@ -1223,6 +1300,7 @@ button.session-item.active .session-meta {
     min-height: 28px;
     flex: 0 0 auto;
     border-color: var(--border-subtle);
+    border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -1232,7 +1310,7 @@ button.session-item.active .session-meta {
 
 .topology-filter-row button.active {
     border-color: var(--accent-blue);
-    background: rgb(91 140 255 / 10%);
+    background: rgb(107 158 255 / 10%);
     color: var(--text-main);
 }
 
@@ -1262,6 +1340,7 @@ button.session-item.active .session-meta {
 
 .topology-schema pre {
     border: 1px solid var(--border-subtle);
+    border-radius: 8px;
     margin-top: var(--space-2);
 }
 
