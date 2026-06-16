@@ -589,6 +589,8 @@ fn default_allowed_origins() -> Vec<String> {
     vec![
         "http://127.0.0.1:1420".to_owned(),
         "http://localhost:1420".to_owned(),
+        "http://127.0.0.1:1421".to_owned(),
+        "http://localhost:1421".to_owned(),
     ]
 }
 
@@ -1273,6 +1275,8 @@ mod tests {
         for origin in [
             "http://127.0.0.1:1420",
             "http://localhost:1420",
+            "http://127.0.0.1:1421",
+            "http://localhost:1421",
             "https://app.example.test",
         ] {
             let request = request_with_origin(Some(origin));

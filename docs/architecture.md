@@ -124,7 +124,8 @@ CLI не должен владеть бизнес-логикой runtime.
 Visual layer и полноценный CLI не входят в этот crate как runtime layer. Они
 подключаются отдельными процессами через app-server transport или другой
 transport поверх той же boundary. Активное направление внешнего UI теперь
-живёт в `clients/web` как Leptos-клиент.
+разделено на `clients/web` для chat/runtime loop и `clients/inspector` для
+редко используемых config/architecture экранов.
 
 Для `inspect topology` core отдаёт уже собранный diagnostic graph:
 `TopologySnapshot.edges` связывает config, slots, modules, plugins,
@@ -134,9 +135,10 @@ manifest'ов вместо snapshot.
 
 Протокол обмена живёт в `proteus-contracts::app_protocol`, так что клиенты не
 depend на `proteus-core` и могут подключаться к той же app-server boundary.
-Команды интерфейса (`clear`, `cancel`, `resume`, `session`, `context`,
-`configs`, `plan`, `normal`, `auto`, будущие `sessions`, `model`, `doctor`)
-должны жить в app-client/input routing слое.
+Команды интерфейса (`clear`, `cancel`, `resume`, `session`, `context`, `plan`,
+`normal`, `auto`, будущие `sessions`, `model`, `doctor`) должны жить в
+app-client/input routing слое. Config/architecture navigation живёт в
+inspector-клиенте и использует read-only diagnostic endpoints.
 Если команда требует runtime-действие, клиент вызывает явный
 `StdioRequest`/app protocol command; visual-компоненты только отображают
 состояние и не должны напрямую владеть runtime/business logic.
