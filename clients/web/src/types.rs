@@ -141,27 +141,11 @@ impl MessageRole {
         }
     }
 
-    pub(crate) fn card_class(&self) -> &'static str {
-        match self {
-            Self::User => "task-card",
-            Self::Assistant => "task-card success agent-turn-item role-assistant",
-            Self::System | Self::Reasoning => "task-card running agent-turn-item role-system",
-        }
-    }
-
     pub(crate) fn message_class(&self) -> &'static str {
         match self {
             Self::User => "message user-message",
             Self::Assistant => "message assistant-message",
             Self::System | Self::Reasoning => "message system-message",
-        }
-    }
-
-    pub(crate) fn badge_class(&self) -> &'static str {
-        match self {
-            Self::User => "status-badge idle",
-            Self::Assistant => "status-badge completed",
-            Self::System | Self::Reasoning => "status-badge running",
         }
     }
 }
@@ -195,12 +179,6 @@ impl Message {
 pub(crate) struct ToastMessage {
     pub(crate) id: u64,
     pub(crate) text: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ActivityItem {
-    pub(crate) label: &'static str,
-    pub(crate) value: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

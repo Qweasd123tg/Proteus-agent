@@ -614,9 +614,8 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
         return reasoning_message_view(message);
     }
 
-    let card_class = message.role.card_class();
+    let role_label = message.role.label();
     let message_class = message.role.message_class();
-    let badge_class = message.role.badge_class();
     let text = message.text.clone();
     let html = markdown_html(&text);
     let content_class = if message.streaming {
@@ -634,12 +633,9 @@ pub(crate) fn MessageView(message: Message) -> impl IntoView {
         }
     };
     view! {
-        <article class=card_class>
+        <article class="task-card assistant-turn">
             <div class="task-card-header">
-                <span class=badge_class>
-                    <span class="dot"></span>
-                    {message.role.label()}
-                </span>
+                <span class="assistant-role">{role_label}</span>
                 <div class="message-actions">
                     <button
                         type="button"
