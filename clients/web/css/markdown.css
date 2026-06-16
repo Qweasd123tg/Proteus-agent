@@ -3,8 +3,8 @@
     max-width: 100%;
     overflow-x: hidden;
     color: var(--text-main);
-    font-size: 13px;
-    line-height: 1.7;
+    font-size: 14px;
+    line-height: 1.65;
     overflow-wrap: anywhere;
     word-break: break-word;
 }
@@ -29,17 +29,17 @@
 .message h3,
 .message h4 {
     color: var(--text-main);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1.35;
 }
 
 .message h1 {
-    font-size: 16px;
+    font-size: 18px;
 }
 
 .message h2 {
-    font-size: 15px;
+    font-size: 16px;
 }
 
 .message ul,
@@ -65,12 +65,13 @@
 
 .message code {
     max-width: 100%;
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-root);
+    border: 0;
+    border-radius: 4px;
+    background: var(--bg-panel-soft);
     color: var(--text-main);
     font-family: var(--font-mono);
-    font-size: 12px;
-    padding: 1px 4px;
+    font-size: 12.5px;
+    padding: 1px 6px;
     white-space: break-spaces;
     overflow-wrap: anywhere;
 }
@@ -80,9 +81,10 @@
     overflow-y: hidden;
     max-width: 100%;
     border: 1px solid var(--border-subtle);
-    background: var(--bg-root);
+    border-radius: 10px;
+    background: var(--bg-panel-soft);
     color: var(--text-main);
-    padding: var(--space-3);
+    padding: var(--space-3) var(--space-4);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -163,22 +165,25 @@
 }
 
 .user-message {
-    color: var(--text-muted);
+    color: var(--text-main);
 }
 
-.assistant-message,
-.system-message {
+.assistant-message {
     min-width: 0;
     max-width: 100%;
     overflow-x: hidden;
     contain: inline-size;
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
-    padding: var(--space-4);
+    background: transparent;
+    padding: 0;
 }
 
 .system-message {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     color: var(--text-muted);
+    background: transparent;
+    padding: 0;
 }
 
 .streaming-message {
@@ -198,8 +203,10 @@
 
 .code-block {
     max-width: 100%;
+    overflow: hidden;
     border: 1px solid var(--border-subtle);
-    background: var(--bg-root);
+    border-radius: 10px;
+    background: var(--bg-panel-soft);
 }
 
 .code-block-head {
@@ -208,7 +215,7 @@
     justify-content: space-between;
     gap: var(--space-2);
     border-bottom: 1px solid var(--border-subtle);
-    padding: 3px var(--space-3);
+    padding: 4px var(--space-3);
 }
 
 .code-lang {
@@ -266,6 +273,7 @@
 
 .collapsed-message {
     border: 1px dashed var(--border-subtle);
+    border-radius: 10px;
     color: var(--text-faint);
     padding: var(--space-3);
 }

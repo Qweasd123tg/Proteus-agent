@@ -93,13 +93,13 @@ pub(crate) fn App() -> impl IntoView {
     let (sidebar_collapsed, set_sidebar_collapsed) =
         signal(load_bool_setting("proteus.sidebarCollapsed", false));
     let (composer_height, set_composer_height) =
-        signal(load_i32_setting("proteus.composerHeight", 128));
+        signal(load_i32_setting("proteus.composerHeight", 96));
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (resize_start_x, set_resize_start_x) = signal(0_i32);
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
-    let (resize_start_composer, set_resize_start_composer) = signal(150_i32);
+    let (resize_start_composer, set_resize_start_composer) = signal(96_i32);
 
     Effect::new(move |_| {
         let _ = (
@@ -135,31 +135,29 @@ pub(crate) fn App() -> impl IntoView {
         save_i32_setting("proteus.composerHeight", composer_height.get());
     });
 
-    Effect::new(move |_| {
-        match transport_status.get() {
-            TransportStatus::Error(message) => {
-                if last_error_toast.get_untracked().as_deref() != Some(message.as_str()) {
-                    let id = next_toast_id.get_untracked();
-                    set_next_toast_id.set(id + 1);
-                    set_toasts.update(|items| {
-                        items.push(ToastMessage {
-                            id,
-                            text: message.clone(),
-                        });
+    Effect::new(move |_| match transport_status.get() {
+        TransportStatus::Error(message) => {
+            if last_error_toast.get_untracked().as_deref() != Some(message.as_str()) {
+                let id = next_toast_id.get_untracked();
+                set_next_toast_id.set(id + 1);
+                set_toasts.update(|items| {
+                    items.push(ToastMessage {
+                        id,
+                        text: message.clone(),
                     });
-                    set_last_error_toast.set(Some(message));
-                    set_timeout(TOAST_DISMISS_MS, move || {
-                        set_toasts.update(|items| items.retain(|toast| toast.id != id));
-                    });
-                }
+                });
+                set_last_error_toast.set(Some(message));
+                set_timeout(TOAST_DISMISS_MS, move || {
+                    set_toasts.update(|items| items.retain(|toast| toast.id != id));
+                });
             }
-            TransportStatus::Connected => {
-                if last_error_toast.get_untracked().is_some() {
-                    set_last_error_toast.set(None);
-                }
-            }
-            TransportStatus::Connecting | TransportStatus::Shutdown => {}
         }
+        TransportStatus::Connected => {
+            if last_error_toast.get_untracked().is_some() {
+                set_last_error_toast.set(None);
+            }
+        }
+        TransportStatus::Connecting | TransportStatus::Shutdown => {}
     });
 
     if is_chat_route {
@@ -364,18 +362,9 @@ pub(crate) fn App() -> impl IntoView {
     let activity = move || {
         let pending_total = pending_approvals.get().len() + pending_user_inputs.get().len();
         vec![
-            ActivityItem {
-                label: "события",
-                value: event_count.get().to_string(),
-            },
-            ActivityItem {
-                label: "tools",
-                value: tool_activities.get().len().to_string(),
-            },
-            ActivityItem {
-                label: "pending",
-                value: pending_total.to_string(),
-            },
+            ("events", event_count.get().to_string()),
+            ("tools", tool_activities.get().len().to_string()),
+            ("pending", pending_total.to_string()),
         ]
     };
     let runtime_state = move || match transport_status.get() {
@@ -390,11 +379,6 @@ pub(crate) fn App() -> impl IntoView {
         TransportStatus::Error(message) => compact_text(&message, 34),
         TransportStatus::Shutdown => "остановлен".to_owned(),
     };
-    let draft_stats = move || {
-        let text = draft.get();
-        let lines = text.lines().count().max(1);
-        format!("{} симв. · {} строк", text.chars().count(), lines)
-    };
     let settings_summary = move || {
         let model = model_name.get();
         let model = if model.trim().is_empty() {
@@ -408,6 +392,11 @@ pub(crate) fn App() -> impl IntoView {
             "reasoning off".to_owned()
         };
         format!("{} · {} · {}", model, mode.get().label(), reasoning)
+    };
+    let draft_stats = move || {
+        let text = draft.get();
+        let lines = text.lines().count().max(1);
+        format!("{} симв. · {} строк", text.chars().count(), lines)
     };
     let transport_badge_class = move || match transport_status.get() {
         TransportStatus::Connecting => "status-badge disconnected",
@@ -498,11 +487,11 @@ pub(crate) fn App() -> impl IntoView {
     let resize_drag = move |ev: MouseEvent| {
         if dragging_sidebar.get() {
             let delta = ev.client_x() - resize_start_x.get();
-            set_sidebar_width.set((resize_start_sidebar.get() + delta).clamp(210, 520));
+            set_sidebar_width.set((resize_start_sidebar.get() + delta).clamp(210, 360));
         }
         if dragging_composer.get() {
             let delta = ev.client_y() - resize_start_y.get();
-            set_composer_height.set((resize_start_composer.get() - delta).clamp(96, 420));
+            set_composer_height.set((resize_start_composer.get() - delta).clamp(56, 320));
         }
     };
     let stop_resize = move |_| {
@@ -649,8 +638,12 @@ pub(crate) fn App() -> impl IntoView {
                         <button type="button" title="Новая сессия" on:click=clear_transcript>
                             "+"
                         </button>
-                        <button type="button" title="Свернуть меню" on:click=toggle_sidebar>
-                            "‹"
+                        <button
+                            type="button"
+                            title=move || if sidebar_collapsed.get() { "Развернуть меню" } else { "Свернуть меню" }
+                            on:click=toggle_sidebar
+                        >
+                            {move || if sidebar_collapsed.get() { "›" } else { "‹" }}
                         </button>
                     </div>
                 </div>
@@ -752,18 +745,18 @@ pub(crate) fn App() -> impl IntoView {
                         <code title=move || workspace_label.get()>{move || workspace_label.get()}</code>
                     </div>
                     <div class="activity-grid">
-                    <For
-                        each=activity
-                        key=|item| item.label
-                        children=move |item| {
-                            view! {
-                                <div class="activity-row">
-                                    <span>{item.label}</span>
-                                    <strong>{item.value}</strong>
-                                </div>
+                        <For
+                            each=activity
+                            key=|item| item.0
+                            children=move |(label, value)| {
+                                view! {
+                                    <div class="activity-row">
+                                        <span>{label}</span>
+                                        <strong>{value}</strong>
+                                    </div>
+                                }
                             }
-                        }
-                    />
+                        />
                     </div>
                 </section>
             </aside>
@@ -771,23 +764,16 @@ pub(crate) fn App() -> impl IntoView {
             <main class="workspace-main">
                 <header class="topbar">
                     <div class="topbar-left">
-                        <button
-                            type="button"
-                            class="sidebar-toggle"
-                            title=move || if sidebar_collapsed.get() { "Показать меню" } else { "Свернуть меню" }
-                            aria-label=move || if sidebar_collapsed.get() { "Показать меню" } else { "Свернуть меню" }
-                            on:click=toggle_sidebar
-                        >
-                            {move || if sidebar_collapsed.get() { "☰" } else { "‹" }}
-                        </button>
-                        <a class="brand" href="#">"Proteus Agent"</a>
+                        <a class="brand" href="#">"Proteus"</a>
                         <span class=transport_badge_class>
                             <span class="dot"></span>
                             {move || transport_status.get().label()}
                         </span>
                     </div>
                     <nav class="topnav">
-                        <span>{move || format!("{} событий", event_count.get())}</span>
+                        <span class="topnav-status">
+                            {move || format!("{} events · {} tools", event_count.get(), tool_activities.get().len())}
+                        </span>
                         <a class="topnav-link" href="/">"Чат"</a>
                         <a class="topnav-link" href="/resume">"Сессии"</a>
                         <a class="topnav-link" href="http://127.0.0.1:1421/">"Inspector"</a>
@@ -799,7 +785,6 @@ pub(crate) fn App() -> impl IntoView {
                         >
                             "Стоп"
                         </button>
-                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
                     </nav>
                 </header>
 
@@ -934,209 +919,212 @@ pub(crate) fn App() -> impl IntoView {
                                 style=move || format!("--input-min-height: {}px", composer_height.get())
                                 on:submit=submit
                             >
-                                <div
-                                    class="composer-resize-handle"
-                                    aria-hidden="true"
-                                    on:mousedown=begin_composer_resize
-                                ></div>
-                                <div class="composer-label">
-                                    {move || if mode.get() == PermissionMode::Plan { "Запрос для плана" } else { "Запрос агенту" }}
-                                </div>
-                                <textarea
-                                    node_ref=composer_ref
-                                    prop:value=move || draft.get()
-                                    placeholder=move || {
-                                        if mode.get() == PermissionMode::Plan {
-                                            "Опиши тему; агент задаст уточняющие вопросы"
-                                        } else {
-                                            "Попроси Proteus посмотреть, изменить или объяснить код"
-                                        }
-                                    }
-                                    on:input:target=move |ev| set_draft.set(ev.target().value())
-                                    on:keydown=submit_shortcut
-                                />
-                                <div class="composer-actions">
-                                    <details class="composer-menu">
-                                        <summary class="composer-menu-trigger" aria-label="Настройки запроса">
-                                            <span class="composer-menu-kicker">"Настройки"</span>
-                                            <span class="composer-menu-summary">{settings_summary}</span>
-                                        </summary>
-                                        <div class="composer-menu-panel">
-                                            <section class="composer-menu-section">
-                                                <span class="composer-menu-label">"model"</span>
-                                                <div class="composer-menu-options model-options">
-                                                    {move || {
-                                                        let options = model_options.get();
-                                                        let current = model_name.get();
-                                                        if options.is_empty() {
-                                                            let label = if current.trim().is_empty() {
-                                                                "default".to_owned()
-                                                            } else {
-                                                                current
-                                                            };
-                                                            view! {
-                                                                <button type="button" class="menu-option active" disabled=true>
-                                                                    {label}
-                                                                </button>
-                                                            }.into_any()
-                                                        } else {
-                                                            view! {
-                                                                <For
-                                                                    each=move || model_options.get()
-                                                                    key=|model| model.clone()
-                                                                    children=move |model| {
-                                                                        let active_model = model.clone();
-                                                                        let click_model = model.clone();
-                                                                        view! {
-                                                                            <button
-                                                                                type="button"
-                                                                                class="menu-option"
-                                                                                class:active=move || model_name.get() == active_model
-                                                                                on:click=move |_| actions.clone().set_model_name(click_model.clone())
-                                                                            >
-                                                                                {model}
-                                                                            </button>
-                                                                        }
-                                                                    }
-                                                                />
-                                                            }.into_any()
-                                                        }
-                                                    }}
-                                                </div>
-                                            </section>
-
-                                            <section class="composer-menu-section">
-                                                <span class="composer-menu-label">"mode"</span>
-                                                <div class="composer-menu-options">
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || mode.get() == PermissionMode::Plan
-                                                        title=PermissionMode::Plan.description()
-                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Plan)
-                                                    >
-                                                        {PermissionMode::Plan.label()}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || mode.get() == PermissionMode::Normal
-                                                        title=PermissionMode::Normal.description()
-                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Normal)
-                                                    >
-                                                        {PermissionMode::Normal.label()}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || mode.get() == PermissionMode::Auto
-                                                        title=PermissionMode::Auto.description()
-                                                        on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Auto)
-                                                    >
-                                                        {PermissionMode::Auto.label()}
-                                                    </button>
-                                                </div>
-                                            </section>
-
-                                            <section class="composer-menu-section compact">
-                                                <span class="composer-menu-label">"reasoning"</span>
-                                                <div class="composer-menu-options">
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || reasoning_enabled.get()
-                                                        on:click=move |_| actions.clone().set_reasoning_enabled(true)
-                                                    >
-                                                        "on"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || !reasoning_enabled.get()
-                                                        on:click=move |_| actions.clone().set_reasoning_enabled(false)
-                                                    >
-                                                        "off"
-                                                    </button>
-                                                </div>
-                                            </section>
-
-                                            <section class="composer-menu-section compact">
-                                                <span class="composer-menu-label">"effort"</span>
-                                                <div class="composer-menu-options">
-                                                    <button
-                                                        type="button"
-                                                        class="menu-option"
-                                                        class:active=move || effort.get() == ReasoningEffort::Config
-                                                        disabled=move || !reasoning_enabled.get()
-                                                        on:click=move |_| actions.clone().set_reasoning_effort(ReasoningEffort::Config)
-                                                    >
-                                                        "auto"
-                                                    </button>
-                                                    <For
-                                                        each=move || effort_options.get()
-                                                        key=|option| option.clone()
-                                                        children=move |option| {
-                                                            let active_effort = option.clone();
-                                                            let click_effort = ReasoningEffort::from_value(&option);
-                                                            view! {
-                                                                <button
-                                                                    type="button"
-                                                                    class="menu-option"
-                                                                    class:active=move || effort.get().value() == active_effort
-                                                                    disabled=move || !reasoning_enabled.get()
-                                                                    on:click=move |_| actions.clone().set_reasoning_effort(click_effort.clone())
-                                                                >
-                                                                    {option}
-                                                                </button>
-                                                            }
-                                                        }
-                                                    />
-                                                </div>
-                                            </section>
-                                        </div>
-                                    </details>
-                                    <div class="composer-stats">
-                                        <span>{draft_stats}</span>
-                                        <span>"Ctrl+Enter отправить"</span>
-                                    </div>
-                                    <div class="composer-buttons">
-                                        <button type="button" class="secondary" on:click=clear_transcript>"Очистить"</button>
-                                        {move || {
+                                <div class="composer-shell">
+                                    <div
+                                        class="composer-resize-handle"
+                                        aria-hidden="true"
+                                        on:mousedown=begin_composer_resize
+                                    ></div>
+                                    <textarea
+                                        node_ref=composer_ref
+                                        prop:value=move || draft.get()
+                                        placeholder=move || {
                                             if mode.get() == PermissionMode::Plan {
-                                                view! { <></> }.into_any()
+                                                "Опиши тему; агент задаст уточняющие вопросы"
                                             } else {
-                                                view! {
-                                                    <button
-                                                        type="button"
-                                                        class="secondary"
-                                                        disabled=move || draft_is_empty() || is_sending.get()
-                                                        on:click=send_plan
-                                                        title="Переключиться в план и задать уточняющие вопросы"
-                                                    >
-                                                        "План"
-                                                    </button>
-                                                }.into_any()
+                                                "Попроси Proteus посмотреть, изменить или объяснить код"
                                             }
-                                        }}
-                                        <button
-                                            type="button"
-                                            class="secondary danger"
-                                            disabled=move || active_turn_id.get().is_none()
-                                            on:click=cancel_turn
-                                        >
-                                            "Стоп"
-                                        </button>
-                                        <button type="submit" class="btn-primary" disabled=draft_is_empty>
+                                        }
+                                        on:input:target=move |ev| set_draft.set(ev.target().value())
+                                        on:keydown=submit_shortcut
+                                    />
+                                    <div class="composer-actions">
+                                        <div class="composer-meta">
+                                            <span class="composer-mode">
+                                                {move || if mode.get() == PermissionMode::Plan { "план" } else { "агент" }}
+                                            </span>
+                                            <span>{draft_stats}</span>
+                                            <span>"Ctrl+Enter"</span>
+                                        </div>
+                                        <div class="composer-buttons">
+                                            <button type="button" class="secondary" on:click=clear_transcript>
+                                                "Очистить"
+                                            </button>
                                             {move || {
-                                                if is_sending.get() {
-                                                    "В очередь"
-                                                } else if mode.get() == PermissionMode::Plan {
-                                                    "Спросить план"
+                                                if mode.get() == PermissionMode::Plan {
+                                                    view! { <></> }.into_any()
                                                 } else {
-                                                    "Запустить"
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="secondary"
+                                                            disabled=move || draft_is_empty() || is_sending.get()
+                                                            on:click=send_plan
+                                                            title="Переключиться в план и задать уточняющие вопросы"
+                                                        >
+                                                            "План"
+                                                        </button>
+                                                    }.into_any()
                                                 }
                                             }}
-                                        </button>
+                                            <button
+                                                type="button"
+                                                class="secondary danger"
+                                                disabled=move || active_turn_id.get().is_none()
+                                                on:click=cancel_turn
+                                            >
+                                                "Стоп"
+                                            </button>
+                                            <details class="composer-menu">
+                                                <summary class="composer-menu-trigger" aria-label="Настройки запроса">
+                                                    <span class="composer-menu-summary">{settings_summary}</span>
+                                                </summary>
+                                                <div class="composer-menu-panel">
+                                                    <section class="composer-menu-section">
+                                                        <span class="composer-menu-label">"model"</span>
+                                                        <div class="composer-menu-options model-options">
+                                                            {move || {
+                                                                let options = model_options.get();
+                                                                let current = model_name.get();
+                                                                if options.is_empty() {
+                                                                    let label = if current.trim().is_empty() {
+                                                                        "default".to_owned()
+                                                                    } else {
+                                                                        current
+                                                                    };
+                                                                    view! {
+                                                                        <button type="button" class="menu-option active" disabled=true>
+                                                                            {label}
+                                                                        </button>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! {
+                                                                        <For
+                                                                            each=move || model_options.get()
+                                                                            key=|model| model.clone()
+                                                                            children=move |model| {
+                                                                                let active_model = model.clone();
+                                                                                let click_model = model.clone();
+                                                                                view! {
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        class="menu-option"
+                                                                                        class:active=move || model_name.get() == active_model
+                                                                                        on:click=move |_| actions.clone().set_model_name(click_model.clone())
+                                                                                    >
+                                                                                        {model}
+                                                                                    </button>
+                                                                                }
+                                                                            }
+                                                                        />
+                                                                    }.into_any()
+                                                                }
+                                                            }}
+                                                        </div>
+                                                    </section>
+
+                                                    <section class="composer-menu-section">
+                                                        <span class="composer-menu-label">"mode"</span>
+                                                        <div class="composer-menu-options">
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || mode.get() == PermissionMode::Plan
+                                                                title=PermissionMode::Plan.description()
+                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Plan)
+                                                            >
+                                                                {PermissionMode::Plan.label()}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || mode.get() == PermissionMode::Normal
+                                                                title=PermissionMode::Normal.description()
+                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Normal)
+                                                            >
+                                                                {PermissionMode::Normal.label()}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || mode.get() == PermissionMode::Auto
+                                                                title=PermissionMode::Auto.description()
+                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Auto)
+                                                            >
+                                                                {PermissionMode::Auto.label()}
+                                                            </button>
+                                                        </div>
+                                                    </section>
+
+                                                    <section class="composer-menu-section compact">
+                                                        <span class="composer-menu-label">"reasoning"</span>
+                                                        <div class="composer-menu-options">
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || reasoning_enabled.get()
+                                                                on:click=move |_| actions.clone().set_reasoning_enabled(true)
+                                                            >
+                                                                "on"
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || !reasoning_enabled.get()
+                                                                on:click=move |_| actions.clone().set_reasoning_enabled(false)
+                                                            >
+                                                                "off"
+                                                            </button>
+                                                        </div>
+                                                    </section>
+
+                                                    <section class="composer-menu-section compact">
+                                                        <span class="composer-menu-label">"effort"</span>
+                                                        <div class="composer-menu-options">
+                                                            <button
+                                                                type="button"
+                                                                class="menu-option"
+                                                                class:active=move || effort.get() == ReasoningEffort::Config
+                                                                disabled=move || !reasoning_enabled.get()
+                                                                on:click=move |_| actions.clone().set_reasoning_effort(ReasoningEffort::Config)
+                                                            >
+                                                                "auto"
+                                                            </button>
+                                                            <For
+                                                                each=move || effort_options.get()
+                                                                key=|option| option.clone()
+                                                                children=move |option| {
+                                                                    let active_effort = option.clone();
+                                                                    let click_effort = ReasoningEffort::from_value(&option);
+                                                                    view! {
+                                                                        <button
+                                                                            type="button"
+                                                                            class="menu-option"
+                                                                            class:active=move || effort.get().value() == active_effort
+                                                                            disabled=move || !reasoning_enabled.get()
+                                                                            on:click=move |_| actions.clone().set_reasoning_effort(click_effort.clone())
+                                                                        >
+                                                                            {option}
+                                                                        </button>
+                                                                    }
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </section>
+                                                </div>
+                                            </details>
+                                            <button type="submit" class="btn-primary" disabled=draft_is_empty>
+                                                {move || {
+                                                    if is_sending.get() {
+                                                        "В очередь"
+                                                    } else if mode.get() == PermissionMode::Plan {
+                                                        "Спросить план"
+                                                    } else {
+                                                        "Запустить"
+                                                    }
+                                                }}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </form>
