@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Proteus Inspector</title>
+        <script>
+            window.__proteusMermaidQueue = null;
+            window.proteusRenderMermaid = (id, code) => {
+                window.__proteusMermaidQueue = { id, code };
+            };
+        </script>
+        <script type="module">
+            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+            mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: "strict",
+                theme: "dark",
+                flowchart: { useMaxWidth: false },
+            });
+            const render = async (id, code) => {
+                const el = document.getElementById(id);
+                if (!el) {
+                    return;
+                }
+                try {
+                    const slug =
+                        "proteus-mmd-" +
+                        Math.random().toString(36).slice(2, 10);
+                    const { svg } = await mermaid.render(slug, code);
+                    el.innerHTML = svg;
+                    window.dispatchEvent(
+                        new CustomEvent("proteus-mermaid-rendered", {
+                            detail: id,
+                        }),
+                    );
+                } catch (error) {
+                    el.textContent = "Mermaid render failed: " + error;
+                }
+            };
+            window.proteusRenderMermaid = render;
+            if (window.__proteusMermaidQueue) {
+                const queued = window.__proteusMermaidQueue;
+                window.__proteusMermaidQueue = null;
+                render(queued.id, queued.code);
+            }
+        </script>
+        <link data-trunk rel="rust" data-wasm-opt="z" />
+        <link data-trunk rel="css" href="../web/css/tokens.css" />
+        <link data-trunk rel="css" href="../web/css/layout.css" />
+        <link data-trunk rel="css" href="../web/css/components.css" />
+        <link data-trunk rel="css" href="../web/css/responsive.css" />
+    </head>
+    <body></body>
+</html>

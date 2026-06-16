@@ -99,9 +99,12 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - `PROTEUS_PLUGINS_DISABLE=1` для тестов.
 
 **Клиенты:**
-- `clients/web` — standalone Leptos/Trunk shell нового основного клиента:
-  transcript, composer, permission mode controls и HTTP/SSE transport client
-  поверх app-server boundary без зависимости на runtime internals.
+- `clients/web` — standalone Leptos/Trunk chat-клиент: transcript, composer,
+  permission mode controls и HTTP/SSE transport client поверх app-server
+  boundary без зависимости на runtime internals.
+- `clients/inspector` — отдельный Leptos/Trunk client для редко используемых
+  config/architecture экранов (`/configs`, `/architecture`) поверх того же
+  app-server boundary.
 
 ## Быстрый запуск
 
@@ -111,9 +114,10 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 cargo build --workspace
 ```
 
-Корневой workspace собирает core, contracts и plugin crates. Web-клиент
-намеренно исключён из workspace; для него используйте отдельную wasm-проверку из
-[clients/web/README.md](clients/web/README.md).
+Корневой workspace собирает core, contracts и plugin crates. Web-клиенты
+намеренно исключены из workspace; для них используйте отдельные wasm-проверки из
+[clients/web/README.md](clients/web/README.md) и
+[clients/inspector/README.md](clients/inspector/README.md).
 
 ### REPL ядра (без внешнего клиента)
 
@@ -162,7 +166,9 @@ proteus doctor
 cargo run --bin proteus -- server http \
   --port 8787 \
   --allow-origin http://127.0.0.1:1420 \
-  --allow-origin http://localhost:1420
+  --allow-origin http://localhost:1420 \
+  --allow-origin http://127.0.0.1:1421 \
+  --allow-origin http://localhost:1421
 ```
 
 В другом терминале:
@@ -174,6 +180,13 @@ cd clients/web
 trunk serve
 ```
 
+Для config/architecture UI запустите отдельный web-клиент:
+
+```bash
+cd clients/inspector
+trunk serve
+```
+
 После `./install.sh` короткий локальный запуск доступен из любой папки проекта:
 
 ```bash
@@ -181,9 +194,11 @@ proteus
 ```
 
 Wrapper использует текущую директорию как workspace, поднимает app-server на
-`http://127.0.0.1:8787` и web-клиент на `http://127.0.0.1:1420`. Локальный
-dogfood по умолчанию не требует session token: можно открыть
-`http://127.0.0.1:1420/` напрямую. Если нужен строгий token-режим, задайте
+`http://127.0.0.1:8787` и chat-клиент на `http://127.0.0.1:1420`. Inspector
+запускается отдельно на `http://127.0.0.1:1421`, когда нужны config или
+architecture экраны. Локальный dogfood по умолчанию не требует session token:
+можно открыть `http://127.0.0.1:1420/` напрямую. Если нужен строгий
+token-режим, задайте
 `PROTEUS_SESSION_TOKEN`; wrapper откроет browser с `?session=<token>`, а
 web-клиент будет использовать query token для `EventSource` и header
 `X-Proteus-Session` для `fetch`. Для обычных CLI команд передайте аргументы,
@@ -195,12 +210,12 @@ app-server не разъезжались по protocol endpoints. Если на 
 если на `1420` висит старый `trunk serve`, закрывает и его. Для чужого
 процесса используйте `PROTEUS_APP_PORT=<port>` или `PROTEUS_WEB_PORT=<port>`.
 
-Leptos-клиент живёт в `clients/web` и уже работает как HTTP/SSE client поверх
-app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
-`/config`, `/sessions`, `/resume`, `/history` и control-plane endpoints.
-HTTP/SSE transport запускается через `proteus server http`; CLI и
-`proteus server stdio` остаются параллельными путями для headless/debug
-прогонов.
+Leptos chat-клиент живёт в `clients/web` и уже работает как HTTP/SSE client
+поверх app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
+`/sessions`, `/resume`, `/history` и control-plane endpoints. Inspector живёт
+в `clients/inspector` и читает `/config` и `/inspect/topology*`. HTTP/SSE
+transport запускается через `proteus server http`; CLI и `proteus server stdio`
+остаются параллельными путями для headless/debug прогонов.
 
 Для dogfood запуска держите app-server на loopback (`127.0.0.1`) и не
 выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood,

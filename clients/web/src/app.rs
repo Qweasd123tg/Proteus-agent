@@ -12,10 +12,9 @@ use crate::actions::{
     revise_plan_prompt, send_planning_request, send_prompt_for_mode, take_request_id,
 };
 use crate::api::{get_json, load_session_token, post_json};
-use crate::architecture::ArchitectureView;
 use crate::components::{
-    ApprovalCard, ConfigsView, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
-    ToastStack, UserInputCard, WorkingCard,
+    ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView, ToastStack,
+    UserInputCard, WorkingCard,
 };
 use crate::events::{EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
@@ -39,9 +38,7 @@ unsafe extern "C" {
 pub(crate) fn App() -> impl IntoView {
     let route = current_path();
     let is_resume_route = route == "/resume";
-    let is_configs_route = route == "/configs";
-    let is_architecture_route = route == "/architecture";
-    let is_chat_route = !is_resume_route && !is_configs_route && !is_architecture_route;
+    let is_chat_route = !is_resume_route;
     let (messages, set_messages) = signal(seed_messages());
     let _session_token = match load_session_token() {
         Ok(token) => token,
@@ -792,9 +789,8 @@ pub(crate) fn App() -> impl IntoView {
                     <nav class="topnav">
                         <span>{move || format!("{} событий", event_count.get())}</span>
                         <a class="topnav-link" href="/">"Чат"</a>
-                        <a class="topnav-link" href="/configs">"Configs"</a>
-                        <a class="topnav-link" href="/architecture">"Architecture"</a>
                         <a class="topnav-link" href="/resume">"Сессии"</a>
+                        <a class="topnav-link" href="http://127.0.0.1:1421/">"Inspector"</a>
                         <button
                             type="button"
                             class="secondary danger"
@@ -810,10 +806,6 @@ pub(crate) fn App() -> impl IntoView {
                 <section class="session-workspace">
                     {if is_resume_route {
                         view! { <ResumeView /> }.into_any()
-                    } else if is_architecture_route {
-                        view! { <ArchitectureView /> }.into_any()
-                    } else if is_configs_route {
-                        view! { <ConfigsView /> }.into_any()
                     } else {
                         view! {
                             <section

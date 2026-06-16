@@ -1,10 +1,7 @@
-mod actions;
 mod api;
 mod app;
-mod components;
-mod events;
-mod markdown;
-mod messages;
+mod architecture;
+mod configs;
 mod types;
 mod ui_utils;
 

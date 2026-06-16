@@ -74,8 +74,8 @@ snapshot, `/inspect/topology.runtime` — короткий runtime path,
 `/inspect/topology.runtime.mmd` — короткую Mermaid runtime-схему,
 `/inspect/topology.map` — текстовую диагностическую карту, а
 `/inspect/topology.mmd` — диагностическую Mermaid-карту с пер-плагинными
-нодами и subgraph-группами. Web-клиент рендерит её в секции Map на странице
-`/architecture` (через mermaid.js) и её же копирует кнопкой Mermaid.
+нодами и subgraph-группами. Inspector web-клиент рендерит её в секции Map на
+странице `/architecture` (через mermaid.js) и её же копирует кнопкой Mermaid.
 
 ## Что Входит В Snapshot
 

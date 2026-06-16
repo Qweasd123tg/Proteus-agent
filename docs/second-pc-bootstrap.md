@@ -54,9 +54,11 @@ cd /path/to/project
 proteus
 ```
 
-Активный Leptos web-клиент запускается wrapper-ом `proteus` после `./install.sh`
-или вручную через `proteus server http` плюс `trunk serve`. История и event log
-будут лежать под основным config root:
+Активный Leptos chat-клиент запускается wrapper-ом `proteus` после
+`./install.sh` или вручную через `proteus server http` плюс `trunk serve` в
+`clients/web`. Config/architecture inspector запускается отдельно из
+`clients/inspector`, когда он нужен. История и event log будут лежать под
+основным config root:
 
 ```text
 ~/.config/Proteus-agent/sessions/...
