@@ -291,6 +291,9 @@ Scope:
   transcript, composer, mode controls, approval queue, typed user-input form,
   cancel action, `/resume` session picker и HTTP/SSE client без зависимости на
   `proteus-core`.
+- `clients/inspector` отделён от chat loop и владеет редкими
+  config/architecture экранами (`/configs`, `/architecture`) поверх read-only
+  diagnostic endpoints.
 - Reference snapshots для web-переезда лежат в `examples/source/leptos` и
   `examples/source/oxide-agent-web-transport`; tracked заметка находится в
   `examples/research/web-client-references.md`.

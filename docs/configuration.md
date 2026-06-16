@@ -58,13 +58,15 @@ proteus init full
 
 ## UI Client Status
 
-Активный UI-направление — Leptos web client в `clients/web`. Сейчас это
-реальный HTTP/SSE app-server client: transcript, composer, approvals,
-typed user input, cancel, config summary, history/resume и control-plane
-mode/model/reasoning endpoints работают через `proteus server http`.
-Клиент использует тот же config root, session store и protocol DTO boundary,
-что и другие внешние клиенты; wasm-код держит локальные serde-типы, чтобы не
-тащить runtime internals во фронт.
+Активное UI-направление разделено на два Leptos web-клиента. `clients/web` —
+ежедневный chat client: transcript, composer, approvals, typed user input,
+cancel, history/resume и control-plane mode/model/reasoning endpoints работают
+через `proteus server http`. `clients/inspector` — отдельный config/architecture
+client на другом dev-порту; он читает `/config` и `/inspect/topology*`, но не
+поднимает чатовый SSE/runtime-control state. Оба клиента используют тот же
+config root, session store и protocol DTO boundary, что и другие внешние
+клиенты; wasm-код держит локальные serde-типы, чтобы не тащить runtime
+internals во фронт.
 
 Пошаговый bootstrap для новой машины описан в
 [second-pc-bootstrap.md](second-pc-bootstrap.md).
@@ -536,7 +538,8 @@ API не даёт ставить headers; для `fetch` используйте 
 `Authorization: Bearer <token>`. Raw token не логировать и не хранить в
 `localStorage`; wrapper из `./install.sh` использует token-режим только если
 задан `PROTEUS_SESSION_TOKEN`. Если web dev server запущен не на стандартном
-`1420`, добавьте его origin через `--allow-origin http://127.0.0.1:<port>`.
+`1420` для chat или `1421` для inspector, добавьте его origin через
+`--allow-origin http://127.0.0.1:<port>`.
 
 App-server поддерживает control-plane reload для tools/config/MCP discovery:
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
