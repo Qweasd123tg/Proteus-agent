@@ -38,7 +38,8 @@ per-server local session token на всех non-trivial endpoints (`/events`,
 `sessionStorage` приемлемы для v0.
 
 CORS для защищённых endpoints должен быть allowlist-ом локальных origins,
-например `http://127.0.0.1:1420`, `http://localhost:1420` и текущий
+например chat `http://127.0.0.1:1420`, inspector
+`http://127.0.0.1:1421`, соответствующие `localhost` origins и текущий
 dev-server port. Wildcard CORS допустим только для явно публичных endpoints
 вроде `/health`; requests без `Origin` от локальных CLI/curl можно принимать
 при валидном token.
