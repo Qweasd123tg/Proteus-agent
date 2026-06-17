@@ -109,6 +109,16 @@
         margin-left: auto;
     }
 
+    .user-bubble {
+        max-width: min(100%, calc(100vw - var(--space-8)));
+    }
+
+    .user-copy {
+        top: -26px;
+        right: 0;
+        transform: none;
+    }
+
     .resume-toolbar,
     .resume-item,
     .config-list-item,
