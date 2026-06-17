@@ -85,6 +85,19 @@ impl SessionStore {
         &self.session_dir
     }
 
+    pub async fn materialize(&self) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        tokio::fs::create_dir_all(&self.session_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to create session dir {}",
+                    self.session_dir.display()
+                )
+            })?;
+        self.write_metadata_if_needed().await
+    }
+
     pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
         let content = match std::fs::read_to_string(&self.messages_path) {
             Ok(content) => content,
@@ -583,6 +596,29 @@ mod tests {
 
         assert_eq!(parsed, session_id);
         assert_eq!(workspace.as_deref(), Some(cwd.path()));
+    }
+
+    #[tokio::test]
+    async fn materialize_writes_session_metadata_without_messages() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let session_id = new_session_id();
+        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+
+        store.materialize().await.expect("materialize session");
+
+        assert!(!store.messages_path.exists());
+        let parsed = session_id_from_session_dir(store.session_dir()).expect("metadata id");
+        assert_eq!(parsed, session_id);
+
+        let summaries = list_workspace_session_summaries(config_dir.path(), cwd.path())
+            .expect("workspace sessions");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].session_id, Some(session_id));
+        assert_eq!(summaries[0].workspace_path.as_deref(), Some(cwd.path()));
+        assert_eq!(summaries[0].message_count, 0);
+        assert_eq!(summaries[0].preview, None);
+        assert!(summaries[0].resumable);
     }
 
     #[tokio::test]
