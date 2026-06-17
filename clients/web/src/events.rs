@@ -1,10 +1,10 @@
-use leptos::prelude::*;
+use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
-use wasm_bindgen::{JsCast, closure::Closure};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
-use crate::api::{event_stream_url, js_error};
+use crate::api::{event_stream_url, get_json, js_error};
 use crate::app::replace_transcript;
 use crate::messages::{
     append_streaming_assistant_delta, append_streaming_reasoning_delta,
@@ -80,6 +80,10 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
         bindings
             .set_transport_status
             .set(TransportStatus::Connected);
+        refresh_pending_control_plane(
+            bindings.set_pending_approvals,
+            bindings.set_pending_user_inputs,
+        );
         if was_disconnected {
             // События за время обрыва потеряны: стрим-состояние невалидно,
             // транскрипт перечитывается с сервера целиком.
@@ -150,6 +154,25 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     on_error.forget();
 
     Some(source)
+}
+
+fn refresh_pending_control_plane(
+    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
+    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+) {
+    spawn_local(async move {
+        match get_json::<PendingControlPlaneInfo>("/pending").await {
+            Ok(pending) => {
+                set_pending_approvals.set(pending.approvals);
+                set_pending_user_inputs.set(pending.user_inputs);
+            }
+            Err(error) => {
+                web_sys::console::warn_1(&JsValue::from_str(&format!(
+                    "Pending control-plane refresh failed: {error}"
+                )));
+            }
+        }
+    });
 }
 
 fn handle_app_output(

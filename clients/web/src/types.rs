@@ -283,6 +283,14 @@ pub(crate) struct UserInputRequestInfo {
     pub(crate) questions: Vec<UserInputQuestion>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct PendingControlPlaneInfo {
+    #[serde(default)]
+    pub(crate) approvals: Vec<ApprovalRequestInfo>,
+    #[serde(default)]
+    pub(crate) user_inputs: Vec<UserInputRequestInfo>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct SessionSummary {
     pub(crate) session_dir: String,
