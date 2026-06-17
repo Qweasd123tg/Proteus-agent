@@ -29,6 +29,8 @@ pub(crate) struct AppActions {
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) active_turn_id: ReadSignal<Option<String>>,
     pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
+    pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
 
 impl AppActions {
@@ -279,6 +281,10 @@ impl AppActions {
                         self.next_message_id,
                         self.set_next_message_id,
                         self.set_transport_status,
+                    );
+                    crate::app::load_sidebar_sessions(
+                        self.set_sidebar_sessions,
+                        self.set_sidebar_sessions_status,
                     );
                 }
                 Err(error) => {

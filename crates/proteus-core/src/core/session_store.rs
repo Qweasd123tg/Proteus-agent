@@ -244,6 +244,39 @@ pub fn list_session_summaries(config_root: &Path) -> Result<Vec<SessionSummary>>
     Ok(summaries)
 }
 
+pub fn list_workspace_session_summaries(
+    config_root: &Path,
+    workspace_path: &Path,
+) -> Result<Vec<SessionSummary>> {
+    let workspace_dir = config_root
+        .join("sessions")
+        .join(encode_workspace_path(workspace_path));
+    let session_dirs = match std::fs::read_dir(&workspace_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", workspace_dir.display()));
+        }
+    };
+
+    let mut summaries = Vec::new();
+    for session_entry in session_dirs {
+        let session_entry = session_entry?;
+        if !session_entry.file_type()?.is_dir() {
+            continue;
+        }
+        summaries.push(session_summary_from_dir(session_entry.path())?);
+    }
+    summaries.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.session_dir.cmp(&left.session_dir))
+    });
+    Ok(summaries)
+}
+
 pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     if session_path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
         return session_path
@@ -577,6 +610,36 @@ mod tests {
             Some("inspect this project")
         );
         assert!(summaries[0].resumable);
+    }
+
+    #[tokio::test]
+    async fn list_workspace_session_summaries_filters_to_current_workspace() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let first_cwd = tempfile::tempdir().expect("first cwd");
+        let second_cwd = tempfile::tempdir().expect("second cwd");
+        let first_session_id = new_session_id();
+        let second_session_id = new_session_id();
+        let first_store = SessionStore::new(config_dir.path(), first_cwd.path(), first_session_id);
+        let second_store =
+            SessionStore::new(config_dir.path(), second_cwd.path(), second_session_id);
+        first_store
+            .append_messages(&[CanonicalMessage::text(MessageRole::User, "first workspace")])
+            .await
+            .expect("append first workspace");
+        second_store
+            .append_messages(&[CanonicalMessage::text(
+                MessageRole::User,
+                "second workspace",
+            )])
+            .await
+            .expect("append second workspace");
+
+        let summaries = list_workspace_session_summaries(config_dir.path(), first_cwd.path())
+            .expect("workspace sessions");
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].session_id, Some(first_session_id));
+        assert_eq!(summaries[0].preview.as_deref(), Some("first workspace"));
     }
 
     #[test]

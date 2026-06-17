@@ -233,9 +233,11 @@ pub(crate) fn App() -> impl IntoView {
         set_is_sending,
         active_turn_id,
         set_active_turn_id,
+        set_sidebar_sessions,
+        set_sidebar_sessions_status,
     };
 
-    let clear_transcript = move |_| {
+    let reset_chat_view = move || {
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
         set_active_stream_message_id.set(None);
@@ -248,6 +250,11 @@ pub(crate) fn App() -> impl IntoView {
         set_active_turn_id.set(None);
         set_agent_status.set("ожидает".to_owned());
         set_stick_to_bottom.set(true);
+    };
+
+    let reset_chat_view_for_clear = reset_chat_view.clone();
+    let clear_transcript = move |_| {
+        reset_chat_view_for_clear();
         spawn_local(async move {
             match post_json("/clear", &json!({})).await {
                 Ok(output) => handle_command_response(
@@ -266,6 +273,53 @@ pub(crate) fn App() -> impl IntoView {
                         "Clear failed",
                         error,
                     );
+                }
+            }
+            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+        });
+    };
+
+    let reset_chat_view_for_new_session = reset_chat_view;
+    let start_new_session = move |_| {
+        reset_chat_view_for_new_session();
+        set_active_session_dir.set(None);
+        set_session_label.set("not started".to_owned());
+        set_sidebar_sessions_status.set("создаю новую сессию".to_owned());
+        spawn_local(async move {
+            match post_json("/new-session", &json!({ "id": "new-session" })).await {
+                Ok(StdioOutput::Response { ok: true, .. }) => {
+                    set_sidebar_sessions_status.set("новая сессия открыта".to_owned());
+                    reconnect_event_stream(event_source, event_stream_bindings);
+                    load_runtime_settings(
+                        set_mode,
+                        set_model_name,
+                        set_model_options,
+                        set_reasoning_enabled,
+                        set_effort,
+                        set_effort_options,
+                        set_workspace_label,
+                        set_active_session_dir,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                    replace_transcript(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                }
+                Ok(StdioOutput::Response { error, .. }) => {
+                    set_sidebar_sessions_status
+                        .set(error.unwrap_or_else(|| "не удалось создать сессию".to_owned()));
+                }
+                Ok(StdioOutput::Event { .. }) => {
+                    set_sidebar_sessions_status.set("неожиданное событие new-session".to_owned());
+                }
+                Err(error) => {
+                    set_sidebar_sessions_status.set(format!("не удалось создать сессию: {error}"));
                 }
             }
             load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
@@ -643,7 +697,7 @@ pub(crate) fn App() -> impl IntoView {
                         <button type="button" title="Обновить сессии" on:click=refresh_sidebar_sessions>
                             "↻"
                         </button>
-                        <button type="button" title="Новая сессия" on:click=clear_transcript>
+                        <button type="button" title="Новая сессия" on:click=start_new_session>
                             "+"
                         </button>
                         <button
@@ -1301,13 +1355,13 @@ pub(crate) fn replace_transcript(
     });
 }
 
-fn load_sidebar_sessions(
+pub(crate) fn load_sidebar_sessions(
     set_sessions: WriteSignal<Vec<SessionSummary>>,
     set_status: WriteSignal<String>,
 ) {
     set_status.set("загружаю сессии".to_owned());
     spawn_local(async move {
-        match get_json::<Vec<SessionSummary>>("/sessions").await {
+        match get_json::<Vec<SessionSummary>>("/sessions/current").await {
             Ok(items) => {
                 let count = items.len();
                 set_sessions.set(items);
