@@ -341,7 +341,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   Codex-shaped `coding.codex_loop` и staged workflow
   `coding.plan_execute_review`.
 - ✅ Capability-based `PluginContextBuilder` ABI + host callbacks добавлены.
-  Плагин `context-pack` регистрирует `simple` и `repo_aware`.
+  Плагин `context-pack` регистрирует `simple`, `repo_aware` и
+  `codex_context`.
 - 🔜 `ModelAdapter` как plugin ABI после async ABI.
 - 🔜 Дальнейшая зачистка DTO под стабильную внешнюю поверхность по мере
   появления сторонних плагинов.
@@ -353,7 +354,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, declarative `memory_policy`, `compactor`,
   `tool_exposure` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
@@ -391,7 +392,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 ### Волна 3: перенос builtin модулей в плагины
 
-- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier → `direct-patch`; ✅ JsonlMemory/carry_forward → `memory-pack`; ✅ allow_all/ask_write → `policy-pack`; ✅ plain/statusline → `renderer-pack`; ✅ baseline/Codex-shaped/staged workflows → `coding-workflow`; ✅ simple/repo-aware context builders → `context-pack`.
+- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier → `direct-patch`; ✅ JsonlMemory/carry_forward → `memory-pack`; ✅ allow_all/ask_write → `policy-pack`; ✅ plain/statusline → `renderer-pack`; ✅ baseline/Codex-shaped/staged workflows → `coding-workflow`; ✅ simple/repo-aware/Codex-shaped context builders → `context-pack`.
 - `ConfiguredProcessTool` тоже можно вынести как default-плагин.
 - В ядре остаются только stubs.
 

@@ -204,7 +204,8 @@ Scope:
   `direct-patch`, baseline/Codex-shaped/staged workflows вынесены как plugin ids
   `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` в
   `coding-workflow`.
-  Context builders `simple` и `repo_aware` вынесены в `context-pack`,
+  Context builders `simple`, `repo_aware` и `codex_context` вынесены в
+  `context-pack`,
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
   Codex-style tool exposure `codex_dynamic` вынесен в
   `codex-tool-exposure`,

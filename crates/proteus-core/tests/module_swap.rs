@@ -13,7 +13,9 @@ use codex_tool_exposure::CodexDynamicToolExposurePlugin;
 use coding_workflow::{
     CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow,
 };
-use context_pack::{RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin};
+use context_pack::{
+    CodexContextBuilderPlugin, RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin,
+};
 use futures_util::stream;
 use memory_pack::{CarryForwardMemoryPolicyPlugin, JsonlMemoryStorePlugin};
 use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin};
@@ -170,6 +172,10 @@ fn set_repo_aware_config(config: &mut AppConfig, value: serde_json::Value) {
     set_module_config(config, "context", "repo_aware", value);
 }
 
+fn set_codex_context_config(config: &mut AppConfig, value: serde_json::Value) {
+    set_module_config(config, "context", "codex_context", value);
+}
+
 fn test_catalog() -> BuiltinModuleCatalog {
     disable_plugin_loader();
     let mut catalog = BuiltinModuleCatalog::new();
@@ -185,6 +191,12 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginContextBuilder_TO::from_value(RepoAwareContextBuilderPlugin, TD_Opaque),
         )
         .expect("register test repo_aware context builder");
+    catalog
+        .register_plugin_context_builder(
+            "codex_context",
+            PluginContextBuilder_TO::from_value(CodexContextBuilderPlugin, TD_Opaque),
+        )
+        .expect("register test codex_context context builder");
     catalog
         .register_plugin_memory_store(
             "jsonl",
@@ -554,10 +566,11 @@ fn plugin_context_provider_rejects_empty_and_duplicate_ids() {
 
 #[tokio::test]
 async fn swapping_context_builder_does_not_change_runtime() {
-    for context in ["simple", "repo_aware"] {
+    for context in ["simple", "repo_aware", "codex_context"] {
         let mut config = test_config();
         config.modules.context = context.to_owned();
         set_repo_aware_config(&mut config, json!({ "providers": ["repo_tree"] }));
+        set_codex_context_config(&mut config, json!({ "providers": ["repo_tree"] }));
 
         let (output, events) = run_with(config, "summarize context").await;
 
@@ -601,6 +614,103 @@ async fn unknown_repo_aware_provider_is_rejected_when_context_is_built() {
         error
             .to_string()
             .contains("unknown context provider: mystery")
+    );
+}
+
+#[tokio::test]
+async fn codex_context_collects_codex_ordered_chunks_and_git_diff() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+
+    let dir = temp_workspace();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("git init");
+    std::fs::write(dir.path().join("AGENTS.md"), "Use focused tests.\n").expect("agents");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\n",
+    )
+    .expect("manifest");
+    std::fs::write(dir.path().join("tracked.txt"), "old\n").expect("tracked");
+    std::process::Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("git add");
+    std::fs::write(dir.path().join("tracked.txt"), "new\n").expect("modified");
+    std::fs::create_dir_all(dir.path().join("examples/source")).expect("examples/source");
+    std::fs::write(dir.path().join("examples/source/skip.rs"), "skip me\n").expect("skip file");
+
+    let mut config = test_config();
+    config.modules.context = "codex_context".to_owned();
+    set_codex_context_config(
+        &mut config,
+        json!({
+            "providers": ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest"],
+            "max_context_bytes": 60000,
+            "git_diff_max_bytes": 4000,
+            "repo_tree_skip_entries": ["examples/source", ".git"],
+        }),
+    );
+    let registry = registry_from_test_config(&config, dir.path());
+    let bundle = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask::new("fix tracked file".to_owned(), dir.path().to_path_buf()),
+            search: Arc::new(NullSearch),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        bundle
+            .summary
+            .as_deref()
+            .unwrap_or("")
+            .contains("codex_context")
+    );
+    assert!(
+        bundle
+            .chunks
+            .iter()
+            .any(|chunk| chunk.source == "codex_context:task")
+    );
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "codex_context:project_instructions"
+            && chunk.metadata["context_profile"] == "codex_context"
+            && chunk.content.contains("focused tests")
+    }));
+    assert!(
+        bundle
+            .chunks
+            .iter()
+            .any(|chunk| chunk.source == "codex_context:git_status"
+                && chunk.content.contains("tracked.txt"))
+    );
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "codex_context:git_diff"
+            && chunk.content.contains("tracked.txt")
+            && chunk.content.contains("-old")
+            && chunk.content.contains("+new")
+    }));
+    assert!(bundle.chunks.iter().any(|chunk| {
+        chunk.source == "codex_context:manifest" && chunk.content.contains("name = \"demo\"")
+    }));
+    assert!(
+        !bundle
+            .chunks
+            .iter()
+            .any(|chunk| chunk.source == "codex_context:repo_tree"
+                && chunk.content.contains("examples/source"))
     );
 }
 
@@ -2674,7 +2784,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
 
     assert_eq!(config.profile.name, "codex-experimental");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
-    assert_eq!(config.modules.context, "repo_aware");
+    assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
@@ -2691,6 +2801,17 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "request_user_input")
     );
+
+    let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
+    assert!(
+        codex_context["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|provider| provider == "git_diff")
+    );
+    assert_eq!(codex_context["max_context_bytes"], 60000);
+    assert_eq!(codex_context["git_diff_max_bytes"], 16000);
 }
 
 #[tokio::test]

@@ -1,3 +1,3 @@
 name = "context-pack"
 version = "0.1.0"
-description = "ContextBuilder plugin that provides simple and repo_aware modules"
+description = "ContextBuilder plugin that provides simple, repo_aware, and codex_context modules"

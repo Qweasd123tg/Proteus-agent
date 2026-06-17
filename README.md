@@ -41,7 +41,7 @@ plugins/
     codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary + fallback
     codex-tool-exposure/ — ToolExposure под id "codex_dynamic": Codex-style hot tool set
     coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
-    context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
+    context-pack/        — ContextBuilder-плагины "simple", "repo_aware" и "codex_context"
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
     renderer-pack/       — Renderer плагины "plain" и "statusline"
@@ -64,8 +64,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `codex_dynamic` поставляет плагин `codex-tool-exposure`. Production workflow
   в core больше не встроен:
   `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` поставляет
-  плагин `coding-workflow`; production context builders `simple` и
-  `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и
+  плагин `coding-workflow`; production context builders `simple`,
+  `repo_aware` и `codex_context` поставляет плагин `context-pack`; `jsonl` memory и
   `carry_forward` memory policy поставляет плагин `memory-pack`;
   `allow_all`/`ask_write` поставляет `policy-pack`; `plain`/`statusline`
   поставляет `renderer-pack`.
@@ -305,8 +305,8 @@ proteus doctor
   tool set, ask_write policy).
 - `proteus.codex.example.toml` — экспериментальный Codex-shaped профиль:
   отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
-  context/tools поведения, `codex_dynamic` ToolExposure из
-  `codex-tool-exposure` и `codex` compactor.
+  `codex_context`, `codex_dynamic` ToolExposure из `codex-tool-exposure` и
+  `codex` compactor.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.
