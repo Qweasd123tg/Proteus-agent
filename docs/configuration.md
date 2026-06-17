@@ -9,6 +9,10 @@ name без `/` и расширения, например `--config codex`, ре
 `*.json` внутри неё сортируются по имени, затем merge-ятся в один итоговый
 `AppConfig`.
 
+`./install.sh` устанавливает packaged named configs в default config dir
+(`~/.config/Proteus-agent/configs/` или `$PROTEUS_CONFIG_HOME/configs/`), не
+перезаписывая уже существующие пользовательские файлы.
+
 ## Порядок Выбора
 
 Если передан `--config`, используется только этот resolved target:
@@ -137,7 +141,8 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`.
-Запускается явно через `--config codex`; старый
+После `./install.sh` запускается явно через `--config codex` из любой рабочей
+директории; старый
 `proteus.codex.example.toml` оставлен как compatibility include на этот же
 profile. Baseline `coding` от этого профиля не зависит.
 
