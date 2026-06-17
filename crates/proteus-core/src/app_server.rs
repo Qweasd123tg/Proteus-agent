@@ -20,8 +20,8 @@ use crate::{
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
         ModuleCatalogEntrySummary, PendingApproval, PendingUserInput, RuntimeReloadReport,
         TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
-        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
-        session_id_from_session_dir,
+        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
+        normalize_session_dir_path, session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, ToolCall, new_thread_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
@@ -240,6 +240,21 @@ impl AppServerHandle {
             return Ok(Vec::new());
         };
         list_workspace_session_summaries(&config_store_root(config_path), &self.cwd)
+    }
+
+    pub async fn delete_workspace_session(&self, session_dir: PathBuf) -> Result<bool> {
+        let Some(config_path) = self.config_path.as_deref() else {
+            return Ok(false);
+        };
+        delete_workspace_session(&config_store_root(config_path), &self.cwd, session_dir).await
+    }
+
+    pub fn is_session_dir(&self, session_dir: &Path) -> bool {
+        let Some(active_dir) = self.runtime.session_dir() else {
+            return false;
+        };
+        normalize_session_dir_path(session_dir.to_path_buf())
+            .is_ok_and(|session_dir| paths_equal(active_dir, &session_dir))
     }
 
     pub async fn transcript(&self) -> Vec<AppTranscriptMessage> {
@@ -1100,6 +1115,13 @@ fn existing_preview_content(cwd: &Path, target: &Path) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(canonical_target).ok()
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 
 fn affected_files_from_internal_patch(patch: &str) -> Vec<String> {

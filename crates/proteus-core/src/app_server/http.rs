@@ -175,6 +175,12 @@ struct NewSessionRequest {
     id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DeleteSessionRequest {
+    id: Option<String>,
+    session_dir: PathBuf,
+}
+
 pub async fn run_http_app_server(
     config: AppConfig,
     cwd: PathBuf,
@@ -435,6 +441,16 @@ where
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/delete-session") => {
+            match read_json::<DeleteSessionRequest, _>(request).await {
+                Ok(command) => {
+                    let output =
+                        execute_delete_session(&state, command.id, command.session_dir).await;
+                    json_response(StatusCode::OK, &output)
+                }
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
         (Method::POST, "/clear") => {
             let output = execute_app_request(&state, StdioRequest::ClearHistory { id: None }).await;
             json_response(StatusCode::OK, &output)
@@ -763,6 +779,15 @@ async fn execute_new_session(state: &HttpAppState, id: Option<String>) -> StdioO
     command_response(id, result)
 }
 
+async fn execute_delete_session(
+    state: &HttpAppState,
+    id: Option<String>,
+    session_dir: PathBuf,
+) -> StdioOutput {
+    let result = delete_session(state, session_dir).await.map(Some);
+    command_response(id, result)
+}
+
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
     cancel_active_work(state, "session switched by client").await;
     let current = state.current_server().await;
@@ -776,6 +801,30 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     let summary = next.config_summary().await;
     *state.server.lock().await = next;
     Ok(summary)
+}
+
+async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
+    let current = state.current_server().await;
+    let deleting_active = current.is_session_dir(&session_dir);
+    let mut replacement_summary = None;
+
+    if deleting_active {
+        cancel_active_work(state, "session deleted by client").await;
+        let current = state.current_server().await;
+        let config = current.config.read().await.clone();
+        let next =
+            AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
+        next.start_session().await?;
+        replacement_summary = Some(next.config_summary().await);
+        *state.server.lock().await = next;
+    }
+
+    let deleted = current.delete_workspace_session(session_dir).await?;
+    Ok(json!({
+        "deleted": deleted,
+        "active_replaced": deleting_active,
+        "session": replacement_summary,
+    }))
 }
 
 async fn new_session(state: &HttpAppState) -> Result<Value> {
@@ -1225,6 +1274,7 @@ mod tests {
             (Method::POST, "/reasoning"),
             (Method::POST, "/resume"),
             (Method::POST, "/new-session"),
+            (Method::POST, "/delete-session"),
             (Method::POST, "/clear"),
             (Method::POST, "/reload-tools"),
             (Method::POST, "/shutdown"),
@@ -2026,6 +2076,74 @@ mod tests {
                 .iter()
                 .any(|session| session.session_dir.to_string_lossy().as_ref() == next_session_dir)
         );
+
+        server.shutdown().await;
+        state.current_server().await.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_delete_session_removes_active_session_and_opens_new_one() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let config_path = config_dir.path().join("config.toml");
+        let server = AgentAppServer::launch(
+            AppConfig::default(),
+            cwd.path().to_path_buf(),
+            Some(&config_path),
+        )
+        .expect("app server");
+        server.start_session().await.expect("start session");
+        let original_session_dir = server
+            .config_summary()
+            .await
+            .get("session_dir")
+            .and_then(Value::as_str)
+            .expect("original session dir")
+            .to_owned();
+        assert!(PathBuf::from(&original_session_dir).exists());
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+        let response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/delete-session",
+                json!({
+                    "id": "delete-session",
+                    "session_dir": original_session_dir,
+                }),
+            ),
+        )
+        .await
+        .expect("delete session response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let output = response_output(response).await;
+        let StdioOutput::Response {
+            ok: true,
+            output: Some(summary),
+            ..
+        } = output
+        else {
+            panic!("expected successful delete-session response");
+        };
+        assert_eq!(summary.get("deleted").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            summary.get("active_replaced").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert!(!PathBuf::from(&original_session_dir).exists());
+        let next_session_dir = state
+            .current_server()
+            .await
+            .config_summary()
+            .await
+            .get("session_dir")
+            .and_then(Value::as_str)
+            .expect("next session dir")
+            .to_owned();
+        assert_ne!(next_session_dir, original_session_dir);
+        assert!(PathBuf::from(next_session_dir).exists());
 
         server.shutdown().await;
         state.current_server().await.shutdown().await;

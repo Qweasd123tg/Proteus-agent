@@ -442,3 +442,9 @@ pub(crate) struct ResumeSessionRequest {
     pub(crate) id: Option<String>,
     pub(crate) session_dir: String,
 }
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DeleteSessionRequest {
+    pub(crate) id: Option<String>,
+    pub(crate) session_dir: String,
+}
