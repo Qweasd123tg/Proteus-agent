@@ -85,9 +85,9 @@
     background: var(--bg-panel-soft);
     color: var(--text-main);
     padding: var(--space-3) var(--space-4);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
 }
 
 .message pre code {
@@ -95,9 +95,9 @@
     border: 0;
     background: transparent;
     padding: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
 }
 
 .message blockquote {
@@ -266,9 +266,11 @@
     border: 0;
 }
 
-.code-block.nowrap pre,
-.code-block.nowrap pre code {
-    white-space: pre;
+.code-block.wrap pre,
+.code-block.wrap pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .collapsed-message {

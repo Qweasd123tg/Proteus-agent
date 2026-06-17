@@ -33,6 +33,7 @@ pub(crate) fn push_message(
     set_messages.update(|items| {
         items.push(Message {
             id,
+            version: 0,
             role,
             text: text.into(),
             tool: None,
@@ -59,6 +60,7 @@ pub(crate) fn push_user_message_once(
         }
         items.push(Message {
             id,
+            version: 0,
             role: MessageRole::User,
             text,
             tool: None,
@@ -89,6 +91,7 @@ pub(crate) fn push_assistant_message_once(
         }
         items.push(Message {
             id,
+            version: 0,
             role: MessageRole::Assistant,
             text,
             tool: None,
@@ -121,6 +124,7 @@ pub(crate) fn append_streaming_reasoning_delta(
             .find(|message| message.role == MessageRole::Reasoning && message.streaming)
         {
             message.text.push_str(text);
+            message.version += 1;
             appended = true;
         }
     });
@@ -132,6 +136,7 @@ pub(crate) fn append_streaming_reasoning_delta(
     set_messages.update(|items| {
         items.push(Message {
             id,
+            version: 0,
             role: MessageRole::Reasoning,
             text: text.to_owned(),
             tool: None,
@@ -147,6 +152,7 @@ pub(crate) fn finish_streaming_reasoning(set_messages: WriteSignal<Vec<Message>>
         for message in items.iter_mut() {
             if message.role == MessageRole::Reasoning && message.streaming {
                 message.streaming = false;
+                message.version += 1;
             }
         }
     });
@@ -163,6 +169,7 @@ pub(crate) fn push_tool_message(
     set_messages.update(|items| {
         items.push(Message {
             id,
+            version: 0,
             role: MessageRole::System,
             text: String::new(),
             tool: Some(tool),
@@ -187,6 +194,7 @@ pub(crate) fn append_streaming_assistant_delta(
         set_messages.update(|items| {
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 message.text.push_str(text);
+                message.version += 1;
             }
         });
     } else {
@@ -196,6 +204,7 @@ pub(crate) fn append_streaming_assistant_delta(
         set_messages.update(|items| {
             items.push(Message {
                 id,
+                version: 0,
                 role: MessageRole::Assistant,
                 text: text.to_owned(),
                 tool: None,
@@ -214,6 +223,7 @@ pub(crate) fn finish_active_streaming_assistant_message(
         set_messages.update(|items| {
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 message.streaming = false;
+                message.version += 1;
             }
         });
         set_active_stream_message_id.set(None);
@@ -225,6 +235,7 @@ pub(crate) fn finish_all_streaming_assistant_messages(set_messages: WriteSignal<
         for message in items {
             if message.role == MessageRole::Assistant && message.streaming {
                 message.streaming = false;
+                message.version += 1;
             }
         }
     });
@@ -243,6 +254,7 @@ pub(crate) fn finish_streaming_assistant_message(
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 message.text = final_text.clone();
                 message.streaming = false;
+                message.version += 1;
             }
         });
         set_active_stream_message_id.set(None);
@@ -272,15 +284,20 @@ pub(crate) fn update_tool_status(
         }
     });
     set_messages.update(|items| {
-        if let Some(tool) = items
-            .iter_mut()
-            .filter_map(|message| message.tool.as_mut())
-            .find(|tool| tool.call_id == call_id)
-        {
+        if let Some(message) = items.iter_mut().find(|message| {
+            message
+                .tool
+                .as_ref()
+                .is_some_and(|tool| tool.call_id == call_id)
+        }) {
+            let Some(tool) = message.tool.as_mut() else {
+                return;
+            };
             tool.status = status;
             if let Some(result_preview) = result_preview {
                 tool.result_preview = Some(result_preview);
             }
+            message.version += 1;
         }
     });
 }
@@ -297,6 +314,7 @@ mod tests {
         owner.with(|| {
             let (messages, set_messages) = signal(vec![Message {
                 id: 1,
+                version: 0,
                 role: MessageRole::Assistant,
                 text: "**ready**".to_owned(),
                 tool: None,

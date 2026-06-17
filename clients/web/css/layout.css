@@ -416,6 +416,15 @@ button.session-item.active {
     margin-left: auto;
 }
 
+.results-panel > .task-card,
+.results-panel > .user-turn,
+.results-panel > .control-card,
+.results-panel > .queued-prompt,
+.results-panel > .empty-state {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
+}
+
 .composer {
     position: relative;
     display: flex;

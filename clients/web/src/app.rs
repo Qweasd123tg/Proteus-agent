@@ -17,7 +17,7 @@ use crate::components::{
     ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView, ToastStack,
     UserInputCard, WorkingCard,
 };
-use crate::events::{EventStreamBindings, reconnect_event_stream};
+use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
 use crate::ui_utils::{
@@ -45,11 +45,7 @@ fn insert_textarea_newline(textarea: HtmlTextAreaElement, set_draft: WriteSignal
         .ok()
         .flatten()
         .unwrap_or(value.encode_utf16().count() as u32);
-    let end = textarea
-        .selection_end()
-        .ok()
-        .flatten()
-        .unwrap_or(start);
+    let end = textarea.selection_end().ok().flatten().unwrap_or(start);
     let start_index = utf16_offset_to_byte_index(&value, start);
     let end_index = utf16_offset_to_byte_index(&value, end);
     let mut next = String::with_capacity(value.len() + 1);
@@ -87,6 +83,7 @@ pub(crate) fn App() -> impl IntoView {
             let message = format!("Session token storage failed: {error}");
             set_messages.set(vec![Message {
                 id: 1,
+                version: 0,
                 role: MessageRole::System,
                 text: message,
                 tool: None,
@@ -143,6 +140,10 @@ pub(crate) fn App() -> impl IntoView {
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
     let (resize_start_composer, set_resize_start_composer) = signal(DEFAULT_COMPOSER_HEIGHT_PX);
+    let stream_delta_buffer = StoredValue::new_local(BufferedStreamDeltas::default());
+    let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
+    let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
+    let activity_tick_pending = StoredValue::new_local(false);
     let messages_by_id = Memo::new(move |_| {
         messages.with(|items| {
             items
@@ -160,7 +161,6 @@ pub(crate) fn App() -> impl IntoView {
             queued_prompts.with(|items| items.len()),
             is_sending.get(),
         );
-        let streaming_active = active_stream_message_id.get().is_some();
         if stick_to_bottom.get() {
             schedule_results_scroll(
                 results_ref,
@@ -170,9 +170,46 @@ pub(crate) fn App() -> impl IntoView {
                 set_last_results_scroll_top,
             );
         }
-        if !streaming_active {
+    });
+
+    Effect::new(move |_| {
+        if active_stream_message_id.get().is_some() {
+            return;
+        }
+        let signature = messages.with(|items| latest_math_signature(items));
+        let mut unchanged = false;
+        last_math_typeset_signature.with_value(|last| {
+            unchanged = *last == signature;
+        });
+        if unchanged {
+            return;
+        }
+        last_math_typeset_signature.set_value(signature);
+        if signature.is_some() {
             proteus_typeset_math();
         }
+    });
+
+    Effect::new(move |_| {
+        let _ = activity_now_ms.get();
+        let active = is_sending.get()
+            || tool_activities.with(|items| items.iter().any(tool_activity_is_active));
+        if !active {
+            activity_tick_pending.set_value(false);
+            return;
+        }
+        let mut pending = false;
+        activity_tick_pending.with_value(|value| {
+            pending = *value;
+        });
+        if pending {
+            return;
+        }
+        activity_tick_pending.set_value(true);
+        set_timeout(1000, move || {
+            activity_tick_pending.set_value(false);
+            set_activity_now_ms.set(js_sys::Date::now().max(0.0) as u64);
+        });
     });
 
     Effect::new(move |_| {
@@ -253,6 +290,7 @@ pub(crate) fn App() -> impl IntoView {
         set_active_stream_message_id,
         streamed_this_turn,
         set_streamed_this_turn,
+        stream_delta_buffer,
         set_agent_status,
         set_tool_activities,
         set_pending_approvals,
@@ -766,7 +804,8 @@ pub(crate) fn App() -> impl IntoView {
                         .set(error.unwrap_or_else(|| "не удалось удалить сессию".to_owned()));
                 }
                 Ok(StdioOutput::Event { .. }) => {
-                    set_sidebar_sessions_status.set("неожиданное событие delete-session".to_owned());
+                    set_sidebar_sessions_status
+                        .set("неожиданное событие delete-session".to_owned());
                 }
                 Err(error) => {
                     set_sidebar_sessions_status.set(format!("не удалось удалить сессию: {error}"));
@@ -1057,7 +1096,13 @@ pub(crate) fn App() -> impl IntoView {
                                         })
                                     }
                                     key=|message_id| *message_id
-                                    children=move |message_id| view! { <MessageView message_id messages=messages_by_id /> }
+                                    children=move |message_id| view! {
+                                        <MessageView
+                                            message_id
+                                            messages=messages_by_id
+                                            activity_now_ms
+                                        />
+                                    }
                                 />
                                 <For
                                     each=move || pending_approvals.get()
@@ -1465,6 +1510,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         .enumerate()
         .map(|(index, item)| Message {
             id: index as u64 + 1,
+            version: 0,
             role: message_role_from_wire(&item.role),
             text: item.text,
             tool: None,
@@ -1474,7 +1520,11 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
 }
 
 fn sidebar_session_title(session: &SessionSummary) -> String {
-    if let Some(preview) = session.preview.as_deref().filter(|text| !text.trim().is_empty()) {
+    if let Some(preview) = session
+        .preview
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+    {
         compact_title(preview)
     } else if session.message_count == 0 {
         "Новый чат".to_owned()
@@ -1612,6 +1662,29 @@ fn is_at_bottom(results: &HtmlElement) -> bool {
     distance <= CHAT_REATTACH_THRESHOLD_PX
 }
 
+fn latest_math_signature(messages: &[Message]) -> Option<(u64, u64)> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| {
+            !message.streaming && message.tool.is_none() && message_may_contain_math(&message.text)
+        })
+        .map(|message| (message.id, message.version))
+}
+
+fn message_may_contain_math(text: &str) -> bool {
+    text.contains('$') || text.contains("\\(") || text.contains("\\[")
+}
+
+fn tool_activity_is_active(tool: &ToolActivity) -> bool {
+    matches!(
+        tool.status,
+        ToolActivityStatus::Running
+            | ToolActivityStatus::WaitingApproval
+            | ToolActivityStatus::Approved
+    )
+}
+
 fn schedule_results_scroll(
     results_ref: NodeRef<html::Section>,
     stick_to_bottom: ReadSignal<bool>,
@@ -1626,12 +1699,7 @@ fn schedule_results_scroll(
 
     let callback = Closure::<dyn FnMut()>::wrap(Box::new(move || {
         scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
-        let second_frame = Closure::<dyn FnMut()>::wrap(Box::new(move || {
-            scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
-            set_scroll_frame_pending.set(false);
-        }));
-        request_animation_frame(second_frame.as_ref().unchecked_ref());
-        second_frame.forget();
+        set_scroll_frame_pending.set(false);
     }));
     request_animation_frame(callback.as_ref().unchecked_ref());
     callback.forget();

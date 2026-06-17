@@ -13,7 +13,27 @@ use crate::messages::{
     push_tool_message, push_user_message_once, update_tool_status,
 };
 use crate::types::*;
-use crate::ui_utils::{compact_json, compact_text, output_text, short_id, short_path};
+use crate::ui_utils::{compact_json, compact_text, output_text, set_timeout, short_id, short_path};
+
+const STREAM_DELTA_FLUSH_MS: i32 = 80;
+
+#[derive(Default)]
+pub(crate) struct BufferedStreamDeltas {
+    assistant: String,
+    reasoning: String,
+    flush_scheduled: bool,
+}
+
+#[derive(Clone, Copy)]
+struct StreamFlushBindings {
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
+    stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
@@ -32,6 +52,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub(crate) streamed_this_turn: ReadSignal<bool>,
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
+    pub(crate) stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -90,6 +111,9 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
         if was_disconnected {
             // События за время обрыва потеряны: стрим-состояние невалидно,
             // транскрипт перечитывается с сервера целиком.
+            bindings
+                .stream_delta_buffer
+                .set_value(BufferedStreamDeltas::default());
             bindings.set_active_stream_message_id.set(None);
             bindings.set_streamed_this_turn.set(false);
             replace_transcript(
@@ -130,6 +154,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.set_active_stream_message_id,
                     bindings.streamed_this_turn,
                     bindings.set_streamed_this_turn,
+                    bindings.stream_delta_buffer,
                     bindings.set_agent_status,
                     bindings.set_tool_activities,
                     bindings.set_pending_approvals,
@@ -196,6 +221,7 @@ fn handle_app_output(
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
     set_streamed_this_turn: WriteSignal<bool>,
+    stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -221,6 +247,7 @@ fn handle_app_output(
                 set_active_stream_message_id,
                 streamed_this_turn,
                 set_streamed_this_turn,
+                stream_delta_buffer,
                 set_agent_status,
                 set_tool_activities,
                 set_pending_approvals,
@@ -254,6 +281,7 @@ fn handle_app_event(
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
     set_streamed_this_turn: WriteSignal<bool>,
+    stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -261,6 +289,15 @@ fn handle_app_event(
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
 ) {
+    let stream_bindings = StreamFlushBindings {
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        active_stream_message_id,
+        set_active_stream_message_id,
+        set_streamed_this_turn,
+        stream_delta_buffer,
+    };
     match event {
         AppServerEvent::Runtime { envelope } => {
             update_runtime_status_and_tools(
@@ -268,9 +305,7 @@ fn handle_app_event(
                 set_messages,
                 next_message_id,
                 set_next_message_id,
-                active_stream_message_id,
-                set_active_stream_message_id,
-                set_streamed_this_turn,
+                stream_bindings,
                 set_agent_status,
                 set_tool_activities,
             );
@@ -282,11 +317,13 @@ fn handle_app_event(
             );
         }
         AppServerEvent::UserMessageSubmitted { text } => {
+            flush_stream_delta_buffer(stream_bindings);
             set_streamed_this_turn.set(false);
             set_active_stream_message_id.set(None);
             push_user_message_once(set_messages, next_message_id, set_next_message_id, text);
         }
         AppServerEvent::TurnOutput { output } => {
+            flush_stream_delta_buffer(stream_bindings);
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
@@ -361,6 +398,7 @@ fn handle_app_event(
             });
         }
         AppServerEvent::Error { message } => {
+            flush_stream_delta_buffer(stream_bindings);
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ошибка".to_owned());
@@ -373,6 +411,7 @@ fn handle_app_event(
             );
         }
         AppServerEvent::Shutdown => {
+            flush_stream_delta_buffer(stream_bindings);
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("остановлено".to_owned());
@@ -409,14 +448,88 @@ fn update_session_labels(
     }
 }
 
+fn queue_assistant_delta(bindings: StreamFlushBindings, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let mut should_schedule = false;
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.assistant.push_str(text);
+        if !buffer.flush_scheduled {
+            buffer.flush_scheduled = true;
+            should_schedule = true;
+        }
+    });
+    if should_schedule {
+        schedule_stream_delta_flush(bindings);
+    }
+}
+
+fn queue_reasoning_delta(bindings: StreamFlushBindings, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let mut should_schedule = false;
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.reasoning.push_str(text);
+        if !buffer.flush_scheduled {
+            buffer.flush_scheduled = true;
+            should_schedule = true;
+        }
+    });
+    if should_schedule {
+        schedule_stream_delta_flush(bindings);
+    }
+}
+
+fn schedule_stream_delta_flush(bindings: StreamFlushBindings) {
+    set_timeout(STREAM_DELTA_FLUSH_MS, move || {
+        flush_stream_delta_buffer(bindings);
+    });
+}
+
+fn flush_stream_delta_buffer(bindings: StreamFlushBindings) {
+    let mut assistant = String::new();
+    let mut reasoning = String::new();
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.flush_scheduled = false;
+        assistant = std::mem::take(&mut buffer.assistant);
+        reasoning = std::mem::take(&mut buffer.reasoning);
+    });
+
+    if reasoning.is_empty() && assistant.is_empty() {
+        return;
+    }
+
+    if !reasoning.is_empty() {
+        append_streaming_reasoning_delta(
+            bindings.set_messages,
+            bindings.next_message_id,
+            bindings.set_next_message_id,
+            &reasoning,
+        );
+    }
+
+    if !assistant.is_empty() {
+        finish_streaming_reasoning(bindings.set_messages);
+        bindings.set_streamed_this_turn.set(true);
+        append_streaming_assistant_delta(
+            bindings.set_messages,
+            bindings.next_message_id,
+            bindings.set_next_message_id,
+            bindings.active_stream_message_id,
+            bindings.set_active_stream_message_id,
+            &assistant,
+        );
+    }
+}
+
 fn update_runtime_status_and_tools(
     envelope: &Value,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
-    active_stream_message_id: ReadSignal<Option<u64>>,
-    set_active_stream_message_id: WriteSignal<Option<u64>>,
-    set_streamed_this_turn: WriteSignal<bool>,
+    stream_bindings: StreamFlushBindings,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
 ) {
@@ -425,8 +538,9 @@ fn update_runtime_status_and_tools(
     };
 
     if event.get("TurnStarted").is_some() {
-        set_streamed_this_turn.set(false);
-        set_active_stream_message_id.set(None);
+        flush_stream_delta_buffer(stream_bindings);
+        stream_bindings.set_streamed_this_turn.set(false);
+        stream_bindings.set_active_stream_message_id.set(None);
         finish_streaming_reasoning(set_messages);
         set_agent_status.set("начинает".to_owned());
     } else if event.get("TaskReceived").is_some() {
@@ -475,33 +589,20 @@ fn update_runtime_status_and_tools(
     } else if let Some(delta_event) = event.get("AssistantTextDelta") {
         set_agent_status.set("пишет".to_owned());
         if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
-            finish_streaming_reasoning(set_messages);
-            set_streamed_this_turn.set(true);
-            append_streaming_assistant_delta(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                active_stream_message_id,
-                set_active_stream_message_id,
-                text,
-            );
+            queue_assistant_delta(stream_bindings, text);
         }
     } else if let Some(reasoning_event) = event.get("AssistantReasoningDelta") {
         set_agent_status.set("думает".to_owned());
         if let Some(text) = reasoning_event.get("text").and_then(Value::as_str) {
-            append_streaming_reasoning_delta(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                text,
-            );
+            queue_reasoning_delta(stream_bindings, text);
         }
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
+        flush_stream_delta_buffer(stream_bindings);
         set_agent_status.set("запускает tool".to_owned());
         finish_active_streaming_assistant_message(
             set_messages,
-            active_stream_message_id,
-            set_active_stream_message_id,
+            stream_bindings.active_stream_message_id,
+            stream_bindings.set_active_stream_message_id,
         );
         finish_streaming_reasoning(set_messages);
         if let Some(call) = tool_event.get("call") {
@@ -520,6 +621,7 @@ fn update_runtime_status_and_tools(
                 call_id: call_id.clone(),
                 name,
                 args_preview,
+                started_at_ms: js_sys::Date::now().max(0.0) as u64,
                 status: ToolActivityStatus::Running,
                 result_preview: None,
             };
@@ -591,6 +693,7 @@ fn update_runtime_status_and_tools(
             );
         }
     } else if event.get("TurnFinished").is_some() {
+        flush_stream_delta_buffer(stream_bindings);
         finish_streaming_reasoning(set_messages);
         set_agent_status.set("ожидает".to_owned());
     } else if event.get("Error").is_some() {
@@ -621,7 +724,7 @@ fn tool_result_preview(result: &Value) -> String {
     if let Some(content) = result.get("content")
         && !content.as_array().is_none_or(Vec::is_empty)
     {
-        return compact_text(&content.to_string(), 600);
+        return compact_content_preview(content);
     }
 
     if result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
@@ -629,6 +732,25 @@ fn tool_result_preview(result: &Value) -> String {
     } else {
         "(tool завершился без текста ошибки)".to_owned()
     }
+}
+
+fn compact_content_preview(content: &Value) -> String {
+    let Some(parts) = content.as_array() else {
+        return compact_text(&compact_json(content), 600);
+    };
+    let mut preview = String::new();
+    preview.push('[');
+    for (index, part) in parts.iter().take(4).enumerate() {
+        if index > 0 {
+            preview.push_str(", ");
+        }
+        preview.push_str(&compact_json(part));
+    }
+    if parts.len() > 4 {
+        preview.push_str(", ...");
+    }
+    preview.push(']');
+    compact_text(&preview, 600)
 }
 
 fn compaction_report_text(report: &Value) -> String {

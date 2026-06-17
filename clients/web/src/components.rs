@@ -7,7 +7,17 @@ use web_sys::{MouseEvent, window};
 use crate::api::{get_json, post_json};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
-use crate::ui_utils::{compact_json, copy_to_clipboard, short_id, short_path};
+use crate::ui_utils::{compact_json, compact_text, copy_to_clipboard, short_id, short_path};
+
+const REASONING_RENDER_LIMIT: usize = 8000;
+const APPROVAL_PREVIEW_RENDER_LIMIT: usize = 12000;
+
+#[derive(Clone)]
+struct RenderedMessageCache {
+    id: u64,
+    version: u64,
+    html: String,
+}
 
 #[component]
 pub(crate) fn ResumeView() -> impl IntoView {
@@ -112,7 +122,11 @@ pub(crate) fn ResumeView() -> impl IntoView {
 }
 
 fn resume_session_preview(session: &SessionSummary) -> String {
-    if let Some(preview) = session.preview.as_deref().filter(|text| !text.trim().is_empty()) {
+    if let Some(preview) = session
+        .preview
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+    {
         preview.to_owned()
     } else if session.message_count == 0 {
         "Новый чат".to_owned()
@@ -242,7 +256,9 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
         .filter(|language| !language.trim().is_empty())
         .unwrap_or("preview")
         .to_owned();
-    let body = body.filter(|body| !body.trim().is_empty());
+    let body = body
+        .filter(|body| !body.trim().is_empty())
+        .map(|body| compact_text(&body, APPROVAL_PREVIEW_RENDER_LIMIT));
 
     view! {
         <section>
@@ -676,7 +692,10 @@ where
 }
 
 #[component]
-fn ToolActivityCard(message: Memo<Option<Message>>) -> impl IntoView {
+fn ToolActivityCard(
+    message: Memo<Option<Message>>,
+    activity_now_ms: ReadSignal<u64>,
+) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
     view! {
         <article class="tool-card">
@@ -698,7 +717,7 @@ fn ToolActivityCard(message: Memo<Option<Message>>) -> impl IntoView {
                             })
                             .unwrap_or("dot")
                     }></span>
-                    {move || current_tool(message).map(|tool| tool.status.label()).unwrap_or("tool")}
+                    {move || current_tool_status_label(message, activity_now_ms)}
                 </span>
                 <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
                 <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
@@ -738,7 +757,11 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>) -> impl IntoView {
+pub(crate) fn MessageView(
+    message_id: u64,
+    messages: Memo<HashMap<u64, Message>>,
+    activity_now_ms: ReadSignal<u64>,
+) -> impl IntoView {
     let message = Memo::new(move |_| current_message(messages, message_id));
     let Some(initial_message) = message.get_untracked() else {
         return view! { <></> }.into_any();
@@ -751,7 +774,7 @@ pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>
                     .map(|tool| tool_turn_card_class(tool.status))
                     .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
             }>
-                <ToolActivityCard message />
+                <ToolActivityCard message activity_now_ms />
             </article>
         }
         .into_any();
@@ -771,6 +794,7 @@ pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>
         MessageRole::User | MessageRole::Reasoning => "task-card assistant-turn",
     };
     let (collapsed, set_collapsed) = signal(false);
+    let rendered_html = cached_message_html(message);
     let toggle_title = move || {
         if collapsed.get() {
             "Развернуть"
@@ -812,7 +836,7 @@ pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>
                     view! {
                         <div
                             class=move || current_message_content_class(message)
-                            inner_html=move || current_message_html(message)
+                            inner_html=move || rendered_html.get()
                         ></div>
                     }.into_any()
                 }
@@ -825,6 +849,7 @@ pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>
 /// Запрос пользователя: правый «пузырь», без тяжёлой шапки роли; copy
 /// появляется по наведению (стиль в CSS).
 fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
+    let rendered_html = cached_message_html(message);
     view! {
         <article class="user-turn">
             <div class="user-bubble">
@@ -836,20 +861,20 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
                 >
                     "Копировать"
                 </button>
-                <div class="message user-message" inner_html=move || current_message_html(message)></div>
+                <div class="message user-message" inner_html=move || rendered_html.get()></div>
             </div>
         </article>
     }
     .into_any()
 }
 
-/// Reasoning-поток: пока стримится — развёрнут, после завершения сворачивается
-/// в строку-переключатель «Размышления».
+/// Reasoning-поток всегда начинается свёрнутым: длинное thinking-содержимое не
+/// должно блокировать scroll/render основного ответа.
 fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
     let streaming = message
         .get_untracked()
         .is_some_and(|message| message.streaming);
-    let (expanded, set_expanded) = signal(streaming);
+    let (expanded, set_expanded) = signal(false);
     let (last_streaming, set_last_streaming) = signal(streaming);
     Effect::new(move |_| {
         let streaming = message.get().is_some_and(|message| message.streaming);
@@ -888,7 +913,7 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
             {move || {
                 if expanded.get() {
                     view! {
-                        <div class="message reasoning-message" inner_html=move || current_message_html(message)></div>
+                        <div class="message reasoning-message" inner_html=move || current_reasoning_html(message)></div>
                     }.into_any()
                 } else {
                     view! { <></> }.into_any()
@@ -907,6 +932,41 @@ fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
     message.get().and_then(|message| message.tool)
 }
 
+fn current_tool_status_label(
+    message: Memo<Option<Message>>,
+    activity_now_ms: ReadSignal<u64>,
+) -> String {
+    let Some(tool) = current_tool(message) else {
+        return "tool".to_owned();
+    };
+    if matches!(
+        tool.status,
+        ToolActivityStatus::Running
+            | ToolActivityStatus::WaitingApproval
+            | ToolActivityStatus::Approved
+    ) {
+        let elapsed_seconds = activity_now_ms
+            .get()
+            .saturating_sub(tool.started_at_ms)
+            .saturating_div(1000);
+        format!(
+            "{} · {}",
+            tool.status.label(),
+            format_elapsed_seconds(elapsed_seconds)
+        )
+    } else {
+        tool.status.label().to_owned()
+    }
+}
+
+fn format_elapsed_seconds(seconds: u64) -> String {
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else {
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    }
+}
+
 fn current_message_text(message: Memo<Option<Message>>) -> String {
     message
         .get()
@@ -914,15 +974,47 @@ fn current_message_text(message: Memo<Option<Message>>) -> String {
         .unwrap_or_default()
 }
 
-fn current_message_html(message: Memo<Option<Message>>) -> String {
-    let Some(message) = message.get() else {
-        return String::new();
-    };
+fn cached_message_html(message: Memo<Option<Message>>) -> Memo<String> {
+    let cache = StoredValue::new_local(None::<RenderedMessageCache>);
+    Memo::new(move |_| {
+        let Some(message) = message.get() else {
+            return String::new();
+        };
+        let mut cached = None;
+        cache.with_value(|slot| {
+            if let Some(slot) = slot.as_ref()
+                && slot.id == message.id
+                && slot.version == message.version
+            {
+                cached = Some(slot.html.clone());
+            }
+        });
+        if let Some(html) = cached {
+            return html;
+        }
+        let html = render_message_html(&message);
+        cache.set_value(Some(RenderedMessageCache {
+            id: message.id,
+            version: message.version,
+            html: html.clone(),
+        }));
+        html
+    })
+}
+
+fn render_message_html(message: &Message) -> String {
     if message.streaming {
         plain_text_html(&message.text)
     } else {
         markdown_html(&message.text)
     }
+}
+
+fn current_reasoning_html(message: Memo<Option<Message>>) -> String {
+    let Some(message) = message.get() else {
+        return String::new();
+    };
+    plain_text_html(&compact_text(&message.text, REASONING_RENDER_LIMIT))
 }
 
 fn current_message_content_class(message: Memo<Option<Message>>) -> String {
@@ -951,4 +1043,15 @@ fn tool_turn_card_class(status: ToolActivityStatus) -> String {
         "task-card {state_class} agent-turn-item tool-turn-item status-{}",
         status.key()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
+        assert_eq!(format_elapsed_seconds(9), "9s");
+        assert_eq!(format_elapsed_seconds(65), "1m 05s");
+    }
 }
