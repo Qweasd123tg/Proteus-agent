@@ -5,6 +5,8 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/proteus"
 plugins_dir="${HOME}/.proteus/plugins"
+config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
+configs_dir="${config_home}/configs"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
@@ -158,8 +160,26 @@ elif find "${project_dir}/crates" "${project_dir}/plugins/default" "${project_di
   "${project_dir}/install.sh"
 fi
 
+server_config_args=()
+original_args=("$@")
 if [ "$#" -gt 0 ]; then
-  exec "${proteus_bin}" "$@"
+  case "$#" in
+    1)
+      case "$1" in
+        --config=*) server_config_args=("$1") ;;
+        *) exec "${proteus_bin}" "${original_args[@]}" ;;
+      esac
+      ;;
+    2)
+      case "$1" in
+        --config) server_config_args=("$1" "$2") ;;
+        *) exec "${proteus_bin}" "${original_args[@]}" ;;
+      esac
+      ;;
+    *)
+      exec "${proteus_bin}" "${original_args[@]}"
+      ;;
+  esac
 fi
 
 if ! command -v trunk >/dev/null 2>&1; then
@@ -198,7 +218,10 @@ else
 fi
 echo
 
-"${proteus_bin}" --cwd "${workspace_cwd}" server http \
+"${proteus_bin}" \
+  "${server_config_args[@]}" \
+  --cwd "${workspace_cwd}" \
+  server http \
   --port "${app_port}" \
   "${server_auth_args[@]}" \
   --allow-origin "http://127.0.0.1:${web_port}" \
@@ -281,8 +304,23 @@ for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-work
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
 
+mkdir -p "${configs_dir}"
+install_config() {
+  dest_name="$1"
+  source_path="$2"
+  dest_path="${configs_dir}/${dest_name}"
+  if [ -e "${dest_path}" ]; then
+    return
+  fi
+  cp "${project_dir}/${source_path}" "${dest_path}"
+}
+
+install_config "codex.config.toml" "codex.config.toml"
+install_config "proteus.provider.example.toml" "proteus.provider.example.toml"
+
 echo "Installed: ${bin_path}"
 echo "Plugins:   ${plugins_dir}"
+echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":${PATH}:" in
   *:"${bin_dir}":*) ;;

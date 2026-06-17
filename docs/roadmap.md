@@ -216,7 +216,8 @@ Scope:
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, `renderer = "text"`.
-  `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`
+  `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`,
+  а packaged named configs — в `~/.config/Proteus-agent/configs/`,
   автоматически.
 
 Следующий scope:
