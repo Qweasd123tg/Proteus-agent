@@ -157,6 +157,7 @@ impl MessageRole {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Message {
     pub(crate) id: u64,
+    pub(crate) version: u64,
     pub(crate) role: MessageRole,
     pub(crate) text: String,
     pub(crate) tool: Option<ToolActivity>,
@@ -174,6 +175,7 @@ pub(crate) struct ToolActivity {
     pub(crate) call_id: String,
     pub(crate) name: String,
     pub(crate) args_preview: String,
+    pub(crate) started_at_ms: u64,
     pub(crate) status: ToolActivityStatus,
     pub(crate) result_preview: Option<String>,
 }
