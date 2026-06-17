@@ -104,47 +104,6 @@ pub(crate) fn push_assistant_message_once(
     }
 }
 
-/// Накопить reasoning-delta в активный (streaming) reasoning-блок текущего
-/// хода или создать новый. Reasoning приходит до текста ответа, поэтому блок
-/// оказывается над сообщением ассистента того же хода.
-pub(crate) fn append_streaming_reasoning_delta(
-    set_messages: WriteSignal<Vec<Message>>,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    text: &str,
-) {
-    if text.is_empty() {
-        return;
-    }
-    let mut appended = false;
-    set_messages.update(|items| {
-        if let Some(message) = items
-            .iter_mut()
-            .rev()
-            .find(|message| message.role == MessageRole::Reasoning && message.streaming)
-        {
-            message.text.push_str(text);
-            message.version += 1;
-            appended = true;
-        }
-    });
-    if appended {
-        return;
-    }
-    let id = next_message_id.get();
-    set_next_message_id.set(id + 1);
-    set_messages.update(|items| {
-        items.push(Message {
-            id,
-            version: 0,
-            role: MessageRole::Reasoning,
-            text: text.to_owned(),
-            tool: None,
-            streaming: true,
-        });
-    });
-}
-
 /// Завершить активный reasoning-блок (сворачивается в UI). Вызывается, когда
 /// начинается текст ответа, tool call или ход завершается.
 pub(crate) fn finish_streaming_reasoning(set_messages: WriteSignal<Vec<Message>>) {
