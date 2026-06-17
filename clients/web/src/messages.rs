@@ -205,6 +205,31 @@ pub(crate) fn append_streaming_assistant_delta(
     }
 }
 
+pub(crate) fn finish_active_streaming_assistant_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    active_stream_message_id: ReadSignal<Option<u64>>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+) {
+    if let Some(message_id) = active_stream_message_id.get() {
+        set_messages.update(|items| {
+            if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
+                message.streaming = false;
+            }
+        });
+        set_active_stream_message_id.set(None);
+    }
+}
+
+pub(crate) fn finish_all_streaming_assistant_messages(set_messages: WriteSignal<Vec<Message>>) {
+    set_messages.update(|items| {
+        for message in items {
+            if message.role == MessageRole::Assistant && message.streaming {
+                message.streaming = false;
+            }
+        }
+    });
+}
+
 pub(crate) fn finish_streaming_assistant_message(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
@@ -258,4 +283,36 @@ pub(crate) fn update_tool_status(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use leptos::prelude::Owner;
+
+    use super::*;
+
+    #[test]
+    fn finish_active_streaming_assistant_message_marks_message_done() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                role: MessageRole::Assistant,
+                text: "**ready**".to_owned(),
+                tool: None,
+                streaming: true,
+            }]);
+            let (active_stream_message_id, set_active_stream_message_id) = signal(Some(1));
+
+            finish_active_streaming_assistant_message(
+                set_messages,
+                active_stream_message_id,
+                set_active_stream_message_id,
+            );
+
+            let items = messages.get_untracked();
+            assert!(!items[0].streaming);
+            assert_eq!(active_stream_message_id.get_untracked(), None);
+        });
+    }
 }
