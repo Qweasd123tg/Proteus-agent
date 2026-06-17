@@ -1871,6 +1871,15 @@ mod tests {
             approval.tool_spec.as_ref().map(|spec| spec.name.as_str()),
             Some("apply_patch")
         );
+        let preview = approval.preview.as_ref().expect("approval preview");
+        assert_eq!(preview.kind, "patch");
+        assert_eq!(preview.language.as_deref(), Some("diff"));
+        assert!(
+            preview
+                .body
+                .as_deref()
+                .is_some_and(|body| body.contains("*** Begin Patch"))
+        );
 
         let approval_response = route_request(
             state.clone(),

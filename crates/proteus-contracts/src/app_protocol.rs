@@ -92,6 +92,8 @@ pub struct AppApprovalRequest {
     pub cwd: PathBuf,
     pub reason: String,
     pub tool_spec: Option<ToolSpec>,
+    #[serde(default)]
+    pub preview: Option<AppApprovalPreview>,
 }
 
 impl AppApprovalRequest {
@@ -108,7 +110,65 @@ impl AppApprovalRequest {
             cwd,
             reason,
             tool_spec,
+            preview: None,
         }
+    }
+
+    pub fn with_preview(mut self, preview: Option<AppApprovalPreview>) -> Self {
+        self.preview = preview;
+        self
+    }
+}
+
+/// UI-oriented approval preview. It is advisory only: actual execution must
+/// still go through the tool's own validation and policy checks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct AppApprovalPreview {
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default)]
+    pub affected_files: Vec<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+impl AppApprovalPreview {
+    pub fn new(
+        kind: impl Into<String>,
+        title: impl Into<String>,
+        summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: kind.into(),
+            title: title.into(),
+            summary: summary.into(),
+            affected_files: Vec::new(),
+            body: None,
+            language: None,
+            metadata: Value::Null,
+        }
+    }
+
+    pub fn with_affected_files(mut self, affected_files: Vec<String>) -> Self {
+        self.affected_files = affected_files;
+        self
+    }
+
+    pub fn with_body(mut self, body: impl Into<String>, language: impl Into<String>) -> Self {
+        self.body = Some(body.into());
+        self.language = Some(language.into());
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: Value) -> Self {
+        self.metadata = metadata;
+        self
     }
 }
 
@@ -201,4 +261,64 @@ pub enum StdioOutput {
         output: Option<Value>,
         error: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::new_call_id;
+
+    #[test]
+    fn approval_request_defaults_missing_preview_to_none() {
+        let payload = json!({
+            "approval_id": "approval-1",
+            "call": {
+                "id": "call-1",
+                "name": "shell",
+                "args": { "command": "cargo test" }
+            },
+            "cwd": "/workspace",
+            "reason": "test approval",
+            "tool_spec": null
+        });
+
+        let request: AppApprovalRequest =
+            serde_json::from_value(payload).expect("approval request");
+
+        assert_eq!(request.approval_id, "approval-1");
+        assert!(request.preview.is_none());
+    }
+
+    #[test]
+    fn approval_request_roundtrips_preview() {
+        let request = AppApprovalRequest::new(
+            "approval-1".to_owned(),
+            ToolCall::new(
+                new_call_id(),
+                "write_file",
+                json!({ "path": "a.txt", "content": "hello" }),
+            ),
+            PathBuf::from("/workspace"),
+            "test approval".to_owned(),
+            None,
+        )
+        .with_preview(Some(
+            AppApprovalPreview::new("write_file", "File write preview", "Create a.txt")
+                .with_affected_files(vec!["a.txt".to_owned()])
+                .with_body("hello", "text")
+                .with_metadata(json!({ "operation": "create" })),
+        ));
+
+        let value = serde_json::to_value(&request).expect("serialize request");
+        let decoded: AppApprovalRequest = serde_json::from_value(value).expect("decode request");
+
+        let preview = decoded.preview.expect("preview");
+        assert_eq!(preview.kind, "write_file");
+        assert_eq!(preview.affected_files, vec!["a.txt"]);
+        assert_eq!(preview.metadata["operation"], "create");
+    }
 }
