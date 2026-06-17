@@ -222,7 +222,7 @@ app-server не разъезжались по protocol endpoints. Если на 
 
 Leptos chat-клиент живёт в `clients/web` и уже работает как HTTP/SSE client
 поверх app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
-`/sessions`, `/resume`, `/history` и control-plane endpoints. Inspector живёт
+`/sessions`, `/resume`, `/history`, `/pending` и control-plane endpoints. Inspector живёт
 в `clients/inspector` и читает `/config` и `/inspect/topology*`. HTTP/SSE
 transport запускается через `proteus server http`; CLI и `proteus server stdio`
 остаются параллельными путями для headless/debug прогонов.

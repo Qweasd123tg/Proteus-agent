@@ -237,6 +237,8 @@ HTTP/SSE transport:
 - `GET /inspect/topology.map` - полный diagnostic graph из того же snapshot;
 - `GET /inspect/topology.mmd` - Mermaid export/debug view из того же snapshot;
 - `GET /sessions` - durable session summaries из config store;
+- `GET /pending` - snapshot текущих pending approval/user-input запросов для
+  восстановления UI после initial load или SSE reconnect;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
 - `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/model`,
   `/reasoning`, `/effort` - короткие
@@ -249,6 +251,10 @@ HTTP/SSE transport:
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`.
+Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
+resume или shutdown. Если SSE connection оборвался до доставки
+`ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
+и восстанавливает карточки без повторного запуска turn'а.
 После `/resume` web-клиент открывает новый SSE connection: активный turn и
 pending approval/user-input старой session закрываются, новый runtime стартует
 уже с history выбранной session.
