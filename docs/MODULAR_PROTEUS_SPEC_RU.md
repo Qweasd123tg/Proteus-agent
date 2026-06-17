@@ -143,7 +143,8 @@ Runtime должен сохранять эти свойства:
   scoring/budget и git diff summary без записи в conversation history;
 - line-oriented edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
-- `coding.plan_execute_review` как plugin `Workflow`, вынесенный из core;
+- `coding.codex_loop` и `coding.plan_execute_review` как plugin `Workflow`,
+  вынесенные из core;
 - eval report поверх event log для сравнения workflow/context/edit связок;
 - streaming model path;
 - session restore/resume поверх event log;

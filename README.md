@@ -39,7 +39,7 @@ plugins/
     shell-tool/          — tool shell (sh -lc)
     sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
     codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary + fallback
-    coding-workflow/     — Workflow-плагины "coding.single_loop" и "coding.plan_execute_review"
+    coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
     context-pack/        — ContextBuilder-плагины "simple" и "repo_aware"
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
@@ -61,7 +61,7 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `text` renderer. Codex-style request-time compactor `codex` с внутренним
   summary model call поставляет плагин `codex-compactor`. Production workflow
   в core больше не встроен:
-  `coding.single_loop` и `coding.plan_execute_review` поставляет
+  `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple` и
   `repo_aware` поставляет плагин `context-pack`; `jsonl` memory и
   `carry_forward` memory policy поставляет плагин `memory-pack`;
@@ -301,8 +301,8 @@ proteus doctor
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy).
 - `proteus.codex.example.toml` — экспериментальный Codex-shaped профиль:
-  отдельная сборка модулей для проверки Codex-подобного workflow/context/tools
-  поведения, dynamic tool exposure и `codex` compactor.
+  отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
+  context/tools поведения, dynamic tool exposure и `codex` compactor.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.

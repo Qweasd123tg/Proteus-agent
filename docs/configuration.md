@@ -125,7 +125,7 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 
 `proteus.codex.example.toml` - экспериментальный Codex-shaped profile для
 чистой проверки Codex-подобной сборки модулей. Он подключает тот же provider
-через `include`, использует `coding.single_loop`, `repo_aware`, `rg`,
+через `include`, использует `coding.codex_loop`, `repo_aware`, `rg`,
 `direct`, `ask_write`, dynamic tool exposure и `modules.compactor = "codex"`.
 Запускается явно через `--config proteus.codex.example.toml` или создаётся
 через `proteus init codex`; baseline `coding` от этого профиля не зависит.
@@ -328,7 +328,8 @@ max_hot_tools = 10
 always_include = ["request_user_input"]
 ```
 
-Когда active workflow — `coding.single_loop` или `coding.plan_execute_review`,
+Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
+`coding.plan_execute_review`,
 скрытые policy-visible tools остаются reachable через workflow-owned
 meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
 `proteus_tool_call`. Они не являются registry tools. `proteus_tool_call`

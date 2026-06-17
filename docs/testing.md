@@ -187,6 +187,7 @@ diff size, unnecessary edits и стоимость остаются следую
 
 Главная первая сравнительная пара:
 `coding.single_loop/simple_context/direct_patch` против
+`coding.codex_loop/repo_aware/direct_patch` и
 `coding.plan_execute_review/repo_aware/direct_patch`.
 
 ## Когда Достаточно Документационной Проверки

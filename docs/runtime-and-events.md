@@ -344,6 +344,12 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 `coding.single_loop`, чтобы обычный чат и простые coding-запросы не проходили
 через лишние plan/execute/review model calls.
 
+`coding.codex_loop` - экспериментальный workflow для `proteus.codex.example.toml`.
+Он использует тот же event/runtime contract, но разделяет Codex-shaped
+`codex_execute` и `codex_final`: execute-фаза может искать/вызывать tools через
+workflow host, а final-фаза всегда делает model request без tools и без
+dynamic meta-tool instructions.
+
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в
 persistent history и `messages.jsonl`. В историю сохраняются пользовательское
