@@ -820,11 +820,8 @@ pub(crate) fn App() -> impl IntoView {
                                     .map(short_id)
                                     .unwrap_or("legacy")
                                     .to_owned();
-                                let preview = session
-                                    .preview
-                                    .clone()
-                                    .unwrap_or_else(|| "Нет превью диалога".to_owned());
-                                let title = compact_title(&preview);
+                                let title = sidebar_session_title(&session);
+                                let preview = sidebar_session_preview(&session);
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
@@ -846,7 +843,12 @@ pub(crate) fn App() -> impl IntoView {
                                                 <span class="session-id">{title}</span>
                                                 <code class="session-code">{session_id}</code>
                                             </div>
-                                            <div class="session-preview">{compact_text(&preview, 80)}</div>
+                                            {match preview {
+                                                Some(preview) => view! {
+                                                    <div class="session-preview">{preview}</div>
+                                                }.into_any(),
+                                                None => view! { <></> }.into_any(),
+                                            }}
                                             <div class="session-meta">
                                                 <span class="session-time">{format!("{message_count} сообщений")}</span>
                                                 <span class="session-time">{updated_at}</span>
@@ -1385,6 +1387,24 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         .collect()
 }
 
+fn sidebar_session_title(session: &SessionSummary) -> String {
+    if let Some(preview) = session.preview.as_deref().filter(|text| !text.trim().is_empty()) {
+        compact_title(preview)
+    } else if session.message_count == 0 {
+        "Новый чат".to_owned()
+    } else {
+        "Сессия".to_owned()
+    }
+}
+
+fn sidebar_session_preview(session: &SessionSummary) -> Option<String> {
+    session
+        .preview
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| compact_text(text, 80))
+}
+
 pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
@@ -1432,6 +1452,31 @@ pub(crate) fn load_sidebar_sessions(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_summary(preview: Option<&str>, message_count: usize) -> SessionSummary {
+        SessionSummary {
+            session_dir: "/tmp/session".to_owned(),
+            session_id: Some("1234567890".to_owned()),
+            workspace_path: Some("/tmp/workspace".to_owned()),
+            message_count,
+            updated_at_ms: None,
+            preview: preview.map(ToOwned::to_owned),
+            resumable: true,
+        }
+    }
+
+    #[test]
+    fn sidebar_empty_session_uses_new_chat_without_preview_placeholder() {
+        let session = session_summary(None, 0);
+
+        assert_eq!(sidebar_session_title(&session), "Новый чат");
+        assert_eq!(sidebar_session_preview(&session), None);
+    }
 }
 
 fn message_role_from_wire(role: &str) -> MessageRole {
