@@ -20,7 +20,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct AnthropicMessagesClient {
     http: reqwest::Client,
-    api_key: String,
+    secret_config: Value,
     base_url: String,
     api_version: String,
     auth: AnthropicAuth,
@@ -32,7 +32,6 @@ pub struct AnthropicMessagesClient {
 
 impl AnthropicMessagesClient {
     pub fn from_provider_config(config: Value) -> Result<Self> {
-        let api_key = read_secret_from_config(&config, "ANTHROPIC_API_KEY", "anthropic_api_key")?;
         let base_url = config
             .get("base_url")
             .and_then(Value::as_str)
@@ -57,7 +56,7 @@ impl AnthropicMessagesClient {
 
         Ok(Self {
             http: reqwest::Client::new(),
-            api_key,
+            secret_config: config,
             base_url,
             api_version,
             auth,
@@ -118,7 +117,9 @@ impl AnthropicMessagesClient {
     ) -> Result<CanonicalModelResponse> {
         let body = to_anthropic_request(&request)?;
         let url = format!("{}/v1/messages", self.base_url);
-        let response = send_with_transport_retry(|| self.request_builder(&url, &body)).await?;
+        let api_key = self.api_key()?;
+        let response =
+            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key)).await?;
 
         let status = response.status();
         let response_text = response.text().await?;
@@ -134,7 +135,8 @@ impl AnthropicMessagesClient {
         let mut body = to_anthropic_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/v1/messages", self.base_url);
-        let response = send_with_transport_retry(|| self.request_builder(&url, &body))
+        let api_key = self.api_key()?;
+        let response = send_with_transport_retry(|| self.request_builder(&url, &body, &api_key))
             .await?
             .error_for_status()?;
 
@@ -182,7 +184,15 @@ impl AnthropicMessagesClient {
         Ok(Box::pin(events))
     }
 
-    fn request_builder(&self, url: &str, body: &Value) -> reqwest::RequestBuilder {
+    fn api_key(&self) -> Result<String> {
+        read_secret_from_config(
+            &self.secret_config,
+            "ANTHROPIC_API_KEY",
+            "anthropic_api_key",
+        )
+    }
+
+    fn request_builder(&self, url: &str, body: &Value, api_key: &str) -> reqwest::RequestBuilder {
         let builder = self
             .http
             .post(url)
@@ -190,10 +200,8 @@ impl AnthropicMessagesClient {
             .header(CONTENT_TYPE, "application/json")
             .json(body);
         match self.auth {
-            AnthropicAuth::XApiKey => builder.header("x-api-key", &self.api_key),
-            AnthropicAuth::Bearer => {
-                builder.header(AUTHORIZATION, format!("Bearer {}", self.api_key))
-            }
+            AnthropicAuth::XApiKey => builder.header("x-api-key", api_key),
+            AnthropicAuth::Bearer => builder.header(AUTHORIZATION, format!("Bearer {api_key}")),
         }
     }
 }
@@ -927,6 +935,17 @@ fn strip_dsml_tags(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::domain::ReasoningConfig;
+
+    #[test]
+    fn provider_config_does_not_require_secret_until_request() {
+        let client = AnthropicMessagesClient::from_provider_config(json!({
+            "api_key_env": "__PROTEUS_TEST_MISSING_ANTHROPIC_KEY",
+            "stream": false
+        }))
+        .expect("adapter should build without reading env secret");
+
+        assert!(!client.stream_enabled);
+    }
 
     #[test]
     fn request_serializes_reasoning_effort_and_thinking_budget() {

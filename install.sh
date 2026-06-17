@@ -232,9 +232,14 @@ server_pid=$!
 
 sleep 1
 if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
-  wait "${server_pid}" 2>/dev/null || true
-  echo "Proteus app server did not start. Port ${app_port} may already be in use." >&2
-  exit 1
+  server_status=0
+  wait "${server_pid}" 2>/dev/null || server_status=$?
+  if [ "${server_status}" -eq 0 ]; then
+    server_status=1
+  fi
+  echo "Proteus app server exited during startup. See the error above." >&2
+  echo "For config and secret diagnostics, run: ${proteus_bin} ${server_config_args[*]} doctor" >&2
+  exit "${server_status}"
 fi
 
 inspector_pid=""

@@ -18,7 +18,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesClient {
     http: reqwest::Client,
-    api_key: String,
+    secret_config: Value,
     base_url: String,
     /// Включает SSE-стрим на `/responses`. Управляется через поле
     /// `stream` в provider config. Provider profiles по умолчанию включают
@@ -28,7 +28,6 @@ pub struct OpenAiResponsesClient {
 
 impl OpenAiResponsesClient {
     pub fn from_provider_config(config: Value) -> Result<Self> {
-        let api_key = read_secret_from_config(&config, "OPENAI_API_KEY", "openai_api_key")?;
         let base_url = config
             .get("base_url")
             .and_then(Value::as_str)
@@ -42,7 +41,7 @@ impl OpenAiResponsesClient {
 
         Ok(Self {
             http: reqwest::Client::new(),
-            api_key,
+            secret_config: config,
             base_url,
             stream_enabled,
         })
@@ -85,11 +84,13 @@ impl OpenAiResponsesClient {
     ) -> Result<CanonicalModelResponse> {
         let body = to_openai_request(&request)?;
         let url = format!("{}/responses", self.base_url);
-        let response: Value = send_with_transport_retry(|| self.request_builder(&url, &body))
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let api_key = self.api_key()?;
+        let response: Value =
+            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key))
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
 
         from_openai_response(response)
     }
@@ -98,7 +99,8 @@ impl OpenAiResponsesClient {
         let mut body = to_openai_request(&request)?;
         body["stream"] = json!(true);
         let url = format!("{}/responses", self.base_url);
-        let response = send_with_transport_retry(|| self.request_builder(&url, &body))
+        let api_key = self.api_key()?;
+        let response = send_with_transport_retry(|| self.request_builder(&url, &body, &api_key))
             .await?
             .error_for_status()?;
 
@@ -140,10 +142,14 @@ impl OpenAiResponsesClient {
         Ok(Box::pin(events))
     }
 
-    fn request_builder(&self, url: &str, body: &Value) -> reqwest::RequestBuilder {
+    fn api_key(&self) -> Result<String> {
+        read_secret_from_config(&self.secret_config, "OPENAI_API_KEY", "openai_api_key")
+    }
+
+    fn request_builder(&self, url: &str, body: &Value, api_key: &str) -> reqwest::RequestBuilder {
         self.http
             .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .header(AUTHORIZATION, format!("Bearer {api_key}"))
             .header(CONTENT_TYPE, "application/json")
             .json(body)
     }
@@ -485,6 +491,17 @@ fn is_length_limited_response(response: &Value) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolSafety};
+
+    #[test]
+    fn provider_config_does_not_require_secret_until_request() {
+        let client = OpenAiResponsesClient::from_provider_config(json!({
+            "api_key_env": "__PROTEUS_TEST_MISSING_OPENAI_KEY",
+            "stream": false
+        }))
+        .expect("adapter should build without reading env secret");
+
+        assert!(!client.stream_enabled);
+    }
 
     #[test]
     fn completed_function_call_is_returned_as_executable_call() {
