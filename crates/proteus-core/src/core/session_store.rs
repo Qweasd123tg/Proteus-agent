@@ -290,6 +290,47 @@ pub fn list_workspace_session_summaries(
     Ok(summaries)
 }
 
+pub async fn delete_workspace_session(
+    config_root: &Path,
+    workspace_path: &Path,
+    session_path: PathBuf,
+) -> Result<bool> {
+    let session_dir = normalize_session_dir_path(session_path)?;
+    let metadata = match std::fs::symlink_metadata(&session_dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to inspect {}", session_dir.display()));
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(anyhow!(
+            "session path is not a directory: {}",
+            session_dir.display()
+        ));
+    }
+
+    let workspace_dir = config_root
+        .join("sessions")
+        .join(encode_workspace_path(workspace_path));
+    let workspace_root = std::fs::canonicalize(&workspace_dir)
+        .with_context(|| format!("failed to resolve {}", workspace_dir.display()))?;
+    let target = std::fs::canonicalize(&session_dir)
+        .with_context(|| format!("failed to resolve {}", session_dir.display()))?;
+    if target.parent() != Some(workspace_root.as_path()) {
+        return Err(anyhow!(
+            "session path is outside current workspace sessions: {}",
+            session_dir.display()
+        ));
+    }
+
+    tokio::fs::remove_dir_all(&target)
+        .await
+        .with_context(|| format!("failed to delete {}", target.display()))?;
+    Ok(true)
+}
+
 pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     if session_path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
         return session_path
@@ -619,6 +660,47 @@ mod tests {
         assert_eq!(summaries[0].message_count, 0);
         assert_eq!(summaries[0].preview, None);
         assert!(summaries[0].resumable);
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_session_removes_only_current_workspace_session_dir() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let other_cwd = tempfile::tempdir().expect("other cwd");
+        let session_id = new_session_id();
+        let other_session_id = new_session_id();
+        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        let other_store = SessionStore::new(config_dir.path(), other_cwd.path(), other_session_id);
+        store.materialize().await.expect("materialize session");
+        other_store
+            .materialize()
+            .await
+            .expect("materialize other session");
+
+        let deleted = delete_workspace_session(
+            config_dir.path(),
+            cwd.path(),
+            store.session_dir().to_path_buf(),
+        )
+        .await
+        .expect("delete session");
+
+        assert!(deleted);
+        assert!(!store.session_dir().exists());
+        assert!(other_store.session_dir().exists());
+        let error = delete_workspace_session(
+            config_dir.path(),
+            cwd.path(),
+            other_store.session_dir().to_path_buf(),
+        )
+        .await
+        .expect_err("other workspace session must not be deleted");
+        assert!(
+            error
+                .to_string()
+                .contains("outside current workspace sessions")
+        );
+        assert!(other_store.session_dir().exists());
     }
 
     #[tokio::test]

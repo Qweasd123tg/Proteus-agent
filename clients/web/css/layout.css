@@ -151,11 +151,15 @@
     position: relative;
 }
 
+.session-item-shell {
+    position: relative;
+}
+
 .session-item {
     display: block;
     border-radius: 8px;
     color: var(--text-main);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-2) 34px var(--space-2) var(--space-3);
 }
 
 button.session-item {
@@ -175,6 +179,37 @@ button.session-item:hover {
 .session-item.active,
 button.session-item.active {
     background: var(--bg-panel-soft);
+}
+
+.session-delete {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-faint);
+    font-size: 17px;
+    line-height: 1;
+    opacity: 0.55;
+    padding: 0;
+    transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.session-list-item:hover .session-delete,
+.session-list-item:focus-within .session-delete {
+    opacity: 1;
+}
+
+.session-delete:hover,
+.session-delete:focus {
+    background: rgb(255 107 107 / 14%);
+    color: var(--accent-red);
+    outline: none;
 }
 
 .session-history-item:disabled {

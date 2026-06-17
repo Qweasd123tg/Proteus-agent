@@ -326,7 +326,7 @@ pub(crate) fn App() -> impl IntoView {
         });
     };
 
-    let reset_chat_view_for_new_session = reset_chat_view;
+    let reset_chat_view_for_new_session = reset_chat_view.clone();
     let start_new_session = move |_| {
         reset_chat_view_for_new_session();
         set_active_session_dir.set(None);
@@ -373,6 +373,7 @@ pub(crate) fn App() -> impl IntoView {
         });
     };
 
+    let reset_chat_view_for_delete_session = reset_chat_view.clone();
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
         spawn_local(async move {
@@ -701,6 +702,80 @@ pub(crate) fn App() -> impl IntoView {
             load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         });
     };
+    let delete_sidebar_session = move |session: SessionSummary| {
+        let confirmed = window()
+            .and_then(|window| window.confirm_with_message("Удалить этот чат?").ok())
+            .unwrap_or(false);
+        if !confirmed {
+            return;
+        }
+
+        let session_dir = session.session_dir.clone();
+        let deleting_active = active_session_dir.get().as_deref() == Some(session_dir.as_str());
+        set_sidebar_sessions_status.set("удаляю сессию".to_owned());
+        spawn_local(async move {
+            match post_json(
+                "/delete-session",
+                &DeleteSessionRequest {
+                    id: Some("sidebar-delete".to_owned()),
+                    session_dir: session_dir.clone(),
+                },
+            )
+            .await
+            {
+                Ok(StdioOutput::Response {
+                    ok: true, output, ..
+                }) => {
+                    set_sidebar_sessions.update(|items| {
+                        items.retain(|item| item.session_dir != session_dir);
+                    });
+                    set_sidebar_sessions_status.set("сессия удалена".to_owned());
+                    let active_replaced = output
+                        .as_ref()
+                        .and_then(|value| value.get("active_replaced"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(deleting_active);
+                    if active_replaced {
+                        reset_chat_view_for_delete_session();
+                        set_active_session_dir.set(None);
+                        set_session_label.set("not started".to_owned());
+                        reconnect_event_stream(event_source, event_stream_bindings);
+                        load_runtime_settings(
+                            set_mode,
+                            set_model_name,
+                            set_model_options,
+                            set_reasoning_enabled,
+                            set_effort,
+                            set_effort_options,
+                            set_workspace_label,
+                            set_active_session_dir,
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            set_transport_status,
+                        );
+                        replace_transcript(
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            set_transport_status,
+                        );
+                    }
+                }
+                Ok(StdioOutput::Response { error, .. }) => {
+                    set_sidebar_sessions_status
+                        .set(error.unwrap_or_else(|| "не удалось удалить сессию".to_owned()));
+                }
+                Ok(StdioOutput::Event { .. }) => {
+                    set_sidebar_sessions_status.set("неожиданное событие delete-session".to_owned());
+                }
+                Err(error) => {
+                    set_sidebar_sessions_status.set(format!("не удалось удалить сессию: {error}"));
+                }
+            }
+            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+        });
+    };
     let global_keydown =
         Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
             if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
@@ -827,33 +902,45 @@ pub(crate) fn App() -> impl IntoView {
                                 let resumable = session.resumable;
                                 let active_session_dir_value = session.session_dir.clone();
                                 let session_for_click = session.clone();
+                                let session_for_delete = session.clone();
                                 view! {
                                     <li class="session-list-item">
-                                        <button
-                                            type="button"
-                                            class="session-item session-history-item"
-                                            class:active=move || {
-                                                active_session_dir.get().as_deref() == Some(active_session_dir_value.as_str())
-                                            }
-                                            disabled=!resumable
-                                            title=workspace.clone()
-                                            on:click=move |_| open_sidebar_session(session_for_click.clone())
-                                        >
-                                            <div class="session-item-header">
-                                                <span class="session-id">{title}</span>
-                                                <code class="session-code">{session_id}</code>
-                                            </div>
-                                            {match preview {
-                                                Some(preview) => view! {
-                                                    <div class="session-preview">{preview}</div>
-                                                }.into_any(),
-                                                None => view! { <></> }.into_any(),
-                                            }}
-                                            <div class="session-meta">
-                                                <span class="session-time">{format!("{message_count} сообщений")}</span>
-                                                <span class="session-time">{updated_at}</span>
-                                            </div>
-                                        </button>
+                                        <div class="session-item-shell">
+                                            <button
+                                                type="button"
+                                                class="session-item session-history-item"
+                                                class:active=move || {
+                                                    active_session_dir.get().as_deref() == Some(active_session_dir_value.as_str())
+                                                }
+                                                disabled=!resumable
+                                                title=workspace.clone()
+                                                on:click=move |_| open_sidebar_session(session_for_click.clone())
+                                            >
+                                                <div class="session-item-header">
+                                                    <span class="session-id">{title}</span>
+                                                    <code class="session-code">{session_id}</code>
+                                                </div>
+                                                {match preview {
+                                                    Some(preview) => view! {
+                                                        <div class="session-preview">{preview}</div>
+                                                    }.into_any(),
+                                                    None => view! { <></> }.into_any(),
+                                                }}
+                                                <div class="session-meta">
+                                                    <span class="session-time">{format!("{message_count} сообщений")}</span>
+                                                    <span class="session-time">{updated_at}</span>
+                                                </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="session-delete"
+                                                title="Удалить чат"
+                                                aria-label="Удалить чат"
+                                                on:click=move |_| delete_sidebar_session(session_for_delete.clone())
+                                            >
+                                                "×"
+                                            </button>
+                                        </div>
                                     </li>
                                 }
                             }
