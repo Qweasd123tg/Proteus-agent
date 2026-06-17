@@ -272,10 +272,3 @@
     overflow-wrap: anywhere;
     word-break: break-word;
 }
-
-.collapsed-message {
-    border: 1px dashed var(--border-subtle);
-    border-radius: 10px;
-    color: var(--text-faint);
-    padding: var(--space-3);
-}
