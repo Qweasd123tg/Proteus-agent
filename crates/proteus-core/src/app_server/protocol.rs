@@ -136,6 +136,22 @@ mod tests {
             "cache": "tool_in_cwd"
         }))
         .expect("approval request with tool cache deserializes");
+        let with_workspace_write_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+            "type": "approval",
+            "approval_id": "a1",
+            "approved": true,
+            "note": null,
+            "cache": "workspace_write"
+        }))
+        .expect("approval request with workspace write cache deserializes");
+        let with_future_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+            "type": "approval",
+            "approval_id": "a1",
+            "approved": true,
+            "note": null,
+            "cache": "future_scope"
+        }))
+        .expect("approval request with future cache scope downgrades");
 
         match without_cache {
             StdioRequest::Approval { cache, .. } => assert_eq!(cache, ApprovalCacheScope::None),
@@ -150,6 +166,18 @@ mod tests {
         match with_tool_cache {
             StdioRequest::Approval { cache, .. } => {
                 assert_eq!(cache, ApprovalCacheScope::ToolInCwd)
+            }
+            other => panic!("expected approval request, got {other:?}"),
+        }
+        match with_workspace_write_cache {
+            StdioRequest::Approval { cache, .. } => {
+                assert_eq!(cache, ApprovalCacheScope::WorkspaceWrite)
+            }
+            other => panic!("expected approval request, got {other:?}"),
+        }
+        match with_future_cache {
+            StdioRequest::Approval { cache, .. } => {
+                assert_eq!(cache, ApprovalCacheScope::None)
             }
             other => panic!("expected approval request, got {other:?}"),
         }

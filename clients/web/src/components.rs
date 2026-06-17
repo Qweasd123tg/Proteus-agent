@@ -133,7 +133,12 @@ where
     let approve_id = request.approval_id.clone();
     let deny_id = request.approval_id.clone();
     let args_preview = compact_json(&request.call.args);
-    let is_safe_cache_target = approval_allows_tool_cwd_cache(&request);
+    let exact_scope = if approval_is_command(&request) {
+        ApprovalCacheScope::ExactCommand
+    } else {
+        ApprovalCacheScope::ExactCall
+    };
+    let allows_workspace_write_cache = approval_allows_workspace_write_cache(&request);
     let spec_hint = request
         .tool_spec
         .as_ref()
@@ -166,19 +171,19 @@ where
                     </button>
                     <button
                         type="button"
-                        class:active=move || cache.get() == ApprovalCacheScope::ExactCall
-                        on:click=move |_| set_cache.set(ApprovalCacheScope::ExactCall)
+                        class:active=move || cache.get() == exact_scope
+                        on:click=move |_| set_cache.set(exact_scope)
                     >
-                        {ApprovalCacheScope::ExactCall.label()}
+                        {exact_scope.label()}
                     </button>
-                    {if is_safe_cache_target {
+                    {if allows_workspace_write_cache {
                         view! {
                             <button
                                 type="button"
-                                class:active=move || cache.get() == ApprovalCacheScope::ToolInCwd
-                                on:click=move |_| set_cache.set(ApprovalCacheScope::ToolInCwd)
+                                class:active=move || cache.get() == ApprovalCacheScope::WorkspaceWrite
+                                on:click=move |_| set_cache.set(ApprovalCacheScope::WorkspaceWrite)
                             >
-                                {ApprovalCacheScope::ToolInCwd.label()}
+                                {ApprovalCacheScope::WorkspaceWrite.label()}
                             </button>
                         }.into_any()
                     } else {
@@ -206,13 +211,47 @@ where
     }
 }
 
-fn approval_allows_tool_cwd_cache(request: &ApprovalRequestInfo) -> bool {
+fn approval_is_command(request: &ApprovalRequestInfo) -> bool {
+    request.call.name.eq_ignore_ascii_case("shell")
+        || tool_safety(request).is_some_and(|safety| safety == "RunsCommands")
+}
+
+fn approval_allows_workspace_write_cache(request: &ApprovalRequestInfo) -> bool {
+    if !tool_safety(request).is_some_and(|safety| safety == "WritesFiles") {
+        return false;
+    }
+    request.tool_spec.as_ref().is_some_and(|spec| {
+        let Some(approval) = spec.get("metadata").and_then(|metadata| metadata.get("approval"))
+        else {
+            return false;
+        };
+        if approval
+            .get("cache")
+            .and_then(|cache| cache.get("workspace_write"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        ["cache", "cache_scopes"].into_iter().any(|field| {
+            approval
+                .get(field)
+                .and_then(Value::as_array)
+                .is_some_and(|scopes| {
+                    scopes
+                        .iter()
+                        .any(|scope| scope.as_str() == Some("workspace_write"))
+                })
+        })
+    })
+}
+
+fn tool_safety(request: &ApprovalRequestInfo) -> Option<&str> {
     request
         .tool_spec
         .as_ref()
         .and_then(|spec| spec.get("safety"))
         .and_then(Value::as_str)
-        .is_some_and(|safety| matches!(safety, "ReadOnly" | "WritesFiles"))
 }
 
 #[component]

@@ -79,7 +79,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   `./install.sh`. Плюс configured native/process/MCP wrappers через
   main config.
 - Permission modes: `plan` / `normal` / `auto`.
-- Session approval cache (`exact_call` и `tool_in_cwd` scopes).
+- Session approval cache (`exact_call`, `exact_command`, `workspace_write` и
+  legacy `tool_in_cwd` scopes).
 - Event log и session resume.
 
 **Плагины (Wave 2):**

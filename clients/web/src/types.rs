@@ -85,7 +85,9 @@ pub(crate) enum ApprovalCacheScope {
     #[default]
     None,
     ExactCall,
+    ExactCommand,
     ToolInCwd,
+    WorkspaceWrite,
 }
 
 impl ApprovalCacheScope {
@@ -93,7 +95,9 @@ impl ApprovalCacheScope {
         match self {
             Self::None => "Один раз",
             Self::ExactCall => "Точно",
+            Self::ExactCommand => "Команда",
             Self::ToolInCwd => "Tool/CWD",
+            Self::WorkspaceWrite => "Workspace",
         }
     }
 }
