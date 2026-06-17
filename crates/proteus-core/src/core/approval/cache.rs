@@ -50,10 +50,15 @@ impl ApprovalTransport for CachedApprovalTransport {
 impl CachedApprovalTransport {
     async fn is_cached(&self, request: &ApprovalRequest) -> bool {
         let approved = self.approved.lock().await;
-        [ApprovalCacheScope::ExactCall, ApprovalCacheScope::ToolInCwd]
-            .into_iter()
-            .filter_map(|scope| ApprovalCacheKey::from_request(request, scope))
-            .any(|key| approved.contains(&key))
+        [
+            ApprovalCacheScope::ExactCall,
+            ApprovalCacheScope::ExactCommand,
+            ApprovalCacheScope::ToolInCwd,
+            ApprovalCacheScope::WorkspaceWrite,
+        ]
+        .into_iter()
+        .filter_map(|scope| ApprovalCacheKey::from_request(request, scope))
+        .any(|key| approved.contains(&key))
     }
 }
 
@@ -68,12 +73,12 @@ impl ApprovalCacheKey {
     fn from_request(request: &ApprovalRequest, scope: ApprovalCacheScope) -> Option<Self> {
         match scope {
             ApprovalCacheScope::None => None,
-            ApprovalCacheScope::ExactCall => Some(Self {
+            ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => Some(Self {
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
             }),
-            ApprovalCacheScope::ToolInCwd => Some(Self {
+            ApprovalCacheScope::ToolInCwd | ApprovalCacheScope::WorkspaceWrite => Some(Self {
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: None,
@@ -91,6 +96,9 @@ fn sanitized_cache_scope(
         ApprovalCacheScope::ToolInCwd if !allows_tool_in_cwd_scope(request) => {
             ApprovalCacheScope::ExactCall
         }
+        ApprovalCacheScope::WorkspaceWrite if !allows_workspace_write_scope(request) => {
+            ApprovalCacheScope::ExactCall
+        }
         scope => scope,
     }
 }
@@ -103,6 +111,39 @@ fn allows_tool_in_cwd_scope(request: &ApprovalRequest) -> bool {
         .tool_spec
         .as_ref()
         .is_none_or(|spec| matches!(spec.safety, ToolSafety::ReadOnly | ToolSafety::WritesFiles))
+}
+
+fn allows_workspace_write_scope(request: &ApprovalRequest) -> bool {
+    if request.call.name.eq_ignore_ascii_case("shell") {
+        return false;
+    }
+    request.tool_spec.as_ref().is_some_and(|spec| {
+        matches!(spec.safety, ToolSafety::WritesFiles) && metadata_allows_workspace_write(spec)
+    })
+}
+
+fn metadata_allows_workspace_write(spec: &crate::domain::ToolSpec) -> bool {
+    let Some(approval) = spec.metadata.get("approval") else {
+        return false;
+    };
+    if approval
+        .get("cache")
+        .and_then(|cache| cache.get("workspace_write"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    ["cache", "cache_scopes"].into_iter().any(|field| {
+        approval
+            .get(field)
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|scopes| {
+                scopes
+                    .iter()
+                    .any(|scope| scope.as_str() == Some("workspace_write"))
+            })
+    })
 }
 
 fn canonical_json(value: &Value) -> String {
@@ -180,6 +221,40 @@ mod tests {
             PathBuf::from("/workspace"),
             "test",
             Some(ToolSpec::new(tool_name, "test tool", json!({}), safety)),
+        )
+    }
+
+    fn request_with_workspace_write_metadata(path: &str, tool_name: &str) -> ApprovalRequest {
+        ApprovalRequest::new(
+            ToolCall::new(
+                new_call_id(),
+                tool_name,
+                json!({ "path": path, "content": "x" }),
+            ),
+            PathBuf::from("/workspace"),
+            "test",
+            Some(
+                ToolSpec::new(tool_name, "test tool", json!({}), ToolSafety::WritesFiles)
+                    .with_metadata(json!({
+                        "approval": {
+                            "cache_scopes": ["workspace_write"]
+                        }
+                    })),
+            ),
+        )
+    }
+
+    fn shell_request(command: &str, cwd: &str) -> ApprovalRequest {
+        ApprovalRequest::new(
+            ToolCall::new(new_call_id(), "shell", json!({ "command": command })),
+            PathBuf::from(cwd),
+            "test",
+            Some(ToolSpec::new(
+                "shell",
+                "Run command",
+                json!({}),
+                ToolSafety::RunsCommands,
+            )),
         )
     }
 
@@ -341,6 +416,102 @@ mod tests {
             .unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn exact_command_cache_reuses_identical_shell_command_in_same_cwd() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCommand,
+        }));
+
+        transport
+            .request_approval(shell_request("cargo test", "/workspace"))
+            .await
+            .unwrap();
+        let cached = transport
+            .request_approval(shell_request("cargo test", "/workspace"))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(cached.approved);
+        assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn exact_command_cache_does_not_reuse_different_cwd_or_command() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCommand,
+        }));
+
+        transport
+            .request_approval(shell_request("cargo test", "/workspace"))
+            .await
+            .unwrap();
+        transport
+            .request_approval(shell_request("cargo test", "/other-workspace"))
+            .await
+            .unwrap();
+        transport
+            .request_approval(shell_request("cargo check", "/workspace"))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn workspace_write_cache_reuses_opted_in_workspace_write_tools() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::WorkspaceWrite,
+        }));
+
+        transport
+            .request_approval(request_with_workspace_write_metadata("a.txt", "write_file"))
+            .await
+            .unwrap();
+        let cached = transport
+            .request_approval(request_with_workspace_write_metadata("b.txt", "write_file"))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(cached.approved);
+        assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn workspace_write_cache_requires_tool_metadata_opt_in() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::WorkspaceWrite,
+        }));
+
+        transport
+            .request_approval(request_with_safety(
+                "a.txt",
+                "custom_write",
+                ToolSafety::WritesFiles,
+            ))
+            .await
+            .unwrap();
+        transport
+            .request_approval(request_with_safety(
+                "b.txt",
+                "custom_write",
+                ToolSafety::WritesFiles,
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

@@ -45,6 +45,9 @@ impl Tool for ApplyPatchTool {
             "category": "patch",
             "tags": ["workspace", "edit", "patch", "write"],
             "aliases": ["apply changes", "edit files", "modify workspace"],
+            "approval": {
+                "cache_scopes": ["workspace_write"]
+            },
             "format": "internal_patch",
             "accepted_headers": [
                 "*** Add File: <path>",

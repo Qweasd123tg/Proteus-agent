@@ -28,8 +28,8 @@ plugin-адаптеров в `proteus-core`, интеграционные тес
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` применяет `ApprovalPolicy::evaluate_visibility` без fake `ToolCall` и исполняет `ToolSpec.timeout_ms`;
 - `ToolExposure` получает только policy-visible tools и выбирает subset для model request;
-- session-level approval cache переиспользует exact calls с canonical JSON args
-  и tool-wide approvals в том же cwd;
+- session-level approval cache переиспользует exact calls с canonical JSON args,
+  exact command approvals и workspace-write approvals только для opted-in tools;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
 - builder может принять существующие `SessionId`/`ThreadId` и восстановить history из existing session directory;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
