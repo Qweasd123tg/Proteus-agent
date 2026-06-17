@@ -189,6 +189,25 @@ system-строку в transcript.
 - `Error` - ошибка app-server/runtime;
 - `Shutdown` - процесс/сессия закрывается.
 
+`ApprovalRequested` несёт `AppApprovalRequest`: `approval_id`, исходный
+`ToolCall`, `cwd`, человекочитаемый `reason`, optional `tool_spec` и optional
+`preview`. `preview` является UI-метаданными, а не новым contract-ом
+исполнения. Клиент может показать affected files, diff/body или shell command
+до approve/deny, но runtime всё равно исполняет tool только через
+`ToolRegistry`, `ApprovalPolicy`, `ToolSafety` и validation самого tool.
+
+Текущий WIP app-server генерирует `preview` для трёх approval UX:
+
+- `apply_patch` - `kind = "patch"`, affected files из internal patch format и
+  body с patch/diff;
+- `write_file` - `kind = "write_file"`, affected target file и body с новым
+  content или простым overwrite diff, если файл уже существует;
+- `shell` - `kind = "command"`, command body и cwd/cache metadata.
+
+Поле optional: старые клиенты должны игнорировать отсутствие `preview`, а новые
+клиенты не должны трактовать его как источник разрешений или как замену
+server-side проверкам.
+
 Команды `server stdio`:
 
 ```json
@@ -376,9 +395,10 @@ scope только для tools, которые явно opt-in через `Tool
 `messages.jsonl` и не восстанавливается при resume.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
-state: interrupt/cancel, approval queue, diff preview, tools/model/doctor/events
-и export views. Эти команды должны оставаться клиентским слоем поверх
-runtime/app-server boundary, а не переносить business logic в visual layer.
+state: interrupt/cancel, approval queue с подсказочным preview,
+tools/model/doctor/events и export views. Эти команды должны оставаться
+клиентским слоем поверх runtime/app-server boundary, а не переносить business
+logic в visual layer.
 Режимы `plan`, `normal` и `auto` должны работать как control-plane команды:
 enforcement остаётся в core `ModeAwarePolicy`, а UI отправляет app-server
 request с новым permission override. В plan mode UI может дополнительно

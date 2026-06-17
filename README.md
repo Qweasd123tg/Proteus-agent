@@ -81,6 +81,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 - Permission modes: `plan` / `normal` / `auto`.
 - Session approval cache (`exact_call`, `exact_command`, `workspace_write` и
   legacy `tool_in_cwd` scopes).
+- Метаданные approval preview для UI-клиентов: affected files, diff/body или
+  command до approve/deny; enforcement остаётся в `ToolRegistry`,
+  `ApprovalPolicy`, `ToolSafety` и validation самого tool.
 - Event log и session resume.
 
 **Плагины (Wave 2):**
