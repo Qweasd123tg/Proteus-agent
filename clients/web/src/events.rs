@@ -7,10 +7,10 @@ use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, get_json, js_error};
 use crate::app::{load_sidebar_sessions, replace_transcript};
 use crate::messages::{
-    append_streaming_assistant_delta, append_streaming_reasoning_delta,
-    finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
-    finish_streaming_assistant_message, finish_streaming_reasoning, push_message,
-    push_tool_message, push_user_message_once, update_tool_status,
+    append_streaming_assistant_delta, finish_active_streaming_assistant_message,
+    finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
+    finish_streaming_reasoning, push_message, push_tool_message, push_user_message_once,
+    update_tool_status,
 };
 use crate::types::*;
 use crate::ui_utils::{compact_json, compact_text, output_text, set_timeout, short_id, short_path};
@@ -20,7 +20,6 @@ const STREAM_DELTA_FLUSH_MS: i32 = 80;
 #[derive(Default)]
 pub(crate) struct BufferedStreamDeltas {
     assistant: String,
-    reasoning: String,
     flush_scheduled: bool,
 }
 
@@ -31,6 +30,7 @@ struct StreamFlushBindings {
     set_next_message_id: WriteSignal<u64>,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
+    streamed_this_turn: ReadSignal<bool>,
     set_streamed_this_turn: WriteSignal<bool>,
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
 }
@@ -231,7 +231,9 @@ fn handle_app_output(
 ) {
     match output {
         StdioOutput::Event { event } => {
-            set_event_count.update(|count| *count += 1);
+            if event_updates_visible_count(&event) {
+                set_event_count.update(|count| *count += 1);
+            }
             handle_app_event(
                 event,
                 set_messages,
@@ -295,6 +297,7 @@ fn handle_app_event(
         set_next_message_id,
         active_stream_message_id,
         set_active_stream_message_id,
+        streamed_this_turn,
         set_streamed_this_turn,
         stream_delta_buffer,
     };
@@ -428,6 +431,21 @@ fn handle_app_event(
     }
 }
 
+fn event_updates_visible_count(event: &AppServerEvent) -> bool {
+    !matches!(
+        event,
+        AppServerEvent::Runtime { envelope }
+            if runtime_event_is_stream_delta(envelope)
+    )
+}
+
+fn runtime_event_is_stream_delta(envelope: &Value) -> bool {
+    let Some(event) = envelope.get("event") else {
+        return false;
+    };
+    event.get("AssistantTextDelta").is_some() || event.get("AssistantReasoningDelta").is_some()
+}
+
 fn update_session_labels(
     envelope: Value,
     set_workspace_label: WriteSignal<String>,
@@ -452,26 +470,12 @@ fn queue_assistant_delta(bindings: StreamFlushBindings, text: &str) {
     if text.is_empty() {
         return;
     }
+    if !bindings.streamed_this_turn.get_untracked() {
+        bindings.set_streamed_this_turn.set(true);
+    }
     let mut should_schedule = false;
     bindings.stream_delta_buffer.update_value(|buffer| {
         buffer.assistant.push_str(text);
-        if !buffer.flush_scheduled {
-            buffer.flush_scheduled = true;
-            should_schedule = true;
-        }
-    });
-    if should_schedule {
-        schedule_stream_delta_flush(bindings);
-    }
-}
-
-fn queue_reasoning_delta(bindings: StreamFlushBindings, text: &str) {
-    if text.is_empty() {
-        return;
-    }
-    let mut should_schedule = false;
-    bindings.stream_delta_buffer.update_value(|buffer| {
-        buffer.reasoning.push_str(text);
         if !buffer.flush_scheduled {
             buffer.flush_scheduled = true;
             should_schedule = true;
@@ -490,38 +494,24 @@ fn schedule_stream_delta_flush(bindings: StreamFlushBindings) {
 
 fn flush_stream_delta_buffer(bindings: StreamFlushBindings) {
     let mut assistant = String::new();
-    let mut reasoning = String::new();
     bindings.stream_delta_buffer.update_value(|buffer| {
         buffer.flush_scheduled = false;
         assistant = std::mem::take(&mut buffer.assistant);
-        reasoning = std::mem::take(&mut buffer.reasoning);
     });
 
-    if reasoning.is_empty() && assistant.is_empty() {
+    if assistant.is_empty() {
         return;
     }
 
-    if !reasoning.is_empty() {
-        append_streaming_reasoning_delta(
-            bindings.set_messages,
-            bindings.next_message_id,
-            bindings.set_next_message_id,
-            &reasoning,
-        );
-    }
-
-    if !assistant.is_empty() {
-        finish_streaming_reasoning(bindings.set_messages);
-        bindings.set_streamed_this_turn.set(true);
-        append_streaming_assistant_delta(
-            bindings.set_messages,
-            bindings.next_message_id,
-            bindings.set_next_message_id,
-            bindings.active_stream_message_id,
-            bindings.set_active_stream_message_id,
-            &assistant,
-        );
-    }
+    finish_streaming_reasoning(bindings.set_messages);
+    append_streaming_assistant_delta(
+        bindings.set_messages,
+        bindings.next_message_id,
+        bindings.set_next_message_id,
+        bindings.active_stream_message_id,
+        bindings.set_active_stream_message_id,
+        &assistant,
+    );
 }
 
 fn update_runtime_status_and_tools(
@@ -587,15 +577,17 @@ fn update_runtime_status_and_tools(
     } else if event.get("ModelRequestPrepared").is_some() {
         set_agent_status.set("думает".to_owned());
     } else if let Some(delta_event) = event.get("AssistantTextDelta") {
-        set_agent_status.set("пишет".to_owned());
+        if !stream_bindings.streamed_this_turn.get_untracked() {
+            set_agent_status.set("пишет".to_owned());
+        }
         if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
             queue_assistant_delta(stream_bindings, text);
         }
-    } else if let Some(reasoning_event) = event.get("AssistantReasoningDelta") {
-        set_agent_status.set("думает".to_owned());
-        if let Some(text) = reasoning_event.get("text").and_then(Value::as_str) {
-            queue_reasoning_delta(stream_bindings, text);
-        }
+    } else if event.get("AssistantReasoningDelta").is_some() {
+        // Reasoning streams can be very chatty. The working indicator already
+        // says "думает"; storing every chunk in the transcript makes Firefox
+        // clone and re-render a growing string while the user only needs the
+        // final answer.
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         flush_stream_delta_buffer(stream_bindings);
         set_agent_status.set("запускает tool".to_owned());
