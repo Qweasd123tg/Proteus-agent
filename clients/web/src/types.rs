@@ -234,6 +234,23 @@ pub(crate) struct ApprovalRequestInfo {
     pub(crate) cwd: String,
     pub(crate) reason: String,
     pub(crate) tool_spec: Option<Value>,
+    #[serde(default)]
+    pub(crate) preview: Option<ApprovalPreviewInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct ApprovalPreviewInfo {
+    pub(crate) kind: String,
+    pub(crate) title: String,
+    pub(crate) summary: String,
+    #[serde(default)]
+    pub(crate) affected_files: Vec<String>,
+    #[serde(default)]
+    pub(crate) body: Option<String>,
+    #[serde(default)]
+    pub(crate) language: Option<String>,
+    #[serde(default)]
+    pub(crate) metadata: Value,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
