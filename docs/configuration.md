@@ -126,7 +126,7 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `proteus.codex.example.toml` - экспериментальный Codex-shaped profile для
 чистой проверки Codex-подобной сборки модулей. Он подключает тот же provider
 через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
-`direct`, `ask_write`, `tool_exposure = "codex_dynamic"` из
+`direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`.
 Запускается явно через `--config proteus.codex.example.toml` или создаётся
 через `proteus init codex`; baseline `coding` от этого профиля не зависит.
@@ -622,7 +622,8 @@ model request. `runtime.workflow_timeout_ms` ограничивает весь w
 
 ## Policy
 
-`allow_all` и `ask_write` поставляются плагином `policy-pack`.
+`allow_all`, `ask_write` и `codex_policy` поставляются плагином
+`policy-pack`.
 
 ```json
 {
@@ -655,6 +656,22 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 именем реально не появится в `ToolRegistry`.
 
 `ask_write` сначала проверяет явные списки `allow` и `ask_before`, затем смотрит на `ToolSafety`.
+
+Codex-shaped профиль использует отдельную секцию:
+
+```toml
+[module_config.policy.codex_policy]
+allow = ["search", "read_file", "git_diff", "request_user_input"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+deny = []
+```
+
+`codex_policy` сначала проверяет `deny`, затем `allow`, затем `ask_before`.
+Если tool не перечислен явно, `ReadOnly` разрешается, `WritesFiles` и
+`RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
+запрещаются. Как и для `ask_write`, core передаёт
+`module_config.policy.codex_policy` в plugin как JSON и не валидирует его
+внутреннюю схему.
 
 `apply_patch` принимает строку `patch` и передаёт её выбранному
 `PatchApplier`. Для `modules.patch = "direct"` этот обработчик приходит из

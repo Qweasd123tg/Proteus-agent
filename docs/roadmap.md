@@ -210,7 +210,7 @@ Scope:
   Codex-style tool exposure `codex_dynamic` вынесен в
   `codex-tool-exposure`,
   `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
-  `allow_all`/`ask_write` вынесены в `policy-pack`, `plain`/`statusline`
+  `allow_all`/`ask_write`/`codex_policy` вынесены в `policy-pack`, `plain`/`statusline`
   вынесены в `renderer-pack`.
   В ядре остались только slot-dependent tools: `apply_patch`, `search`,
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,

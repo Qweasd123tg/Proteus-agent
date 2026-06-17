@@ -77,6 +77,43 @@ impl PluginApprovalPolicy for AskWritePolicyPlugin {
     }
 }
 
+#[derive(Default)]
+pub struct CodexPolicyPlugin;
+
+impl PluginApprovalPolicy for CodexPolicyPlugin {
+    fn evaluate_json(
+        &self,
+        call_json: RString,
+        ctx_json: RString,
+    ) -> RResult<RString, PluginPolicyError> {
+        let call: ToolCall = match serde_json::from_str(call_json.as_str()) {
+            Ok(call) => call,
+            Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
+        };
+        let ctx: PolicyContextDto = match serde_json::from_str(ctx_json.as_str()) {
+            Ok(ctx) => ctx,
+            Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
+        };
+        let config = CodexPolicyConfig::from_value(&ctx.config);
+        decision(evaluate_codex_call(
+            &config,
+            &call.name,
+            ctx.tool_spec.as_ref(),
+        ))
+    }
+
+    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError> {
+        let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
+            Ok(ctx) => ctx,
+            Err(error) => {
+                return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));
+            }
+        };
+        let config = CodexPolicyConfig::from_value(&ctx.config);
+        decision(evaluate_codex_tool_spec(&config, &ctx.tool_spec))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PolicyContextDto {
     #[allow(dead_code)]
@@ -117,6 +154,34 @@ impl AskWriteConfig {
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct CodexPolicyConfig {
+    #[serde(default)]
+    allow: Vec<String>,
+    #[serde(default)]
+    ask_before: Vec<String>,
+    #[serde(default)]
+    deny: Vec<String>,
+}
+
+impl CodexPolicyConfig {
+    fn from_value(value: &Value) -> Self {
+        serde_json::from_value(value.clone()).unwrap_or_default()
+    }
+
+    fn allow_set(&self) -> HashSet<&str> {
+        self.allow.iter().map(String::as_str).collect()
+    }
+
+    fn ask_set(&self) -> HashSet<&str> {
+        self.ask_before.iter().map(String::as_str).collect()
+    }
+
+    fn deny_set(&self) -> HashSet<&str> {
+        self.deny.iter().map(String::as_str).collect()
+    }
+}
+
 fn evaluate_call(
     config: &AskWriteConfig,
     tool_name: &str,
@@ -154,6 +219,49 @@ fn evaluate_tool_spec(config: &AskWriteConfig, tool_spec: &ToolSpec) -> PolicyDe
     evaluate_call(config, &tool_spec.name, Some(tool_spec))
 }
 
+fn evaluate_codex_call(
+    config: &CodexPolicyConfig,
+    tool_name: &str,
+    tool_spec: Option<&ToolSpec>,
+) -> PolicyDecision {
+    if config.deny_set().contains(tool_name) {
+        return PolicyDecision::Deny {
+            reason: format!("tool '{tool_name}' explicitly denied by codex policy"),
+        };
+    }
+    if config.allow_set().contains(tool_name) {
+        return PolicyDecision::Allow;
+    }
+    if config.ask_set().contains(tool_name) {
+        return PolicyDecision::Ask {
+            reason: format!("codex policy requires approval for tool '{tool_name}'"),
+        };
+    }
+
+    match tool_spec.map(|spec| &spec.safety) {
+        Some(ToolSafety::ReadOnly) => PolicyDecision::Allow,
+        Some(ToolSafety::WritesFiles | ToolSafety::RunsCommands) => PolicyDecision::Ask {
+            reason: format!("codex policy requires approval for tool '{tool_name}'"),
+        },
+        Some(ToolSafety::Network) => PolicyDecision::Deny {
+            reason: format!("network tool '{tool_name}' denied by codex policy"),
+        },
+        Some(ToolSafety::Dangerous) => PolicyDecision::Deny {
+            reason: "dangerous tool denied by codex policy".to_owned(),
+        },
+        Some(_) => PolicyDecision::Deny {
+            reason: format!("unsupported tool safety level for '{tool_name}'"),
+        },
+        None => PolicyDecision::Deny {
+            reason: format!("unknown tool '{tool_name}'"),
+        },
+    }
+}
+
+fn evaluate_codex_tool_spec(config: &CodexPolicyConfig, tool_spec: &ToolSpec) -> PolicyDecision {
+    evaluate_codex_call(config, &tool_spec.name, Some(tool_spec))
+}
+
 fn decision(decision: PolicyDecision) -> RResult<RString, PluginPolicyError> {
     match serde_json::to_string(&decision) {
         Ok(body) => RResult::ROk(body.into()),
@@ -179,7 +287,15 @@ extern "C" fn register_modules(
 
     let ask_write: PolicyObject =
         PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque);
-    registry.register_approval_policy(AbiRString::from("ask_write"), ask_write)
+    if let RResult::RErr(error) =
+        registry.register_approval_policy(AbiRString::from("ask_write"), ask_write)
+    {
+        return RResult::RErr(error);
+    }
+
+    let codex_policy: PolicyObject =
+        PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque);
+    registry.register_approval_policy(AbiRString::from("codex_policy"), codex_policy)
 }
 
 #[cfg(feature = "plugin-entrypoint")]
@@ -187,8 +303,113 @@ extern "C" fn register_modules(
 pub fn instantiate_root_module() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("policy-pack"),
-        description: RStr::from_str("ApprovalPolicy plugins: allow_all and ask_write"),
+        description: RStr::from_str(
+            "ApprovalPolicy plugins: allow_all, ask_write, and codex_policy",
+        ),
         register_modules,
     }
     .leak_into_prefix()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proteus_contracts::domain::{PolicyDecision, ToolCall, ToolSafety, ToolSpec, new_call_id};
+    use serde_json::json;
+
+    fn evaluate(tool_name: &str, safety: ToolSafety, config: Value) -> PolicyDecision {
+        let plugin = CodexPolicyPlugin;
+        let call = ToolCall::new(new_call_id(), tool_name.to_owned(), json!({}));
+        let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
+        let ctx = json!({
+            "cwd": "/tmp/proteus-policy-test",
+            "tool_spec": spec,
+            "config": config,
+        });
+        let result = plugin.evaluate_json(
+            serde_json::to_string(&call).unwrap().into(),
+            serde_json::to_string(&ctx).unwrap().into(),
+        );
+        let body = match result {
+            RResult::ROk(body) => body,
+            RResult::RErr(error) => panic!("policy error: {error}"),
+        };
+        serde_json::from_str(body.as_str()).unwrap()
+    }
+
+    fn evaluate_visibility(tool_name: &str, safety: ToolSafety, config: Value) -> PolicyDecision {
+        let plugin = CodexPolicyPlugin;
+        let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
+        let ctx = json!({
+            "cwd": "/tmp/proteus-policy-test",
+            "tool_spec": spec,
+            "config": config,
+        });
+        let result = plugin.evaluate_visibility_json(serde_json::to_string(&ctx).unwrap().into());
+        let body = match result {
+            RResult::ROk(body) => body,
+            RResult::RErr(error) => panic!("policy error: {error}"),
+        };
+        serde_json::from_str(body.as_str()).unwrap()
+    }
+
+    #[test]
+    fn codex_policy_allows_read_only_tools_by_default() {
+        assert_eq!(
+            evaluate("read_file", ToolSafety::ReadOnly, json!({})),
+            PolicyDecision::Allow
+        );
+    }
+
+    #[test]
+    fn codex_policy_asks_for_write_and_command_tools_by_default() {
+        assert!(matches!(
+            evaluate("apply_patch", ToolSafety::WritesFiles, json!({})),
+            PolicyDecision::Ask { reason } if reason.contains("codex policy")
+        ));
+        assert!(matches!(
+            evaluate("shell", ToolSafety::RunsCommands, json!({})),
+            PolicyDecision::Ask { reason } if reason.contains("codex policy")
+        ));
+    }
+
+    #[test]
+    fn codex_policy_denies_network_and_dangerous_tools_by_default() {
+        assert!(matches!(
+            evaluate_visibility("network_probe", ToolSafety::Network, json!({})),
+            PolicyDecision::Deny { reason } if reason.contains("network")
+        ));
+        assert!(matches!(
+            evaluate("sudo_rm", ToolSafety::Dangerous, json!({})),
+            PolicyDecision::Deny { reason } if reason.contains("dangerous")
+        ));
+    }
+
+    #[test]
+    fn codex_policy_explicit_lists_override_safety_defaults() {
+        assert_eq!(
+            evaluate(
+                "shell",
+                ToolSafety::RunsCommands,
+                json!({ "allow": ["shell"] })
+            ),
+            PolicyDecision::Allow
+        );
+        assert!(matches!(
+            evaluate_visibility(
+                "network_probe",
+                ToolSafety::Network,
+                json!({ "ask_before": ["network_probe"] })
+            ),
+            PolicyDecision::Ask { reason } if reason.contains("network_probe")
+        ));
+        assert!(matches!(
+            evaluate(
+                "read_file",
+                ToolSafety::ReadOnly,
+                json!({ "deny": ["read_file"], "allow": ["read_file"] })
+            ),
+            PolicyDecision::Deny { reason } if reason.contains("explicitly denied")
+        ));
+    }
 }

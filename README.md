@@ -43,7 +43,7 @@ plugins/
     coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
     context-pack/        — ContextBuilder-плагины "simple", "repo_aware" и "codex_context"
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-    policy-pack/         — ApprovalPolicy плагины "allow_all" и "ask_write"
+    policy-pack/         — ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"
     renderer-pack/       — Renderer плагины "plain" и "statusline"
 docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
 ```
@@ -67,7 +67,7 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   плагин `coding-workflow`; production context builders `simple`,
   `repo_aware` и `codex_context` поставляет плагин `context-pack`; `jsonl` memory и
   `carry_forward` memory policy поставляет плагин `memory-pack`;
-  `allow_all`/`ask_write` поставляет `policy-pack`; `plain`/`statusline`
+  `allow_all`/`ask_write`/`codex_policy` поставляет `policy-pack`; `plain`/`statusline`
   поставляет `renderer-pack`.
 - Builtin tools: `apply_patch`, `search`, `remember_fact`,
   `request_user_input`/`AskUserQuestion`. Search backend `rg` поставляется
@@ -305,8 +305,8 @@ proteus doctor
   tool set, ask_write policy).
 - `proteus.codex.example.toml` — экспериментальный Codex-shaped профиль:
   отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
-  `codex_context`, `codex_dynamic` ToolExposure из `codex-tool-exposure` и
-  `codex` compactor.
+  `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
+  `codex-tool-exposure` и `codex` compactor.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.

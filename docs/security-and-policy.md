@@ -217,6 +217,36 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 `module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Имена в
 `allow`/`ask_before` влияют только на реально зарегистрированные tools.
 
+## codex_policy
+
+`codex_policy` поставляется тем же `policy-pack` и используется
+экспериментальным `proteus.codex.example.toml`. Это не отдельный security
+layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
+mode-aware wrapper.
+
+Порядок решения:
+
+1. если tool name в `deny`, запретить;
+2. если tool name в `allow`, разрешить;
+3. если tool name в `ask_before`, запросить approval;
+4. если `ToolSafety::ReadOnly`, разрешить;
+5. если `WritesFiles` или `RunsCommands`, запросить approval;
+6. если `Network`, `Dangerous` или tool неизвестен, запретить.
+
+Пример:
+
+```toml
+[module_config.policy.codex_policy]
+allow = ["search", "read_file", "git_diff", "request_user_input"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+deny = []
+```
+
+Такой профиль делает Codex-подобный hot path явным: read-only tools видны без
+approval, write/shell/memory-write tools остаются видимыми только при
+интерактивном approval transport, а network/dangerous tools не появляются у
+модели без явной правки config.
+
 ## allow_all
 
 `allow_all` разрешает все tool calls. Используйте его только для тестов или доверенного окружения.
