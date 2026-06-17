@@ -39,12 +39,17 @@ use serde_json::{Value, json};
 const SIMPLE_MODULE_ID: &str = "simple";
 #[cfg(feature = "plugin-entrypoint")]
 const REPO_AWARE_MODULE_ID: &str = "repo_aware";
+#[cfg(feature = "plugin-entrypoint")]
+const CODEX_CONTEXT_MODULE_ID: &str = "codex_context";
 
 #[derive(Default)]
 pub struct SimpleContextBuilderPlugin;
 
 #[derive(Default)]
 pub struct RepoAwareContextBuilderPlugin;
+
+#[derive(Default)]
+pub struct CodexContextBuilderPlugin;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SimpleContextConfig {
@@ -143,6 +148,27 @@ impl PluginContextBuilder for RepoAwareContextBuilderPlugin {
     }
 }
 
+impl PluginContextBuilder for CodexContextBuilderPlugin {
+    fn build_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginContextBuilderHostMut<'_>,
+    ) -> RResult<RString, PluginContextError> {
+        let input: PluginContextBuilderInput = match serde_json::from_str(input_json.as_str()) {
+            Ok(input) => input,
+            Err(error) => return context_err(error),
+        };
+        let config = match config_or_default::<CodexContextConfig>(input.config.clone()) {
+            Ok(config) => config,
+            Err(error) => return context_err(error),
+        };
+        match build_codex_context(input, host, config) {
+            Ok(bundle) => json_ok(&bundle),
+            Err(error) => context_err(error),
+        }
+    }
+}
+
 fn build_simple_context(
     input: PluginContextBuilderInput,
     host: &mut PluginContextBuilderHostMut<'_>,
@@ -176,6 +202,67 @@ fn build_simple_context(
     Ok(ContextBundle::new(chunks).with_token_estimate(token_estimate))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CodexContextConfig {
+    #[serde(default = "default_codex_context_providers")]
+    providers: Vec<String>,
+    #[serde(default = "default_codex_context_max_context_bytes")]
+    max_context_bytes: usize,
+    #[serde(default = "default_codex_context_max_bytes_per_file")]
+    max_bytes_per_file: usize,
+    #[serde(default = "default_codex_context_max_search_results")]
+    max_search_results: usize,
+    #[serde(default = "default_repo_aware_memory_limit")]
+    memory_limit: usize,
+    #[serde(default = "default_codex_context_repo_tree_max_entries")]
+    repo_tree_max_entries: usize,
+    #[serde(default = "default_codex_context_repo_tree_max_depth")]
+    repo_tree_max_depth: usize,
+    #[serde(default = "default_codex_context_repo_tree_skip_entries")]
+    repo_tree_skip_entries: Vec<String>,
+    #[serde(default = "default_project_instruction_files")]
+    project_instruction_files: Vec<String>,
+    #[serde(default = "default_codex_context_manifest_files")]
+    manifest_files: Vec<String>,
+    #[serde(default = "default_codex_context_git_diff_max_bytes")]
+    git_diff_max_bytes: usize,
+}
+
+impl Default for CodexContextConfig {
+    fn default() -> Self {
+        Self {
+            providers: default_codex_context_providers(),
+            max_context_bytes: default_codex_context_max_context_bytes(),
+            max_bytes_per_file: default_codex_context_max_bytes_per_file(),
+            max_search_results: default_codex_context_max_search_results(),
+            memory_limit: default_repo_aware_memory_limit(),
+            repo_tree_max_entries: default_codex_context_repo_tree_max_entries(),
+            repo_tree_max_depth: default_codex_context_repo_tree_max_depth(),
+            repo_tree_skip_entries: default_codex_context_repo_tree_skip_entries(),
+            project_instruction_files: default_project_instruction_files(),
+            manifest_files: default_codex_context_manifest_files(),
+            git_diff_max_bytes: default_codex_context_git_diff_max_bytes(),
+        }
+    }
+}
+
+impl From<&CodexContextConfig> for RepoAwareContextConfig {
+    fn from(config: &CodexContextConfig) -> Self {
+        Self {
+            providers: config.providers.clone(),
+            max_context_bytes: config.max_context_bytes,
+            max_bytes_per_file: config.max_bytes_per_file,
+            max_search_results: config.max_search_results,
+            memory_limit: config.memory_limit,
+            repo_tree_max_entries: config.repo_tree_max_entries,
+            repo_tree_max_depth: config.repo_tree_max_depth,
+            repo_tree_skip_entries: config.repo_tree_skip_entries.clone(),
+            project_instruction_files: config.project_instruction_files.clone(),
+            manifest_files: config.manifest_files.clone(),
+        }
+    }
+}
+
 fn build_repo_aware_context(
     input: PluginContextBuilderInput,
     host: &mut PluginContextBuilderHostMut<'_>,
@@ -207,6 +294,50 @@ fn build_repo_aware_context(
     Ok(ContextBundle::new(chunks)
         .with_summary(format!(
             "repo_aware context with {} providers",
+            config.providers.len()
+        ))
+        .with_token_estimate(token_estimate))
+}
+
+fn build_codex_context(
+    input: PluginContextBuilderInput,
+    host: &mut PluginContextBuilderHostMut<'_>,
+    config: CodexContextConfig,
+) -> anyhow::Result<ContextBundle> {
+    let repo_config = RepoAwareContextConfig::from(&config);
+    let mut chunks = vec![
+        ContextChunk::new("codex_context:task", input.task.text.clone())
+            .with_score(1.0)
+            .with_metadata(json!({
+                "provider": "task",
+                "reason": "current user task",
+                "context_profile": "codex_context",
+            })),
+    ];
+
+    for provider in &config.providers {
+        let provider_chunks = match provider.as_str() {
+            "project_instructions" => project_instruction_chunks(&input, &repo_config)?,
+            "manifest" => manifest_chunks(&input, &repo_config)?,
+            "git_status" => git_status_chunks(&input)?,
+            "git_diff" => git_diff_chunks(&input, &config)?,
+            "repo_tree" => repo_tree_chunks(&input, &repo_config)?,
+            "memory" => memory_chunks(&input, host, &repo_config)?,
+            "search" => search_chunks(&input, host, &repo_config)?,
+            external => external_provider_chunks(&input, host, external)?,
+        };
+        chunks.extend(retag_context_chunks(
+            provider_chunks,
+            "repo_aware",
+            "codex_context",
+        ));
+    }
+
+    let chunks = apply_byte_budget(chunks, config.max_context_bytes);
+    let token_estimate = token_estimate(&chunks);
+    Ok(ContextBundle::new(chunks)
+        .with_summary(format!(
+            "codex_context with {} providers",
             config.providers.len()
         ))
         .with_token_estimate(token_estimate))
@@ -294,6 +425,55 @@ fn git_status_chunks(input: &PluginContextBuilderInput) -> anyhow::Result<Vec<Co
         "git_status",
         "current git status",
     )])
+}
+
+fn git_diff_chunks(
+    input: &PluginContextBuilderInput,
+    config: &CodexContextConfig,
+) -> anyhow::Result<Vec<ContextChunk>> {
+    let mut sections = Vec::new();
+    if let Some(stat) = git_output(&input.task.cwd, &["diff", "--stat"])? {
+        sections.push(format!("Unstaged diff stat:\n{stat}"));
+    }
+    if let Some(diff) = git_output(&input.task.cwd, &["diff"])? {
+        sections.push(format!("Unstaged diff:\n{diff}"));
+    }
+    if let Some(stat) = git_output(&input.task.cwd, &["diff", "--cached", "--stat"])? {
+        sections.push(format!("Staged diff stat:\n{stat}"));
+    }
+    if let Some(diff) = git_output(&input.task.cwd, &["diff", "--cached"])? {
+        sections.push(format!("Staged diff:\n{diff}"));
+    }
+
+    if sections.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![chunk(
+        "codex_context:git_diff",
+        None,
+        truncate_to_bytes(&sections.join("\n\n"), config.git_diff_max_bytes),
+        0.9,
+        "git_diff",
+        "current git diff",
+    )])
+}
+
+fn git_output(cwd: &Path, args: &[&str]) -> anyhow::Result<Option<String>> {
+    let output = match Command::new("git").args(args).current_dir(cwd).output() {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let content = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if content.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(content))
+    }
 }
 
 fn repo_tree_chunks(
@@ -487,6 +667,20 @@ fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
     Value::Object(object)
 }
 
+fn retag_context_chunks(
+    mut chunks: Vec<ContextChunk>,
+    from_prefix: &str,
+    to_prefix: &str,
+) -> Vec<ContextChunk> {
+    for chunk in &mut chunks {
+        if let Some(rest) = chunk.source.strip_prefix(from_prefix) {
+            chunk.source = format!("{to_prefix}{rest}");
+        }
+        chunk.metadata = metadata_with(chunk.metadata.clone(), "context_profile", json!(to_prefix));
+    }
+    chunks
+}
+
 fn apply_byte_budget(chunks: Vec<ContextChunk>, max_context_bytes: usize) -> Vec<ContextChunk> {
     if max_context_bytes == 0 {
         return Vec::new();
@@ -595,15 +789,15 @@ fn collect_tree_entries(
         }
         let file_name = child.file_name();
         let file_name = file_name.to_string_lossy();
-        if skip_entries.iter().any(|skip| skip == file_name.as_ref()) {
-            continue;
-        }
         let path = child.path();
         let relative = path
             .strip_prefix(root)
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
+        if should_skip_tree_entry(skip_entries, file_name.as_ref(), &relative) {
+            continue;
+        }
         let file_type = child.file_type()?;
         if file_type.is_dir() {
             entries.push(format!("{relative}/"));
@@ -613,6 +807,30 @@ fn collect_tree_entries(
         }
     }
     Ok(())
+}
+
+fn should_skip_tree_entry(skip_entries: &[String], file_name: &str, relative: &str) -> bool {
+    skip_entries
+        .iter()
+        .any(|skip| skip == file_name || skip == relative)
+}
+
+fn truncate_to_bytes(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_owned();
+    }
+    if max_bytes == 0 {
+        return "[truncated]".to_owned();
+    }
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n[{} bytes truncated by codex_context]",
+        &text[..end],
+        text.len().saturating_sub(end)
+    )
 }
 
 fn extract_search_queries(task: &str) -> Vec<String> {
@@ -727,7 +945,15 @@ extern "C" fn register_modules(
 
     let repo_aware: ContextBuilderObject =
         PluginContextBuilder_TO::from_value(RepoAwareContextBuilderPlugin, TD_Opaque);
-    registry.register_context_builder(RString::from(REPO_AWARE_MODULE_ID), repo_aware)
+    if let RResult::RErr(error) =
+        registry.register_context_builder(RString::from(REPO_AWARE_MODULE_ID), repo_aware)
+    {
+        return RResult::RErr(error);
+    }
+
+    let codex_context: ContextBuilderObject =
+        PluginContextBuilder_TO::from_value(CodexContextBuilderPlugin, TD_Opaque);
+    registry.register_context_builder(RString::from(CODEX_CONTEXT_MODULE_ID), codex_context)
 }
 
 #[cfg(feature = "plugin-entrypoint")]
@@ -735,7 +961,9 @@ extern "C" fn register_modules(
 pub fn instantiate_root_module() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("context-pack"),
-        description: RStr::from_str("ContextBuilder plugin providing simple and repo_aware"),
+        description: RStr::from_str(
+            "ContextBuilder plugin providing simple, repo_aware, and codex_context",
+        ),
         register_modules,
     }
     .leak_into_prefix()
@@ -777,6 +1005,81 @@ fn default_repo_tree_max_entries() -> usize {
 
 fn default_repo_tree_max_depth() -> usize {
     3
+}
+
+fn default_codex_context_providers() -> Vec<String> {
+    [
+        "project_instructions",
+        "git_status",
+        "git_diff",
+        "repo_tree",
+        "manifest",
+        "search",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+fn default_codex_context_max_context_bytes() -> usize {
+    60_000
+}
+
+fn default_codex_context_max_bytes_per_file() -> usize {
+    12_000
+}
+
+fn default_codex_context_max_search_results() -> usize {
+    40
+}
+
+fn default_codex_context_repo_tree_max_entries() -> usize {
+    300
+}
+
+fn default_codex_context_repo_tree_max_depth() -> usize {
+    4
+}
+
+fn default_codex_context_git_diff_max_bytes() -> usize {
+    16_000
+}
+
+fn default_codex_context_repo_tree_skip_entries() -> Vec<String> {
+    [
+        ".git",
+        "target",
+        "node_modules",
+        ".proteus",
+        ".next",
+        "dist",
+        "build",
+        "sessions",
+        "examples/source",
+        "examples/research",
+        ".env",
+        "secrets.json",
+        "config.local.json",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+fn default_codex_context_manifest_files() -> Vec<String> {
+    [
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "composer.json",
+        "README.md",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 fn default_repo_tree_skip_entries() -> Vec<String> {

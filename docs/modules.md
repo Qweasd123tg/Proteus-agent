@@ -66,7 +66,7 @@ persistent MCP host и dylib unload не реализованы; модель re
 | Search | `SearchBackend` | `modules.search` | `null`, plugin-provided (`rg` если подключён `rg-search`) |
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite`/`sqlite_plugin` из `sqlite-memory`) |
 | Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, plugin-provided (`carry_forward` из `memory-pack`) |
-| Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware` из `context-pack`) |
+| Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
@@ -114,7 +114,7 @@ Runtime зависит от единого model contract: `id`, `capabilities`,
 `modules.search = "rg"` использует plugin backend `rg-search`, если он установлен
 в `~/.proteus/plugins`. Этот backend влияет на два места:
 
-- context builder `simple`/`repo_aware` из `context-pack` получает search
+- context builder `simple`/`repo_aware`/`codex_context` из `context-pack` получает search
   chunks при сборке контекста;
 - tool `search` вызывает тот же backend.
 
@@ -223,6 +223,16 @@ boundary: `context-pack` управляет orchestration, score-aware byte budg
 `context_provider`.
 Каждый chunk получает metadata `provider` и `reason`. Это будущая основа для
 UI/debug view “что занимает контекст”, но visual layer не входит в этот module.
+
+`modules.context = "codex_context"` поставляется тем же `context-pack`, но
+собирает Codex-shaped context profile. Он использует тот же безопасный bounded
+read/search/memory/provider host boundary, но меняет порядок и defaults:
+сначала project instructions, затем `git_status`, `git_diff`, repo tree,
+manifest и targeted search. Дополнительный provider `git_diff` добавляет
+ограниченный `git diff --stat`, `git diff`, `git diff --cached --stat` и
+`git diff --cached` chunk с лимитом `git_diff_max_bytes`. Источники chunks
+помечаются префиксом `codex_context:*`, а metadata получает
+`context_profile = "codex_context"`.
 
 ## Tools
 

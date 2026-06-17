@@ -125,7 +125,7 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 
 `proteus.codex.example.toml` - экспериментальный Codex-shaped profile для
 чистой проверки Codex-подобной сборки модулей. Он подключает тот же provider
-через `include`, использует `coding.codex_loop`, `repo_aware`, `rg`,
+через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `ask_write`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`.
 Запускается явно через `--config proteus.codex.example.toml` или создаётся
@@ -280,7 +280,8 @@ renderer = "statusline"
 ```
 
 Core не читает отдельные typed sections конкретных плагинов вроде
-`[policy.ask_write]`, `[context.simple]` или `[context.repo_aware]`.
+`[policy.ask_write]`, `[context.simple]`, `[context.repo_aware]` или
+`[context.codex_context]`.
 Plugin-specific настройки живут только в `module_config`, чтобы core не
 расширял `AppConfig` под каждую реализацию.
 
@@ -707,6 +708,18 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
         "repo_tree_skip_entries": [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build"],
         "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
         "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
+      },
+      "codex_context": {
+        "providers": ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"],
+        "max_context_bytes": 60000,
+        "max_bytes_per_file": 12000,
+        "max_search_results": 40,
+        "repo_tree_max_entries": 300,
+        "repo_tree_max_depth": 4,
+        "repo_tree_skip_entries": [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build", "examples/source", "examples/research"],
+        "git_diff_max_bytes": 16000,
+        "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
+        "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "README.md"]
       }
     }
   }
@@ -726,6 +739,11 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
 ограничивают recursive tree provider. Search provider извлекает несколько
 targeted queries из текущей задачи и вызывает `SearchBackend` по ним, вместо
 того чтобы всегда искать сырой prompt целиком.
+
+`module_config.context.codex_context` использует тот же `ContextBuilder` slot и
+host callbacks, но меняет порядок providers под Codex-shaped profile:
+instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
+`git_diff_max_bytes` ограничивает суммарный diff chunk.
 
 ## Memory
 
