@@ -20,7 +20,8 @@ use crate::{
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
         ModuleCatalogEntrySummary, PendingApproval, PendingUserInput, RuntimeReloadReport,
         TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
-        list_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
+        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
+        session_id_from_session_dir,
     },
     domain::{AgentOutput, PermissionMode, ToolCall, new_thread_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
@@ -232,6 +233,13 @@ impl AppServerHandle {
             return Ok(Vec::new());
         };
         list_session_summaries(&config_store_root(config_path))
+    }
+
+    pub fn workspace_session_summaries(&self) -> Result<Vec<crate::core::SessionSummary>> {
+        let Some(config_path) = self.config_path.as_deref() else {
+            return Ok(Vec::new());
+        };
+        list_workspace_session_summaries(&config_store_root(config_path), &self.cwd)
     }
 
     pub async fn transcript(&self) -> Vec<AppTranscriptMessage> {

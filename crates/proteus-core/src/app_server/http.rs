@@ -170,6 +170,11 @@ struct ResumeSessionRequest {
     session_dir: PathBuf,
 }
 
+#[derive(Debug, Deserialize)]
+struct NewSessionRequest {
+    id: Option<String>,
+}
+
 pub async fn run_http_app_server(
     config: AppConfig,
     cwd: PathBuf,
@@ -275,6 +280,14 @@ where
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
+        (Method::GET, "/sessions/current") => {
+            match state.current_server().await.workspace_session_summaries() {
+                Ok(sessions) => json_response(StatusCode::OK, &sessions),
+                Err(error) => {
+                    error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}"))
+                }
+            }
+        }
         (Method::GET, "/history") => {
             let transcript = state.current_server().await.transcript().await;
             json_response(StatusCode::OK, &transcript)
@@ -411,6 +424,13 @@ where
         (Method::POST, "/resume") => match read_json::<ResumeSessionRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
+        (Method::POST, "/new-session") => match read_json::<NewSessionRequest, _>(request).await {
+            Ok(command) => {
+                let output = execute_new_session(&state, command.id).await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
@@ -738,7 +758,37 @@ async fn execute_resume(
     command_response(id, result)
 }
 
+async fn execute_new_session(state: &HttpAppState, id: Option<String>) -> StdioOutput {
+    let result = new_session(state).await.map(Some);
+    command_response(id, result)
+}
+
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
+    cancel_active_work(state, "session switched by client").await;
+    let current = state.current_server().await;
+    let config = current.config.read().await.clone();
+    let next = AgentAppServer::launch_resumed(
+        config,
+        current.cwd.clone(),
+        current.config_path.as_deref(),
+        session_dir,
+    )?;
+    let summary = next.config_summary().await;
+    *state.server.lock().await = next;
+    Ok(summary)
+}
+
+async fn new_session(state: &HttpAppState) -> Result<Value> {
+    cancel_active_work(state, "new session started by client").await;
+    let current = state.current_server().await;
+    let config = current.config.read().await.clone();
+    let next = AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
+    let summary = next.config_summary().await;
+    *state.server.lock().await = next;
+    Ok(summary)
+}
+
+async fn cancel_active_work(state: &HttpAppState, note: &str) {
     let active_turns = {
         let mut running_turns = state.running_turns.lock().await;
         running_turns
@@ -751,23 +801,8 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     }
 
     let current = state.current_server().await;
-    current
-        .cancel_pending_approvals("session switched by client".to_owned())
-        .await;
-    current
-        .cancel_pending_user_inputs("session switched by client".to_owned())
-        .await;
-
-    let config = current.config.read().await.clone();
-    let next = AgentAppServer::launch_resumed(
-        config,
-        current.cwd.clone(),
-        current.config_path.as_deref(),
-        session_dir,
-    )?;
-    let summary = next.config_summary().await;
-    *state.server.lock().await = next;
-    Ok(summary)
+    current.cancel_pending_approvals(note.to_owned()).await;
+    current.cancel_pending_user_inputs(note.to_owned()).await;
 }
 
 async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
@@ -1176,6 +1211,7 @@ mod tests {
             (Method::GET, "/inspect/topology.runtime"),
             (Method::GET, "/inspect/topology.runtime.mmd"),
             (Method::GET, "/sessions"),
+            (Method::GET, "/sessions/current"),
             (Method::GET, "/history"),
             (Method::POST, "/request"),
             (Method::POST, "/send"),
@@ -1187,6 +1223,7 @@ mod tests {
             (Method::POST, "/effort"),
             (Method::POST, "/reasoning"),
             (Method::POST, "/resume"),
+            (Method::POST, "/new-session"),
             (Method::POST, "/clear"),
             (Method::POST, "/reload-tools"),
             (Method::POST, "/shutdown"),
@@ -1920,6 +1957,64 @@ mod tests {
         assert_eq!(pending.user_inputs.len(), 1);
         assert_eq!(pending.user_inputs[0].request_id, request_id);
         server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_new_session_replaces_active_session_dir() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let config_path = config_dir.path().join("config.toml");
+        let server = AgentAppServer::launch(
+            AppConfig::default(),
+            cwd.path().to_path_buf(),
+            Some(&config_path),
+        )
+        .expect("app server");
+        let original_session_dir = server
+            .config_summary()
+            .await
+            .get("session_dir")
+            .and_then(Value::as_str)
+            .expect("original session dir")
+            .to_owned();
+        let (shutdown, _) = broadcast::channel(1);
+        let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+        let response = route_request(
+            state.clone(),
+            authed_json_request("/new-session", json!({ "id": "new-session" })),
+        )
+        .await
+        .expect("new session response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let output = response_output(response).await;
+        let StdioOutput::Response {
+            ok: true,
+            output: Some(summary),
+            ..
+        } = output
+        else {
+            panic!("expected successful new-session response");
+        };
+        let next_session_dir = summary
+            .get("session_dir")
+            .and_then(Value::as_str)
+            .expect("new session dir");
+        assert_ne!(next_session_dir, original_session_dir);
+        assert_eq!(
+            state
+                .current_server()
+                .await
+                .config_summary()
+                .await
+                .get("session_dir")
+                .and_then(Value::as_str),
+            Some(next_session_dir)
+        );
+
+        server.shutdown().await;
+        state.current_server().await.shutdown().await;
     }
 
     #[tokio::test]
