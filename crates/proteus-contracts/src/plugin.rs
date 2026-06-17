@@ -40,7 +40,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::RendererObject,
-    domain::{AgentOutput, AgentTask, ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
+    domain::{
+        AgentOutput, AgentTask, HistoryCompactionReport, ModelRef, ReasoningConfig, SessionId,
+        ThreadId, TurnId,
+    },
     model_standard::CanonicalMessage,
 };
 
@@ -536,6 +539,8 @@ pub struct PluginWorkflowRuntimeInfo {
     pub model_ref: ModelRef,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
+    #[serde(default)]
+    pub max_input_tokens: Option<u32>,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
 }
@@ -545,6 +550,10 @@ pub struct PluginWorkflowOutput {
     pub output: AgentOutput,
     #[serde(default)]
     pub messages: Vec<CanonicalMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_messages_start: Option<usize>,
+    #[serde(default)]
+    pub compactions: Vec<HistoryCompactionReport>,
 }
 
 /// Host capabilities exposed to workflow plugins.

@@ -394,6 +394,43 @@ fn update_runtime_status_and_tools(
         set_agent_status.set("начинает".to_owned());
     } else if event.get("TaskReceived").is_some() {
         set_agent_status.set("готовит задачу".to_owned());
+    } else if event.get("HistoryCompactionStarted").is_some() {
+        set_agent_status.set("сжимает историю".to_owned());
+    } else if let Some(compaction_event) = event.get("HistoryCompactionCompleted") {
+        let Some(report) = compaction_event.get("report") else {
+            return;
+        };
+        let changed = report
+            .get("changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        set_agent_status.set(if changed {
+            "история сжата".to_owned()
+        } else {
+            "история без сжатия".to_owned()
+        });
+        if changed {
+            push_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                MessageRole::System,
+                compaction_report_text(report),
+            );
+        }
+    } else if let Some(failed_event) = event.get("HistoryCompactionFailed") {
+        set_agent_status.set("сжатие не удалось".to_owned());
+        let message = failed_event
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown compaction error");
+        push_message(
+            set_messages,
+            next_message_id,
+            set_next_message_id,
+            MessageRole::System,
+            format!("Сжатие истории не удалось: {}", compact_text(message, 500)),
+        );
     } else if event.get("ContextBuilt").is_some() {
         set_agent_status.set("собирает контекст".to_owned());
     } else if event.get("ModelRequestPrepared").is_some() {
@@ -551,4 +588,31 @@ fn tool_result_preview(result: &Value) -> String {
     } else {
         "(tool завершился без текста ошибки)".to_owned()
     }
+}
+
+fn compaction_report_text(report: &Value) -> String {
+    let input_messages = report
+        .get("input_messages")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_messages = report
+        .get("output_messages")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let original_tokens = report
+        .get("original_token_estimate")
+        .and_then(Value::as_u64);
+    let output_tokens = report.get("output_token_estimate").and_then(Value::as_u64);
+    let summary_source = report
+        .get("summary_source")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+
+    let token_text = match (original_tokens, output_tokens) {
+        (Some(before), Some(after)) => format!(", ~{before} -> ~{after} tokens"),
+        _ => String::new(),
+    };
+    format!(
+        "История сжата: {input_messages} -> {output_messages} сообщений{token_text}. Summary: {summary_source}."
+    )
 }

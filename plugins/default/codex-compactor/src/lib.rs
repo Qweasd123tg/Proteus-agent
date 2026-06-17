@@ -73,7 +73,7 @@ fn compact(
     let token_estimate = input
         .token_estimate
         .unwrap_or_else(|| estimate_messages_tokens(&input.messages));
-    let trigger_tokens = input.max_tokens.unwrap_or_else(trigger_tokens);
+    let trigger_tokens = trigger_tokens(input.max_tokens);
     if token_estimate <= trigger_tokens {
         return Ok(CompactionOutput::unchanged(input.messages));
     }
@@ -493,8 +493,10 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn trigger_tokens() -> u32 {
-    env_u32("PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS").unwrap_or(DEFAULT_TRIGGER_TOKENS)
+fn trigger_tokens(model_auto_limit: Option<u32>) -> u32 {
+    env_u32("PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS")
+        .or(model_auto_limit)
+        .unwrap_or(DEFAULT_TRIGGER_TOKENS)
 }
 
 fn user_message_budget_tokens() -> usize {

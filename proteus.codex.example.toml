@@ -1,0 +1,67 @@
+include = "proteus.provider.example.toml"
+
+[profile]
+name = "codex-experimental"
+
+[modules]
+# Experimental Codex-shaped profile. Keep this profile explicit so baseline
+# coding profiles do not inherit Codex parity experiments by accident.
+workflow = "coding.single_loop"
+search = "rg"
+memory = "none"
+memory_policy = "none"
+context = "repo_aware"
+policy = "ask_write"
+patch = "direct"
+compactor = "codex"
+tool_exposure = "dynamic"
+renderer = "statusline"
+
+[tools]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.ask_write]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+
+[module_config.tool_exposure.dynamic]
+max_hot_tools = 10
+always_include = ["request_user_input"]
+
+[module_config.context.repo_aware]
+providers = ["project_instructions", "manifest", "git_status", "repo_tree", "search"]
+max_context_bytes = 50000
+max_bytes_per_file = 8000
+max_search_results = 40
+repo_tree_max_entries = 260
+repo_tree_max_depth = 3
+repo_tree_skip_entries = [
+  ".git",
+  "target",
+  "node_modules",
+  ".proteus",
+  "sessions",
+  "dist",
+  "build",
+  "examples/source",
+  "examples/research",
+  ".env",
+  "secrets.json",
+  "config.local.json",
+]
+project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
+manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"

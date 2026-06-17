@@ -328,7 +328,11 @@ fn build_slots(
             id,
         })
         .collect::<Vec<_>>();
-    slots.sort_by(|left, right| left.order.cmp(&right.order).then_with(|| left.id.cmp(&right.id)));
+    slots.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.id.cmp(&right.id))
+    });
     slots
 }
 
@@ -1042,7 +1046,10 @@ mod tests {
     fn build_slots_orders_pipeline_first_and_categorizes_slots() {
         let slots = build_slots(&[], &BTreeMap::new());
 
-        let ids = slots.iter().map(|slot| slot.id.as_str()).collect::<Vec<_>>();
+        let ids = slots
+            .iter()
+            .map(|slot| slot.id.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(
             ids,
             vec![

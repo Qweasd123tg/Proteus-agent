@@ -606,7 +606,10 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         ));
         for tool in &registered_tools {
             let id = ids.get(&format!("tool:{}", tool.name));
-            out.push_str(&format!("        {id}[\"{}\"]\n", mermaid_label(&tool.name)));
+            out.push_str(&format!(
+                "        {id}[\"{}\"]\n",
+                mermaid_label(&tool.name)
+            ));
             classes.push((id, if tool.enabled { "tool" } else { "tooldisabled" }));
         }
         out.push_str("    end\n");
@@ -622,7 +625,10 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         out.push_str("    subgraph sg_disabled[\"Provided · не в registry\"]\n");
         for tool in &unregistered_tools {
             let id = ids.get(&format!("tool:{}", tool.name));
-            out.push_str(&format!("        {id}[\"{}\"]\n", mermaid_label(&tool.name)));
+            out.push_str(&format!(
+                "        {id}[\"{}\"]\n",
+                mermaid_label(&tool.name)
+            ));
             classes.push((id, "tooldisabled"));
         }
         out.push_str("    end\n");
@@ -697,7 +703,14 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         }
     };
 
-    add_edge(&ids, &mut out, "config", "slot:workflow", "selects modules", false);
+    add_edge(
+        &ids,
+        &mut out,
+        "config",
+        "slot:workflow",
+        "selects modules",
+        false,
+    );
     for edge in &snapshot.edges {
         match edge.kind.as_str() {
             "runtime" if edge.from != "slot:tool" => {
@@ -717,12 +730,9 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
     for plugin in &snapshot.plugins {
         let plugin_key = format!("plugin:{}", plugin.name);
         for module in &plugin.provides.modules {
-            let active = snapshot
-                .modules
-                .iter()
-                .any(|candidate| {
-                    candidate.slot == module.slot && candidate.id == module.id && candidate.active
-                });
+            let active = snapshot.modules.iter().any(|candidate| {
+                candidate.slot == module.slot && candidate.id == module.id && candidate.active
+            });
             let label = if active {
                 module.id.clone()
             } else {
@@ -754,7 +764,14 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         for provider in &plugin.provides.context_providers {
             let provider_key = format!("context_provider:{provider}");
             add_edge(&ids, &mut out, &plugin_key, &provider_key, "", false);
-            add_edge(&ids, &mut out, &provider_key, "slot:context", "feeds", false);
+            add_edge(
+                &ids,
+                &mut out,
+                &provider_key,
+                "slot:context",
+                "feeds",
+                false,
+            );
         }
     }
 
@@ -799,8 +816,6 @@ fn runtime_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> Str
     };
     format!("{slot_id}<br/>{active}<br/>{source}")
 }
-
-
 
 fn ordered_slots(snapshot: &TopologySnapshot) -> Vec<&SlotTopology> {
     // build_slots уже сортирует по slot.order; стабильная пересортировка
@@ -1027,7 +1042,6 @@ fn mermaid_node(id: &str, key: &str, label: &str) -> String {
         format!("{id}[\"{label}\"]")
     }
 }
-
 
 fn runtime_mermaid_class(key: &str) -> &'static str {
     if key == "warnings" {
