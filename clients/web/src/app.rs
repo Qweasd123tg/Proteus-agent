@@ -4,7 +4,8 @@ use leptos::{html, prelude::*, task::spawn_local};
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{
-    EventSource, HtmlElement, KeyboardEvent, MouseEvent, SubmitEvent, WheelEvent, window,
+    EventSource, HtmlElement, HtmlTextAreaElement, KeyboardEvent, MouseEvent, SubmitEvent,
+    WheelEvent, window,
 };
 
 use crate::actions::{
@@ -35,6 +36,43 @@ unsafe extern "C" {
     fn proteus_typeset_math();
     #[wasm_bindgen(js_namespace = window, js_name = requestAnimationFrame)]
     fn request_animation_frame(callback: &js_sys::Function) -> i32;
+}
+
+fn insert_textarea_newline(textarea: HtmlTextAreaElement, set_draft: WriteSignal<String>) {
+    let value = textarea.value();
+    let start = textarea
+        .selection_start()
+        .ok()
+        .flatten()
+        .unwrap_or(value.encode_utf16().count() as u32);
+    let end = textarea
+        .selection_end()
+        .ok()
+        .flatten()
+        .unwrap_or(start);
+    let start_index = utf16_offset_to_byte_index(&value, start);
+    let end_index = utf16_offset_to_byte_index(&value, end);
+    let mut next = String::with_capacity(value.len() + 1);
+    next.push_str(&value[..start_index]);
+    next.push('\n');
+    next.push_str(&value[end_index..]);
+    let next_cursor = start + 1;
+
+    textarea.set_value(&next);
+    let _ = textarea.set_selection_start(Some(next_cursor));
+    let _ = textarea.set_selection_end(Some(next_cursor));
+    set_draft.set(next);
+}
+
+fn utf16_offset_to_byte_index(text: &str, offset: u32) -> usize {
+    let mut units = 0;
+    for (index, ch) in text.char_indices() {
+        if units >= offset {
+            return index;
+        }
+        units += ch.len_utf16() as u32;
+    }
+    text.len()
 }
 
 #[component]
@@ -461,11 +499,6 @@ pub(crate) fn App() -> impl IntoView {
         };
         format!("{} · {} · {}", model, mode.get().label(), reasoning)
     };
-    let draft_stats = move || {
-        let text = draft.get();
-        let lines = text.lines().count().max(1);
-        format!("{} симв. · {} строк", text.chars().count(), lines)
-    };
     let transport_badge_class = move || match transport_status.get() {
         TransportStatus::Connecting => "status-badge disconnected",
         TransportStatus::Connected => "status-badge completed",
@@ -532,7 +565,17 @@ pub(crate) fn App() -> impl IntoView {
     };
     // Escape обрабатывает глобальный keydown-listener, иначе отмена уходит дважды.
     let submit_shortcut = move |ev: KeyboardEvent| {
-        if ev.ctrl_key() && ev.key() == "Enter" {
+        if ev.key() != "Enter" {
+            return;
+        }
+        if ev.ctrl_key() {
+            ev.prevent_default();
+            if let Some(textarea) = composer_ref.get_untracked() {
+                insert_textarea_newline(textarea, set_draft);
+            }
+            return;
+        }
+        if !(ev.shift_key() || ev.alt_key() || ev.meta_key()) {
             ev.prevent_default();
             submit_prompt();
         }
@@ -1026,13 +1069,6 @@ pub(crate) fn App() -> impl IntoView {
                                         on:keydown=submit_shortcut
                                     />
                                     <div class="composer-actions">
-                                        <div class="composer-meta">
-                                            <span class="composer-mode">
-                                                {move || if mode.get() == PermissionMode::Plan { "план" } else { "агент" }}
-                                            </span>
-                                            <span>{draft_stats}</span>
-                                            <span>"Ctrl+Enter"</span>
-                                        </div>
                                         <div class="composer-buttons">
                                             <button type="button" class="secondary" on:click=clear_transcript>
                                                 "Очистить"
@@ -1207,7 +1243,7 @@ pub(crate) fn App() -> impl IntoView {
                                                     } else if mode.get() == PermissionMode::Plan {
                                                         "Спросить план"
                                                     } else {
-                                                        "Запустить"
+                                                        "Отправить"
                                                     }
                                                 }}
                                             </button>

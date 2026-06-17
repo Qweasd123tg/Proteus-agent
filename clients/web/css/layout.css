@@ -364,8 +364,8 @@ button.session-item.active {
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-6) var(--space-4) var(--space-8);
-    scroll-padding-bottom: var(--space-8);
+    padding: var(--space-6) var(--space-4) var(--space-5);
+    scroll-padding-bottom: var(--space-5);
 }
 
 .results-panel.sticky-bottom {
@@ -390,7 +390,7 @@ button.session-item.active {
     max-width: var(--chat-max-width);
     margin: 0 auto;
     background: transparent;
-    padding: var(--space-2) var(--space-4) var(--space-3);
+    padding: var(--space-1) var(--space-4) var(--space-3);
 }
 
 .composer-resize-handle {
@@ -427,6 +427,7 @@ button.session-item.active {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-panel);
+    background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
     box-shadow: 0 1px 0 rgb(0 0 0 / 25%);
     transition:
         border-color 0.15s,
@@ -452,6 +453,7 @@ button.session-item.active {
     font-size: 14px;
     line-height: 1.6;
     resize: none;
+    scrollbar-width: thin;
 }
 
 .composer textarea:focus {
@@ -460,13 +462,13 @@ button.session-item.active {
 
 .composer-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    border-top: 1px solid var(--border-subtle);
+    justify-content: flex-end;
+    gap: var(--space-2);
+    border-top: 0;
     background: transparent;
-    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+    padding: 0 var(--space-2) var(--space-2);
 }
 
 .composer-meta,
@@ -505,16 +507,16 @@ button.session-item.active {
 }
 
 .composer-buttons {
-    flex: 1 1 360px;
-    flex-wrap: wrap;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
     justify-content: flex-end;
 }
 
 .composer-menu {
     position: relative;
-    flex: 1 1 180px;
-    min-width: 140px;
-    max-width: 260px;
+    flex: 0 1 220px;
+    min-width: 150px;
+    max-width: 240px;
 }
 
 .composer-menu[open] {
@@ -523,7 +525,8 @@ button.session-item.active {
 
 .composer-menu-trigger {
     display: flex;
-    min-height: 30px;
+    width: 100%;
+    min-height: 32px;
     max-width: 100%;
     cursor: pointer;
     list-style: none;
@@ -579,6 +582,7 @@ button.session-item.active {
 .composer-menu-summary {
     min-width: 0;
     flex: 1;
+    max-width: 180px;
     overflow: hidden;
     color: var(--text-main);
     font-size: 12px;
@@ -668,12 +672,19 @@ button.session-item.active {
 .composer-buttons button,
 .composer-actions > button {
     flex: 0 0 auto;
+    min-width: 78px;
     min-height: 32px;
     border-radius: var(--radius-chip);
     padding: 0 var(--space-3);
+    white-space: nowrap;
+}
+
+.composer-buttons .danger:disabled {
+    display: none;
 }
 
 .composer-buttons .btn-primary {
+    min-width: 104px;
     padding: 0 var(--space-4);
 }
 

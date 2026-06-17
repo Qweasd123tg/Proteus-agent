@@ -783,6 +783,7 @@ async fn new_session(state: &HttpAppState) -> Result<Value> {
     let current = state.current_server().await;
     let config = current.config.read().await.clone();
     let next = AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
+    next.start_session().await?;
     let summary = next.config_summary().await;
     *state.server.lock().await = next;
     Ok(summary)
@@ -2011,6 +2012,19 @@ mod tests {
                 .get("session_dir")
                 .and_then(Value::as_str),
             Some(next_session_dir)
+        );
+
+        let response = route_request(state.clone(), authed_get_request("/sessions/current"))
+            .await
+            .expect("sessions response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response_bytes(response).await;
+        let sessions: Vec<crate::core::SessionSummary> =
+            serde_json::from_slice(&bytes).expect("sessions JSON");
+        assert!(
+            sessions
+                .iter()
+                .any(|session| session.session_dir.to_string_lossy().as_ref() == next_session_dir)
         );
 
         server.shutdown().await;
