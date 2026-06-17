@@ -30,7 +30,8 @@ plugins/
         direct-patch/        - PatchApplier internal patch format под id "direct"
         sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
         codex-compactor/     - HistoryCompactor под id "codex"
-        coding-workflow/     - Workflow-плагины под ids "coding.single_loop" и "coding.plan_execute_review"
+        codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
+        coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple" и "repo_aware"
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
         policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"

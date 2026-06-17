@@ -52,6 +52,8 @@ pub struct ToolExposureInput {
     pub request: ToolExposureRequest,
     #[serde(default)]
     pub candidates: Vec<ToolSpec>,
+    #[serde(default)]
+    pub config: serde_json::Value,
 }
 
 impl ToolExposureInput {
@@ -59,7 +61,13 @@ impl ToolExposureInput {
         Self {
             request,
             candidates,
+            config: serde_json::Value::Null,
         }
+    }
+
+    pub fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
+        self
     }
 }
 

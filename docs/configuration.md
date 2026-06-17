@@ -126,7 +126,8 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `proteus.codex.example.toml` - экспериментальный Codex-shaped profile для
 чистой проверки Codex-подобной сборки модулей. Он подключает тот же provider
 через `include`, использует `coding.codex_loop`, `repo_aware`, `rg`,
-`direct`, `ask_write`, dynamic tool exposure и `modules.compactor = "codex"`.
+`direct`, `ask_write`, `tool_exposure = "codex_dynamic"` из
+`codex-tool-exposure` и `modules.compactor = "codex"`.
 Запускается явно через `--config proteus.codex.example.toml` или создаётся
 через `proteus init codex`; baseline `coding` от этого профиля не зависит.
 
@@ -327,6 +328,16 @@ tool_exposure = "dynamic"
 max_hot_tools = 10
 always_include = ["request_user_input"]
 ```
+
+`modules.tool_exposure = "codex_dynamic"` включает плагин
+`codex-tool-exposure`, предназначенный для Codex-shaped profile. Он держит
+`request_user_input` в первом слое, ранжирует common coding tools
+Codex-oriented порядком и добавляет intent boosts для `shell`, `apply_patch`,
+`write_file` и `remember_fact`. Плагин видит только policy-visible candidates и
+не исполняет tools. Его metadata расширяет dynamic output полем
+`selected_tool_reasons`. `module_config.tool_exposure.codex_dynamic`
+передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
+`always_include`.
 
 Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
 `coding.plan_execute_review`,

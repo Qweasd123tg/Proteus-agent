@@ -9,6 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use codex_compactor::CodexCompactorPlugin;
+use codex_tool_exposure::CodexDynamicToolExposurePlugin;
 use coding_workflow::{
     CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow,
 };
@@ -24,8 +25,8 @@ use proteus_contracts::{
     plugin::{
         ContextProviderObject, PluginApprovalPolicy_TO, PluginContextBuilder_TO,
         PluginContextError, PluginContextProvider, PluginContextProvider_TO,
-        PluginHistoryCompactor_TO, PluginMemoryPolicy_TO, PluginMemoryStore_TO, PluginWorkflow_TO,
-        WorkflowObject,
+        PluginHistoryCompactor_TO, PluginMemoryPolicy_TO, PluginMemoryStore_TO,
+        PluginToolExposure_TO, PluginWorkflow_TO, WorkflowObject,
     },
 };
 use proteus_core::{
@@ -205,6 +206,12 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginHistoryCompactor_TO::from_value(CodexCompactorPlugin, TD_Opaque),
         )
         .expect("register test codex compactor");
+    catalog
+        .register_plugin_tool_exposure(
+            "codex_dynamic",
+            PluginToolExposure_TO::from_value(CodexDynamicToolExposurePlugin, TD_Opaque),
+        )
+        .expect("register test codex_dynamic tool exposure");
     catalog
         .register_plugin_policy(
             "allow_all",
@@ -438,6 +445,90 @@ async fn builtin_dynamic_tool_exposure_can_be_built_and_selects_tools() {
         .collect::<Vec<_>>();
     assert_eq!(names, ["git_diff", "read_file"]);
     assert_eq!(output.metadata["selector"], "dynamic");
+}
+
+#[tokio::test]
+async fn plugin_codex_dynamic_tool_exposure_prefers_codex_hot_set_and_intents() {
+    disable_plugin_loader();
+    let catalog = test_catalog();
+    let mut config = AppConfig::default();
+    set_module_config(
+        &mut config,
+        "tool_exposure",
+        "codex_dynamic",
+        json!({
+            "max_hot_tools": 5,
+            "always_include": ["request_user_input"],
+        }),
+    );
+    let dir = TempDir::new().unwrap();
+    let providers = [];
+    let ctx = proteus_core::core::ModuleBuildContext {
+        config: &config,
+        cwd: dir.path(),
+        context_providers: &providers,
+    };
+    let selector = catalog.build_tool_exposure("codex_dynamic", &ctx).unwrap();
+    let task = AgentTask::new(
+        "fix code and run tests".to_owned(),
+        dir.path().to_path_buf(),
+    );
+    let request = ToolExposureRequest::new(task).with_query("fix code and run tests");
+    let output = selector
+        .select(ToolExposureInput::new(
+            request,
+            vec![
+                ToolSpec::new(
+                    "request_user_input",
+                    "Ask user",
+                    json!({}),
+                    ToolSafety::ReadOnly,
+                ),
+                ToolSpec::new("shell", "Run commands", json!({}), ToolSafety::RunsCommands),
+                ToolSpec::new("git_diff", "Show git diff", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new("read_file", "Read a file", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new("grep", "Search files", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new(
+                    "apply_patch",
+                    "Apply a patch",
+                    json!({}),
+                    ToolSafety::WritesFiles,
+                ),
+                ToolSpec::new(
+                    "remember_fact",
+                    "Remember fact",
+                    json!({}),
+                    ToolSafety::ReadOnly,
+                ),
+            ],
+        ))
+        .await
+        .unwrap();
+
+    let names = output
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "request_user_input",
+            "shell",
+            "apply_patch",
+            "read_file",
+            "grep"
+        ]
+    );
+    assert_eq!(output.metadata["selector"], "codex_dynamic");
+    assert_eq!(
+        output.metadata["selected_tool_reasons"]["request_user_input"],
+        "always_include"
+    );
+    assert_eq!(
+        output.metadata["selected_tool_reasons"]["shell"],
+        "intent_match"
+    );
 }
 
 #[test]
@@ -2585,16 +2676,16 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "repo_aware");
     assert_eq!(config.modules.search, "rg");
-    assert_eq!(config.modules.tool_exposure, "dynamic");
+    assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
     assert_eq!(config.tools.enabled, coding_profile_tool_names());
     assert!(configured_tool_names(&config).is_empty());
 
-    let dynamic = config.module_config_value(ModuleKind::ToolExposure, "dynamic");
-    assert_eq!(dynamic["max_hot_tools"], 10);
+    let codex_dynamic = config.module_config_value(ModuleKind::ToolExposure, "codex_dynamic");
+    assert_eq!(codex_dynamic["max_hot_tools"], 10);
     assert!(
-        dynamic["always_include"]
+        codex_dynamic["always_include"]
             .as_array()
             .unwrap()
             .iter()

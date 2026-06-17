@@ -70,7 +70,7 @@ persistent MCP host и dylib unload не реализованы; модель re
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
-| Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided |
+| Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
 | Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
@@ -379,6 +379,16 @@ tools с `ToolSpec.metadata.hot = true` или именами из
 Selector пишет observability metadata:
 `selector`, `candidate_count`, `selected_count`, `hidden_count`,
 `selected_tools` и грубую оценку schema-token savings.
+
+`modules.tool_exposure = "codex_dynamic"` поставляет плагин
+`codex-tool-exposure`. Он сохраняет Codex-oriented hot set:
+`request_user_input` держится в `always_include`, common coding tools получают
+стабильный приоритет, а `shell`, `apply_patch`, `write_file` и
+`remember_fact` поднимаются только при явном intent match в task/query. Как и
+`dynamic`, selector видит только policy-visible candidates и пишет
+`selected_tool_reasons` в metadata.
+`module_config.tool_exposure.codex_dynamic` передаётся в
+`ToolExposureInput.config`; плагин читает `max_hot_tools` и `always_include`.
 
 Если selector скрывает часть policy-visible tools, `coding-workflow` добавляет
 workflow-owned meta-tools: `proteus_tool_search`, `proteus_tool_describe` и

@@ -154,7 +154,10 @@ MCP-сервера в ToolRegistry.
   session mutation.
 - **tool_exposure** - `PluginToolExposure::select_json(input_json) ->
   ToolExposureOutput`. Ядро передаёт только policy-visible candidates, а
-  плагин выбирает subset для model request.
+  плагин выбирает subset для model request. Default-плагин
+  `codex-tool-exposure` регистрирует module id `codex_dynamic`.
+  Module-owned payload `module_config.tool_exposure.<id>` передаётся в
+  `ToolExposureInput.config`.
 - **workflow** - `PluginWorkflow::run_json(input_json, host) ->
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
@@ -350,7 +353,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, declarative `memory_policy`, `compactor`,
   `tool_exposure` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`), `codex-compactor` (register_compactor id `codex`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и

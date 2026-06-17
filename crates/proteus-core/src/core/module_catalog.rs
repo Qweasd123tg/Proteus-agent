@@ -863,11 +863,19 @@ impl BuiltinModuleCatalog {
             );
         }
 
-        let shared: Arc<dyn ToolExposure> = Arc::new(PluginToolExposureAdapter::new(exposure));
+        let shared = Arc::new(exposure);
         let factory_shared = shared.clone();
+        let module_id_for_factory = module_id.to_owned();
         let erased: ErasedFactory = Box::new(move |input| {
-            let _ = input.module()?;
-            Ok(arc_to_any(factory_shared.clone()))
+            let ctx = input.module()?;
+            let config = ctx
+                .config
+                .module_config_value(ModuleKind::ToolExposure, &module_id_for_factory);
+            let exposure: Arc<dyn ToolExposure> = Arc::new(PluginToolExposureAdapter::from_shared(
+                factory_shared.clone(),
+                config,
+            ));
+            Ok(arc_to_any(exposure))
         });
 
         let mut manifest =
@@ -883,7 +891,6 @@ impl BuiltinModuleCatalog {
                 factory: erased,
             },
         );
-        drop(shared);
         Ok(())
     }
 
