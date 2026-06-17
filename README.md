@@ -127,6 +127,8 @@ cargo run --bin proteus
 cargo run --bin proteus -- "describe the project layout"
 # создать пользовательский config profile в default config file
 cargo run --bin proteus -- init coding
+# создать экспериментальный Codex-shaped profile
+cargo run --bin proteus -- init codex
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
 # посмотреть короткий runtime path без full diagnostic dump
@@ -298,6 +300,9 @@ proteus doctor
 - `proteus.coding.example.toml` — quickstart для реальной работы
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy).
+- `proteus.codex.example.toml` — экспериментальный Codex-shaped профиль:
+  отдельная сборка модулей для проверки Codex-подобного workflow/context/tools
+  поведения, dynamic tool exposure и `codex` compactor.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.
@@ -305,7 +310,8 @@ proteus doctor
   `tools.enabled = []`, полный набор tools приходит из директории `tools`
   рядом с config root.
 - `docs/scope.md` фиксирует active / parked / research зоны. `proteus init
-  coding` создаёт `$HOME/.config/Proteus-agent/configs/config.toml`, где
+  coding` или `proteus init codex` создаёт
+  `$HOME/.config/Proteus-agent/configs/config.toml`, где
   provider/key, modules, tools и policy лежат в одном явном файле.
 - `config.example.json` — JSON-вариант/schema surface; для обычной работы
   предпочтительнее `proteus init coding` и один TOML config file.

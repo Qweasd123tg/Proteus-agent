@@ -61,6 +61,7 @@ impl Workflow for PluginWorkflowAdapter {
                 turn_id: ctx.turn_id,
                 model_ref: ctx.model_ref.clone(),
                 reasoning: ctx.reasoning.clone(),
+                max_input_tokens: ctx.model.capabilities(&ctx.model_ref).max_input_tokens,
                 model_timeout_ms: ctx.model_timeout_ms,
                 context_timeout_ms: ctx.context_timeout_ms,
             },
@@ -87,7 +88,9 @@ impl Workflow for PluginWorkflowAdapter {
 
         let output: PluginWorkflowOutput = serde_json::from_str(&output_json)
             .with_context(|| "workflow plugin returned invalid PluginWorkflowOutput JSON")?;
-        Ok(WorkflowOutput::new(output.output, output.messages))
+        Ok(WorkflowOutput::new(output.output, output.messages)
+            .with_compactions(output.compactions)
+            .with_optional_new_messages_start(output.new_messages_start))
     }
 }
 
@@ -180,8 +183,38 @@ impl PluginWorkflowHost for WorkflowHost {
         };
         let ctx = self.ctx.clone();
         self.block_on_json(async move {
+            ctx.emit(Event::HistoryCompactionStarted {
+                reason: input.reason.clone(),
+                input_messages: input.messages.len(),
+                token_estimate: input.token_estimate,
+                trigger_tokens: input.max_tokens,
+            })
+            .await?;
             let host = Arc::new(RuntimeCompactionHost::new(ctx.clone()));
-            ctx.compactor.compact(input, host).await
+            match ctx.compactor.compact(input.clone(), host).await {
+                Ok(output) => {
+                    let report =
+                        proteus_contracts::domain::HistoryCompactionReport::from_compaction_output(
+                            &input, &output,
+                        );
+                    ctx.emit(Event::HistoryCompactionCompleted {
+                        report: report.clone(),
+                    })
+                    .await?;
+                    Ok(output)
+                }
+                Err(error) => {
+                    ctx.emit(Event::HistoryCompactionFailed {
+                        reason: input.reason.clone(),
+                        input_messages: input.messages.len(),
+                        token_estimate: input.token_estimate,
+                        trigger_tokens: input.max_tokens,
+                        message: format!("{error:#}"),
+                    })
+                    .await?;
+                    Err(error)
+                }
+            }
         })
     }
 
@@ -355,6 +388,8 @@ mod tests {
                     }),
                 ),
                 messages,
+                new_messages_start: None,
+                compactions: Vec::new(),
             };
             RResult::ROk(RString::from(
                 serde_json::to_string(&output).expect("output json"),

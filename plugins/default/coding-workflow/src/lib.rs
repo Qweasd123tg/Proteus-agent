@@ -19,8 +19,9 @@ use proteus_contracts::{
     },
     contracts::{CompactionInput, ToolExposureRequest},
     domain::{
-        AgentOutput, ContextBundle, Event, TokenUsageCategory, TokenUsageSnapshot,
-        TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec,
+        AgentOutput, ContextBundle, Event, HistoryCompactionReport, TokenUsageCategory,
+        TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSafety,
+        ToolSpec,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -79,6 +80,16 @@ impl Default for CodingSingleLoopWorkflow {
     }
 }
 pub struct CodingPlanExecuteReviewWorkflow;
+
+struct PreparedRequest {
+    request: CanonicalModelRequest,
+    compaction: Option<HistoryCompactionReport>,
+}
+
+struct CompactedMessages {
+    messages: Vec<CanonicalMessage>,
+    report: Option<HistoryCompactionReport>,
+}
 
 impl PluginWorkflow for CodingSingleLoopWorkflow {
     fn run_json(
@@ -145,8 +156,10 @@ fn run_single_loop(
 
     let context_chunks = bundle.chunks.len();
     let context_token_estimate = bundle.token_estimate;
+    let mut compactions = Vec::new();
     let mut persistent_messages = input.history.clone();
     let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
+    let current_user_message_id = user_message.id;
     persistent_messages.push(user_message.clone());
 
     let mut model_messages = persistent_messages.clone();
@@ -156,10 +169,10 @@ fn run_single_loop(
                 .with_name("context"),
         );
     }
-    let current_turn_messages_start = model_messages.len();
+    let mut current_turn_messages_start = model_messages.len();
 
     for _round in 0..max_tool_rounds {
-        let request = request_from_state(
+        let prepared = request_from_state(
             &input,
             host,
             &model_messages,
@@ -167,6 +180,16 @@ fn run_single_loop(
             None,
             "single_loop",
         )?;
+        if let Some(report) = prepared.compaction.as_ref() {
+            compactions.push(report.clone());
+            if report.changed {
+                model_messages = prepared.request.messages.clone();
+                persistent_messages = persistent_messages_from_model_messages(&model_messages);
+                current_turn_messages_start =
+                    current_turn_start(&model_messages, current_user_message_id);
+            }
+        }
+        let request = prepared.request;
         emit_event(
             host,
             &Event::ModelRequestPrepared {
@@ -205,9 +228,13 @@ fn run_single_loop(
                     output: output.clone(),
                 },
             )?;
+            let new_messages_start =
+                current_turn_start(&persistent_messages, current_user_message_id);
             return Ok(PluginWorkflowOutput {
                 output,
                 messages: persistent_messages,
+                new_messages_start: Some(new_messages_start),
+                compactions,
             });
         }
 
@@ -222,7 +249,7 @@ fn run_single_loop(
         }
     }
 
-    let mut request = request_from_state(
+    let prepared = request_from_state(
         &input,
         host,
         &model_messages,
@@ -230,6 +257,16 @@ fn run_single_loop(
         None,
         "single_loop_final",
     )?;
+    if let Some(report) = prepared.compaction.as_ref() {
+        compactions.push(report.clone());
+        if report.changed {
+            model_messages = prepared.request.messages.clone();
+            persistent_messages = persistent_messages_from_model_messages(&model_messages);
+            current_turn_messages_start =
+                current_turn_start(&model_messages, current_user_message_id);
+        }
+    }
+    let mut request = prepared.request;
     request.tools.clear();
     request.tool_choice = ToolChoice::None;
     emit_event(
@@ -271,9 +308,12 @@ fn run_single_loop(
             output: output.clone(),
         },
     )?;
+    let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
     Ok(PluginWorkflowOutput {
         output,
         messages: persistent_messages,
+        new_messages_start: Some(new_messages_start),
+        compactions,
     })
 }
 
@@ -299,8 +339,10 @@ fn run_plan_execute_review(
 
     let context_chunks = bundle.chunks.len();
     let context_token_estimate = bundle.token_estimate;
+    let mut compactions = Vec::new();
     let mut persistent_messages = input.history.clone();
     let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
+    let current_user_message_id = user_message.id;
     persistent_messages.push(user_message.clone());
 
     let mut model_messages = persistent_messages.clone();
@@ -310,9 +352,9 @@ fn run_plan_execute_review(
                 .with_name("context"),
         );
     }
-    let current_turn_messages_start = model_messages.len();
+    let mut current_turn_messages_start = model_messages.len();
 
-    let mut plan_request = request_from_state(
+    let prepared = request_from_state(
         &input,
         host,
         &model_messages,
@@ -320,6 +362,16 @@ fn run_plan_execute_review(
         Some(PLAN_DEVELOPER_INSTRUCTIONS),
         "plan",
     )?;
+    if let Some(report) = prepared.compaction.as_ref() {
+        compactions.push(report.clone());
+        if report.changed {
+            model_messages = prepared.request.messages.clone();
+            persistent_messages = persistent_messages_from_model_messages(&model_messages);
+            current_turn_messages_start =
+                current_turn_start(&model_messages, current_user_message_id);
+        }
+    }
+    let mut plan_request = prepared.request;
     plan_request
         .tools
         .retain(|tool| matches!(tool.safety, ToolSafety::ReadOnly));
@@ -343,7 +395,7 @@ fn run_plan_execute_review(
     let mut draft_finish_reason = None;
     let mut tool_round_limit_reached = true;
     for _round in 0..MAX_TOOL_ROUNDS {
-        let request = request_from_state(
+        let prepared = request_from_state(
             &input,
             host,
             &model_messages,
@@ -351,6 +403,16 @@ fn run_plan_execute_review(
             Some(EXECUTE_DEVELOPER_INSTRUCTIONS),
             "execute",
         )?;
+        if let Some(report) = prepared.compaction.as_ref() {
+            compactions.push(report.clone());
+            if report.changed {
+                model_messages = prepared.request.messages.clone();
+                persistent_messages = persistent_messages_from_model_messages(&model_messages);
+                current_turn_messages_start =
+                    current_turn_start(&model_messages, current_user_message_id);
+            }
+        }
+        let request = prepared.request;
         emit_event(
             host,
             &Event::ModelRequestPrepared {
@@ -389,15 +451,24 @@ fn run_plan_execute_review(
         }
     }
 
-    let mut review_request = request_from_state(
+    let prepared = request_from_state(
         &input,
         host,
         &model_messages,
         PLAN_SYSTEM_INSTRUCTIONS,
         Some(REVIEW_DEVELOPER_INSTRUCTIONS),
         "review",
-    )?
-    .with_tool_choice(ToolChoice::None);
+    )?;
+    if let Some(report) = prepared.compaction.as_ref() {
+        compactions.push(report.clone());
+        if report.changed {
+            model_messages = prepared.request.messages.clone();
+            persistent_messages = persistent_messages_from_model_messages(&model_messages);
+            current_turn_messages_start =
+                current_turn_start(&model_messages, current_user_message_id);
+        }
+    }
+    let mut review_request = prepared.request.with_tool_choice(ToolChoice::None);
     review_request.tools.clear();
     emit_event(
         host,
@@ -440,9 +511,12 @@ fn run_plan_execute_review(
             output: output.clone(),
         },
     )?;
+    let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
     Ok(PluginWorkflowOutput {
         output,
         messages: persistent_messages,
+        new_messages_start: Some(new_messages_start),
+        compactions,
     })
 }
 
@@ -453,7 +527,7 @@ fn request_from_state(
     system_instructions: &str,
     developer_instructions: Option<&str>,
     phase: &str,
-) -> Result<CanonicalModelRequest, PluginWorkflowError> {
+) -> Result<PreparedRequest, PluginWorkflowError> {
     let mut tools = visible_tools(host, input)?;
     let all_visible_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
     let dynamic_tools_enabled = dynamic_tools::has_hidden_tools(&tools, &all_visible_tools);
@@ -479,13 +553,15 @@ fn request_from_state(
             80,
         ));
     }
-    let messages = compact_messages(input, host, messages, "before_model_request")?;
-    Ok(
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages)
-            .with_instructions(instructions)
-            .with_tools(tools)
-            .with_reasoning(input.runtime.reasoning.clone()),
-    )
+    let compacted = compact_messages(input, host, messages, phase)?;
+    let request = CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
+        .with_instructions(instructions)
+        .with_tools(tools)
+        .with_reasoning(input.runtime.reasoning.clone());
+    Ok(PreparedRequest {
+        request,
+        compaction: compacted.report,
+    })
 }
 
 fn execute_or_handle_tool(
@@ -506,7 +582,7 @@ fn compact_messages(
     host: &mut PluginWorkflowHostMut<'_>,
     messages: &[CanonicalMessage],
     reason: &str,
-) -> Result<Vec<CanonicalMessage>, PluginWorkflowError> {
+) -> Result<CompactedMessages, PluginWorkflowError> {
     ensure_not_cancelled(host)?;
     let compaction_input = CompactionInput::new(
         input.task.clone(),
@@ -514,7 +590,8 @@ fn compact_messages(
         messages.to_vec(),
     )
     .with_reason(reason)
-    .with_token_estimate(estimate_message_tokens(messages));
+    .with_token_estimate(estimate_message_tokens(messages))
+    .with_max_tokens(model_auto_compact_limit(input.runtime.max_input_tokens));
     let input_json = to_json_string(&compaction_input)?;
     let output_json = match host.compact_history_json(RString::from(input_json)) {
         RResult::ROk(json) => json,
@@ -527,7 +604,11 @@ fn compact_messages(
             "compactor returned empty messages for non-empty history",
         ));
     }
-    Ok(output.messages)
+    let report = HistoryCompactionReport::from_compaction_output(&compaction_input, &output);
+    Ok(CompactedMessages {
+        messages: output.messages,
+        report: Some(report),
+    })
 }
 
 fn build_context(
@@ -617,6 +698,39 @@ fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, PluginWorkfl
 
 fn from_json_string<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, PluginWorkflowError> {
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
+}
+
+fn model_auto_compact_limit(max_input_tokens: Option<u32>) -> Option<u32> {
+    max_input_tokens.map(|tokens| {
+        let limit = (u64::from(tokens) * 8 / 10).max(1);
+        u32::try_from(limit).unwrap_or(u32::MAX)
+    })
+}
+
+fn current_turn_start(
+    messages: &[CanonicalMessage],
+    current_user_message_id: proteus_contracts::domain::MessageId,
+) -> usize {
+    messages
+        .iter()
+        .position(|message| message.id == current_user_message_id)
+        .unwrap_or(messages.len())
+}
+
+fn persistent_messages_from_model_messages(messages: &[CanonicalMessage]) -> Vec<CanonicalMessage> {
+    messages
+        .iter()
+        .filter(|message| !is_ephemeral_context_message(message))
+        .cloned()
+        .collect()
+}
+
+fn is_ephemeral_context_message(message: &CanonicalMessage) -> bool {
+    message.name.as_deref() == Some("context")
+        || message
+            .parts
+            .iter()
+            .all(|part| matches!(part, ContentPart::Context { .. }))
 }
 
 fn output_metadata(
@@ -1189,6 +1303,7 @@ mod tests {
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
                 reasoning: ReasoningConfig::default(),
+                max_input_tokens: Some(16_000),
                 model_timeout_ms: 120_000,
                 context_timeout_ms: 30_000,
             },
@@ -1520,6 +1635,7 @@ mod tests {
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
                 reasoning: ReasoningConfig::new(Some("high".to_owned()), true),
+                max_input_tokens: Some(16_000),
                 model_timeout_ms: 120_000,
                 context_timeout_ms: 30_000,
             },
@@ -1601,10 +1717,8 @@ mod tests {
 
         let compactions = host.compactions.lock().expect("compactions");
         assert_eq!(compactions.len(), 3);
-        assert_eq!(
-            compactions[2].reason.as_deref(),
-            Some("before_model_request")
-        );
+        assert_eq!(compactions[2].reason.as_deref(), Some("review"));
+        assert_eq!(compactions[2].max_tokens, Some(12_800));
         assert!(
             compactions[2]
                 .messages

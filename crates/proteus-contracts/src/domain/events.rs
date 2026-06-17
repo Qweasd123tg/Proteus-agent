@@ -148,6 +148,48 @@ impl TokenUsageSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+pub struct HistoryCompactionReport {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub input_messages: usize,
+    pub output_messages: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_token_estimate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_token_estimate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl HistoryCompactionReport {
+    pub fn unchanged(input_messages: usize, reason: Option<String>) -> Self {
+        Self {
+            changed: false,
+            reason,
+            input_messages,
+            output_messages: input_messages,
+            original_token_estimate: None,
+            output_token_estimate: None,
+            trigger_tokens: None,
+            summary_source: None,
+            skipped_reason: None,
+            summary: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum Event {
     SessionStarted {
         session_id: SessionId,
@@ -177,6 +219,28 @@ pub enum Event {
     },
     TokenUsageUpdated {
         usage: TokenUsageSnapshot,
+    },
+    HistoryCompactionStarted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        input_messages: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token_estimate: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger_tokens: Option<u32>,
+    },
+    HistoryCompactionCompleted {
+        report: HistoryCompactionReport,
+    },
+    HistoryCompactionFailed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        input_messages: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token_estimate: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger_tokens: Option<u32>,
+        message: String,
     },
     /// Частичный текстовый chunk от модели во время стрима. Эмитится по
     /// мере прихода SSE-event'ов из провайдера, до финального

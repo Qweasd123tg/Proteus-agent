@@ -10,8 +10,8 @@ use crate::{
         ToolRegistry, UserInputTransport,
     },
     domain::{
-        AgentOutput, AgentTask, Event, EventContext, ModelRef, ReasoningConfig, SessionId,
-        ThreadId, TurnId,
+        AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
+        ReasoningConfig, SessionId, ThreadId, TurnId,
     },
     model_standard::CanonicalMessage,
 };
@@ -125,10 +125,32 @@ pub trait Workflow: Send + Sync {
 pub struct WorkflowOutput {
     pub output: AgentOutput,
     pub messages: Vec<CanonicalMessage>,
+    pub new_messages_start: Option<usize>,
+    pub compactions: Vec<HistoryCompactionReport>,
 }
 
 impl WorkflowOutput {
     pub fn new(output: AgentOutput, messages: Vec<CanonicalMessage>) -> Self {
-        Self { output, messages }
+        Self {
+            output,
+            messages,
+            new_messages_start: None,
+            compactions: Vec::new(),
+        }
+    }
+
+    pub fn with_new_messages_start(mut self, index: usize) -> Self {
+        self.new_messages_start = Some(index);
+        self
+    }
+
+    pub fn with_optional_new_messages_start(mut self, index: Option<usize>) -> Self {
+        self.new_messages_start = index;
+        self
+    }
+
+    pub fn with_compactions(mut self, compactions: Vec<HistoryCompactionReport>) -> Self {
+        self.compactions = compactions;
+        self
     }
 }

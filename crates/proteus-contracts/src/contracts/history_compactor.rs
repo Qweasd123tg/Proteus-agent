@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{AgentTask, ModelRef},
+    domain::{AgentTask, HistoryCompactionReport, ModelRef},
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
@@ -85,6 +85,49 @@ impl CompactionOutput {
             metadata: serde_json::Value::Null,
         }
     }
+}
+
+impl HistoryCompactionReport {
+    pub fn from_compaction_output(input: &CompactionInput, output: &CompactionOutput) -> Self {
+        let metadata = output.metadata.clone();
+        let input_messages =
+            metadata_usize(&metadata, "input_messages").unwrap_or_else(|| input.messages.len());
+        let output_messages =
+            metadata_usize(&metadata, "output_messages").unwrap_or_else(|| output.messages.len());
+        Self {
+            changed: output.changed,
+            reason: input.reason.clone(),
+            input_messages,
+            output_messages,
+            original_token_estimate: metadata_u32(&metadata, "original_token_estimate")
+                .or(input.token_estimate),
+            output_token_estimate: metadata_u32(&metadata, "output_token_estimate")
+                .or(output.token_estimate),
+            trigger_tokens: metadata_u32(&metadata, "trigger_tokens").or(input.max_tokens),
+            summary_source: metadata_string(&metadata, "summary_source"),
+            skipped_reason: metadata_string(&metadata, "skipped_reason"),
+            summary: output.summary.clone(),
+            metadata,
+        }
+    }
+}
+
+fn metadata_u32(metadata: &serde_json::Value, key: &str) -> Option<u32> {
+    metadata
+        .get(key)?
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn metadata_usize(metadata: &serde_json::Value, key: &str) -> Option<usize> {
+    metadata
+        .get(key)?
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+fn metadata_string(metadata: &serde_json::Value, key: &str) -> Option<String> {
+    metadata.get(key)?.as_str().map(ToOwned::to_owned)
 }
 
 #[async_trait]

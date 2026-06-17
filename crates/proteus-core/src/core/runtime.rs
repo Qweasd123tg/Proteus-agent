@@ -246,13 +246,28 @@ impl AgentRuntime {
         if cancellation.is_cancelled() {
             anyhow::bail!("turn canceled by client");
         }
+        let history_compacted = workflow_output
+            .compactions
+            .iter()
+            .any(|report| report.changed);
+        let new_messages_start = workflow_output
+            .new_messages_start
+            .unwrap_or(previous_history_len);
+        if !history_compacted {
+            anyhow::ensure!(
+                workflow_output.messages.len() >= previous_history_len,
+                "workflow returned fewer messages than it received without compaction: output {}, input {}",
+                workflow_output.messages.len(),
+                previous_history_len
+            );
+        }
         anyhow::ensure!(
-            workflow_output.messages.len() >= previous_history_len,
-            "workflow returned fewer messages than it received: output {}, input {}",
-            workflow_output.messages.len(),
-            previous_history_len
+            new_messages_start <= workflow_output.messages.len(),
+            "workflow new_messages_start {} is beyond output messages {}",
+            new_messages_start,
+            workflow_output.messages.len()
         );
-        let new_messages = &workflow_output.messages[previous_history_len..];
+        let new_messages = &workflow_output.messages[new_messages_start..];
         let memory_output = snapshot
             .registry
             .memory_policy
@@ -280,9 +295,13 @@ impl AgentRuntime {
         }
         let mut history = self.session.history.lock().await;
         if let Some(session_store) = &self.session.session_store {
-            session_store
-                .append_messages(&workflow_output.messages[previous_history_len..])
-                .await?;
+            if history_compacted {
+                session_store
+                    .replace_messages(&workflow_output.messages)
+                    .await?;
+            } else {
+                session_store.append_messages(new_messages).await?;
+            }
         }
         *history = workflow_output.messages;
         Ok(workflow_output.output)
@@ -666,7 +685,7 @@ mod tests {
     use crate::{
         contracts::{RuntimeContext, Workflow, WorkflowOutput},
         core::{BuiltinModuleCatalog, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
-        domain::{AgentOutput, AgentTask, ToolSafety},
+        domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
         model_standard::{CanonicalMessage, MessageRole},
     };
 
@@ -699,7 +718,20 @@ mod tests {
         catalog
     }
 
+    fn message_text_for_test(message: &CanonicalMessage) -> String {
+        message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                crate::model_standard::ContentPart::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     struct ShortHistoryWorkflow;
+    struct CompactingWorkflow;
     struct HangingWorkflow;
     struct DelayedWorkflow;
     struct SnapshotProbeWorkflow {
@@ -725,6 +757,37 @@ mod tests {
                 AgentOutput::text("bad workflow"),
                 Vec::new(),
             ))
+        }
+    }
+
+    #[async_trait]
+    impl Workflow for CompactingWorkflow {
+        async fn run(
+            &self,
+            task: AgentTask,
+            history: Vec<CanonicalMessage>,
+            _ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            assert_eq!(history.len(), 2);
+            let summary = CanonicalMessage::text(MessageRole::User, "compacted summary");
+            let current = CanonicalMessage::text(MessageRole::User, task.text);
+            let answer = CanonicalMessage::text(MessageRole::Assistant, "done after compact");
+            let messages = vec![summary, current, answer];
+            let mut report = HistoryCompactionReport::unchanged(
+                history.len() + 1,
+                Some("test_compaction".to_owned()),
+            );
+            report.changed = true;
+            report.output_messages = messages.len();
+            report.original_token_estimate = Some(500);
+            report.output_token_estimate = Some(50);
+            report.trigger_tokens = Some(100);
+            report.summary_source = Some("test".to_owned());
+            report.summary = Some("compacted summary".to_owned());
+            report.metadata = serde_json::json!({"test": true});
+            Ok(WorkflowOutput::new(AgentOutput::text("done"), messages)
+                .with_new_messages_start(1)
+                .with_compactions(vec![report]))
         }
     }
 
@@ -805,6 +868,54 @@ mod tests {
                 .to_string()
                 .contains("workflow returned fewer messages than it received")
         );
+    }
+
+    #[tokio::test]
+    async fn compaction_replaces_runtime_and_session_history() {
+        let config_root = tempfile::tempdir().expect("config root");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let config_path = config_root.path().join("configs").join("config.toml");
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+            .with_config_path(Some(&config_path))
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+
+        replace_workflow_for_test(&runtime, Arc::new(CompactingWorkflow)).await;
+        {
+            let mut history = runtime.session.history.lock().await;
+            history.push(CanonicalMessage::text(MessageRole::User, "old request"));
+            history.push(CanonicalMessage::text(MessageRole::Assistant, "old answer"));
+        }
+        let seed_history = runtime.session.history.lock().await.clone();
+        runtime
+            .session
+            .session_store
+            .as_ref()
+            .expect("session store")
+            .append_messages(&seed_history)
+            .await
+            .expect("seed session store");
+
+        runtime.run("current request".to_owned()).await.unwrap();
+
+        let history = runtime.history().await;
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].role, MessageRole::User);
+        assert!(message_text_for_test(&history[0]).contains("compacted summary"));
+        assert!(message_text_for_test(&history[1]).contains("current request"));
+        assert!(message_text_for_test(&history[2]).contains("done after compact"));
+
+        let stored = runtime
+            .session
+            .session_store
+            .as_ref()
+            .expect("session store")
+            .load_messages()
+            .expect("load replaced messages");
+        assert_eq!(stored, history);
     }
 
     #[tokio::test]

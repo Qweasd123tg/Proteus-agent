@@ -142,6 +142,40 @@ impl SessionStore {
         Ok(())
     }
 
+    pub async fn replace_messages(&self, messages: &[CanonicalMessage]) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        tokio::fs::create_dir_all(&self.session_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to create session dir {}",
+                    self.session_dir.display()
+                )
+            })?;
+        self.write_metadata_if_needed().await?;
+
+        let tmp_path = self.messages_path.with_extension("jsonl.tmp");
+        let mut content = Vec::new();
+        for message in messages {
+            let mut line = serde_json::to_vec(message)?;
+            line.push(b'\n');
+            content.extend(line);
+        }
+        tokio::fs::write(&tmp_path, content)
+            .await
+            .with_context(|| format!("failed to write {}", tmp_path.display()))?;
+        tokio::fs::rename(&tmp_path, &self.messages_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to replace {} with {}",
+                    self.messages_path.display(),
+                    tmp_path.display()
+                )
+            })?;
+        Ok(())
+    }
+
     async fn write_metadata_if_needed(&self) -> Result<()> {
         let Some(session_id) = self.session_id else {
             return Ok(());

@@ -2566,6 +2566,35 @@ async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
 }
 
 #[tokio::test]
+async fn codex_toml_config_enables_codex_experimental_profile() {
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "proteus.codex.example.toml",
+    )))
+    .await
+    .unwrap();
+
+    assert_eq!(config.profile.name, "codex-experimental");
+    assert_eq!(config.modules.workflow, "coding.single_loop");
+    assert_eq!(config.modules.context, "repo_aware");
+    assert_eq!(config.modules.search, "rg");
+    assert_eq!(config.modules.tool_exposure, "dynamic");
+    assert_eq!(config.modules.compactor, "codex");
+    assert_eq!(config.modules.patch, "direct");
+    assert_eq!(config.tools.enabled, coding_profile_tool_names());
+    assert!(configured_tool_names(&config).is_empty());
+
+    let dynamic = config.module_config_value(ModuleKind::ToolExposure, "dynamic");
+    assert_eq!(dynamic["max_hot_tools"], 10);
+    assert!(
+        dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "request_user_input")
+    );
+}
+
+#[tokio::test]
 async fn external_tools_toml_config_keeps_enabled_tools_empty() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
         "proteus.external-tools.example.toml",

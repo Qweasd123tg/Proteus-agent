@@ -59,7 +59,9 @@ Codex-style request-time compactor `modules.compactor = "codex"` покрыва�
 unit-тестами в `plugins/default/codex-compactor/src/lib.rs`: model-backed
 summary path, deterministic fallback, фильтрация generated user messages и
 случай, где replacement не сокращает историю. Core adapter тестирует ABI bridge
-для compactor host, включая `complete_model_json`.
+для compactor host, включая `complete_model_json`; runtime-тесты проверяют, что
+changed compaction заменяет in-memory history и `messages.jsonl`, а
+workflow-тесты проверяют model-aware threshold в `CompactionInput.max_tokens`.
 
 ## DTO И Builder-Паттерн
 

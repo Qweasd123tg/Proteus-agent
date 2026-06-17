@@ -31,6 +31,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 
 const CODING_PROFILE_CONFIG: &str = include_str!("../../../proteus.coding.example.toml");
+const CODEX_PROFILE_CONFIG: &str = include_str!("../../../proteus.codex.example.toml");
 const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../proteus.example.toml");
 const INIT_CONFIG_FILE: &str = "config.toml";
@@ -334,6 +335,7 @@ fn is_doctor_command(task: &[String]) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InitProfile {
     Coding,
+    Codex,
     Full,
     Safe,
 }
@@ -342,6 +344,7 @@ impl InitProfile {
     fn config_name(self) -> &'static str {
         match self {
             Self::Coding => "coding",
+            Self::Codex => "codex",
             Self::Full => "full",
             Self::Safe => "safe",
         }
@@ -350,6 +353,7 @@ impl InitProfile {
     fn config_body(self) -> &'static str {
         match self {
             Self::Coding | Self::Full => CODING_PROFILE_CONFIG,
+            Self::Codex => CODEX_PROFILE_CONFIG,
             Self::Safe => SAFE_PROFILE_CONFIG,
         }
     }
@@ -360,12 +364,13 @@ fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {
         [command] if command == "init" => Ok(Some(InitProfile::Coding)),
         [command, profile] if command == "init" => match profile.as_str() {
             "coding" => Ok(Some(InitProfile::Coding)),
+            "codex" => Ok(Some(InitProfile::Codex)),
             "full" => Ok(Some(InitProfile::Full)),
             "safe" => Ok(Some(InitProfile::Safe)),
-            other => bail!("unknown init profile '{other}', expected coding, full, or safe"),
+            other => bail!("unknown init profile '{other}', expected coding, codex, full, or safe"),
         },
         [command, ..] if command == "init" => {
-            bail!("usage: proteus init [coding|full|safe]")
+            bail!("usage: proteus init [coding|codex|full|safe]")
         }
         _ => Ok(None),
     }
@@ -397,7 +402,7 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
 impl InitProfile {
     fn config_body_for_init(self) -> String {
         match self {
-            Self::Coding | Self::Full => {
+            Self::Coding | Self::Codex | Self::Full => {
                 let profile_body = strip_profile_include(self.config_body()).trim_start();
                 format!("{}\n\n{}", PROVIDER_PROFILE_CONFIG.trim_end(), profile_body)
             }
@@ -1935,6 +1940,10 @@ mod tests {
             parse_init_command(&["init".to_owned(), "safe".to_owned()]).unwrap(),
             Some(InitProfile::Safe)
         );
+        assert_eq!(
+            parse_init_command(&["init".to_owned(), "codex".to_owned()]).unwrap(),
+            Some(InitProfile::Codex)
+        );
         assert!(parse_init_command(&["init".to_owned(), "bad".to_owned()]).is_err());
         assert_eq!(parse_init_command(&["doctor".to_owned()]).unwrap(), None);
     }
@@ -2013,6 +2022,32 @@ mod tests {
         assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
         assert_eq!(model.provider, "anthropic");
         assert_eq!(config.modules.workflow, "coding.single_loop");
+    }
+
+    #[tokio::test]
+    async fn init_codex_writes_loadable_single_config_file() {
+        let dir = tempfile::tempdir().expect("config dir");
+
+        run_init(InitProfile::Codex, Some(dir.path())).expect("init codex");
+
+        let profile = dir.path().join(INIT_CONFIG_FILE);
+        assert!(profile.exists());
+        let profile_body = std::fs::read_to_string(&profile).expect("profile body");
+        assert!(profile_body.starts_with("active_provider = \"anthropic\""));
+        assert!(
+            !profile_body
+                .lines()
+                .any(|line| line.trim_start().starts_with("include = "))
+        );
+
+        let config = AppConfig::load(Some(dir.path()))
+            .await
+            .expect("generated config loads");
+
+        assert_eq!(config.profile.name, "codex-experimental");
+        assert_eq!(config.modules.workflow, "coding.single_loop");
+        assert_eq!(config.modules.compactor, "codex");
+        assert_eq!(config.modules.tool_exposure, "dynamic");
     }
 
     #[test]
