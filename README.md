@@ -135,6 +135,8 @@ cargo run --bin proteus -- "describe the project layout"
 cargo run --bin proteus -- init coding
 # создать экспериментальный Codex-shaped profile
 cargo run --bin proteus -- init codex
+# запустить Codex-shaped named config из codex.config.toml
+cargo run --bin proteus -- --config codex doctor
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
 # посмотреть короткий runtime path без full diagnostic dump
@@ -307,10 +309,12 @@ proteus doctor
 - `proteus.coding.example.toml` — quickstart для реальной работы
   (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
   tool set, ask_write policy).
-- `proteus.codex.example.toml` — экспериментальный Codex-shaped профиль:
+- `codex.config.toml` — экспериментальный Codex-shaped named config,
+  запускается через `--config codex`:
   отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
   `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
-  `codex-tool-exposure` и `codex` compactor.
+  `codex-tool-exposure` и `codex` compactor. Старый
+  `proteus.codex.example.toml` оставлен как compatibility include.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.

@@ -2916,11 +2916,10 @@ async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
 
 #[tokio::test]
 async fn codex_toml_config_enables_codex_experimental_profile() {
-    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
-        "proteus.codex.example.toml",
-    )))
-    .await
-    .unwrap();
+    let config =
+        proteus_core::core::AppConfig::load(Some(&workspace_root_file("codex.config.toml")))
+            .await
+            .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
@@ -2970,6 +2969,20 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     );
     assert_eq!(codex_context["max_context_bytes"], 60000);
     assert_eq!(codex_context["git_diff_max_bytes"], 16000);
+}
+
+#[tokio::test]
+async fn legacy_codex_example_toml_includes_named_codex_config() {
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "proteus.codex.example.toml",
+    )))
+    .await
+    .unwrap();
+
+    assert_eq!(config.profile.name, "codex-experimental");
+    assert_eq!(config.modules.workflow, "coding.codex_loop");
+    assert_eq!(config.modules.context, "codex_context");
+    assert_eq!(config.modules.compactor, "codex");
 }
 
 #[tokio::test]

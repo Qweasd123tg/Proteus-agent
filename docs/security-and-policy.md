@@ -242,8 +242,8 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-экспериментальным `proteus.codex.example.toml`. Это не отдельный security
-layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
+экспериментальным named config `codex` (`codex.config.toml`). Это не отдельный
+security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 
 Порядок решения:

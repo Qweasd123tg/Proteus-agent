@@ -31,7 +31,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 
 const CODING_PROFILE_CONFIG: &str = include_str!("../../../proteus.coding.example.toml");
-const CODEX_PROFILE_CONFIG: &str = include_str!("../../../proteus.codex.example.toml");
+const CODEX_PROFILE_CONFIG: &str = include_str!("../../../codex.config.toml");
 const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../proteus.example.toml");
 const INIT_CONFIG_FILE: &str = "config.toml";
@@ -100,10 +100,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let config_path = cli
-        .config
-        .clone()
-        .or_else(AppConfig::default_user_config_path);
+    let config_path = AppConfig::resolve_config_path(cli.config.as_deref()).await?;
     let cwd = match cli.cwd {
         Some(ref cwd) => cwd.clone(),
         None => std::env::current_dir()?,
@@ -378,7 +375,7 @@ fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {
 
 fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> {
     let config_path = explicit_config
-        .map(Path::to_path_buf)
+        .map(init_config_path_from_arg)
         .or_else(AppConfig::default_user_config_path)
         .ok_or_else(|| anyhow::anyhow!("could not resolve default config path"))?;
     let destination = init_destination_path(&config_path, profile);
@@ -397,6 +394,10 @@ fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> Result<()> 
     }
     println!("Next: proteus doctor");
     Ok(())
+}
+
+fn init_config_path_from_arg(path: &Path) -> PathBuf {
+    AppConfig::named_config_destination_path(path).unwrap_or_else(|| path.to_path_buf())
 }
 
 impl InitProfile {
@@ -1957,6 +1958,22 @@ mod tests {
         assert_eq!(
             init_destination_path(Path::new("/tmp/configs"), InitProfile::Safe),
             PathBuf::from("/tmp/configs/config.toml")
+        );
+    }
+
+    #[test]
+    fn init_config_path_from_arg_expands_named_config() {
+        assert_eq!(
+            init_config_path_from_arg(Path::new("codex")),
+            PathBuf::from("codex.config.toml")
+        );
+        assert_eq!(
+            init_config_path_from_arg(Path::new("./codex")),
+            PathBuf::from("./codex")
+        );
+        assert_eq!(
+            init_config_path_from_arg(Path::new("codex.config.toml")),
+            PathBuf::from("codex.config.toml")
         );
     }
 
