@@ -71,7 +71,7 @@ persistent MCP host и dylib unload не реализованы; модель re
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided |
-| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
+| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
 ## Model Providers
@@ -426,6 +426,19 @@ events вызывает через host API (`build_context`, `complete_model`,
 Это доказывает, что более сложный coding loop помещается в slot `Workflow`, а
 не расползается в core. Полная автоматическая проверка diff/test runner пока
 зависит от наличия соответствующих tools.
+
+`modules.workflow = "coding.codex_loop"` — экспериментальный Codex-shaped loop
+для `proteus.codex.example.toml`. Он остаётся в том же plugin/slot boundary, но
+ведёт turn ближе к Codex:
+
+- `codex_execute` — model/tool loop с Codex-oriented system/developer
+  instructions, dynamic meta-tools и обычным host `execute_tool_json`;
+- после tool work промежуточный draft остаётся model-facing state, но не
+  пишется в persistent history;
+- `codex_final` — отдельный финальный model call с `tool_choice = none` и
+  пустым tool list, без dynamic meta-tool instructions;
+- changed compaction в этом workflow обязана сохранить текущий user message,
+  иначе turn завершается ошибкой вместо тихого `new_messages_start = len`.
 
 ## Renderer
 

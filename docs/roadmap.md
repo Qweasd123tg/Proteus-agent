@@ -116,8 +116,9 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 
 Цель - заменить “один hardcoded loop” на настраиваемое поведение coding-agent.
 
-Первый новый workflow: `coding.plan_execute_review` в плагине
-`coding-workflow`.
+Первые дополнительные workflow живут в плагине `coding-workflow`:
+`coding.codex_loop` для Codex-shaped профиля и `coding.plan_execute_review`
+для staged plan/execute/review экспериментов.
 
 Поведение должно настраиваться config-ом:
 
@@ -128,9 +129,10 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 - какие tool groups видны в разных фазах;
 - как ограничивать token budget по фазам.
 
-Важно: `coding.plan_execute_review` является новым `Workflow`, а не
-расширением core. Базовая версия уже реализует фазы plan/execute/review; дальше
-нужно наращивать настройки фаз, diff/test tools и политику verification.
+Важно: оба режима являются отдельными `Workflow`, а не расширением core.
+Базовая версия `coding.plan_execute_review` уже реализует фазы
+plan/execute/review; дальше нужно наращивать настройки фаз, diff/test tools и
+политику verification.
 
 ### v0.3: Control Plane
 
@@ -198,8 +200,9 @@ Scope:
   `find_files` / `read_many_files` / `git_status` / `git_diff` / `shell` вынесены из ядра в плагины
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
-  `direct-patch`, baseline/staged workflows вынесены как plugin ids
-  `coding.single_loop` и `coding.plan_execute_review` в `coding-workflow`.
+  `direct-patch`, baseline/Codex-shaped/staged workflows вынесены как plugin ids
+  `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` в
+  `coding-workflow`.
   Context builders `simple` и `repo_aware` вынесены в `context-pack`,
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
   `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
