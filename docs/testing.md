@@ -23,7 +23,7 @@ plugin-адаптеров в `proteus-core`, интеграционные тес
 - plugin memory backends вроде `sqlite-memory` тестируются в plugin crate и
   подключаются через обычный `MemoryStore` slot;
 - `memory_policy = none` / `carry_forward` — первый no-op, второй plugin policy пишет один handoff-snippet после turn'а;
-- `policy = allow_all` и `policy = ask_write` не ломают read-only tool execution (оба регистрируются через test plugin pack);
+- `policy = allow_all`, `policy = ask_write` и `policy = codex_policy` не ломают tool execution при явном allow (все регистрируются через test plugin pack);
 - `remember_fact` tool принимает `{kind, content}` и отвергает невалидный kind с `WritesFiles` safety;
 - tool visibility и execution policy разделены;
 - `ToolOrchestrator` применяет `ApprovalPolicy::evaluate_visibility` без fake `ToolCall` и исполняет `ToolSpec.timeout_ms`;

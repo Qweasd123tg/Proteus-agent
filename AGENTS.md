@@ -34,7 +34,7 @@ plugins/
         coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-        policy-pack/         - ApprovalPolicy плагины "allow_all" и "ask_write"
+        policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"
         renderer-pack/       - Renderer плагины "plain" и "statusline"
 ```
 

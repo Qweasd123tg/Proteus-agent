@@ -1,3 +1,3 @@
 name = "policy-pack"
 version = "0.1.0"
-description = "ApprovalPolicy plugins: allow_all and ask_write"
+description = "ApprovalPolicy plugins: allow_all, ask_write, and codex_policy"

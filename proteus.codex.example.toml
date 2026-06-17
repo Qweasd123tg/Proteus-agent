@@ -11,7 +11,7 @@ search = "rg"
 memory = "none"
 memory_policy = "none"
 context = "codex_context"
-policy = "ask_write"
+policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
@@ -23,9 +23,10 @@ enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "
 [permissions]
 mode = "normal"
 
-[module_config.policy.ask_write]
+[module_config.policy.codex_policy]
 allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+deny = []
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10

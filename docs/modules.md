@@ -67,7 +67,7 @@ persistent MCP host и dylib unload не реализованы; модель re
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite`/`sqlite_plugin` из `sqlite-memory`) |
 | Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, plugin-provided (`carry_forward` из `memory-pack`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
-| Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `allow_all` из `policy-pack`) |
+| Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
@@ -313,6 +313,13 @@ mode = "normal"
 
 Core не знает схему `ask_write` и передаёт
 `module_config.policy.ask_write` в plugin как JSON.
+
+`codex_policy` тоже поставляется плагином `policy-pack`, но предназначен для
+`proteus.codex.example.toml`: явный `deny` имеет приоритет, затем `allow`,
+затем `ask_before`, после чего `ReadOnly` разрешается, `WritesFiles` и
+`RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
+запрещаются. Core не знает эту схему и передаёт
+`module_config.policy.codex_policy` в plugin как JSON.
 
 `allow_all` поставляется плагином `policy-pack` и разрешает все tool calls.
 

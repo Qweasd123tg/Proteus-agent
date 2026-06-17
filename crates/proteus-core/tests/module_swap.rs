@@ -18,7 +18,7 @@ use context_pack::{
 };
 use futures_util::stream;
 use memory_pack::{CarryForwardMemoryPolicyPlugin, JsonlMemoryStorePlugin};
-use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin};
+use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin, CodexPolicyPlugin};
 use proteus_contracts::{
     abi_stable::{
         sabi_trait::TD_Opaque,
@@ -164,6 +164,24 @@ fn set_ask_write_config(config: &mut AppConfig, allow: &[&str], ask_before: &[&s
     );
 }
 
+fn set_codex_policy_config(
+    config: &mut AppConfig,
+    allow: &[&str],
+    ask_before: &[&str],
+    deny: &[&str],
+) {
+    set_module_config(
+        config,
+        "policy",
+        "codex_policy",
+        json!({
+            "allow": allow,
+            "ask_before": ask_before,
+            "deny": deny,
+        }),
+    );
+}
+
 fn clear_ask_write_config(config: &mut AppConfig) {
     set_ask_write_config(config, &[], &[]);
 }
@@ -236,6 +254,12 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
         )
         .expect("register test ask_write policy");
+    catalog
+        .register_plugin_policy(
+            "codex_policy",
+            PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque),
+        )
+        .expect("register test codex_policy");
     catalog
         .register_plugin_renderer(
             "plain",
@@ -926,12 +950,25 @@ fn unknown_memory_policy_is_rejected_at_startup() {
 
 #[tokio::test]
 async fn swapping_policy_does_not_change_read_tool_execution() {
-    for policy in ["allow_all", "ask_write"] {
+    for policy in ["allow_all", "ask_write", "codex_policy"] {
         let mut config = test_config();
         config.modules.policy = policy.to_owned();
-        // allow remember_fact under ask_write so both policies actually
-        // execute the tool (ask_write would block it in the default fixture).
-        set_ask_write_config(&mut config, &["search", "remember_fact"], &["apply_patch"]);
+        match policy {
+            "ask_write" => {
+                // Allow remember_fact so both approval-backed policies actually
+                // execute the tool instead of stopping at approval.
+                set_ask_write_config(&mut config, &["search", "remember_fact"], &["apply_patch"]);
+            }
+            "codex_policy" => {
+                set_codex_policy_config(
+                    &mut config,
+                    &["search", "remember_fact"],
+                    &["apply_patch"],
+                    &[],
+                );
+            }
+            _ => {}
+        }
 
         let (output, events) = run_with(config, "remember_fact user prefers tabs").await;
 
@@ -1079,6 +1116,93 @@ async fn tool_visibility_and_execution_policy_are_separate() {
     );
 
     assert!(matches!(decision, PolicyDecision::Ask { .. }));
+}
+
+#[test]
+fn test_catalog_registers_codex_policy_plugin() {
+    let catalog = test_catalog();
+
+    assert!(
+        catalog
+            .manifest(ModuleKind::Policy, "codex_policy")
+            .is_some()
+    );
+}
+
+#[test]
+fn codex_policy_uses_codex_safety_defaults_and_config_lists() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.policy = "codex_policy".to_owned();
+    set_codex_policy_config(
+        &mut config,
+        &["search"],
+        &["apply_patch"],
+        &["blocked_read"],
+    );
+    let registry = registry_from_test_config(&config, dir.path());
+
+    let search_decision = registry
+        .policy
+        .evaluate_visibility(&PolicyVisibilityContext::new(
+            dir.path().to_path_buf(),
+            ToolSpec::new("search", "Search", json!({}), ToolSafety::ReadOnly),
+        ));
+    assert_eq!(search_decision, PolicyDecision::Allow);
+
+    let patch_decision = registry.policy.evaluate(
+        &ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({})),
+        &PolicyContext::new(
+            dir.path().to_path_buf(),
+            Some(ToolSpec::new(
+                "apply_patch",
+                "Apply patch",
+                json!({}),
+                ToolSafety::WritesFiles,
+            )),
+        ),
+    );
+    assert!(matches!(patch_decision, PolicyDecision::Ask { .. }));
+
+    let network_decision = registry
+        .policy
+        .evaluate_visibility(&PolicyVisibilityContext::new(
+            dir.path().to_path_buf(),
+            ToolSpec::new(
+                "network_probe",
+                "Network probe",
+                json!({}),
+                ToolSafety::Network,
+            ),
+        ));
+    assert!(matches!(network_decision, PolicyDecision::Deny { .. }));
+
+    let dangerous_decision = registry
+        .policy
+        .evaluate_visibility(&PolicyVisibilityContext::new(
+            dir.path().to_path_buf(),
+            ToolSpec::new("dangerous", "Dangerous", json!({}), ToolSafety::Dangerous),
+        ));
+    assert!(matches!(dangerous_decision, PolicyDecision::Deny { .. }));
+
+    let explicit_deny = registry
+        .policy
+        .evaluate_visibility(&PolicyVisibilityContext::new(
+            dir.path().to_path_buf(),
+            ToolSpec::new(
+                "blocked_read",
+                "Blocked read",
+                json!({}),
+                ToolSafety::ReadOnly,
+            ),
+        ));
+    assert!(matches!(explicit_deny, PolicyDecision::Deny { .. }));
+
+    let unknown_decision = registry.policy.evaluate(
+        &ToolCall::new(new_call_id(), "missing_tool".to_owned(), json!({})),
+        &PolicyContext::new(dir.path().to_path_buf(), None),
+    );
+    assert!(matches!(unknown_decision, PolicyDecision::Deny { .. }));
 }
 
 #[tokio::test]
@@ -1672,6 +1796,22 @@ async fn ask_write_hides_tools_that_need_unwired_approval_from_model() {
     // interactive transport those disappear from the tool list. Read-only
     // `search` and `request_user_input` remain visible.
     let (output, _events) = run_with(test_config(), "summarize hello").await;
+
+    assert!(output.contains("tools=2"), "got: {output}");
+}
+
+#[tokio::test]
+async fn codex_policy_hides_tools_that_need_unwired_approval_from_model() {
+    let mut config = test_config();
+    config.modules.policy = "codex_policy".to_owned();
+    set_codex_policy_config(
+        &mut config,
+        &["search"],
+        &["apply_patch", "remember_fact"],
+        &[],
+    );
+
+    let (output, _events) = run_with(config, "summarize hello").await;
 
     assert!(output.contains("tools=2"), "got: {output}");
 }
@@ -2785,6 +2925,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.profile.name, "codex-experimental");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
+    assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
@@ -2801,6 +2942,23 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "request_user_input")
     );
+
+    let codex_policy = config.module_config_value(ModuleKind::Policy, "codex_policy");
+    assert!(
+        codex_policy["allow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "git_diff")
+    );
+    assert!(
+        codex_policy["ask_before"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "shell")
+    );
+    assert!(codex_policy["deny"].as_array().unwrap().is_empty());
 
     let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
     assert!(
