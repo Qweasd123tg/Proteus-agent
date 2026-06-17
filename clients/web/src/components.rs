@@ -666,7 +666,7 @@ where
 }
 
 #[component]
-fn ToolActivityCard(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl IntoView {
+fn ToolActivityCard(message: Memo<Option<Message>>) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
     view! {
         <article class="tool-card">
@@ -676,9 +676,9 @@ fn ToolActivityCard(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl
                 title="Показать детали tool"
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                <span class=move || current_tool(messages, message_id).map(|tool| tool.status.badge_class()).unwrap_or("status-badge idle")>
+                <span class=move || current_tool(message).map(|tool| tool.status.badge_class()).unwrap_or("status-badge idle")>
                     <span class=move || {
-                        current_tool(messages, message_id)
+                        current_tool(message)
                             .map(|tool| {
                                 if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) {
                                     "spinner-dot"
@@ -688,17 +688,17 @@ fn ToolActivityCard(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl
                             })
                             .unwrap_or("dot")
                     }></span>
-                    {move || current_tool(messages, message_id).map(|tool| tool.status.label()).unwrap_or("tool")}
+                    {move || current_tool(message).map(|tool| tool.status.label()).unwrap_or("tool")}
                 </span>
-                <strong>{move || current_tool(messages, message_id).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
-                <code>{move || current_tool(messages, message_id).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
+                <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
+                <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
             </button>
             {move || {
                 if expanded.get() {
                     view! {
                         <div class="tool-card-details">
-                            <pre>{move || current_tool(messages, message_id).map(|tool| tool.args_preview).unwrap_or_default()}</pre>
-                            {move || if let Some(result) = current_tool(messages, message_id).and_then(|tool| tool.result_preview) {
+                            <pre>{move || current_tool(message).map(|tool| tool.args_preview).unwrap_or_default()}</pre>
+                            {move || if let Some(result) = current_tool(message).and_then(|tool| tool.result_preview) {
                                 view! { <pre>{result}</pre> }.into_any()
                             } else {
                                 view! { <></> }.into_any()
@@ -729,29 +729,30 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 
 #[component]
 pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl IntoView {
-    let Some(initial_message) = current_message(messages, message_id) else {
+    let message = Memo::new(move |_| current_message(messages, message_id));
+    let Some(initial_message) = message.get_untracked() else {
         return view! { <></> }.into_any();
     };
 
     if initial_message.tool.is_some() {
         return view! {
             <article class=move || {
-                current_tool(messages, message_id)
+                current_tool(message)
                     .map(|tool| tool_turn_card_class(tool.status))
                     .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
             }>
-                <ToolActivityCard message_id messages />
+                <ToolActivityCard message />
             </article>
         }
         .into_any();
     }
 
     if initial_message.role == MessageRole::User {
-        return user_message_view(message_id, messages);
+        return user_message_view(message);
     }
 
     if initial_message.role == MessageRole::Reasoning {
-        return reasoning_message_view(message_id, messages);
+        return reasoning_message_view(message);
     }
 
     let turn_class = match initial_message.role {
@@ -770,13 +771,13 @@ pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -
     view! {
         <article class=turn_class>
             <div class="task-card-header">
-                <span class="assistant-role">{move || current_message(messages, message_id).map(|message| message.role.label()).unwrap_or("Сообщение")}</span>
+                <span class="assistant-role">{move || message.get().map(|message| message.role.label()).unwrap_or("Сообщение")}</span>
                 <div class="message-actions">
                     <button
                         type="button"
                         class="icon-button"
                         title="Скопировать markdown"
-                        on:click=move |_| copy_to_clipboard(current_message_text(messages, message_id))
+                        on:click=move |_| copy_to_clipboard(current_message_text(message))
                     >
                         "Копировать"
                     </button>
@@ -800,8 +801,8 @@ pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -
                 } else {
                     view! {
                         <div
-                            class=move || current_message_content_class(messages, message_id)
-                            inner_html=move || current_message_html(messages, message_id)
+                            class=move || current_message_content_class(message)
+                            inner_html=move || current_message_html(message)
                         ></div>
                     }.into_any()
                 }
@@ -813,7 +814,7 @@ pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -
 
 /// Запрос пользователя: правый «пузырь», без тяжёлой шапки роли; copy
 /// появляется по наведению (стиль в CSS).
-fn user_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> AnyView {
+fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
     view! {
         <article class="user-turn">
             <div class="user-bubble">
@@ -821,11 +822,11 @@ fn user_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> Any
                     type="button"
                     class="icon-button user-copy"
                     title="Скопировать"
-                    on:click=move |_| copy_to_clipboard(current_message_text(messages, message_id))
+                    on:click=move |_| copy_to_clipboard(current_message_text(message))
                 >
                     "Копировать"
                 </button>
-                <div class="message user-message" inner_html=move || current_message_html(messages, message_id)></div>
+                <div class="message user-message" inner_html=move || current_message_html(message)></div>
             </div>
         </article>
     }
@@ -834,13 +835,14 @@ fn user_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> Any
 
 /// Reasoning-поток: пока стримится — развёрнут, после завершения сворачивается
 /// в строку-переключатель «Размышления».
-fn reasoning_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -> AnyView {
-    let streaming = current_message(messages, message_id).is_some_and(|message| message.streaming);
+fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
+    let streaming = message
+        .get_untracked()
+        .is_some_and(|message| message.streaming);
     let (expanded, set_expanded) = signal(streaming);
     let (last_streaming, set_last_streaming) = signal(streaming);
     Effect::new(move |_| {
-        let streaming =
-            current_message(messages, message_id).is_some_and(|message| message.streaming);
+        let streaming = message.get().is_some_and(|message| message.streaming);
         if last_streaming.get() && !streaming {
             set_expanded.set(false);
         }
@@ -854,14 +856,14 @@ fn reasoning_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
                 <span class=move || {
-                    if current_message(messages, message_id).is_some_and(|message| message.streaming) {
+                    if message.get().is_some_and(|message| message.streaming) {
                         "status-badge running"
                     } else {
                         "status-badge idle"
                     }
                 }>
                     {move || {
-                        if current_message(messages, message_id).is_some_and(|message| message.streaming) {
+                        if message.get().is_some_and(|message| message.streaming) {
                             view! { <span class="spinner-dot"></span> }.into_any()
                         } else {
                             view! { <span class="dot"></span> }.into_any()
@@ -876,7 +878,7 @@ fn reasoning_message_view(message_id: u64, messages: ReadSignal<Vec<Message>>) -
             {move || {
                 if expanded.get() {
                     view! {
-                        <div class="message reasoning-message" inner_html=move || current_message_html(messages, message_id)></div>
+                        <div class="message reasoning-message" inner_html=move || current_message_html(message)></div>
                     }.into_any()
                 } else {
                     view! { <></> }.into_any()
@@ -896,22 +898,24 @@ fn current_message(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Optio
     })
 }
 
-fn current_tool(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<ToolActivity> {
-    current_message(messages, message_id).and_then(|message| message.tool)
+fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
+    message.get().and_then(|message| message.tool)
 }
 
-fn current_message_text(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
-    current_message(messages, message_id)
+fn current_message_text(message: Memo<Option<Message>>) -> String {
+    message
+        .get()
         .map(|message| message.text)
         .unwrap_or_default()
 }
 
-fn current_message_html(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
-    markdown_html(&current_message_text(messages, message_id))
+fn current_message_html(message: Memo<Option<Message>>) -> String {
+    markdown_html(&current_message_text(message))
 }
 
-fn current_message_content_class(messages: ReadSignal<Vec<Message>>, message_id: u64) -> String {
-    current_message(messages, message_id)
+fn current_message_content_class(message: Memo<Option<Message>>) -> String {
+    message
+        .get()
         .map(|message| {
             let message_class = message.role.message_class();
             if message.streaming {
