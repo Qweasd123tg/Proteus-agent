@@ -315,7 +315,7 @@ Core не знает схему `ask_write` и передаёт
 `module_config.policy.ask_write` в plugin как JSON.
 
 `codex_policy` тоже поставляется плагином `policy-pack`, но предназначен для
-`proteus.codex.example.toml`: явный `deny` имеет приоритет, затем `allow`,
+named config `codex` (`codex.config.toml`): явный `deny` имеет приоритет, затем `allow`,
 затем `ask_before`, после чего `ReadOnly` разрешается, `WritesFiles` и
 `RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
 запрещаются. Core не знает эту схему и передаёт
@@ -455,7 +455,7 @@ events вызывает через host API (`build_context`, `complete_model`,
 зависит от наличия соответствующих tools.
 
 `modules.workflow = "coding.codex_loop"` — экспериментальный Codex-shaped loop
-для `proteus.codex.example.toml`. Он остаётся в том же plugin/slot boundary, но
+для named config `codex` (`codex.config.toml`). Он остаётся в том же plugin/slot boundary, но
 ведёт turn ближе к Codex:
 
 - `codex_execute` — model/tool loop с Codex-oriented system/developer

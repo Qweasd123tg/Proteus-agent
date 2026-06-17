@@ -2,13 +2,19 @@
 
 `AppConfig` поддерживает JSON и TOML. Формат файла определяется по расширению: `.json` читается как JSON, остальные config-файлы читаются как TOML.
 
-`--config` может указывать как на один файл, так и на директорию. Директория читается как config tree: все `*.toml` и `*.json` внутри неё сортируются по имени, затем merge-ятся в один итоговый `AppConfig`.
+`--config` может указывать на один файл, директорию или named config. Bare
+name без `/` и расширения, например `--config codex`, резолвится как
+`codex.config.toml` или `codex.config.json`: сначала в текущем каталоге, затем
+в default config dir. Директория читается как config tree: все `*.toml` и
+`*.json` внутри неё сортируются по имени, затем merge-ятся в один итоговый
+`AppConfig`.
 
 ## Порядок Выбора
 
-Если передан `--config`, используется только этот путь:
+Если передан `--config`, используется только этот resolved target:
 
 ```bash
+cargo run --bin proteus -- --config codex
 cargo run --bin proteus -- --config config.example.json
 cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 ```
@@ -29,7 +35,8 @@ cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 `proteus init` и `proteus doctor` предупреждают, если рядом с
 `configs/config.toml` остались старые `*.toml`/`*.json`: при запуске с
 директорией Proteus merge-ит все такие файлы по имени. Для обычного профиля
-держите один `config.toml` или явно передавайте `--config` на нужный файл.
+держите один `config.toml`, явно передавайте `--config` на нужный файл или
+используйте named config вроде `--config codex`.
 
 Если путь не найден, используется `AppConfig::default()`: безопасная
 заглушечная конфигурация без plugin-зависимостей (`workflow = "none"`,
@@ -54,6 +61,8 @@ proteus init full
 `$HOME/.config/Proteus-agent/configs/config.toml`. Если передать
 `--config /path/config.toml`, файл будет записан ровно туда; если передать
 `--config /path/configs`, `config.toml` будет создан внутри этой директории.
+Если передать named config, например `--config codex`, init создаст
+`codex.config.toml` в текущем каталоге.
 `coding` и `full` используют рабочий coding profile, `codex` использует
 экспериментальный Codex-shaped profile, `safe` использует `proteus.example.toml`
 с fake model.
@@ -123,13 +132,14 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
-`proteus.codex.example.toml` - экспериментальный Codex-shaped profile для
-чистой проверки Codex-подобной сборки модулей. Он подключает тот же provider
+`codex.config.toml` - экспериментальный Codex-shaped profile для чистой
+проверки Codex-подобной сборки модулей. Он подключает тот же provider
 через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`.
-Запускается явно через `--config proteus.codex.example.toml` или создаётся
-через `proteus init codex`; baseline `coding` от этого профиля не зависит.
+Запускается явно через `--config codex`; старый
+`proteus.codex.example.toml` оставлен как compatibility include на этот же
+profile. Baseline `coding` от этого профиля не зависит.
 
 `proteus.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
 `context = "simple"`, `module_config.*` payloads и core tools. `simple`

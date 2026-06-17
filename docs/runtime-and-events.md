@@ -30,10 +30,12 @@ cargo run --bin proteus -- init coding
 cargo run --bin proteus -- doctor
 ```
 
-`init [coding|full|safe]` создаёт TOML profile в default config file
+`init [coding|codex|full|safe]` создаёт TOML profile в default config file
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
-`--config`. `coding` и `full` включают real-provider coding profile с
-plugin tools после `./install.sh`, `safe` использует fake model.
+`--config`. Если `--config` передан как bare name, например `--config codex`,
+init пишет `codex.config.toml`. `coding`, `codex` и `full` включают
+real-provider coding profile с plugin tools после `./install.sh`, `safe`
+использует fake model.
 
 `doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
 module ids, активный model provider, наличие секрета провайдера, внешние
@@ -369,7 +371,8 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 `coding.single_loop`, чтобы обычный чат и простые coding-запросы не проходили
 через лишние plan/execute/review model calls.
 
-`coding.codex_loop` - экспериментальный workflow для `proteus.codex.example.toml`.
+`coding.codex_loop` - экспериментальный workflow для named config `codex`
+(`codex.config.toml`).
 Он использует тот же event/runtime contract, но разделяет Codex-shaped
 `codex_execute` и `codex_final`: execute-фаза может искать/вызывать tools через
 workflow host, а final-фаза всегда делает model request без tools и без
