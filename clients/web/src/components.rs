@@ -158,6 +158,7 @@ where
                 <code>{short_path(&request.cwd)}</code>
             </div>
             <p>{spec_hint}</p>
+            {approval_preview(request.preview.clone())}
             <pre>{args_preview}</pre>
             <div class="control-row">
                 <span class="control-label">"Кэш"</span>
@@ -211,6 +212,90 @@ where
     }
 }
 
+fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
+    let Some(preview) = preview else {
+        return view! { <></> }.into_any();
+    };
+    let ApprovalPreviewInfo {
+        kind,
+        title,
+        summary,
+        affected_files,
+        body,
+        language,
+        metadata: _,
+    } = preview;
+    let kind = approval_preview_kind(&kind);
+    let files = approval_preview_files(&affected_files);
+    let body_label = language
+        .as_deref()
+        .filter(|language| !language.trim().is_empty())
+        .unwrap_or("preview")
+        .to_owned();
+    let body = body.filter(|body| !body.trim().is_empty());
+
+    view! {
+        <section>
+            <div class="control-card-header">
+                <span class="status-badge completed">
+                    <span class="dot"></span>
+                    {kind}
+                </span>
+                <strong>{title}</strong>
+            </div>
+            <p>{summary}</p>
+            {if let Some(files) = files {
+                view! {
+                    <div class="control-row">
+                        <span class="control-label">"Файлы"</span>
+                        <code>{files}</code>
+                    </div>
+                }.into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
+            {if let Some(body) = body {
+                view! {
+                    <div>
+                        <div class="control-card-header">
+                            <span class="status-badge idle">
+                                <span class="dot"></span>
+                                {body_label}
+                            </span>
+                        </div>
+                        <pre><code>{body}</code></pre>
+                    </div>
+                }.into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
+        </section>
+    }
+    .into_any()
+}
+
+fn approval_preview_kind(kind: &str) -> String {
+    match kind {
+        "command" => "Команда".to_owned(),
+        "patch" => "Diff".to_owned(),
+        "write_file" => "Файл".to_owned(),
+        kind if !kind.trim().is_empty() => kind.to_owned(),
+        _ => "Preview".to_owned(),
+    }
+}
+
+fn approval_preview_files(files: &[String]) -> Option<String> {
+    if files.is_empty() {
+        return None;
+    }
+    let visible = files.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+    if files.len() > 3 {
+        Some(format!("{visible}, +{}", files.len() - 3))
+    } else {
+        Some(visible)
+    }
+}
+
 fn approval_is_command(request: &ApprovalRequestInfo) -> bool {
     request.call.name.eq_ignore_ascii_case("shell")
         || tool_safety(request).is_some_and(|safety| safety == "RunsCommands")
@@ -221,7 +306,9 @@ fn approval_allows_workspace_write_cache(request: &ApprovalRequestInfo) -> bool 
         return false;
     }
     request.tool_spec.as_ref().is_some_and(|spec| {
-        let Some(approval) = spec.get("metadata").and_then(|metadata| metadata.get("approval"))
+        let Some(approval) = spec
+            .get("metadata")
+            .and_then(|metadata| metadata.get("approval"))
         else {
             return false;
         };
