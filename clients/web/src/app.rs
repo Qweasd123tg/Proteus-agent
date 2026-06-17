@@ -257,11 +257,12 @@ pub(crate) fn App() -> impl IntoView {
         set_tool_activities,
         set_pending_approvals,
         set_pending_user_inputs,
+        set_sidebar_sessions,
+        set_sidebar_sessions_status,
     };
     reconnect_event_stream(event_source, event_stream_bindings);
 
     let actions = AppActions {
-        messages,
         set_messages,
         next_message_id,
         set_next_message_id,
@@ -280,8 +281,6 @@ pub(crate) fn App() -> impl IntoView {
         set_is_sending,
         active_turn_id,
         set_active_turn_id,
-        set_sidebar_sessions,
-        set_sidebar_sessions_status,
     };
 
     let reset_chat_view = move || {

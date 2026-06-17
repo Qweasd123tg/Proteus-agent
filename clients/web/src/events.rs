@@ -5,7 +5,7 @@ use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, get_json, js_error};
-use crate::app::replace_transcript;
+use crate::app::{load_sidebar_sessions, replace_transcript};
 use crate::messages::{
     append_streaming_assistant_delta, append_streaming_reasoning_delta,
     finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
@@ -36,6 +36,8 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
+    pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
 
 pub(crate) fn reconnect_event_stream(
@@ -132,6 +134,8 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.set_tool_activities,
                     bindings.set_pending_approvals,
                     bindings.set_pending_user_inputs,
+                    bindings.set_sidebar_sessions,
+                    bindings.set_sidebar_sessions_status,
                 ),
                 Err(error) => push_message(
                     output_messages,
@@ -196,6 +200,8 @@ fn handle_app_output(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
+    set_sidebar_sessions_status: WriteSignal<String>,
 ) {
     match output {
         StdioOutput::Event { event } => {
@@ -219,6 +225,8 @@ fn handle_app_output(
                 set_tool_activities,
                 set_pending_approvals,
                 set_pending_user_inputs,
+                set_sidebar_sessions,
+                set_sidebar_sessions_status,
             );
         }
         StdioOutput::Response { .. } => handle_command_response(
@@ -250,6 +258,8 @@ fn handle_app_event(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
+    set_sidebar_sessions_status: WriteSignal<String>,
 ) {
     match event {
         AppServerEvent::Runtime { envelope } => {
@@ -304,6 +314,7 @@ fn handle_app_event(
                     output_text(&output),
                 );
             }
+            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         }
         AppServerEvent::ApprovalRequested { request } => {
             set_agent_status.set("ждёт доступ".to_owned());
