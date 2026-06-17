@@ -2047,7 +2047,7 @@ mod tests {
         assert_eq!(config.profile.name, "codex-experimental");
         assert_eq!(config.modules.workflow, "coding.codex_loop");
         assert_eq!(config.modules.compactor, "codex");
-        assert_eq!(config.modules.tool_exposure, "dynamic");
+        assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     }
 
     #[test]

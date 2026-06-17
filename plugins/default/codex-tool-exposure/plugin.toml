@@ -1,0 +1,3 @@
+name = "codex-tool-exposure"
+version = "0.1.0"
+description = "Codex-shaped ToolExposure plugin (module id: codex_dynamic)"

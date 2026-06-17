@@ -31,6 +31,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 [dev-dependencies]
 coding-workflow = { path = "../../plugins/default/coding-workflow" }
 codex-compactor = { path = "../../plugins/default/codex-compactor" }
+codex-tool-exposure = { path = "../../plugins/default/codex-tool-exposure", default-features = false }
 context-pack = { path = "../../plugins/default/context-pack", default-features = false }
 memory-pack = { path = "../../plugins/default/memory-pack", default-features = false }
 policy-pack = { path = "../../plugins/default/policy-pack", default-features = false }

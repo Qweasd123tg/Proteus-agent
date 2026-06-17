@@ -279,6 +279,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-tool-exposure"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "proteus-contracts",
+ "serde_json",
+]
+
+[[package]]
 name = "coding-workflow"
 version = "0.1.0"
 dependencies = [
@@ -1151,6 +1160,7 @@ dependencies = [
  "bytes",
  "clap",
  "codex-compactor",
+ "codex-tool-exposure",
  "coding-workflow",
  "context-pack",
  "eventsource-stream",

@@ -13,19 +13,26 @@ use crate::contracts::{ToolExposure, ToolExposureInput, ToolExposureOutput};
 
 pub struct PluginToolExposureAdapter {
     inner: Arc<ToolExposureObject>,
+    config: serde_json::Value,
 }
 
 impl PluginToolExposureAdapter {
     pub fn new(inner: ToolExposureObject) -> Self {
         Self {
             inner: Arc::new(inner),
+            config: serde_json::Value::Null,
         }
+    }
+
+    pub fn from_shared(inner: Arc<ToolExposureObject>, config: serde_json::Value) -> Self {
+        Self { inner, config }
     }
 }
 
 #[async_trait]
 impl ToolExposure for PluginToolExposureAdapter {
-    async fn select(&self, input: ToolExposureInput) -> Result<ToolExposureOutput> {
+    async fn select(&self, mut input: ToolExposureInput) -> Result<ToolExposureOutput> {
+        input.config = self.config.clone();
         let input_json = serde_json::to_string(&input)
             .with_context(|| "plugin tool exposure: serialize ToolExposureInput failed")?;
         let inner = self.inner.clone();
