@@ -793,15 +793,7 @@ pub(crate) fn MessageView(
         MessageRole::System => "task-card assistant-turn role-system",
         MessageRole::User | MessageRole::Reasoning => "task-card assistant-turn",
     };
-    let (collapsed, set_collapsed) = signal(false);
     let rendered_html = cached_message_html(message);
-    let toggle_title = move || {
-        if collapsed.get() {
-            "Развернуть"
-        } else {
-            "Свернуть"
-        }
-    };
     view! {
         <article class=turn_class>
             <div class="task-card-header">
@@ -815,32 +807,12 @@ pub(crate) fn MessageView(
                     >
                         "Копировать"
                     </button>
-                    <button
-                        type="button"
-                        class="icon-button"
-                        title=toggle_title
-                        on:click=move |_| set_collapsed.update(|value| *value = !*value)
-                    >
-                        {move || if collapsed.get() { "Открыть" } else { "Скрыть" }}
-                    </button>
                 </div>
             </div>
-            {move || {
-                if collapsed.get() {
-                    view! {
-                        <div class="message collapsed-message">
-                            "Сообщение скрыто"
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {
-                        <div
-                            class=move || current_message_content_class(message)
-                            inner_html=move || rendered_html.get()
-                        ></div>
-                    }.into_any()
-                }
-            }}
+            <div
+                class=move || current_message_content_class(message)
+                inner_html=move || rendered_html.get()
+            ></div>
         </article>
     }
     .into_any()
