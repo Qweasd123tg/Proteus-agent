@@ -2,15 +2,11 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::post_json;
-use crate::messages::{
-    push_assistant_message_once, push_message, push_user_message_once, report_error,
-};
+use crate::messages::{push_message, push_user_message_once, report_error};
 use crate::types::*;
-use crate::ui_utils::output_text;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppActions {
-    pub(crate) messages: ReadSignal<Vec<Message>>,
     pub(crate) set_messages: WriteSignal<Vec<Message>>,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
@@ -29,8 +25,6 @@ pub(crate) struct AppActions {
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) active_turn_id: ReadSignal<Option<String>>,
     pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
-    pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
-    pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
 
 impl AppActions {
@@ -189,7 +183,6 @@ impl AppActions {
         }
 
         self.set_is_sending.set(true);
-        let message_floor = self.next_message_id.get();
         push_user_message_once(
             self.set_messages,
             self.next_message_id,
@@ -242,7 +235,7 @@ impl AppActions {
             }
 
             match post_json(
-                "/send",
+                "/send-async",
                 &SendRequest {
                     id: Some(request_id),
                     text,
@@ -254,38 +247,18 @@ impl AppActions {
                     if !self.is_active_turn(&turn_id) {
                         return;
                     }
-                    self.finish_turn();
-                    if let StdioOutput::Response {
-                        ok: true,
-                        output: Some(value),
-                        ..
-                    } = &output
-                    {
-                        let assistant_arrived = self.messages.with(|items| {
-                            items.iter().any(|message| {
-                                message.id > message_floor && message.role == MessageRole::Assistant
-                            })
-                        });
-                        if !assistant_arrived {
-                            push_assistant_message_once(
-                                self.set_messages,
-                                self.next_message_id,
-                                self.set_next_message_id,
-                                output_text(value),
-                            );
-                        }
+                    if command_succeeded(&output) {
+                        self.set_transport_status.set(TransportStatus::Connected);
+                    } else {
+                        self.finish_turn();
+                        handle_command_response(
+                            output,
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            self.set_transport_status,
+                        );
                     }
-                    handle_command_response(
-                        output,
-                        self.set_messages,
-                        self.next_message_id,
-                        self.set_next_message_id,
-                        self.set_transport_status,
-                    );
-                    crate::app::load_sidebar_sessions(
-                        self.set_sidebar_sessions,
-                        self.set_sidebar_sessions_status,
-                    );
                 }
                 Err(error) => {
                     if !self.is_active_turn(&turn_id) {

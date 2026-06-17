@@ -4,6 +4,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -47,6 +48,7 @@ type HttpResponse = Response<HttpBody>;
 const SESSION_TOKEN_HEADERS: [&str; 2] = ["x-proteus-session", "x-proteus-session-token"];
 const SESSION_TOKEN_QUERY: &str = "token";
 const SESSION_TOKEN_QUERY_ALIASES: [&str; 3] = ["session", "session_token", "proteus_session"];
+const SSE_HEARTBEAT_SECS: u64 = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpServerConfig {
@@ -318,6 +320,13 @@ where
                     },
                 )
                 .await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
+        (Method::POST, "/send-async") => match read_json::<SendRequest, _>(request).await {
+            Ok(command) => {
+                let output = execute_send_async(&state, command.id, command.text).await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
@@ -765,6 +774,39 @@ async fn execute_send(
     result
 }
 
+async fn execute_send_async(state: &HttpAppState, id: Option<String>, text: String) -> StdioOutput {
+    let turn_id = id.unwrap_or_else(new_session_token);
+    let cancellation = CancellationToken::new();
+    {
+        let mut running_turns = state.running_turns.lock().await;
+        if running_turns.contains_key(&turn_id) {
+            return command_response(
+                Some(turn_id.clone()),
+                Err(anyhow!("turn id is already running: {turn_id}")),
+            );
+        }
+        running_turns.insert(turn_id.clone(), cancellation.clone());
+    }
+
+    let server = state.current_server().await;
+    let running_turns = state.running_turns.clone();
+    let task_turn_id = turn_id.clone();
+    tokio::spawn(async move {
+        let _ = server
+            .send_user_message_with_cancellation(text, cancellation)
+            .await;
+        running_turns.lock().await.remove(&task_turn_id);
+    });
+
+    command_response(
+        Some(turn_id.clone()),
+        Ok(Some(json!({
+            "turn_id": turn_id,
+            "accepted": true,
+        }))),
+    )
+}
+
 async fn execute_resume(
     state: &HttpAppState,
     id: Option<String>,
@@ -905,26 +947,34 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
             return;
         }
 
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));
         loop {
-            match events.recv().await {
-                Ok(event) => {
-                    let should_stop = matches!(event, AppServerEvent::Shutdown);
-                    let output = StdioOutput::Event {
-                        event: Box::new(event),
-                    };
-                    yield Ok(Frame::data(encode_sse_output(&output)));
-                    if should_stop {
-                        break;
+            tokio::select! {
+                _ = heartbeat.tick() => {
+                    yield Ok(Frame::data(Bytes::from_static(b": keep-alive\n\n")));
+                }
+                event = events.recv() => {
+                    match event {
+                        Ok(event) => {
+                            let should_stop = matches!(event, AppServerEvent::Shutdown);
+                            let output = StdioOutput::Event {
+                                event: Box::new(event),
+                            };
+                            yield Ok(Frame::data(encode_sse_output(&output)));
+                            if should_stop {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            let output = command_response(
+                                None,
+                                Err(anyhow!("app-server event stream lagged by {count} events")),
+                            );
+                            yield Ok(Frame::data(encode_sse_output(&output)));
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                    let output = command_response(
-                        None,
-                        Err(anyhow!("app-server event stream lagged by {count} events")),
-                    );
-                    yield Ok(Frame::data(encode_sse_output(&output)));
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     })
@@ -1265,6 +1315,7 @@ mod tests {
             (Method::GET, "/history"),
             (Method::POST, "/request"),
             (Method::POST, "/send"),
+            (Method::POST, "/send-async"),
             (Method::POST, "/approval"),
             (Method::POST, "/user-input"),
             (Method::POST, "/cancel"),
@@ -2147,6 +2198,65 @@ mod tests {
 
         server.shutdown().await;
         state.current_server().await.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_send_async_acknowledges_while_turn_keeps_running() {
+        let (state, server) = dogfood_loop_state().await;
+        let mut event_rx = server.subscribe();
+        let turn_id = "turn-async".to_owned();
+
+        let response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/send-async",
+                json!({
+                    "id": turn_id,
+                    "text": "apply_patch",
+                }),
+            ),
+        )
+        .await
+        .expect("send-async response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let output = response_output(response).await;
+        let StdioOutput::Response {
+            ok: true,
+            output: Some(summary),
+            ..
+        } = output
+        else {
+            panic!("expected successful send-async response");
+        };
+        assert_eq!(summary.get("accepted").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            summary.get("turn_id").and_then(Value::as_str),
+            Some(turn_id.as_str())
+        );
+
+        let approval = wait_for_approval_request(&mut event_rx).await;
+        assert_eq!(approval.call.name, "apply_patch");
+        assert!(state.running_turns.lock().await.contains_key(&turn_id));
+
+        let response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/cancel",
+                json!({
+                    "id": "cancel-async",
+                    "target_id": turn_id,
+                }),
+            ),
+        )
+        .await
+        .expect("cancel response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let output = response_output(response).await;
+        assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
+        assert!(state.running_turns.lock().await.is_empty());
+
+        server.shutdown().await;
     }
 
     #[tokio::test]
