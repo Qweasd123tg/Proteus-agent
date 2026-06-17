@@ -279,6 +279,10 @@ where
             let transcript = state.current_server().await.transcript().await;
             json_response(StatusCode::OK, &transcript)
         }
+        (Method::GET, "/pending") => {
+            let pending = state.current_server().await.pending_requests().await;
+            json_response(StatusCode::OK, &pending)
+        }
         (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
@@ -929,6 +933,7 @@ fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
 mod tests {
     use std::{
         collections::{BTreeMap, HashMap},
+        path::PathBuf,
         time::Duration,
     };
 
@@ -944,8 +949,12 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::contracts::{UserInputAnswer, UserInputRequest as ContractUserInputRequest};
+    use crate::contracts::{
+        ApprovalResponse, UserInputAnswer, UserInputRequest as ContractUserInputRequest,
+        UserInputResponse,
+    };
     use crate::core::{AppConfig, BuiltinModuleCatalog};
+    use crate::domain::{ToolCall, new_call_id};
 
     fn empty_body() -> Full<Bytes> {
         Full::new(Bytes::new())
@@ -976,6 +985,36 @@ mod tests {
         let (shutdown, _) = broadcast::channel(1);
         let state = HttpAppState::new(server.clone(), shutdown, test_security());
         (state, server)
+    }
+
+    fn pending_approval_entry(
+        approval_id: &str,
+        responder: tokio::sync::oneshot::Sender<ApprovalResponse>,
+    ) -> crate::app_server::PendingApprovalEntry {
+        crate::app_server::PendingApprovalEntry {
+            request: crate::app_server::AppApprovalRequest::new(
+                approval_id.to_owned(),
+                ToolCall::new(new_call_id(), "write_file", json!({ "path": "notes.txt" })),
+                PathBuf::from("/workspace"),
+                "test approval".to_owned(),
+                None,
+            ),
+            responder,
+        }
+    }
+
+    fn pending_user_input_entry(
+        request_id: &str,
+        responder: tokio::sync::oneshot::Sender<UserInputResponse>,
+    ) -> crate::app_server::PendingUserInputEntry {
+        crate::app_server::PendingUserInputEntry {
+            request: ContractUserInputRequest::new(
+                request_id.to_owned(),
+                PathBuf::from("/workspace"),
+                Vec::new(),
+            ),
+            responder,
+        }
     }
 
     async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
@@ -1742,11 +1781,10 @@ mod tests {
         let (state, server) = test_state().await;
         let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
         let approval_id = "approval-route".to_owned();
-        server
-            .pending_approvals
-            .lock()
-            .await
-            .insert(approval_id.clone(), approval_tx);
+        server.pending_approvals.lock().await.insert(
+            approval_id.clone(),
+            pending_approval_entry(&approval_id, approval_tx),
+        );
         let request = Request::builder()
             .method(Method::POST)
             .uri("/approval")
@@ -1793,11 +1831,10 @@ mod tests {
         let (state, server) = test_state().await;
         let (input_tx, input_rx) = tokio::sync::oneshot::channel();
         let request_id = "input-route".to_owned();
-        server
-            .pending_user_inputs
-            .lock()
-            .await
-            .insert(request_id.clone(), input_tx);
+        server.pending_user_inputs.lock().await.insert(
+            request_id.clone(),
+            pending_user_input_entry(&request_id, input_tx),
+        );
         let request = Request::builder()
             .method(Method::POST)
             .uri("/user-input")
@@ -1844,6 +1881,44 @@ mod tests {
             )])
         );
         assert!(server.pending_user_inputs.lock().await.is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
+        let (state, server) = test_state().await;
+        let (approval_tx, _approval_rx) = tokio::sync::oneshot::channel();
+        let approval_id = "approval-pending".to_owned();
+        server.pending_approvals.lock().await.insert(
+            approval_id.clone(),
+            pending_approval_entry(&approval_id, approval_tx),
+        );
+        let (input_tx, _input_rx) = tokio::sync::oneshot::channel();
+        let request_id = "input-pending".to_owned();
+        server.pending_user_inputs.lock().await.insert(
+            request_id.clone(),
+            pending_user_input_entry(&request_id, input_tx),
+        );
+
+        let response = route_request(state, authed_get_request("/pending"))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://127.0.0.1:1420")
+        );
+        let bytes = response_bytes(response).await;
+        let pending: crate::app_server::AppPendingRequests =
+            serde_json::from_slice(&bytes).expect("pending JSON");
+        assert_eq!(pending.approvals.len(), 1);
+        assert_eq!(pending.approvals[0].approval_id, approval_id);
+        assert_eq!(pending.user_inputs.len(), 1);
+        assert_eq!(pending.user_inputs[0].request_id, request_id);
         server.shutdown().await;
     }
 
@@ -2063,19 +2138,17 @@ mod tests {
 
         let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
         let approval_id = "approval-cancel".to_owned();
-        server
-            .pending_approvals
-            .lock()
-            .await
-            .insert(approval_id, approval_tx);
+        server.pending_approvals.lock().await.insert(
+            approval_id.clone(),
+            pending_approval_entry(&approval_id, approval_tx),
+        );
 
         let (input_tx, input_rx) = tokio::sync::oneshot::channel();
         let request_id = "input-cancel".to_owned();
-        server
-            .pending_user_inputs
-            .lock()
-            .await
-            .insert(request_id, input_tx);
+        server.pending_user_inputs.lock().await.insert(
+            request_id.clone(),
+            pending_user_input_entry(&request_id, input_tx),
+        );
 
         let output = execute_app_request(
             &state,

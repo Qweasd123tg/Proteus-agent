@@ -172,6 +172,27 @@ impl AppApprovalPreview {
     }
 }
 
+/// Snapshot текущих интерактивных запросов app-server'а. UI использует его
+/// после reconnect/initial load, чтобы восстановить approval и typed input
+/// карточки, если live SSE event был пропущен.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub struct AppPendingRequests {
+    #[serde(default)]
+    pub approvals: Vec<AppApprovalRequest>,
+    #[serde(default)]
+    pub user_inputs: Vec<UserInputRequest>,
+}
+
+impl AppPendingRequests {
+    pub fn new(approvals: Vec<AppApprovalRequest>, user_inputs: Vec<UserInputRequest>) -> Self {
+        Self {
+            approvals,
+            user_inputs,
+        }
+    }
+}
+
 /// Команды от клиента к ядру через stdin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -320,5 +341,14 @@ mod tests {
         assert_eq!(preview.kind, "write_file");
         assert_eq!(preview.affected_files, vec!["a.txt"]);
         assert_eq!(preview.metadata["operation"], "create");
+    }
+
+    #[test]
+    fn pending_requests_defaults_missing_lists_to_empty() {
+        let pending: AppPendingRequests =
+            serde_json::from_value(json!({})).expect("pending requests");
+
+        assert!(pending.approvals.is_empty());
+        assert!(pending.user_inputs.is_empty());
     }
 }

@@ -324,13 +324,12 @@ Scope:
   reconnect, autoscroll unstick при любом скролле вверх, диалоговое оформление
   ленты (правый «пузырь» пользователя, hover-only actions, fade-in ввода),
   streaming caret, reasoning-summary отдельным сворачиваемым блоком, markdown
-  code block copy + language label + wrap toggle, LaTeX styling. Осталось:
+  code block copy + language label + wrap toggle, LaTeX styling, восстановление
+  pending approvals/user-input после SSE reconnect через `/pending`. Осталось:
   - message actions: retry/continue;
   - compact typed controls и sticky latest controls для approval/user-input/plan;
   - tool call rendering: duration в tool cards;
   - авто-отправка очереди после завершения turn (сейчас ручная кнопка);
-  - восстановление pending approvals после SSE reconnect (нужен list endpoint
-    на app-server, клиент сейчас перечитывает только /history);
   - composer polish: разгрузить нижнюю панель (настройки/стата/кнопки);
   - визуальный backlog: легенда карты topology, `:focus-visible` для кнопок,
     разгрузка плотной uppercase-mono типографики, опц. скругление/анимации.

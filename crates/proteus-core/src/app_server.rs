@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     contracts::{
         ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        ToolSource, UserInputResponse, is_streaming_delta,
+        ToolSource, UserInputRequest, UserInputResponse, is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
@@ -34,8 +34,8 @@ pub mod stdio;
 // без зависимости на ядро. Здесь просто re-export для обратной
 // совместимости внутри proteus-core.
 pub use proteus_contracts::app_protocol::{
-    AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppServerEvent, AppUserInputRequestId,
-    StdioOutput, StdioRequest,
+    AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppPendingRequests, AppServerEvent,
+    AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
 const APPROVAL_PREVIEW_BODY_LIMIT: usize = 20_000;
@@ -46,10 +46,18 @@ pub struct AppTranscriptMessage {
     pub text: String,
 }
 
-type PendingApprovalResponders =
-    Arc<Mutex<HashMap<AppApprovalId, tokio::sync::oneshot::Sender<ApprovalResponse>>>>;
-type PendingUserInputResponders =
-    Arc<Mutex<HashMap<AppUserInputRequestId, tokio::sync::oneshot::Sender<UserInputResponse>>>>;
+struct PendingApprovalEntry {
+    request: AppApprovalRequest,
+    responder: tokio::sync::oneshot::Sender<ApprovalResponse>,
+}
+
+struct PendingUserInputEntry {
+    request: UserInputRequest,
+    responder: tokio::sync::oneshot::Sender<UserInputResponse>,
+}
+
+type PendingApprovalResponders = Arc<Mutex<HashMap<AppApprovalId, PendingApprovalEntry>>>;
+type PendingUserInputResponders = Arc<Mutex<HashMap<AppUserInputRequestId, PendingUserInputEntry>>>;
 
 #[derive(Clone)]
 pub struct AppServerHandle {
@@ -235,6 +243,28 @@ impl AppServerHandle {
             .collect()
     }
 
+    pub async fn pending_requests(&self) -> AppPendingRequests {
+        let mut approvals = self
+            .pending_approvals
+            .lock()
+            .await
+            .values()
+            .map(|entry| entry.request.clone())
+            .collect::<Vec<_>>();
+        approvals.sort_by(|left, right| left.approval_id.cmp(&right.approval_id));
+
+        let mut user_inputs = self
+            .pending_user_inputs
+            .lock()
+            .await
+            .values()
+            .map(|entry| entry.request.clone())
+            .collect::<Vec<_>>();
+        user_inputs.sort_by(|left, right| left.request_id.cmp(&right.request_id));
+
+        AppPendingRequests::new(approvals, user_inputs)
+    }
+
     pub async fn respond_approval(
         &self,
         approval_id: &str,
@@ -249,6 +279,7 @@ impl AppServerHandle {
             .remove(approval_id)
             .ok_or_else(|| anyhow!("unknown approval id: {approval_id}"))?;
         responder
+            .responder
             .send(ApprovalResponse::new(approved, note, cache))
             .map_err(|_| anyhow!("approval response channel dropped"))?;
         let _ = self.events.send(AppServerEvent::ApprovalResolved {
@@ -270,6 +301,7 @@ impl AppServerHandle {
             .remove(request_id)
             .ok_or_else(|| anyhow!("unknown user input request id: {request_id}"))?;
         responder
+            .responder
             .send(response)
             .map_err(|_| anyhow!("user input response channel dropped"))?;
         let _ = self.events.send(AppServerEvent::UserInputResolved {
@@ -815,10 +847,6 @@ fn spawn_approval_forwarder(
     tokio::spawn(async move {
         while let Some(PendingApproval { request, responder }) = approval_rx.recv().await {
             let approval_id = Uuid::new_v4().to_string();
-            pending_approvals
-                .lock()
-                .await
-                .insert(approval_id.clone(), responder);
             let preview = approval_preview_for(&request.call, &request.cwd);
             let app_request = AppApprovalRequest::new(
                 approval_id.clone(),
@@ -828,22 +856,16 @@ fn spawn_approval_forwarder(
                 request.tool_spec,
             )
             .with_preview(preview);
-            if events
-                .send(AppServerEvent::ApprovalRequested {
-                    request: app_request,
-                })
-                .is_err()
-                && let Some(responder) = pending_approvals.lock().await.remove(&approval_id)
-            {
-                let _ = responder.send(ApprovalResponse::deny(
-                    "approval request could not be delivered to any app-server client",
-                ));
-                let _ = events.send(AppServerEvent::ApprovalResolved {
-                    approval_id,
-                    approved: false,
-                });
-                continue;
-            }
+            pending_approvals.lock().await.insert(
+                approval_id.clone(),
+                PendingApprovalEntry {
+                    request: app_request.clone(),
+                    responder,
+                },
+            );
+            let _ = events.send(AppServerEvent::ApprovalRequested {
+                request: app_request,
+            });
 
             if !approval_timeout.is_zero() {
                 spawn_approval_timeout(
@@ -865,10 +887,10 @@ fn spawn_approval_timeout(
 ) {
     tokio::spawn(async move {
         tokio::time::sleep(approval_timeout).await;
-        let responder = pending_approvals.lock().await.remove(&approval_id);
-        if let Some(responder) = responder {
+        let entry = pending_approvals.lock().await.remove(&approval_id);
+        if let Some(entry) = entry {
             let timeout_ms = approval_timeout.as_millis() as u64;
-            let _ = responder.send(ApprovalResponse::deny(format!(
+            let _ = entry.responder.send(ApprovalResponse::deny(format!(
                 "approval request timed out after {timeout_ms}ms"
             )));
             let _ = events.send(AppServerEvent::ApprovalResolved {
@@ -888,19 +910,14 @@ fn spawn_user_input_forwarder(
     tokio::spawn(async move {
         while let Some(PendingUserInput { request, responder }) = user_input_rx.recv().await {
             let request_id = request.request_id.clone();
-            pending_user_inputs
-                .lock()
-                .await
-                .insert(request_id.clone(), responder);
-            if events
-                .send(AppServerEvent::UserInputRequested { request })
-                .is_err()
-                && let Some(responder) = pending_user_inputs.lock().await.remove(&request_id)
-            {
-                let _ = responder.send(UserInputResponse::empty());
-                let _ = events.send(AppServerEvent::UserInputResolved { request_id });
-                continue;
-            }
+            pending_user_inputs.lock().await.insert(
+                request_id.clone(),
+                PendingUserInputEntry {
+                    request: request.clone(),
+                    responder,
+                },
+            );
+            let _ = events.send(AppServerEvent::UserInputRequested { request });
 
             if !timeout.is_zero() {
                 spawn_user_input_timeout(
@@ -922,9 +939,9 @@ fn spawn_user_input_timeout(
 ) {
     tokio::spawn(async move {
         tokio::time::sleep(timeout).await;
-        let responder = pending_user_inputs.lock().await.remove(&request_id);
-        if let Some(responder) = responder {
-            let _ = responder.send(UserInputResponse::empty());
+        let entry = pending_user_inputs.lock().await.remove(&request_id);
+        if let Some(entry) = entry {
+            let _ = entry.responder.send(UserInputResponse::empty());
             let _ = events.send(AppServerEvent::UserInputResolved { request_id });
         }
     });
@@ -936,8 +953,8 @@ async fn deny_pending_approvals(
     note: String,
 ) {
     let pending = std::mem::take(&mut *pending_approvals.lock().await);
-    for (approval_id, responder) in pending {
-        let _ = responder.send(ApprovalResponse::deny(note.clone()));
+    for (approval_id, entry) in pending {
+        let _ = entry.responder.send(ApprovalResponse::deny(note.clone()));
         let _ = events.send(AppServerEvent::ApprovalResolved {
             approval_id,
             approved: false,
@@ -951,8 +968,8 @@ async fn deny_pending_user_inputs(
     _note: String,
 ) {
     let pending = std::mem::take(&mut *pending_user_inputs.lock().await);
-    for (request_id, responder) in pending {
-        let _ = responder.send(UserInputResponse::empty());
+    for (request_id, entry) in pending {
+        let _ = entry.responder.send(UserInputResponse::empty());
         let _ = events.send(AppServerEvent::UserInputResolved { request_id });
     }
 }
@@ -1207,6 +1224,32 @@ mod tests {
         catalog
     }
 
+    fn pending_approval_entry(
+        approval_id: &str,
+        responder: oneshot::Sender<ApprovalResponse>,
+    ) -> PendingApprovalEntry {
+        PendingApprovalEntry {
+            request: AppApprovalRequest::new(
+                approval_id.to_owned(),
+                ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
+                PathBuf::from("."),
+                "test approval".to_owned(),
+                None,
+            ),
+            responder,
+        }
+    }
+
+    fn pending_user_input_entry(
+        request_id: &str,
+        responder: oneshot::Sender<UserInputResponse>,
+    ) -> PendingUserInputEntry {
+        PendingUserInputEntry {
+            request: UserInputRequest::new(request_id.to_owned(), PathBuf::from("."), Vec::new()),
+            responder,
+        }
+    }
+
     #[test]
     fn apply_patch_approval_preview_extracts_affected_files() {
         let call = ToolCall::new(
@@ -1337,7 +1380,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn approval_forwarder_denies_when_no_client_can_receive_request() {
+    async fn approval_forwarder_keeps_request_when_no_client_can_receive_event() {
         let (approval_tx, approval_rx) = mpsc::channel(1);
         let (events, _) = broadcast::channel(1);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
@@ -1348,7 +1391,7 @@ mod tests {
             Duration::from_secs(60),
         );
 
-        let (responder, response_rx) = oneshot::channel();
+        let (responder, mut response_rx) = oneshot::channel();
         approval_tx
             .send(PendingApproval {
                 request: ApprovalRequest::new(
@@ -1362,19 +1405,10 @@ mod tests {
             .await
             .unwrap();
 
-        let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
-            .await
-            .expect("approval response should not hang")
-            .expect("approval responder should send denial");
+        tokio::time::sleep(Duration::from_millis(30)).await;
 
-        assert!(!response.approved);
-        assert!(
-            response
-                .note
-                .as_deref()
-                .is_some_and(|note| note.contains("could not be delivered"))
-        );
-        assert!(pending_approvals.lock().await.is_empty());
+        assert_eq!(pending_approvals.lock().await.len(), 1);
+        assert!(response_rx.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -1536,10 +1570,10 @@ mod tests {
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let (responder, response_rx) = oneshot::channel();
         let approval_id = "approval-1".to_owned();
-        pending_approvals
-            .lock()
-            .await
-            .insert(approval_id.clone(), responder);
+        pending_approvals.lock().await.insert(
+            approval_id.clone(),
+            pending_approval_entry(&approval_id, responder),
+        );
 
         deny_pending_approvals(
             pending_approvals.clone(),
@@ -1575,10 +1609,10 @@ mod tests {
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
         let (responder, response_rx) = oneshot::channel();
         let request_id = "input-1".to_owned();
-        pending_user_inputs
-            .lock()
-            .await
-            .insert(request_id.clone(), responder);
+        pending_user_inputs.lock().await.insert(
+            request_id.clone(),
+            pending_user_input_entry(&request_id, responder),
+        );
 
         deny_pending_user_inputs(
             pending_user_inputs.clone(),
@@ -1618,11 +1652,10 @@ mod tests {
         let mut event_rx = handle.subscribe();
         let (responder, response_rx) = oneshot::channel();
         let approval_id = "approval-cancel".to_owned();
-        handle
-            .pending_approvals
-            .lock()
-            .await
-            .insert(approval_id.clone(), responder);
+        handle.pending_approvals.lock().await.insert(
+            approval_id.clone(),
+            pending_approval_entry(&approval_id, responder),
+        );
 
         handle
             .cancel_pending_approvals("turn canceled by client".to_owned())
@@ -1665,11 +1698,10 @@ mod tests {
         let mut event_rx = handle.subscribe();
         let (responder, response_rx) = oneshot::channel();
         let request_id = "input-cancel".to_owned();
-        handle
-            .pending_user_inputs
-            .lock()
-            .await
-            .insert(request_id.clone(), responder);
+        handle.pending_user_inputs.lock().await.insert(
+            request_id.clone(),
+            pending_user_input_entry(&request_id, responder),
+        );
 
         handle
             .cancel_pending_user_inputs("turn canceled by client".to_owned())
