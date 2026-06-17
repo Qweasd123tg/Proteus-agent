@@ -1003,11 +1003,7 @@ fn cached_message_html(message: Memo<Option<Message>>) -> Memo<String> {
 }
 
 fn render_message_html(message: &Message) -> String {
-    if message.streaming {
-        plain_text_html(&message.text)
-    } else {
-        markdown_html(&message.text)
-    }
+    markdown_html(&message.text)
 }
 
 fn current_reasoning_html(message: Memo<Option<Message>>) -> String {
@@ -1053,5 +1049,19 @@ mod tests {
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
         assert_eq!(format_elapsed_seconds(9), "9s");
         assert_eq!(format_elapsed_seconds(65), "1m 05s");
+    }
+
+    #[test]
+    fn render_message_html_formats_markdown_while_streaming() {
+        let html = render_message_html(&Message {
+            id: 1,
+            version: 0,
+            role: MessageRole::Assistant,
+            text: "**live** markdown".to_owned(),
+            tool: None,
+            streaming: true,
+        });
+
+        assert!(html.contains("<strong>live</strong>"));
     }
 }
