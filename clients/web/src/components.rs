@@ -85,7 +85,7 @@ pub(crate) fn ResumeView() -> impl IntoView {
                                                     <strong>{short_path(&workspace)}</strong>
                                                     <code>{session_id}</code>
                                                 </div>
-                                                <p>{session.preview.clone().unwrap_or_else(|| "Нет превью диалога".to_owned())}</p>
+                                                <p>{resume_session_preview(&session)}</p>
                                                 <div class="resume-meta">
                                                     <span>{workspace}</span>
                                                     <span>{format!("{} сообщений", session.message_count)}</span>
@@ -108,6 +108,16 @@ pub(crate) fn ResumeView() -> impl IntoView {
                 }
             }}
         </section>
+    }
+}
+
+fn resume_session_preview(session: &SessionSummary) -> String {
+    if let Some(preview) = session.preview.as_deref().filter(|text| !text.trim().is_empty()) {
+        preview.to_owned()
+    } else if session.message_count == 0 {
+        "Новый чат".to_owned()
+    } else {
+        "Сессия".to_owned()
     }
 }
 
