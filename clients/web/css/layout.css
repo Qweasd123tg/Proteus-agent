@@ -416,6 +416,10 @@ button.session-item.active {
     margin-left: auto;
 }
 
+.results-panel > .user-turn {
+    max-width: none;
+}
+
 .results-panel > .task-card,
 .results-panel > .user-turn,
 .results-panel > .control-card,
