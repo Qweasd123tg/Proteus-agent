@@ -8,6 +8,7 @@ use crate::api::{event_stream_url, get_json, js_error};
 use crate::app::replace_transcript;
 use crate::messages::{
     append_streaming_assistant_delta, append_streaming_reasoning_delta,
+    finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
     finish_streaming_assistant_message, finish_streaming_reasoning, push_message,
     push_tool_message, push_user_message_once, update_tool_status,
 };
@@ -288,6 +289,8 @@ fn handle_app_event(
                             message.streaming = false;
                         }
                     });
+                } else {
+                    finish_all_streaming_assistant_messages(set_messages);
                 }
                 set_active_stream_message_id.set(None);
                 set_streamed_this_turn.set(false);
@@ -484,7 +487,11 @@ fn update_runtime_status_and_tools(
         }
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         set_agent_status.set("запускает tool".to_owned());
-        set_active_stream_message_id.set(None);
+        finish_active_streaming_assistant_message(
+            set_messages,
+            active_stream_message_id,
+            set_active_stream_message_id,
+        );
         finish_streaming_reasoning(set_messages);
         if let Some(call) = tool_event.get("call") {
             let call_id = call
