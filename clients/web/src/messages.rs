@@ -289,6 +289,7 @@ mod tests {
 
             let items = messages.get_untracked();
             assert!(!items[0].streaming);
+            assert_eq!(items[0].version, 1);
             assert_eq!(active_stream_message_id.get_untracked(), None);
         });
     }

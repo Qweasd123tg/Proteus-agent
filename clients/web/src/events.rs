@@ -337,6 +337,7 @@ fn handle_app_event(
                             items.iter_mut().find(|message| message.id == message_id)
                         {
                             message.streaming = false;
+                            message.version += 1;
                         }
                     });
                 } else {
