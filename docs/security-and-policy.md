@@ -188,9 +188,23 @@ Core санитайзит слишком широкие scopes: shell/command/ne
 не ломали текущий server. Cache хранится только в памяти текущего
 runtime/session и не переживает restart или `resume_from_session_dir`.
 
-Ближайшая UX-цель для write approval - diff-first flow. Для `apply_patch`
-approval должен показывать affected files и diff preview; для `file-tools`
-плагина (когда он active) — аналогично для `write_file`, а для `shell-tool` — command, cwd и причину запуска.
+App-server approval request может содержать optional `preview` для UI. Это
+подсказочные метаданные: они помогают клиенту показать, что будет одобрено, но не
+меняет execution semantics. Safety boundary остаётся прежней:
+`ToolRegistry` выбирает зарегистрированный tool, mode-aware `ApprovalPolicy`
+принимает visibility/execution decision, `ToolSafety` задаёт нижний safety
+floor, а сам tool выполняет validation и workspace/path checks перед действием.
+
+Текущий WIP preview покрывает три частых approval сценария:
+
+- `apply_patch` - affected files и patch/diff body;
+- `write_file` из `file-tools` - affected file и content/diff body;
+- `shell` из `shell-tool` - command body, cwd и command-oriented metadata.
+
+UI не должен использовать `preview` для обхода `ask_before`, cache sanitation,
+workspace boundary или аргументной validation. Если `preview` отсутствует,
+approval остаётся валидным и должен рендериться через обычные `ToolCall`,
+`reason`, `cwd` и `tool_spec`.
 
 Headless runtime без approval transport отказывает `Ask`. App-server transport
 публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`; если
