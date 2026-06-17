@@ -5,7 +5,7 @@ use serde_json::Value;
 use web_sys::{MouseEvent, window};
 
 use crate::api::{get_json, post_json};
-use crate::markdown::markdown_html;
+use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{compact_json, copy_to_clipboard, short_id, short_path};
 
@@ -728,7 +728,7 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn MessageView(message_id: u64, messages: ReadSignal<Vec<Message>>) -> impl IntoView {
+pub(crate) fn MessageView(message_id: u64, messages: Memo<HashMap<u64, Message>>) -> impl IntoView {
     let message = Memo::new(move |_| current_message(messages, message_id));
     let Some(initial_message) = message.get_untracked() else {
         return view! { <></> }.into_any();
@@ -889,13 +889,8 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
     .into_any()
 }
 
-fn current_message(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<Message> {
-    messages.with(|items| {
-        items
-            .iter()
-            .find(|message| message.id == message_id)
-            .cloned()
-    })
+fn current_message(messages: Memo<HashMap<u64, Message>>, message_id: u64) -> Option<Message> {
+    messages.with(|items| items.get(&message_id).cloned())
 }
 
 fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
@@ -910,7 +905,14 @@ fn current_message_text(message: Memo<Option<Message>>) -> String {
 }
 
 fn current_message_html(message: Memo<Option<Message>>) -> String {
-    markdown_html(&current_message_text(message))
+    let Some(message) = message.get() else {
+        return String::new();
+    };
+    if message.streaming {
+        plain_text_html(&message.text)
+    } else {
+        markdown_html(&message.text)
+    }
 }
 
 fn current_message_content_class(message: Memo<Option<Message>>) -> String {

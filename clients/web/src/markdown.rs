@@ -19,6 +19,22 @@ pub(crate) fn markdown_html(text: &str) -> String {
     enhance_code_blocks(&output)
 }
 
+pub(crate) fn plain_text_html(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&#39;"),
+            '\n' => output.push_str("<br>"),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
 /// Оборачивает каждый `<pre><code>` блок в контейнер с шапкой: ярлык языка,
 /// кнопки copy и wrap (обработчик кликов делегирован в index.html). Поиск по
 /// литералу безопасен: pulldown-cmark экранирует `<`/`>` внутри кода, поэтому
@@ -291,6 +307,13 @@ mod tests {
         let html = markdown_html("Energy: $E = mc^2$.");
 
         assert!(html.contains(r#"<span class="mathjax-inline">\(E = mc^2\)</span>"#));
+    }
+
+    #[test]
+    fn plain_text_html_escapes_markup_and_preserves_newlines() {
+        let html = plain_text_html("<b>one</b>\n& two");
+
+        assert_eq!(html, "&lt;b&gt;one&lt;/b&gt;<br>&amp; two");
     }
 
     #[test]

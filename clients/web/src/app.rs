@@ -105,12 +105,21 @@ pub(crate) fn App() -> impl IntoView {
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
     let (resize_start_composer, set_resize_start_composer) = signal(DEFAULT_COMPOSER_HEIGHT_PX);
+    let messages_by_id = Memo::new(move |_| {
+        messages.with(|items| {
+            items
+                .iter()
+                .cloned()
+                .map(|message| (message.id, message))
+                .collect::<HashMap<_, _>>()
+        })
+    });
 
     Effect::new(move |_| {
         let _ = (
-            messages.get().len(),
-            pending_user_inputs.get().len(),
-            queued_prompts.get().len(),
+            messages.with(|items| items.len()),
+            pending_user_inputs.with(|items| items.len()),
+            queued_prompts.with(|items| items.len()),
             is_sending.get(),
         );
         let streaming_active = active_stream_message_id.get().is_some();
@@ -723,11 +732,15 @@ pub(crate) fn App() -> impl IntoView {
                             if workspace == "waiting for session" {
                                 sidebar_sessions_status.get()
                             } else {
-                                let count = sidebar_sessions
-                                    .get()
-                                    .iter()
-                                    .filter(|session| session.workspace_path.as_deref() == Some(workspace.as_str()))
-                                    .count();
+                                let count = sidebar_sessions.with(|sessions| {
+                                    sessions
+                                        .iter()
+                                        .filter(|session| {
+                                            session.workspace_path.as_deref()
+                                                == Some(workspace.as_str())
+                                        })
+                                        .count()
+                                });
                                 format!("{count} сессий в текущей папке")
                             }
                         }
@@ -740,14 +753,17 @@ pub(crate) fn App() -> impl IntoView {
                         <For
                             each=move || {
                                 let workspace = workspace_label.get();
-                                sidebar_sessions
-                                    .get()
-                                    .into_iter()
-                                    .filter(|session| {
-                                        workspace != "waiting for session"
-                                            && session.workspace_path.as_deref() == Some(workspace.as_str())
-                                    })
-                                    .collect::<Vec<_>>()
+                                sidebar_sessions.with(|sessions| {
+                                    sessions
+                                        .iter()
+                                        .filter(|session| {
+                                            workspace != "waiting for session"
+                                                && session.workspace_path.as_deref()
+                                                    == Some(workspace.as_str())
+                                        })
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                })
                             }
                             key=|session| session.session_dir.clone()
                             children=move |session| {
@@ -882,13 +898,15 @@ pub(crate) fn App() -> impl IntoView {
                                 }
                             >
                                 {move || {
-                                    let approvals_empty = pending_approvals.get().is_empty();
-                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    let approvals_empty =
+                                        pending_approvals.with(|items| items.is_empty());
+                                    let user_inputs_empty =
+                                        pending_user_inputs.with(|items| items.is_empty());
                                     let working = is_sending.get() && user_inputs_empty;
-                                    if messages.get().is_empty()
+                                    if messages.with(|items| items.is_empty())
                                         && approvals_empty
                                         && user_inputs_empty
-                                        && queued_prompts.get().is_empty()
+                                        && queued_prompts.with(|items| items.is_empty())
                                         && !working
                                     {
                                         view! {
@@ -903,14 +921,12 @@ pub(crate) fn App() -> impl IntoView {
                                 }}
                                 <For
                                     each=move || {
-                                        messages
-                                            .get()
-                                            .into_iter()
-                                            .map(|message| message.id)
-                                            .collect::<Vec<_>>()
+                                        messages.with(|items| {
+                                            items.iter().map(|message| message.id).collect::<Vec<_>>()
+                                        })
                                     }
                                     key=|message_id| *message_id
-                                    children=move |message_id| view! { <MessageView message_id messages /> }
+                                    children=move |message_id| view! { <MessageView message_id messages=messages_by_id /> }
                                 />
                                 <For
                                     each=move || pending_approvals.get()
@@ -927,7 +943,8 @@ pub(crate) fn App() -> impl IntoView {
                                     }
                                 />
                                 {move || {
-                                    let user_inputs_empty = pending_user_inputs.get().is_empty();
+                                    let user_inputs_empty =
+                                        pending_user_inputs.with(|items| items.is_empty());
                                     if mode.get() == PermissionMode::Plan
                                         && !is_sending.get()
                                         && user_inputs_empty
@@ -974,7 +991,9 @@ pub(crate) fn App() -> impl IntoView {
                                 />
 
                                 {move || {
-                                    if is_sending.get() && pending_user_inputs.get().is_empty() {
+                                    if is_sending.get()
+                                        && pending_user_inputs.with(|items| items.is_empty())
+                                    {
                                         view! { <WorkingCard status=agent_status /> }.into_any()
                                     } else {
                                         view! { <></> }.into_any()

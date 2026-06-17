@@ -38,10 +38,19 @@
                         const root =
                             document.querySelector(".results-panel") ||
                             document.body;
-                        const text = root.textContent || "";
-                        if (!/[\\$]/.test(text)) {
+                        const mathNodes = Array.from(
+                            root.querySelectorAll(
+                                ".mathjax-inline, .mathjax-display",
+                            ),
+                        ).filter(
+                            (node) => !node.dataset.proteusMathProcessed,
+                        );
+                        if (mathNodes.length === 0) {
                             return;
                         }
+                        mathNodes.forEach((node) => {
+                            node.dataset.proteusMathProcessed = "pending";
+                        });
                         const wasAtBottom =
                             root.scrollHeight -
                                 root.scrollTop -
@@ -52,16 +61,27 @@
                             return;
                         }
                         window.__proteusMathRunning = true;
-                        window.MathJax.typesetPromise([root]).finally(() => {
-                            if (wasAtBottom) {
-                                root.scrollTop = root.scrollHeight;
-                            }
-                            window.__proteusMathRunning = false;
-                            if (window.__proteusMathQueued) {
-                                window.__proteusMathQueued = false;
-                                window.proteusTypesetMath();
-                            }
-                        });
+                        window.MathJax.typesetPromise(mathNodes)
+                            .then(() => {
+                                mathNodes.forEach((node) => {
+                                    node.dataset.proteusMathProcessed = "done";
+                                });
+                            })
+                            .catch(() => {
+                                mathNodes.forEach((node) => {
+                                    delete node.dataset.proteusMathProcessed;
+                                });
+                            })
+                            .finally(() => {
+                                if (wasAtBottom) {
+                                    root.scrollTop = root.scrollHeight;
+                                }
+                                window.__proteusMathRunning = false;
+                                if (window.__proteusMathQueued) {
+                                    window.__proteusMathQueued = false;
+                                    window.proteusTypesetMath();
+                                }
+                            });
                     }
                 });
             };
