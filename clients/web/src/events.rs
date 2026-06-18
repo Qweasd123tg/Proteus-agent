@@ -55,6 +55,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    pub(crate) set_context_usage: WriteSignal<Option<ContextUsage>>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -157,6 +158,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.stream_delta_buffer,
                     bindings.set_agent_status,
                     bindings.set_tool_activities,
+                    bindings.set_context_usage,
                     bindings.set_pending_approvals,
                     bindings.set_pending_user_inputs,
                     bindings.set_sidebar_sessions,
@@ -224,6 +226,7 @@ fn handle_app_output(
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_context_usage: WriteSignal<Option<ContextUsage>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -252,6 +255,7 @@ fn handle_app_output(
                 stream_delta_buffer,
                 set_agent_status,
                 set_tool_activities,
+                set_context_usage,
                 set_pending_approvals,
                 set_pending_user_inputs,
                 set_sidebar_sessions,
@@ -286,6 +290,7 @@ fn handle_app_event(
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_context_usage: WriteSignal<Option<ContextUsage>>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -311,6 +316,7 @@ fn handle_app_event(
                 stream_bindings,
                 set_agent_status,
                 set_tool_activities,
+                set_context_usage,
             );
             update_session_labels(
                 envelope,
@@ -523,10 +529,18 @@ fn update_runtime_status_and_tools(
     stream_bindings: StreamFlushBindings,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_context_usage: WriteSignal<Option<ContextUsage>>,
 ) {
     let Some(event) = envelope.get("event") else {
         return;
     };
+
+    if let Some(usage_event) = event.get("TokenUsageUpdated") {
+        if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
+            set_context_usage.set(Some(usage));
+        }
+        return;
+    }
 
     if event.get("TurnStarted").is_some() {
         flush_stream_delta_buffer(stream_bindings);
@@ -692,6 +706,30 @@ fn update_runtime_status_and_tools(
     } else if event.get("Error").is_some() {
         set_agent_status.set("ошибка".to_owned());
     }
+}
+
+/// Снимок заполнения контекста: за «использовано» берём реальный замер
+/// провайдера, а при его отсутствии (фаза оценки) — локальную прикидку.
+/// Без известного потолка окна бублик показывать нечем — возвращаем None.
+fn parse_context_usage(usage: &Value) -> Option<ContextUsage> {
+    let max_tokens = usage.get("max_input_tokens").and_then(Value::as_u64)?;
+    if max_tokens == 0 {
+        return None;
+    }
+    let used_tokens = usage
+        .pointer("/actual/input_tokens")
+        .and_then(Value::as_u64)
+        .or_else(|| usage.get("estimated_input_tokens").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let compaction_trigger_tokens = usage
+        .get("compaction_trigger_tokens")
+        .and_then(Value::as_u64)
+        .map(|tokens| tokens.min(u64::from(u32::MAX)) as u32);
+    Some(ContextUsage {
+        used_tokens: used_tokens.min(u64::from(u32::MAX)) as u32,
+        max_tokens: max_tokens.min(u64::from(u32::MAX)) as u32,
+        compaction_trigger_tokens,
+    })
 }
 
 fn trim_tool_activities(items: &mut Vec<ToolActivity>) {

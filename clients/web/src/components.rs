@@ -7,10 +7,14 @@ use web_sys::{MouseEvent, window};
 use crate::api::{get_json, post_json};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
-use crate::ui_utils::{compact_json, compact_text, copy_to_clipboard, short_id, short_path};
+use crate::ui_utils::{compact_json, compact_text, copy_to_clipboard, set_timeout, short_id, short_path};
 
 const REASONING_RENDER_LIMIT: usize = 8000;
 const APPROVAL_PREVIEW_RENDER_LIMIT: usize = 12000;
+const COPY_FEEDBACK_MS: i32 = 1200;
+/// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
+const CONTEXT_RING_WARN_PERCENT: u8 = 70;
+const CONTEXT_RING_CRIT_PERCENT: u8 = 90;
 
 #[derive(Clone)]
 struct RenderedMessageCache {
@@ -756,6 +760,100 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
     }
 }
 
+/// Маленький бублик в строке ввода: показывает, насколько заполнено
+/// контекстное окно. Скрыт, пока не пришёл первый снимок `TokenUsageUpdated`
+/// с известным потолком окна.
+#[component]
+pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
+    move || {
+        let Some(context) = usage.get() else {
+            return view! { <></> }.into_any();
+        };
+        let percent = context.percent();
+        let degrees = f64::from(percent) / 100.0 * 360.0;
+        // Метку автокомпакта рисуем только когда сервер прислал порог.
+        let compaction_percent = context.compaction_percent();
+        let level = if percent >= CONTEXT_RING_CRIT_PERCENT {
+            "crit"
+        } else if percent >= CONTEXT_RING_WARN_PERCENT {
+            "warn"
+        } else {
+            "ok"
+        };
+        let mut style = format!("--context-ring-deg: {degrees:.1}deg");
+        let mut title = format!(
+            "Контекст: {percent}% · {} / {} токенов",
+            format_token_count(context.used_tokens),
+            format_token_count(context.max_tokens),
+        );
+        if let (Some(mark_percent), Some(trigger_tokens)) =
+            (compaction_percent, context.compaction_trigger_tokens)
+        {
+            let mark_degrees = f64::from(mark_percent) / 100.0 * 360.0;
+            style.push_str(&format!("; --context-ring-mark-deg: {mark_degrees:.1}deg"));
+            title.push_str(&format!(
+                " · автокомпакт при {mark_percent}% (~{})",
+                format_token_count(trigger_tokens),
+            ));
+        }
+        let class = if compaction_percent.is_some() {
+            format!("context-ring context-ring-{level} context-ring-has-mark")
+        } else {
+            format!("context-ring context-ring-{level}")
+        };
+        view! {
+            <div
+                class=class
+                style=style
+                title=title.clone()
+                aria-label=title
+            >
+                <span class="context-ring-label">{percent.to_string()}</span>
+            </div>
+        }
+        .into_any()
+    }
+}
+
+/// Компактная запись числа токенов: «90.5k», «200k», «512».
+fn format_token_count(tokens: u32) -> String {
+    if tokens < 1000 {
+        return tokens.to_string();
+    }
+    let thousands = f64::from(tokens) / 1000.0;
+    let formatted = format!("{thousands:.1}");
+    format!("{}k", formatted.trim_end_matches(".0"))
+}
+
+/// Кнопка копирования с короткой обратной связью: после клика подсвечивается
+/// и меняет ярлык на «Скопировано», затем сама сбрасывается.
+#[component]
+fn CopyButton<F>(
+    text: F,
+    #[prop(into)] class: String,
+    #[prop(into)] title: String,
+) -> impl IntoView
+where
+    F: Fn() -> String + 'static,
+{
+    let (copied, set_copied) = signal(false);
+    view! {
+        <button
+            type="button"
+            class=class
+            class:copied=move || copied.get()
+            title=title
+            on:click=move |_| {
+                copy_to_clipboard(text());
+                set_copied.set(true);
+                set_timeout(COPY_FEEDBACK_MS, move || set_copied.set(false));
+            }
+        >
+            {move || if copied.get() { "Скопировано" } else { "Копировать" }}
+        </button>
+    }
+}
+
 #[component]
 pub(crate) fn MessageView(
     message_id: u64,
@@ -799,14 +897,11 @@ pub(crate) fn MessageView(
             <div class="task-card-header">
                 <span class="assistant-role">{move || message.get().map(|message| message.role.label()).unwrap_or("Сообщение")}</span>
                 <div class="message-actions">
-                    <button
-                        type="button"
+                    <CopyButton
+                        text=move || current_message_text(message)
                         class="icon-button"
                         title="Скопировать markdown"
-                        on:click=move |_| copy_to_clipboard(current_message_text(message))
-                    >
-                        "Копировать"
-                    </button>
+                    />
                 </div>
             </div>
             <div
@@ -825,14 +920,11 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
     view! {
         <article class="user-turn">
             <div class="user-bubble">
-                <button
-                    type="button"
+                <CopyButton
+                    text=move || current_message_text(message)
                     class="icon-button user-copy"
                     title="Скопировать"
-                    on:click=move |_| copy_to_clipboard(current_message_text(message))
-                >
-                    "Копировать"
-                </button>
+                />
                 <div class="message user-message" inner_html=move || rendered_html.get()></div>
             </div>
         </article>

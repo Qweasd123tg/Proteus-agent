@@ -453,6 +453,112 @@
     color: var(--text-main);
 }
 
+.icon-button.copied {
+    color: var(--accent-green);
+}
+
+.jump-to-bottom {
+    position: absolute;
+    top: -46px;
+    right: var(--space-4);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    color: var(--text-main);
+    font-size: 16px;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+    transition:
+        background 0.15s,
+        transform 0.15s;
+    animation: message-in 0.18s ease-out;
+}
+
+.jump-to-bottom:hover {
+    background: var(--bg-panel-hover);
+    transform: translateY(-1px);
+}
+
+.context-ring {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-right: auto;
+    cursor: default;
+}
+
+/* Бублик рисуется conic-градиентом, дырку прорезаем radial-маской —
+   это работает на любом фоне и не зависит от SVG-namespace. */
+.context-ring::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(
+        var(--context-ring-color, var(--accent-green)) var(--context-ring-deg, 0deg),
+        var(--border-strong) 0deg
+    );
+    -webkit-mask: radial-gradient(
+        farthest-side,
+        transparent calc(100% - 3px),
+        #000 calc(100% - 3px)
+    );
+    mask: radial-gradient(
+        farthest-side,
+        transparent calc(100% - 3px),
+        #000 calc(100% - 3px)
+    );
+}
+
+/* Метка-порог автокомпакта: тонкий радиальный штрих на дуге под углом
+   --context-ring-mark-deg. Рисуется только когда сервер прислал порог
+   (класс context-ring-has-mark), иначе метки нет. */
+.context-ring-has-mark::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 50%;
+    transform-origin: bottom center;
+    transform: translateX(-50%) rotate(var(--context-ring-mark-deg, 288deg));
+    background: linear-gradient(
+        to top,
+        transparent calc(100% - 4px),
+        var(--text-main) calc(100% - 4px)
+    );
+    border-radius: 1px;
+    pointer-events: none;
+}
+
+.context-ring-warn {
+    --context-ring-color: var(--accent-yellow);
+}
+
+.context-ring-crit {
+    --context-ring-color: var(--accent-red);
+}
+
+.context-ring-label {
+    position: relative;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 600;
+    line-height: 1;
+}
+
 .input-question {
     display: grid;
     gap: var(--space-2);
