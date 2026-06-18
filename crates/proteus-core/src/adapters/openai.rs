@@ -15,6 +15,11 @@ use crate::{
     },
 };
 
+/// Контекстное окно по умолчанию для семейства gpt-5, когда провайдер не
+/// задал `max_input_tokens` явно. Адаптер общий на все openai-модели, поэтому
+/// это лишь fallback — точное значение задаётся в provider config.
+const DEFAULT_OPENAI_MAX_INPUT_TOKENS: u32 = 272_000;
+
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesClient {
     http: reqwest::Client,
@@ -24,6 +29,9 @@ pub struct OpenAiResponsesClient {
     /// `stream` в provider config. Provider profiles по умолчанию включают
     /// streaming; `stream = false` оставляет non-stream fallback.
     stream_enabled: bool,
+    /// Потолок контекстного окна (`max_input_tokens` в provider config).
+    /// Сообщается в capabilities и питает индикатор заполнения контекста.
+    max_input_tokens: u32,
 }
 
 impl OpenAiResponsesClient {
@@ -38,12 +46,19 @@ impl OpenAiResponsesClient {
             .get("stream")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let max_input_tokens = config
+            .get("max_input_tokens")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_OPENAI_MAX_INPUT_TOKENS);
 
         Ok(Self {
             http: reqwest::Client::new(),
             secret_config: config,
             base_url,
             stream_enabled,
+            max_input_tokens,
         })
     }
 }
@@ -63,6 +78,7 @@ impl ModelAdapter for OpenAiResponsesClient {
             .with_developer_role(true)
             .with_reasoning_config(true)
             .with_streaming(true)
+            .with_max_input_tokens(Some(self.max_input_tokens))
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

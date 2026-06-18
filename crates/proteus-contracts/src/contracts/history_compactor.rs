@@ -18,6 +18,14 @@ pub struct CompactionInput {
     pub token_estimate: Option<u32>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Сырой потолок контекстного окна модели. Компактор применяет к нему
+    /// `trigger_fraction` из конфига. `None` — если окно неизвестно.
+    #[serde(default)]
+    pub window_tokens: Option<u32>,
+    /// module-config компактора (`module_config.compactor.<id>`), который
+    /// хост прокидывает в плагин. Содержит, в частности, порог автокомпакта.
+    #[serde(default)]
+    pub config: serde_json::Value,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -30,6 +38,8 @@ impl CompactionInput {
             messages,
             token_estimate: None,
             max_tokens: None,
+            window_tokens: None,
+            config: serde_json::Value::Null,
             reason: None,
         }
     }
@@ -46,6 +56,16 @@ impl CompactionInput {
 
     pub fn with_max_tokens(mut self, max_tokens: Option<u32>) -> Self {
         self.max_tokens = max_tokens;
+        self
+    }
+
+    pub fn with_window_tokens(mut self, window_tokens: Option<u32>) -> Self {
+        self.window_tokens = window_tokens;
+        self
+    }
+
+    pub fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
         self
     }
 }

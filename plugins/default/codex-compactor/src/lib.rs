@@ -30,7 +30,7 @@ use proteus_contracts::{
         PluginRoot, PluginRoot_Ref,
     },
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 const MODULE_ID: &str = "codex";
 const DEFAULT_TRIGGER_TOKENS: u32 = 32_000;
@@ -73,9 +73,16 @@ fn compact(
     let token_estimate = input
         .token_estimate
         .unwrap_or_else(|| estimate_messages_tokens(&input.messages));
-    let trigger_tokens = trigger_tokens(input.max_tokens);
+    let trigger_tokens = resolve_trigger_tokens(&input);
     if token_estimate <= trigger_tokens {
-        return Ok(CompactionOutput::unchanged(input.messages));
+        // Метаданные с trigger_tokens нужны всегда: их читает workflow,
+        // чтобы показать метку автокомпакта на индикаторе контекста.
+        return Ok(unchanged_with_metadata(
+            input.messages,
+            token_estimate,
+            trigger_tokens,
+            "below_trigger_threshold",
+        ));
     }
 
     let current_tail_start = current_tail_start(&input.messages);
@@ -493,10 +500,45 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn trigger_tokens(model_auto_limit: Option<u32>) -> u32 {
-    env_u32("PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS")
-        .or(model_auto_limit)
-        .unwrap_or(DEFAULT_TRIGGER_TOKENS)
+/// Порог токенов, на котором запускается автокомпакт. Приоритет:
+/// 1) `trigger_tokens` из module-config (жёсткий потолок);
+/// 2) env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`;
+/// 3) `trigger_fraction` из конфига × сырое окно `window_tokens`;
+/// 4) legacy `max_tokens` (то, что прислал workflow);
+/// 5) дефолтная константа.
+fn resolve_trigger_tokens(input: &CompactionInput) -> u32 {
+    if let Some(tokens) = config_u32(&input.config, "trigger_tokens") {
+        return tokens;
+    }
+    if let Some(tokens) = env_u32("PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS") {
+        return tokens;
+    }
+    if let (Some(fraction), Some(window)) = (
+        config_fraction(&input.config, "trigger_fraction"),
+        input.window_tokens,
+    ) {
+        let trigger = (f64::from(window) * fraction).round();
+        if trigger >= 1.0 {
+            return trigger.min(f64::from(u32::MAX)) as u32;
+        }
+    }
+    input.max_tokens.unwrap_or(DEFAULT_TRIGGER_TOKENS)
+}
+
+/// Положительное целое из module-config по ключу. `None`, если ключа нет,
+/// он не число или равен нулю.
+fn config_u32(config: &Value, key: &str) -> Option<u32> {
+    config
+        .get(key)?
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
+}
+
+/// Доля окна (0, 1] из module-config. Значения вне диапазона игнорируются.
+fn config_fraction(config: &Value, key: &str) -> Option<f64> {
+    let value = config.get(key)?.as_f64()?;
+    (value.is_finite() && value > 0.0 && value <= 1.0).then_some(value)
 }
 
 fn user_message_budget_tokens() -> usize {
@@ -611,6 +653,29 @@ mod tests {
         let mut host_to: PluginCompactorHostMut<'_> =
             PluginCompactorHost_TO::from_ptr(host, TD_Opaque);
         compact(input, &mut host_to).unwrap()
+    }
+
+    #[test]
+    fn resolve_trigger_uses_config_fraction_of_window() {
+        let input = input(Vec::new(), 0)
+            .with_max_tokens(None)
+            .with_window_tokens(Some(200_000))
+            .with_config(json!({ "trigger_fraction": 0.8 }));
+        assert_eq!(resolve_trigger_tokens(&input), 160_000);
+    }
+
+    #[test]
+    fn resolve_trigger_token_override_beats_fraction() {
+        let input = input(Vec::new(), 0)
+            .with_window_tokens(Some(200_000))
+            .with_config(json!({ "trigger_fraction": 0.8, "trigger_tokens": 90_000 }));
+        assert_eq!(resolve_trigger_tokens(&input), 90_000);
+    }
+
+    #[test]
+    fn resolve_trigger_falls_back_to_max_tokens_without_config() {
+        let input = input(Vec::new(), 0).with_window_tokens(Some(200_000));
+        assert_eq!(resolve_trigger_tokens(&input), 100);
     }
 
     #[test]
