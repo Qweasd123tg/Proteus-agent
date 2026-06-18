@@ -14,8 +14,8 @@ use crate::actions::{
 };
 use crate::api::{get_json, load_session_token, post_json};
 use crate::components::{
-    ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView, ToastStack,
-    UserInputCard, WorkingCard,
+    ApprovalCard, ContextRing, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
+    ToastStack, UserInputCard, WorkingCard,
 };
 use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
@@ -114,6 +114,7 @@ pub(crate) fn App() -> impl IntoView {
     let (streamed_this_turn, set_streamed_this_turn) = signal(false);
     let (agent_status, set_agent_status) = signal("ожидает".to_owned());
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
+    let (context_usage, set_context_usage) = signal(None::<ContextUsage>);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
     let (sidebar_sessions, set_sidebar_sessions) = signal(Vec::<SessionSummary>::new());
@@ -293,6 +294,7 @@ pub(crate) fn App() -> impl IntoView {
         stream_delta_buffer,
         set_agent_status,
         set_tool_activities,
+        set_context_usage,
         set_pending_approvals,
         set_pending_user_inputs,
         set_sidebar_sessions,
@@ -333,6 +335,7 @@ pub(crate) fn App() -> impl IntoView {
         set_is_sending.set(false);
         set_active_turn_id.set(None);
         set_agent_status.set("ожидает".to_owned());
+        set_context_usage.set(None);
         set_stick_to_bottom.set(true);
     };
 
@@ -701,6 +704,7 @@ pub(crate) fn App() -> impl IntoView {
                     set_streamed_this_turn.set(false);
                     set_agent_status.set("ожидает".to_owned());
                     set_tool_activities.set(Vec::new());
+                    set_context_usage.set(None);
                     set_pending_approvals.set(Vec::new());
                     set_pending_user_inputs.set(Vec::new());
                     reconnect_event_stream(event_source, event_stream_bindings);
@@ -1182,6 +1186,23 @@ pub(crate) fn App() -> impl IntoView {
                                 style=move || format!("--input-min-height: {}px", composer_height.get())
                                 on:submit=submit
                             >
+                                {move || {
+                                    if stick_to_bottom.get() {
+                                        view! { <></> }.into_any()
+                                    } else {
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="jump-to-bottom"
+                                                title="К последнему сообщению"
+                                                aria-label="К последнему сообщению"
+                                                on:click=move |_| set_stick_to_bottom.set(true)
+                                            >
+                                                "↓"
+                                            </button>
+                                        }.into_any()
+                                    }
+                                }}
                                 <div class="composer-shell">
                                     <div
                                         class="composer-resize-handle"
@@ -1202,6 +1223,7 @@ pub(crate) fn App() -> impl IntoView {
                                         on:keydown=submit_shortcut
                                     />
                                     <div class="composer-actions">
+                                        <ContextRing usage=context_usage />
                                         <div class="composer-buttons">
                                             <button type="button" class="secondary" on:click=clear_transcript>
                                                 "Очистить"

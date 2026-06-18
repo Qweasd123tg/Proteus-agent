@@ -170,6 +170,42 @@ pub(crate) struct ToastMessage {
     pub(crate) text: String,
 }
 
+/// Заполнение контекстного окна по данным события `TokenUsageUpdated`.
+/// Конструируется только когда известен потолок окна, иначе бублик скрыт.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContextUsage {
+    pub(crate) used_tokens: u32,
+    pub(crate) max_tokens: u32,
+    /// Порог токенов, на котором сервер запускает автокомпакт. `None`, если
+    /// автокомпакт не настроен — тогда метка на бублике не рисуется.
+    pub(crate) compaction_trigger_tokens: Option<u32>,
+}
+
+impl ContextUsage {
+    pub(crate) fn percent(&self) -> u8 {
+        Self::ratio_percent(self.used_tokens, self.max_tokens)
+    }
+
+    /// Позиция метки автокомпакта в процентах окна. `None`, если порога нет
+    /// или он за пределами окна (рисовать метку негде).
+    pub(crate) fn compaction_percent(&self) -> Option<u8> {
+        let trigger = self.compaction_trigger_tokens?;
+        if trigger == 0 || trigger >= self.max_tokens {
+            return None;
+        }
+        Some(Self::ratio_percent(trigger, self.max_tokens))
+    }
+
+    fn ratio_percent(value: u32, total: u32) -> u8 {
+        if total == 0 {
+            return 0;
+        }
+        ((f64::from(value) / f64::from(total)) * 100.0)
+            .round()
+            .clamp(0.0, 100.0) as u8
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ToolActivity {
     pub(crate) call_id: String,
