@@ -26,13 +26,21 @@ use crate::{
 
 pub struct PluginCompactorAdapter {
     inner: Arc<CompactorObject>,
+    /// module-config из `module_config.compactor.<id>`, прокидывается в плагин
+    /// через поле `CompactionInput.config` на каждом вызове.
+    config: serde_json::Value,
 }
 
 impl PluginCompactorAdapter {
     pub fn new(inner: CompactorObject) -> Self {
         Self {
             inner: Arc::new(inner),
+            config: serde_json::Value::Null,
         }
+    }
+
+    pub fn from_shared(inner: Arc<CompactorObject>, config: serde_json::Value) -> Self {
+        Self { inner, config }
     }
 }
 
@@ -43,6 +51,7 @@ impl HistoryCompactor for PluginCompactorAdapter {
         input: CompactionInput,
         host: Arc<dyn CompactionHost>,
     ) -> Result<CompactionOutput> {
+        let input = input.with_config(self.config.clone());
         let input_json = serde_json::to_string(&input)
             .with_context(|| "plugin compactor: serialize CompactionInput failed")?;
         let inner = self.inner.clone();

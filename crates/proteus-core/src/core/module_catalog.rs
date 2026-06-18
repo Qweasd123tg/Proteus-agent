@@ -823,11 +823,17 @@ impl BuiltinModuleCatalog {
             );
         }
 
-        let shared: Arc<dyn HistoryCompactor> = Arc::new(PluginCompactorAdapter::new(compactor));
-        let factory_shared = shared.clone();
+        // Адаптер создаётся на build, чтобы прокинуть module-specific config
+        // из `module_config.compactor.<id>` в плагин (как у policy/context).
+        let module_id_for_factory = module_id.to_owned();
+        let shared_obj = Arc::new(compactor);
         let erased: ErasedFactory = Box::new(move |input| {
-            let _ = input.module()?;
-            Ok(arc_to_any(factory_shared.clone()))
+            let ctx = input.module()?;
+            let config = ctx
+                .config
+                .module_config_value(ModuleKind::Compactor, &module_id_for_factory);
+            let adapter = PluginCompactorAdapter::from_shared(shared_obj.clone(), config);
+            Ok(arc_to_any(Arc::new(adapter) as Arc<dyn HistoryCompactor>))
         });
 
         let mut manifest =
@@ -843,7 +849,6 @@ impl BuiltinModuleCatalog {
                 factory: erased,
             },
         );
-        drop(shared);
         Ok(())
     }
 

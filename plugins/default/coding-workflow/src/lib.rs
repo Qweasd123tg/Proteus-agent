@@ -864,10 +864,25 @@ fn request_from_state_with_options(
         ));
     }
     let compacted = compact_messages(input, host, messages, phase)?;
-    let request = CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
-        .with_instructions(instructions)
-        .with_tools(tools)
-        .with_reasoning(input.runtime.reasoning.clone());
+    let mut request =
+        CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
+            .with_instructions(instructions)
+            .with_tools(tools)
+            .with_reasoning(input.runtime.reasoning.clone());
+    // Прокидываем потолок окна из capabilities в лимиты запроса, чтобы снимок
+    // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
+    // уже после того, как плагин собрал снимок, поэтому делаем это здесь).
+    request.limits.max_input_tokens = input.runtime.max_input_tokens;
+    // Порог автокомпакта считает компактор (он владеет конфигом), а возвращает
+    // его в отчёте. Кладём в metadata запроса, чтобы снимок взял именно его —
+    // тогда метка на индикаторе контекста совпадает с реальным триггером.
+    if let Some(trigger) = compacted
+        .report
+        .as_ref()
+        .and_then(|report| report.trigger_tokens)
+    {
+        request.metadata = json!({ "compaction_trigger_tokens": trigger });
+    }
     Ok(PreparedRequest {
         request,
         compaction: compacted.report,
@@ -901,6 +916,9 @@ fn compact_messages(
     )
     .with_reason(reason)
     .with_token_estimate(estimate_message_tokens(messages))
+    // window_tokens — сырое окно, из него компактор берёт trigger_fraction;
+    // max_tokens оставляем как legacy-fallback на случай отсутствия конфига.
+    .with_window_tokens(input.runtime.max_input_tokens)
     .with_max_tokens(model_auto_compact_limit(input.runtime.max_input_tokens));
     let input_json = to_json_string(&compaction_input)?;
     let output_json = match host.compact_history_json(RString::from(input_json)) {
@@ -1163,9 +1181,17 @@ fn request_token_usage_snapshot(
     } else {
         TokenUsageSource::Estimated
     };
+    // Порог автокомпакта кладёт в metadata request_from_state по отчёту
+    // компактора — берём его, чтобы метка в клиентах совпадала с триггером.
+    let compaction_trigger_tokens = request
+        .metadata
+        .get("compaction_trigger_tokens")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok());
     TokenUsageSnapshot::new(request.model.clone(), estimated_input_tokens, categories)
         .with_phase(phase)
         .with_max_input_tokens(request.limits.max_input_tokens)
+        .with_compaction_trigger_tokens(compaction_trigger_tokens)
         .with_actual(actual)
         .with_source(source)
 }
@@ -1907,6 +1933,9 @@ mod tests {
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].tools.len(), 0);
+        // Потолок окна из runtime должен оказаться в лимитах запроса —
+        // иначе снимок TokenUsageUpdated уедет без max_input_tokens.
+        assert_eq!(requests[0].limits.max_input_tokens, Some(16_000));
         assert!(
             requests[0]
                 .messages
@@ -1930,6 +1959,17 @@ mod tests {
             Event::TokenUsageUpdated {
                 usage
             } if usage.categories.iter().any(|category| category.name == "context")
+        )));
+        // Снимок несёт потолок окна — это знаменатель для бублика контекста в web UI.
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::TokenUsageUpdated { usage } if usage.max_input_tokens == Some(16_000)
+        )));
+        // ...и порог автокомпакта (0.8 * 16000) — позиция метки на бублике.
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::TokenUsageUpdated { usage }
+                if usage.compaction_trigger_tokens == Some(12_800)
         )));
         assert!(
             events

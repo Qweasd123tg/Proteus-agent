@@ -90,6 +90,11 @@ pub struct TokenUsageSnapshot {
     pub estimated_input_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_input_tokens: Option<u32>,
+    /// Оценка порога входных токенов, на котором workflow запускает
+    /// автокомпакт истории. Питает метку на индикаторе контекста в клиентах.
+    /// `None`, если автокомпакт не настроен или потолок окна неизвестен.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_trigger_tokens: Option<u32>,
     pub categories: Vec<TokenUsageCategory>,
     pub actual: Option<TokenUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,6 +112,7 @@ impl TokenUsageSnapshot {
             phase: None,
             estimated_input_tokens,
             max_input_tokens: None,
+            compaction_trigger_tokens: None,
             categories,
             actual: None,
             source: None,
@@ -142,6 +148,11 @@ impl TokenUsageSnapshot {
 
     pub fn with_max_input_tokens(mut self, max_input_tokens: Option<u32>) -> Self {
         self.max_input_tokens = max_input_tokens;
+        self
+    }
+
+    pub fn with_compaction_trigger_tokens(mut self, trigger_tokens: Option<u32>) -> Self {
+        self.compaction_trigger_tokens = trigger_tokens;
         self
     }
 }
