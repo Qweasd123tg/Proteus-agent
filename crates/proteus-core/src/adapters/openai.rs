@@ -15,11 +15,6 @@ use crate::{
     },
 };
 
-/// Контекстное окно по умолчанию для семейства gpt-5, когда провайдер не
-/// задал `max_input_tokens` явно. Адаптер общий на все openai-модели, поэтому
-/// это лишь fallback — точное значение задаётся в provider config.
-const DEFAULT_OPENAI_MAX_INPUT_TOKENS: u32 = 272_000;
-
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesClient {
     http: reqwest::Client,
@@ -31,7 +26,7 @@ pub struct OpenAiResponsesClient {
     stream_enabled: bool,
     /// Потолок контекстного окна (`max_input_tokens` в provider config).
     /// Сообщается в capabilities и питает индикатор заполнения контекста.
-    max_input_tokens: u32,
+    max_input_tokens: Option<u32>,
 }
 
 impl OpenAiResponsesClient {
@@ -50,8 +45,7 @@ impl OpenAiResponsesClient {
             .get("max_input_tokens")
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_OPENAI_MAX_INPUT_TOKENS);
+            .filter(|value| *value > 0);
 
         Ok(Self {
             http: reqwest::Client::new(),
@@ -78,7 +72,7 @@ impl ModelAdapter for OpenAiResponsesClient {
             .with_developer_role(true)
             .with_reasoning_config(true)
             .with_streaming(true)
-            .with_max_input_tokens(Some(self.max_input_tokens))
+            .with_max_input_tokens(self.max_input_tokens)
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -581,6 +575,32 @@ mod tests {
         assert_eq!(usage.output_tokens, 20);
         assert_eq!(usage.cached_input_tokens, Some(30));
         assert_eq!(usage.reasoning_output_tokens, Some(7));
+    }
+
+    #[test]
+    fn capabilities_do_not_guess_openai_context_window_without_config() {
+        let client = OpenAiResponsesClient::from_provider_config(json!({})).unwrap();
+
+        assert_eq!(
+            client
+                .capabilities(&ModelRef::new("openai", "gpt-test"))
+                .max_input_tokens,
+            None
+        );
+    }
+
+    #[test]
+    fn capabilities_use_explicit_openai_context_window_from_config() {
+        let client =
+            OpenAiResponsesClient::from_provider_config(json!({ "max_input_tokens": 123_456 }))
+                .unwrap();
+
+        assert_eq!(
+            client
+                .capabilities(&ModelRef::new("openai", "gpt-test"))
+                .max_input_tokens,
+            Some(123_456)
+        );
     }
 
     #[test]

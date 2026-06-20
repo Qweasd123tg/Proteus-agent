@@ -881,7 +881,7 @@ fn request_from_state_with_options(
         .as_ref()
         .and_then(|report| report.trigger_tokens)
     {
-        request.metadata = json!({ "compaction_trigger_tokens": trigger });
+        insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", trigger);
     }
     Ok(PreparedRequest {
         request,
@@ -1329,6 +1329,24 @@ fn with_workflow_phase(
     message
 }
 
+fn insert_request_metadata_u32(request: &mut CanonicalModelRequest, key: &str, value: u32) {
+    match &mut request.metadata {
+        Value::Object(metadata) => {
+            metadata.insert(key.to_owned(), json!(value));
+        }
+        Value::Null => {
+            request.metadata = json!({ key: value });
+        }
+        other => {
+            let previous = std::mem::replace(other, Value::Null);
+            request.metadata = json!({
+                key: value,
+                "previous_metadata": previous,
+            });
+        }
+    }
+}
+
 fn estimate_message_tokens(messages: &[CanonicalMessage]) -> Option<u32> {
     let bytes = messages
         .iter()
@@ -1481,6 +1499,40 @@ mod tests {
             PluginWorkflowRuntimeInfo,
         },
     };
+
+    #[test]
+    fn insert_request_metadata_u32_preserves_existing_object_fields() {
+        let mut request = CanonicalModelRequest::new(ModelRef::new("fake", "model"), Vec::new())
+            .with_metadata(json!({ "existing": true }));
+
+        insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", 12_800);
+
+        assert_eq!(request.metadata["existing"], true);
+        assert_eq!(request.metadata["compaction_trigger_tokens"], 12_800);
+    }
+
+    #[test]
+    fn insert_request_metadata_u32_wraps_non_object_metadata() {
+        let mut request = CanonicalModelRequest::new(ModelRef::new("fake", "model"), Vec::new())
+            .with_metadata(json!("legacy"));
+
+        insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", 12_800);
+
+        assert_eq!(request.metadata["compaction_trigger_tokens"], 12_800);
+        assert_eq!(request.metadata["previous_metadata"], "legacy");
+    }
+
+    #[test]
+    fn token_usage_snapshot_reads_compaction_trigger_metadata() {
+        let mut request = CanonicalModelRequest::new(ModelRef::new("fake", "model"), Vec::new())
+            .with_metadata(json!({ "compaction_trigger_tokens": 12_800 }));
+        request.limits.max_input_tokens = Some(16_000);
+
+        let usage = request_token_usage_snapshot(&request, None, "execute");
+
+        assert_eq!(usage.max_input_tokens, Some(16_000));
+        assert_eq!(usage.compaction_trigger_tokens, Some(12_800));
+    }
 
     #[test]
     fn empty_text_response_gets_placeholder() {
@@ -1965,11 +2017,11 @@ mod tests {
             event,
             Event::TokenUsageUpdated { usage } if usage.max_input_tokens == Some(16_000)
         )));
-        // ...и порог автокомпакта (0.8 * 16000) — позиция метки на бублике.
+        // No-op compactor output does not declare an autocompact trigger, so
+        // the UI must not show a fake threshold marker.
         assert!(events.iter().any(|event| matches!(
             event,
-            Event::TokenUsageUpdated { usage }
-                if usage.compaction_trigger_tokens == Some(12_800)
+            Event::TokenUsageUpdated { usage } if usage.compaction_trigger_tokens.is_none()
         )));
         assert!(
             events

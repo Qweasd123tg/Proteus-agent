@@ -27,6 +27,9 @@ mode = "normal"
 allow = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["apply_patch", "shell"]
 
+[module_config.compactor.codex]
+trigger_fraction = 0.8
+
 [module_config.tool_exposure.dynamic]
 max_hot_tools = 8
 always_include = ["request_user_input"]

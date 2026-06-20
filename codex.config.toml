@@ -28,6 +28,9 @@ allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "gr
 ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 deny = []
 
+[module_config.compactor.codex]
+trigger_fraction = 0.8
+
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
 always_include = ["request_user_input"]

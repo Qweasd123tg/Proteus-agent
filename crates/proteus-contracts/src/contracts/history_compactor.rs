@@ -123,7 +123,7 @@ impl HistoryCompactionReport {
                 .or(input.token_estimate),
             output_token_estimate: metadata_u32(&metadata, "output_token_estimate")
                 .or(output.token_estimate),
-            trigger_tokens: metadata_u32(&metadata, "trigger_tokens").or(input.max_tokens),
+            trigger_tokens: metadata_u32(&metadata, "trigger_tokens"),
             summary_source: metadata_string(&metadata, "summary_source"),
             skipped_reason: metadata_string(&metadata, "skipped_reason"),
             summary: output.summary.clone(),
@@ -169,4 +169,42 @@ pub trait HistoryCompactor: Send + Sync {
         input: CompactionInput,
         host: std::sync::Arc<dyn CompactionHost>,
     ) -> Result<CompactionOutput>;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::{domain::AgentTask, model_standard::MessageRole};
+
+    fn sample_input() -> CompactionInput {
+        CompactionInput::new(
+            AgentTask::new("continue", std::path::PathBuf::from("/repo")),
+            ModelRef::new("fake", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "hello")],
+        )
+        .with_max_tokens(Some(100))
+    }
+
+    #[test]
+    fn report_does_not_invent_trigger_from_legacy_input_max_tokens() {
+        let input = sample_input();
+        let output = CompactionOutput::unchanged(input.messages.clone());
+
+        let report = HistoryCompactionReport::from_compaction_output(&input, &output);
+
+        assert_eq!(report.trigger_tokens, None);
+    }
+
+    #[test]
+    fn report_uses_trigger_from_compactor_metadata() {
+        let input = sample_input();
+        let mut output = CompactionOutput::unchanged(input.messages.clone());
+        output.metadata = json!({ "trigger_tokens": 80 });
+
+        let report = HistoryCompactionReport::from_compaction_output(&input, &output);
+
+        assert_eq!(report.trigger_tokens, Some(80));
+    }
 }

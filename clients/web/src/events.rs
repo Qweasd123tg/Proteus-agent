@@ -536,9 +536,7 @@ fn update_runtime_status_and_tools(
     };
 
     if let Some(usage_event) = event.get("TokenUsageUpdated") {
-        if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
-            set_context_usage.set(Some(usage));
-        }
+        set_context_usage.set(usage_event.get("usage").and_then(parse_context_usage));
         return;
     }
 
