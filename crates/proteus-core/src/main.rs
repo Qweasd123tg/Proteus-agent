@@ -1963,9 +1963,11 @@ mod tests {
 
     #[test]
     fn init_config_path_from_arg_expands_named_config() {
+        let expected_codex_path = AppConfig::named_config_destination_path(Path::new("codex"))
+            .expect("codex config path");
         assert_eq!(
             init_config_path_from_arg(Path::new("codex")),
-            PathBuf::from("codex.config.toml")
+            expected_codex_path
         );
         assert_eq!(
             init_config_path_from_arg(Path::new("./codex")),

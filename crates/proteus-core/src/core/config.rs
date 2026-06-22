@@ -11,6 +11,9 @@ use serde_json::{Map, Value};
 
 use crate::domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig};
 
+const CODEX_CONFIG_NAME: &str = "codex";
+const CODEX_CONFIG_FILE: &str = "codex.config.toml";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -62,7 +65,14 @@ impl AppConfig {
     }
 
     pub fn named_config_destination_path(path: &Path) -> Option<PathBuf> {
-        config_name_ref(path).map(|name| PathBuf::from(format!("{name}.config.toml")))
+        config_name_ref(path).map(|name| {
+            if name == CODEX_CONFIG_NAME {
+                return default_config_dir()
+                    .map(|dir| dir.join(CODEX_CONFIG_FILE))
+                    .unwrap_or_else(|| PathBuf::from(CODEX_CONFIG_FILE));
+            }
+            PathBuf::from(format!("{name}.config.toml"))
+        })
     }
 
     async fn load_path(path: &Path) -> Result<Self> {
@@ -681,6 +691,10 @@ async fn resolve_config_name_path(
     config_dir: Option<&Path>,
 ) -> Result<PathBuf> {
     let candidates = named_config_candidates(name, cwd, config_dir);
+    if candidates.is_empty() {
+        bail!("config name '{name}' was not found; no config candidates were available");
+    }
+
     for candidate in &candidates {
         if tokio::fs::try_exists(candidate).await? {
             return Ok(candidate.clone());
@@ -698,6 +712,12 @@ async fn resolve_config_name_path(
 }
 
 fn named_config_candidates(name: &str, cwd: &Path, config_dir: Option<&Path>) -> Vec<PathBuf> {
+    if name == CODEX_CONFIG_NAME {
+        return config_dir
+            .map(|dir| vec![dir.join(CODEX_CONFIG_FILE)])
+            .unwrap_or_default();
+    }
+
     let file_names = [format!("{name}.config.toml"), format!("{name}.config.json")];
     let mut candidates = Vec::new();
     let mut seen = BTreeSet::new();
@@ -880,30 +900,95 @@ mod tests {
     fn named_config_candidates_search_cwd_before_config_dir() {
         assert_eq!(
             named_config_candidates(
-                "codex",
+                "dev-slim",
                 Path::new("/work"),
                 Some(Path::new("/home/user/.config/Proteus-agent/configs"))
             ),
             vec![
-                PathBuf::from("/work/codex.config.toml"),
-                PathBuf::from("/work/codex.config.json"),
-                PathBuf::from("/home/user/.config/Proteus-agent/configs/codex.config.toml"),
-                PathBuf::from("/home/user/.config/Proteus-agent/configs/codex.config.json"),
+                PathBuf::from("/work/dev-slim.config.toml"),
+                PathBuf::from("/work/dev-slim.config.json"),
+                PathBuf::from("/home/user/.config/Proteus-agent/configs/dev-slim.config.toml"),
+                PathBuf::from("/home/user/.config/Proteus-agent/configs/dev-slim.config.json"),
             ]
         );
     }
 
+    #[test]
+    fn codex_named_config_candidates_are_strict_default_toml() {
+        assert_eq!(
+            named_config_candidates(
+                "codex",
+                Path::new("/work"),
+                Some(Path::new("/home/user/.config/Proteus-agent/configs"))
+            ),
+            vec![PathBuf::from(
+                "/home/user/.config/Proteus-agent/configs/codex.config.toml"
+            )]
+        );
+        assert!(named_config_candidates("codex", Path::new("/work"), None).is_empty());
+    }
+
+    #[test]
+    fn codex_named_config_destination_uses_default_config_dir() {
+        let expected = default_config_dir()
+            .map(|dir| dir.join(CODEX_CONFIG_FILE))
+            .unwrap_or_else(|| PathBuf::from(CODEX_CONFIG_FILE));
+        assert_eq!(
+            AppConfig::named_config_destination_path(Path::new("codex")),
+            Some(expected)
+        );
+        assert_eq!(
+            AppConfig::named_config_destination_path(Path::new("dev-slim")),
+            Some(PathBuf::from("dev-slim.config.toml"))
+        );
+    }
+
     #[tokio::test]
-    async fn resolve_config_name_path_prefers_cwd_toml() {
+    async fn resolve_codex_config_name_path_ignores_cwd_and_json_fallbacks() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
-        let cwd_config = cwd.path().join("codex.config.toml");
+        std::fs::write(cwd.path().join("codex.config.toml"), "cwd").expect("cwd toml");
+        std::fs::write(config_dir.path().join("codex.config.json"), "{}").expect("config json");
         let home_config = config_dir.path().join("codex.config.toml");
+        std::fs::write(&home_config, "home").expect("home toml");
+
+        assert_eq!(
+            resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+                .await
+                .expect("resolved config"),
+            home_config
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_config_name_path_errors_without_default_toml() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        std::fs::write(cwd.path().join("codex.config.toml"), "cwd").expect("cwd toml");
+        std::fs::write(config_dir.path().join("codex.config.json"), "{}").expect("config json");
+
+        let error = resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+            .await
+            .expect_err("missing strict codex config");
+        let message = error.to_string();
+
+        assert!(message.contains("config name 'codex' was not found"));
+        assert!(message.contains("codex.config.toml"));
+        assert!(!message.contains("codex.config.json"));
+        assert!(!message.contains(cwd.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn resolve_config_name_path_prefers_cwd_toml_for_generic_names() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd_config = cwd.path().join("dev-slim.config.toml");
+        let home_config = config_dir.path().join("dev-slim.config.toml");
         std::fs::write(&cwd_config, "").expect("cwd config");
         std::fs::write(&home_config, "").expect("home config");
 
         assert_eq!(
-            resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+            resolve_config_name_path("dev-slim", cwd.path(), Some(config_dir.path()))
                 .await
                 .expect("resolved config"),
             cwd_config
@@ -911,17 +996,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_config_name_path_reports_candidates() {
+    async fn resolve_config_name_path_reports_candidates_for_generic_names() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
 
-        let error = resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+        let error = resolve_config_name_path("dev-slim", cwd.path(), Some(config_dir.path()))
             .await
             .expect_err("missing config");
         let message = error.to_string();
 
+        assert!(message.contains("config name 'dev-slim' was not found"));
+        assert!(message.contains("dev-slim.config.toml"));
+        assert!(message.contains("dev-slim.config.json"));
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_config_name_path_reports_no_candidates_without_default_dir() {
+        let cwd = tempfile::tempdir().expect("cwd");
+
+        let error = resolve_config_name_path("codex", cwd.path(), None)
+            .await
+            .expect_err("missing config dir");
+        let message = error.to_string();
+
         assert!(message.contains("config name 'codex' was not found"));
-        assert!(message.contains("codex.config.toml"));
-        assert!(message.contains("codex.config.json"));
+        assert!(message.contains("no config candidates were available"));
     }
 }
