@@ -193,7 +193,7 @@ pub async fn run_http_app_server(
     let server = if let Some(session_dir) = resume_session_dir {
         AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir)?
     } else {
-        AgentAppServer::launch(config, cwd, config_path.as_deref())?
+        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref())?
     };
     let (shutdown, mut shutdown_rx) = broadcast::channel(1);
     let security = HttpSecurity::from_config(&http_config);
@@ -2122,8 +2122,9 @@ mod tests {
         let bytes = response_bytes(response).await;
         let sessions: Vec<crate::core::SessionSummary> =
             serde_json::from_slice(&bytes).expect("sessions JSON");
+        assert!(!PathBuf::from(next_session_dir).exists());
         assert!(
-            sessions
+            !sessions
                 .iter()
                 .any(|session| session.session_dir.to_string_lossy().as_ref() == next_session_dir)
         );
@@ -2133,7 +2134,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn route_delete_session_removes_active_session_and_opens_new_one() {
+    async fn route_delete_unsaved_active_session_opens_new_one() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
         let config_path = config_dir.path().join("config.toml");
@@ -2143,7 +2144,6 @@ mod tests {
             Some(&config_path),
         )
         .expect("app server");
-        server.start_session().await.expect("start session");
         let original_session_dir = server
             .config_summary()
             .await
@@ -2151,7 +2151,8 @@ mod tests {
             .and_then(Value::as_str)
             .expect("original session dir")
             .to_owned();
-        assert!(PathBuf::from(&original_session_dir).exists());
+        server.start_session().await.expect("start session");
+        assert!(!PathBuf::from(&original_session_dir).exists());
         let (shutdown, _) = broadcast::channel(1);
         let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -2178,7 +2179,7 @@ mod tests {
         else {
             panic!("expected successful delete-session response");
         };
-        assert_eq!(summary.get("deleted").and_then(Value::as_bool), Some(true));
+        assert_eq!(summary.get("deleted").and_then(Value::as_bool), Some(false));
         assert_eq!(
             summary.get("active_replaced").and_then(Value::as_bool),
             Some(true)
@@ -2194,7 +2195,7 @@ mod tests {
             .expect("next session dir")
             .to_owned();
         assert_ne!(next_session_dir, original_session_dir);
-        assert!(PathBuf::from(next_session_dir).exists());
+        assert!(!PathBuf::from(next_session_dir).exists());
 
         server.shutdown().await;
         state.current_server().await.shutdown().await;

@@ -417,6 +417,17 @@ impl AgentAppServer {
         Self::launch_inner(config, cwd, config_path, None, None)
     }
 
+    pub fn launch_or_resume_latest(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+    ) -> Result<AppServerHandle> {
+        if let Some(session_dir) = latest_workspace_session_dir(config_path, &cwd)? {
+            return Self::launch_resumed(config, cwd, config_path, session_dir);
+        }
+        Self::launch(config, cwd, config_path)
+    }
+
     pub fn launch_resumed(
         config: AppConfig,
         cwd: PathBuf,
@@ -530,6 +541,18 @@ impl AgentAppServer {
             pending_user_inputs,
         })
     }
+}
+
+fn latest_workspace_session_dir(config_path: Option<&Path>, cwd: &Path) -> Result<Option<PathBuf>> {
+    let Some(config_path) = config_path else {
+        return Ok(None);
+    };
+    Ok(
+        list_workspace_session_summaries(&config_store_root(config_path), cwd)?
+            .into_iter()
+            .find(|session| session.resumable)
+            .map(|session| session.session_dir),
+    )
 }
 
 async fn reload_tools_config(
@@ -1221,8 +1244,9 @@ mod tests {
         contracts::{
             ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest,
         },
-        core::{PendingApproval, PendingUserInput},
-        domain::{Event, PermissionMode, ToolCall, new_call_id},
+        core::{PendingApproval, PendingUserInput, SessionStore},
+        domain::{Event, PermissionMode, ToolCall, new_call_id, new_session_id},
+        model_standard::{CanonicalMessage, MessageRole},
     };
 
     fn test_catalog() -> BuiltinModuleCatalog {
@@ -1928,6 +1952,46 @@ mod tests {
             .display()
             .to_string();
         assert_eq!(session_dir, expected);
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
+        let cwd = tempfile::tempdir().expect("cwd");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let config_path = config_dir.path().join("config.toml");
+        let saved_session_id = new_session_id();
+        let saved_store = SessionStore::new(config_dir.path(), cwd.path(), saved_session_id);
+        saved_store
+            .append_messages(&[CanonicalMessage::text(
+                MessageRole::User,
+                "restore saved chat",
+            )])
+            .await
+            .expect("append saved messages");
+
+        let empty_store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        empty_store
+            .materialize()
+            .await
+            .expect("materialize empty session");
+
+        let handle = AgentAppServer::launch_or_resume_latest(
+            AppConfig::default(),
+            cwd.path().to_path_buf(),
+            Some(&config_path),
+        )
+        .expect("app server");
+
+        assert_eq!(
+            handle.runtime.session_dir(),
+            Some(saved_store.session_dir())
+        );
+        assert_eq!(handle.runtime.history().await.len(), 1);
+        assert_eq!(
+            handle.transcript().await[0].text,
+            "restore saved chat".to_owned()
+        );
         handle.shutdown().await;
     }
 

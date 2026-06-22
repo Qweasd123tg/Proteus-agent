@@ -46,6 +46,8 @@ approval через `/approval`, отправляет typed input через `/u
 читает прошлые sessions всех workspace через `/sessions` и переключает текущий
 app-server на выбранную session через `/resume`. После перехода обратно в чат
 клиент подгружает transcript текущей session через `/history`.
+Пустые session directories backend не показывает; при restart app-server
+автоматически открывает последнюю непустую session текущего workspace.
 Для `plan` mode composer переключается в planning controls с
 русской кнопкой `Спросить план`, а actions `Уточнить`, `Выполнить` и `Выйти`
 показываются отдельной карточкой в transcript после ответа плана: это

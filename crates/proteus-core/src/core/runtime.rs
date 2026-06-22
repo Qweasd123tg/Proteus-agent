@@ -396,10 +396,6 @@ impl AgentRuntime {
             return Ok(());
         }
 
-        if let Some(session_store) = &self.session.session_store {
-            session_store.materialize().await?;
-        }
-
         self.services
             .events
             .emit(

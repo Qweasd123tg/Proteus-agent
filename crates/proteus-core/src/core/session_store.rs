@@ -244,7 +244,10 @@ pub fn list_session_summaries(config_root: &Path) -> Result<Vec<SessionSummary>>
             }
 
             let session_dir = session_entry.path();
-            summaries.push(session_summary_from_dir(session_dir)?);
+            let summary = session_summary_from_dir(session_dir)?;
+            if summary.message_count > 0 {
+                summaries.push(summary);
+            }
         }
     }
 
@@ -279,7 +282,10 @@ pub fn list_workspace_session_summaries(
         if !session_entry.file_type()?.is_dir() {
             continue;
         }
-        summaries.push(session_summary_from_dir(session_entry.path())?);
+        let summary = session_summary_from_dir(session_entry.path())?;
+        if summary.message_count > 0 {
+            summaries.push(summary);
+        }
     }
     summaries.sort_by(|left, right| {
         right
@@ -640,7 +646,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn materialize_writes_session_metadata_without_messages() {
+    async fn materialized_empty_session_is_not_listed() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
@@ -654,12 +660,7 @@ mod tests {
 
         let summaries = list_workspace_session_summaries(config_dir.path(), cwd.path())
             .expect("workspace sessions");
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].session_id, Some(session_id));
-        assert_eq!(summaries[0].workspace_path.as_deref(), Some(cwd.path()));
-        assert_eq!(summaries[0].message_count, 0);
-        assert_eq!(summaries[0].preview, None);
-        assert!(summaries[0].resumable);
+        assert!(summaries.is_empty());
     }
 
     #[tokio::test]
