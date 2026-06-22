@@ -317,10 +317,11 @@ plugin pack. Он срабатывает только после threshold-а и
 модели. В стандартных профилях `trigger_fraction = 0.8`. Плагин формирует
 Codex-style handoff summary плюс bounded набор последних user-сообщений.
 Summary сначала генерируется внутренним model call на том же `model_ref`, без
-tools и без streaming deltas в UI; при ошибке model call плагин использует
-deterministic fallback. Если compaction реально меняет историю, runtime
-получает `HistoryCompactionReport`, испускает lifecycle events и атомарно
-заменяет in-memory/session `messages.jsonl` compacted-срезом; ephemeral
+tools и без streaming deltas в UI; ошибка model call, пустой/невалидный ответ
+или replacement без сокращения истории возвращаются как ошибка compaction, без
+deterministic fallback. Если compaction реально меняет историю, runtime получает
+`HistoryCompactionReport`, испускает lifecycle events и атомарно заменяет
+in-memory/session `messages.jsonl` compacted-срезом; ephemeral
 `ContentPart::Context` в persistent history не попадает.
 
 Пример настройки:

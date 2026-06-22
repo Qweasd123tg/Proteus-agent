@@ -366,9 +366,10 @@ workflow перед записью persistent history выкидывает ephem
 `complete_model_json`: запрос идёт в тот же `model_ref`, без tools
 (`ToolChoice::None`) и с metadata `suppress_stream_deltas = true`, чтобы
 внутреннее summary не выглядело в UI как обычный assistant output. Если model
-call падает, возвращает пустой ответ или replacement не сокращает историю,
-плагин откатывается на deterministic summary. Отмена turn не проглатывается и
-возвращается как ошибка compaction.
+call падает, возвращает пустой/невалидный ответ или replacement не сокращает
+историю, плагин возвращает ошибку compaction. Codex-compatible режим не
+скрывает такие сбои deterministic fallback-ом. Отмена turn также возвращается
+как ошибка compaction.
 
 Threshold берётся из `module_config.compactor.codex.trigger_tokens`, если он
 задан. Затем проверяется env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`. Затем

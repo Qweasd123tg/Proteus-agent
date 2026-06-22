@@ -100,37 +100,12 @@ fn compact(
     let user_messages = collect_user_messages(older_messages);
     let preserved_user_messages =
         select_recent_user_messages(&user_messages, user_message_budget_tokens());
-    let (mut summary, mut summary_source) = match try_model_summary(&input, older_messages, host)? {
-        Some(summary) => (summary, "model"),
-        None => (
-            build_fallback_summary(
-                &input,
-                older_messages,
-                &preserved_user_messages,
-                token_estimate,
-            ),
-            "deterministic_fallback",
-        ),
-    };
-    let mut replacement = replacement_messages(&preserved_user_messages, &summary, &current_tail);
-    let mut output_token_estimate = estimate_messages_tokens(&replacement);
-    if output_token_estimate >= token_estimate && summary_source == "model" {
-        summary = build_fallback_summary(
-            &input,
-            older_messages,
-            &preserved_user_messages,
-            token_estimate,
-        );
-        summary_source = "deterministic_fallback_after_model_too_large";
-        replacement = replacement_messages(&preserved_user_messages, &summary, &current_tail);
-        output_token_estimate = estimate_messages_tokens(&replacement);
-    }
+    let summary = try_model_summary(&input, older_messages, host)?;
+    let replacement = replacement_messages(&preserved_user_messages, &summary, &current_tail);
+    let output_token_estimate = estimate_messages_tokens(&replacement);
     if output_token_estimate >= token_estimate {
-        return Ok(unchanged_with_metadata(
-            input.messages,
-            token_estimate,
-            trigger_tokens,
-            "replacement_would_not_reduce_tokens",
+        return Err(format!(
+            "codex compaction replacement would not reduce tokens: input={token_estimate}, output={output_token_estimate}"
         ));
     }
 
@@ -139,7 +114,7 @@ fn compact(
     output.token_estimate = Some(output_token_estimate);
     output.metadata = json!({
         "compactor": MODULE_ID,
-        "summary_source": summary_source,
+        "summary_source": "model",
         "input_messages": input.messages.len(),
         "output_messages": output_messages,
         "original_token_estimate": token_estimate,
@@ -256,32 +231,27 @@ fn try_model_summary(
     input: &CompactionInput,
     older_messages: &[CanonicalMessage],
     host: &mut PluginCompactorHostMut<'_>,
-) -> Result<Option<String>, String> {
+) -> Result<String, String> {
     ensure_not_cancelled(host)?;
     let request = model_summary_request(input, older_messages);
     let request_json = serde_json::to_string(&request).map_err(|error| error.to_string())?;
     let response_json = match host.complete_model_json(RString::from(request_json)) {
         RResult::ROk(json) => json,
-        RResult::RErr(error) => {
-            if host_is_cancelled(host)? {
-                return Err(error.message.into_string());
-            }
-            return Ok(None);
-        }
+        RResult::RErr(error) => return Err(error.message.into_string()),
     };
     ensure_not_cancelled(host)?;
-    let response: CanonicalModelResponse = match serde_json::from_str(response_json.as_str()) {
-        Ok(response) => response,
-        Err(_) => return Ok(None),
-    };
+    let response: CanonicalModelResponse =
+        serde_json::from_str(response_json.as_str()).map_err(|error| {
+            format!("codex compaction model returned invalid response JSON: {error}")
+        })?;
     let Some(text) = message_text(&response.message) else {
-        return Ok(None);
+        return Err("codex compaction model returned no summary text".to_owned());
     };
     let text = text.trim();
     if text.is_empty() {
-        return Ok(None);
+        return Err("codex compaction model returned empty summary text".to_owned());
     }
-    Ok(Some(summary_with_prefix(text)))
+    Ok(summary_with_prefix(text))
 }
 
 fn model_summary_request(
@@ -357,73 +327,6 @@ fn host_is_cancelled(host: &mut PluginCompactorHostMut<'_>) -> Result<bool, Stri
     }
 }
 
-fn build_fallback_summary(
-    input: &CompactionInput,
-    older_messages: &[CanonicalMessage],
-    preserved_user_messages: &[String],
-    token_estimate: u32,
-) -> String {
-    let latest_assistant = latest_role_text(older_messages, MessageRole::Assistant)
-        .map(|text| truncate_to_tokens(&text, summary_budget_tokens() / 3));
-    let latest_tool = latest_role_text(older_messages, MessageRole::Tool)
-        .map(|text| truncate_to_tokens(&text, summary_budget_tokens() / 4));
-    let latest_user = preserved_user_messages
-        .last()
-        .map(|text| truncate_to_tokens(text, summary_budget_tokens() / 4));
-
-    let mut body = String::new();
-    body.push_str(SUMMARY_PREFIX);
-    body.push_str("\n\n");
-    body.push_str("# Compaction Summary\n\n");
-    body.push_str("Current task:\n");
-    body.push_str("- ");
-    body.push_str(&one_line(&input.task.text));
-    body.push_str("\n\n");
-    body.push_str("State:\n");
-    body.push_str(&format!(
-        "- Compacted {} earlier messages estimated at about {} tokens.\n",
-        older_messages.len(),
-        token_estimate
-    ));
-    if let Some(reason) = input.reason.as_deref().filter(|reason| !reason.is_empty()) {
-        body.push_str(&format!("- Reason: {}.\n", one_line(reason)));
-    }
-    if let Some(latest_user) = latest_user {
-        body.push_str(&format!(
-            "- Latest preserved user request: {}\n",
-            one_line(&latest_user)
-        ));
-    }
-    if let Some(latest_assistant) = latest_assistant {
-        body.push_str(&format!(
-            "- Latest assistant state before compaction: {}\n",
-            one_line(&latest_assistant)
-        ));
-    }
-    if let Some(latest_tool) = latest_tool {
-        body.push_str(&format!(
-            "- Latest tool result before compaction: {}\n",
-            one_line(&latest_tool)
-        ));
-    }
-    body.push_str("\nNext step:\n");
-    body.push_str("- Continue from the live user message and context that follow this summary.\n");
-    body.push_str(
-        "- Treat this as a lossy handoff summary; prefer current workspace/tool state when available.\n",
-    );
-
-    truncate_to_tokens(&body, summary_budget_tokens())
-}
-
-fn latest_role_text(messages: &[CanonicalMessage], role: MessageRole) -> Option<String> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| message.role == role)
-        .and_then(message_text)
-        .filter(|text| !text.trim().is_empty())
-}
-
 fn message_text(message: &CanonicalMessage) -> Option<String> {
     let pieces = message
         .parts
@@ -494,10 +397,6 @@ fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
         &text[..end],
         omitted_tokens
     )
-}
-
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Порог токенов, на котором запускается автокомпакт. Приоритет:
@@ -650,9 +549,16 @@ mod tests {
     }
 
     fn compact_with_host(input: CompactionInput, host: &mut TestHost) -> CompactionOutput {
+        compact_result_with_host(input, host).unwrap()
+    }
+
+    fn compact_result_with_host(
+        input: CompactionInput,
+        host: &mut TestHost,
+    ) -> Result<CompactionOutput, String> {
         let mut host_to: PluginCompactorHostMut<'_> =
             PluginCompactorHost_TO::from_ptr(host, TD_Opaque);
-        compact(input, &mut host_to).unwrap()
+        compact(input, &mut host_to)
     }
 
     #[test]
@@ -696,7 +602,7 @@ mod tests {
             CanonicalMessage::text(MessageRole::User, "current context").with_name("context"),
         ];
 
-        let mut host = TestHost::unavailable();
+        let mut host = TestHost::with_response("Model summary: implemented first half.");
         let output = compact_with_host(input(messages, 500), &mut host);
 
         assert!(output.changed);
@@ -730,7 +636,7 @@ mod tests {
             CanonicalMessage::text(MessageRole::User, "current request"),
         ];
 
-        let mut host = TestHost::unavailable();
+        let mut host = TestHost::with_response("Model summary for real older request.");
         let output = compact_with_host(input(messages, 500), &mut host);
         let joined = output
             .messages
@@ -798,5 +704,47 @@ mod tests {
         assert_eq!(requests[0].model.model, "fake");
         assert_eq!(requests[0].metadata["suppress_stream_deltas"], true);
         assert!(requests[0].messages.len() >= 3);
+    }
+
+    #[test]
+    fn model_error_is_returned_instead_of_fallback_summary() {
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "older request"),
+            CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
+            CanonicalMessage::text(MessageRole::User, "current request"),
+        ];
+        let mut host = TestHost::unavailable();
+
+        let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
+
+        assert!(err.contains("model unavailable"), "{err}");
+    }
+
+    #[test]
+    fn empty_model_summary_is_returned_as_compaction_error() {
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "older request"),
+            CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
+            CanonicalMessage::text(MessageRole::User, "current request"),
+        ];
+        let mut host = TestHost::with_response("");
+
+        let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
+
+        assert!(err.contains("summary text"), "{err}");
+    }
+
+    #[test]
+    fn oversized_model_summary_is_returned_as_compaction_error() {
+        let messages = vec![
+            CanonicalMessage::text(MessageRole::User, "older request"),
+            CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
+            CanonicalMessage::text(MessageRole::User, "current request"),
+        ];
+        let mut host = TestHost::with_response("word ".repeat(2000));
+
+        let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
+
+        assert!(err.contains("replacement would not reduce tokens"), "{err}");
     }
 }
