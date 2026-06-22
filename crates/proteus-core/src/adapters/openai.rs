@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -8,7 +10,7 @@ use serde_json::{Value, json};
 use crate::{
     adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
-    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec, ToolSurface},
+    domain::{ModelRef, ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
@@ -357,6 +359,7 @@ fn openai_named_tool_choice(request: &CanonicalModelRequest, name: &str) -> Resu
 
 fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
     let mut input = Vec::new();
+    let mut tool_call_surfaces = HashMap::new();
     for message in messages {
         for part in &message.parts {
             match part {
@@ -377,17 +380,53 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                         )
                     }]
                 })),
-                ContentPart::ToolCall { call } => input.push(json!({
-                    "type": "function_call",
-                    "call_id": call.id,
-                    "name": call.name,
-                    "arguments": serde_json::to_string(&call.args)?,
-                })),
-                ContentPart::ToolResult { result } => input.push(json!({
-                    "type": "function_call_output",
-                    "call_id": result.call_id,
-                    "output": result.text_or_status(),
-                })),
+                ContentPart::ToolCall { call } => {
+                    tool_call_surfaces.insert(call.id.clone(), call.surface);
+                    match call.surface {
+                        ToolCallSurface::Function => input.push(json!({
+                            "type": "function_call",
+                            "call_id": call.id,
+                            "name": call.name,
+                            "arguments": serde_json::to_string(&call.args)?,
+                        })),
+                        ToolCallSurface::Freeform => input.push(json!({
+                            "type": "custom_tool_call",
+                            "call_id": call.id,
+                            "name": call.name,
+                            "input": freeform_tool_input(call)?,
+                        })),
+                        _ => {
+                            return Err(anyhow!(
+                                "tool call '{}' uses unsupported surface for openai.responses",
+                                call.name
+                            ));
+                        }
+                    }
+                }
+                ContentPart::ToolResult { result } => {
+                    let surface = tool_call_surfaces
+                        .get(&result.call_id)
+                        .copied()
+                        .unwrap_or_default();
+                    match surface {
+                        ToolCallSurface::Function => input.push(json!({
+                            "type": "function_call_output",
+                            "call_id": result.call_id,
+                            "output": result.text_or_status(),
+                        })),
+                        ToolCallSurface::Freeform => input.push(json!({
+                            "type": "custom_tool_call_output",
+                            "call_id": result.call_id,
+                            "output": result.text_or_status(),
+                        })),
+                        _ => {
+                            return Err(anyhow!(
+                                "tool result '{}' uses unsupported surface for openai.responses",
+                                result.call_id
+                            ));
+                        }
+                    }
+                }
                 ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => input.push(json!({
                     "type": "message",
                     "role": "assistant",
@@ -411,6 +450,19 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
         }
     }
     Ok(input)
+}
+
+fn freeform_tool_input(call: &ToolCall) -> Result<String> {
+    call.args
+        .get("input")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            anyhow!(
+                "freeform tool call '{}' requires string arg 'input'",
+                call.name
+            )
+        })
 }
 
 fn role_to_openai(role: &MessageRole) -> &'static str {
@@ -478,6 +530,28 @@ fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
                     .unwrap_or(Value::Null);
                 tool_calls.push(ToolCall::new(call_id, name, args));
             }
+            Some("custom_tool_call") if !length_limited => {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.get("id").and_then(Value::as_str))
+                    .ok_or_else(|| anyhow!("custom_tool_call missing call_id"))?
+                    .to_owned();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("custom_tool_call missing name"))?
+                    .to_owned();
+                let input = item
+                    .get("input")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("custom_tool_call missing input"))?
+                    .to_owned();
+                tool_calls.push(
+                    ToolCall::new(call_id, name, json!({ "input": input }))
+                        .with_surface(ToolCallSurface::Freeform),
+                );
+            }
             _ => {}
         }
     }
@@ -543,7 +617,9 @@ fn is_length_limited_response(response: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolSafety};
+    use crate::domain::{
+        ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolResult, ToolSafety,
+    };
 
     #[test]
     fn provider_config_does_not_require_secret_until_request() {
@@ -588,6 +664,68 @@ mod tests {
                 .iter()
                 .any(|part| matches!(part, ContentPart::ToolCall { .. }))
         );
+    }
+
+    #[test]
+    fn completed_custom_tool_call_is_returned_as_freeform_call() {
+        let response = json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "custom_tool_call",
+                    "id": "ctc_1",
+                    "call_id": "call_1",
+                    "name": "apply_patch",
+                    "input": "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch"
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 20 }
+        });
+
+        let canonical = from_openai_response(response).unwrap();
+
+        assert_eq!(canonical.finish_reason, FinishReason::ToolCalls);
+        assert_eq!(canonical.tool_calls.len(), 1);
+        assert_eq!(canonical.tool_calls[0].id, "call_1");
+        assert_eq!(canonical.tool_calls[0].name, "apply_patch");
+        assert_eq!(canonical.tool_calls[0].surface, ToolCallSurface::Freeform);
+        assert_eq!(
+            canonical.tool_calls[0].args["input"],
+            "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch"
+        );
+    }
+
+    #[test]
+    fn request_serializes_freeform_call_history_as_custom_items() {
+        let call = ToolCall::new(
+            "call_1",
+            "apply_patch",
+            json!({ "input": "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch" }),
+        )
+        .with_surface(ToolCallSurface::Freeform);
+        let result = ToolResult::ok("call_1".to_owned(), "Done");
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![
+                CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }]),
+                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }]),
+            ],
+        );
+
+        let body = to_openai_request(&request).unwrap();
+
+        assert_eq!(body["input"][0]["type"], "custom_tool_call");
+        assert_eq!(body["input"][0]["call_id"], "call_1");
+        assert_eq!(body["input"][0]["name"], "apply_patch");
+        assert_eq!(
+            body["input"][0]["input"],
+            "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch"
+        );
+        assert_eq!(body["input"][1]["type"], "custom_tool_call_output");
+        assert_eq!(body["input"][1]["call_id"], "call_1");
+        assert_eq!(body["input"][1]["output"], "Done");
     }
 
     #[test]

@@ -144,7 +144,10 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 проверки Codex-подобной сборки модулей. Он подключает тот же provider
 через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
-`codex-tool-exposure` и `modules.compactor = "codex"`.
+`codex-tool-exposure` и `modules.compactor = "codex"`. В этом profile
+`apply_patch` регистрируется через `tools.configured` как native handler с
+`surface.kind = "freeform"` и OpenAI custom-tool grammar; baseline profiles
+оставляют builtin `apply_patch` function tool с JSON аргументом `patch`.
 После `./install.sh` запускается явно через `--config codex` из любой рабочей
 директории; старый
 `proteus.codex.example.toml` оставлен как compatibility include на этот же
@@ -733,9 +736,11 @@ deny = []
 `module_config.policy.codex_policy` в plugin как JSON и не валидирует его
 внутреннюю схему.
 
-`apply_patch` принимает строку `patch` и передаёт её выбранному
-`PatchApplier`. Для `modules.patch = "direct"` этот обработчик приходит из
-плагина `direct-patch` и понимает внутренний формат:
+Builtin `apply_patch` принимает JSON строку `patch` и передаёт её выбранному
+`PatchApplier`. В named config `codex` тот же native handler объявлен через
+`tools.configured` как freeform tool и получает patch text из raw custom-tool
+`input`. Для `modules.patch = "direct"` обработчик приходит из плагина
+`direct-patch` и понимает внутренний формат:
 
 ```text
 *** Begin Patch

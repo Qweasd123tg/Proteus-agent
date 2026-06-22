@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::{
     adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
-    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec, ToolSurface},
+    domain::{ModelRef, ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
@@ -639,12 +639,26 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
                     chunk.content
                 )
             })),
-            ContentPart::ToolCall { call } => blocks.push(json!({
-                "type": "tool_use",
-                "id": call.id,
-                "name": call.name,
-                "input": call.args,
-            })),
+            ContentPart::ToolCall { call } => match call.surface {
+                ToolCallSurface::Function => blocks.push(json!({
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": call.args,
+                })),
+                ToolCallSurface::Freeform => {
+                    return Err(anyhow!(
+                        "tool call '{}' uses freeform surface, which anthropic.messages does not support",
+                        call.name
+                    ));
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "tool call '{}' uses unsupported surface for anthropic.messages",
+                        call.name
+                    ));
+                }
+            },
             ContentPart::ToolResult { result } => blocks.push(tool_result_block(result)),
             ContentPart::ReasoningSummary { text } => blocks.push(json!({
                 "type": "text",
@@ -1027,6 +1041,31 @@ mod tests {
         ]);
 
         let error = to_anthropic_request(&request).expect_err("freeform should be unsupported");
+
+        assert!(
+            error
+                .to_string()
+                .contains("anthropic.messages does not support")
+        );
+    }
+
+    #[test]
+    fn request_rejects_freeform_tool_call_history_without_fallback() {
+        let call = ToolCall::new(
+            "call_1",
+            "apply_patch",
+            json!({ "input": "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch" }),
+        )
+        .with_surface(ToolCallSurface::Freeform);
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call }],
+            )],
+        );
+
+        let error = to_anthropic_request(&request).expect_err("freeform history is unsupported");
 
         assert!(
             error

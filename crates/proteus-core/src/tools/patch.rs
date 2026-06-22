@@ -68,11 +68,7 @@ impl Tool for ApplyPatchTool {
     }
 
     async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> Result<ToolResult> {
-        let patch = call
-            .args
-            .get("patch")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| anyhow!("apply_patch requires string arg 'patch'"))?;
+        let patch = patch_text_from_call(call)?;
         let result = self.patch.apply(Patch::new(patch)).await?;
         Ok(ToolResult::new(
             call.id.clone(),
@@ -83,4 +79,19 @@ impl Tool for ApplyPatchTool {
             json!({ "format": "internal_patch" }),
         ))
     }
+}
+
+fn patch_text_from_call(call: &ToolCall) -> Result<&str> {
+    if matches!(call.surface, crate::domain::ToolCallSurface::Freeform) {
+        return call
+            .args
+            .get("input")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow!("apply_patch requires string arg 'input'"));
+    }
+
+    call.args
+        .get("patch")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow!("apply_patch requires string arg 'patch'"))
 }

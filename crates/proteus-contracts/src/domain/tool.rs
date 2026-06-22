@@ -8,6 +8,8 @@ pub struct ToolCall {
     pub id: CallId,
     pub name: String,
     pub args: serde_json::Value,
+    #[serde(default)]
+    pub surface: ToolCallSurface,
 }
 
 impl ToolCall {
@@ -16,8 +18,23 @@ impl ToolCall {
             id: id.into(),
             name: name.into(),
             args,
+            surface: ToolCallSurface::default(),
         }
     }
+
+    pub fn with_surface(mut self, surface: ToolCallSurface) -> Self {
+        self.surface = surface;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ToolCallSurface {
+    #[default]
+    Function,
+    Freeform,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

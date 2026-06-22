@@ -46,8 +46,8 @@ use proteus_core::{
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
         ModuleKind, Patch, PatchResult, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
-        ToolChoice, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id, new_session_id,
-        new_thread_id, new_turn_id,
+        ToolCallSurface, ToolChoice, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -363,6 +363,13 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
         "shell",
         "remember_fact",
     ]
+}
+
+fn codex_profile_enabled_tool_names() -> Vec<&'static str> {
+    coding_profile_tool_names()
+        .into_iter()
+        .filter(|name| *name != "apply_patch")
+        .collect()
 }
 
 fn dev_slim_tool_names() -> Vec<&'static str> {
@@ -2592,6 +2599,32 @@ async fn apply_patch_delegates_to_patch_applier() {
 }
 
 #[tokio::test]
+async fn apply_patch_accepts_freeform_input_for_codex_surface() {
+    let dir = temp_workspace();
+    let patcher = Arc::new(RecordingPatchApplier::default());
+    let tool = ApplyPatchTool::new(patcher.clone());
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch".to_owned(),
+        json!({
+            "input": "*** Begin Patch\n*** Add File: codex.txt\n+freeform\n*** End Patch",
+        }),
+    )
+    .with_surface(ToolCallSurface::Freeform);
+
+    let result = tool
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(
+        patcher.patches.lock().unwrap().as_slice(),
+        ["*** Begin Patch\n*** Add File: codex.txt\n+freeform\n*** End Patch"]
+    );
+}
+
+#[tokio::test]
 async fn apply_patch_rejects_missing_patch_arg() {
     let dir = temp_workspace();
     let tool = ApplyPatchTool::new(Arc::new(RecordingPatchApplier::default()));
@@ -2603,6 +2636,21 @@ async fn apply_patch_rejects_missing_patch_arg() {
         .unwrap_err();
 
     assert!(error.to_string().contains("requires string arg 'patch'"));
+}
+
+#[tokio::test]
+async fn apply_patch_rejects_missing_freeform_input_arg() {
+    let dir = temp_workspace();
+    let tool = ApplyPatchTool::new(Arc::new(RecordingPatchApplier::default()));
+    let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({}))
+        .with_surface(ToolCallSurface::Freeform);
+
+    let error = tool
+        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("requires string arg 'input'"));
 }
 
 #[tokio::test]
@@ -2935,8 +2983,15 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
-    assert_eq!(config.tools.enabled, coding_profile_tool_names());
-    assert!(configured_tool_names(&config).is_empty());
+    assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
+    assert_eq!(configured_tool_names(&config), vec!["apply_patch"]);
+    let apply_patch = config
+        .tools
+        .configured
+        .iter()
+        .find(|tool| tool.name == "apply_patch")
+        .expect("configured apply_patch");
+    assert!(matches!(apply_patch.surface, ToolSurface::Freeform { .. }));
 
     let codex_dynamic = config.module_config_value(ModuleKind::ToolExposure, "codex_dynamic");
     assert_eq!(codex_dynamic["max_hot_tools"], 10);

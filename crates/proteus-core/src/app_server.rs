@@ -1030,7 +1030,11 @@ fn approval_preview_for(call: &ToolCall, cwd: &Path) -> Option<AppApprovalPrevie
 }
 
 fn approval_preview_for_apply_patch(call: &ToolCall) -> Option<AppApprovalPreview> {
-    let patch = call.args.get("patch").and_then(Value::as_str)?;
+    let patch = call
+        .args
+        .get("patch")
+        .and_then(Value::as_str)
+        .or_else(|| call.args.get("input").and_then(Value::as_str))?;
     let affected_files = affected_files_from_internal_patch(patch);
     let summary = if affected_files.is_empty() {
         "Apply workspace patch".to_owned()
@@ -1326,6 +1330,24 @@ mod tests {
                 .unwrap()
                 .contains("*** Update File: src/main.rs")
         );
+    }
+
+    #[test]
+    fn apply_patch_approval_preview_accepts_freeform_input() {
+        let call = ToolCall::new(
+            new_call_id(),
+            "apply_patch",
+            serde_json::json!({
+                "input": "*** Begin Patch\n*** Add File: codex.txt\n+hello\n*** End Patch\n"
+            }),
+        );
+
+        let preview =
+            approval_preview_for(&call, Path::new("/workspace")).expect("apply_patch preview");
+
+        assert_eq!(preview.kind, "patch");
+        assert_eq!(preview.affected_files, vec!["codex.txt"]);
+        assert!(preview.body.unwrap().contains("*** Add File: codex.txt"));
     }
 
     #[test]
