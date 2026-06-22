@@ -44,7 +44,7 @@ use crate::{
         AgentOutput, AgentTask, HistoryCompactionReport, ModelRef, ReasoningConfig, SessionId,
         ThreadId, TurnId,
     },
-    model_standard::CanonicalMessage,
+    model_standard::{CanonicalMessage, InstructionBlock},
 };
 
 /// Sync sabi_trait для tool-плагинов.
@@ -537,6 +537,8 @@ pub struct PluginWorkflowRuntimeInfo {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    #[serde(default)]
+    pub instructions: Vec<InstructionBlock>,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
     #[serde(default)]

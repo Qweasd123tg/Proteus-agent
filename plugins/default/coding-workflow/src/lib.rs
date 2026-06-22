@@ -68,14 +68,6 @@ plan is approved; the client handles approval after the final plan. Do not use \
 write, shell, network, or mutation-oriented tools in this phase.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
-const CODEX_SYSTEM_INSTRUCTIONS: &str = "\
-You are running inside a Codex-shaped coding workflow. Act as a practical coding \
-agent: inspect before editing, make narrow changes, use tools only when they are \
-necessary, and keep the user's current goal in focus. For non-trivial work, make \
-a short working plan in the assistant turn before using tools. If files are \
-changed, prefer targeted verification with the available tools when a relevant \
-command is clear. Do not invent dates or times; omit them unless the user \
-supplied them or you verified them with a tool.";
 
 pub struct CodingSingleLoopWorkflow {
     pub max_tool_rounds: usize,
@@ -393,11 +385,11 @@ fn run_codex_loop(
     let mut executed_tools = Vec::new();
 
     loop {
-        let prepared = request_from_state(
+        let prepared = request_from_state_with_instruction_blocks(
             &input,
             host,
             &model_messages,
-            CODEX_SYSTEM_INSTRUCTIONS,
+            input.runtime.instructions.clone(),
             None,
             "codex_loop",
         )?;
@@ -693,11 +685,15 @@ fn request_from_state(
     developer_instructions: Option<&str>,
     phase: &str,
 ) -> Result<PreparedRequest, PluginWorkflowError> {
-    request_from_state_with_options(
+    request_from_state_with_instruction_blocks_and_options(
         input,
         host,
         messages,
-        system_instructions,
+        vec![InstructionBlock::new(
+            InstructionKind::System,
+            system_instructions,
+            100,
+        )],
         developer_instructions,
         phase,
         RequestOptions {
@@ -707,11 +703,33 @@ fn request_from_state(
     )
 }
 
-fn request_from_state_with_options(
+fn request_from_state_with_instruction_blocks(
     input: &PluginWorkflowInput,
     host: &mut PluginWorkflowHostMut<'_>,
     messages: &[CanonicalMessage],
-    system_instructions: &str,
+    instructions: Vec<InstructionBlock>,
+    developer_instructions: Option<&str>,
+    phase: &str,
+) -> Result<PreparedRequest, PluginWorkflowError> {
+    request_from_state_with_instruction_blocks_and_options(
+        input,
+        host,
+        messages,
+        instructions,
+        developer_instructions,
+        phase,
+        RequestOptions {
+            expose_tools: true,
+            include_dynamic_meta_tools: phase != "review",
+        },
+    )
+}
+
+fn request_from_state_with_instruction_blocks_and_options(
+    input: &PluginWorkflowInput,
+    host: &mut PluginWorkflowHostMut<'_>,
+    messages: &[CanonicalMessage],
+    mut instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
     phase: &str,
     options: RequestOptions,
@@ -730,11 +748,6 @@ fn request_from_state_with_options(
     if dynamic_tools_enabled {
         dynamic_tools::append_meta_tools(&mut tools, phase);
     }
-    let mut instructions = vec![InstructionBlock::new(
-        InstructionKind::System,
-        system_instructions,
-        100,
-    )];
     if let Some(developer_instructions) = developer_instructions {
         instructions.push(InstructionBlock::new(
             InstructionKind::Developer,
@@ -1647,6 +1660,7 @@ mod tests {
                 thread_id: new_thread_id(),
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
+                instructions: Vec::new(),
                 reasoning: ReasoningConfig::default(),
                 max_input_tokens: Some(16_000),
                 model_timeout_ms: 120_000,
@@ -1683,7 +1697,12 @@ mod tests {
 
     #[test]
     fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
-        let input = workflow_input("change code");
+        let mut input = workflow_input("change code");
+        input.runtime.instructions = vec![InstructionBlock::new(
+            InstructionKind::System,
+            "runtime codex base instructions",
+            100,
+        )];
         let input_json = serde_json::to_string(&input).expect("input json");
         let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
         let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
@@ -1750,6 +1769,14 @@ mod tests {
 
         let requests = host.requests.lock().expect("requests");
         assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0]
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.text == "runtime codex base instructions")
+                .count(),
+            1
+        );
         assert!(
             !requests
                 .iter()
@@ -1757,7 +1784,8 @@ mod tests {
                     |request| request.instructions.iter().any(|instruction| instruction
                         .text
                         .contains("Codex execute phase")
-                        || instruction.text.contains("Codex final phase"))
+                        || instruction.text.contains("Codex final phase")
+                        || instruction.text.contains("Codex-shaped coding workflow"))
                 )
         );
         assert!(
@@ -2168,6 +2196,7 @@ mod tests {
                 thread_id: new_thread_id(),
                 turn_id: new_turn_id(),
                 model_ref: ModelRef::new("fake", "model"),
+                instructions: Vec::new(),
                 reasoning: ReasoningConfig::new(Some("high".to_owned()), true),
                 max_input_tokens: Some(16_000),
                 model_timeout_ms: 120_000,

@@ -60,6 +60,7 @@ impl Workflow for PluginWorkflowAdapter {
                 thread_id: ctx.thread_id,
                 turn_id: ctx.turn_id,
                 model_ref: ctx.model_ref.clone(),
+                instructions: ctx.instructions.clone(),
                 reasoning: ctx.reasoning.clone(),
                 max_input_tokens: ctx.model.capabilities(&ctx.model_ref).max_input_tokens,
                 model_timeout_ms: ctx.model_timeout_ms,
@@ -312,7 +313,9 @@ mod tests {
             AgentOutput, Event, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
             new_turn_id,
         },
-        model_standard::{CanonicalMessage, ContentPart, MessageRole},
+        model_standard::{
+            CanonicalMessage, ContentPart, InstructionBlock, InstructionKind, MessageRole,
+        },
         plugin_adapters::PluginContextBuilderAdapter,
         stubs::{
             AllVisibleToolExposure, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier,
@@ -385,6 +388,10 @@ mod tests {
                     json!({
                         "context_chunks": bundle.chunks.len(),
                         "model": input.runtime.model_ref,
+                        "instructions": input.runtime.instructions
+                            .iter()
+                            .map(|instruction| instruction.text.as_str())
+                            .collect::<Vec<_>>(),
                     }),
                 ),
                 messages,
@@ -430,7 +437,12 @@ mod tests {
             Arc::new(NullPatchApplier),
             Arc::new(NoCompactor),
             Arc::new(AllVisibleToolExposure),
-        );
+        )
+        .with_instructions(vec![InstructionBlock::new(
+            InstructionKind::System,
+            "adapter propagated instructions",
+            100,
+        )]);
         let cwd = tempfile::tempdir().expect("workspace");
 
         let result = adapter
@@ -444,6 +456,10 @@ mod tests {
 
         assert_eq!(result.output.text, "plugin workflow done");
         assert_eq!(result.output.metadata["context_chunks"], 1);
+        assert_eq!(
+            result.output.metadata["instructions"],
+            json!(["adapter propagated instructions"])
+        );
         assert_eq!(result.messages.len(), 2);
         assert!(
             events

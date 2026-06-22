@@ -287,6 +287,32 @@ baseline `modules.workflow = "coding.single_loop"`. Более тяжёлый st
 workflow `coding.plan_execute_review` лучше включать явно для экспериментов с
 многофазным agent loop.
 
+## Instructions
+
+`instructions` — top-level список `InstructionBlock`, который core передаёт в
+`RuntimeContext`, а workflow-плагины получают как
+`PluginWorkflowRuntimeInfo.instructions`. Это contract-level base prompt:
+workflow может добавить свои phase-specific developer instructions только если
+так устроен конкретный module.
+
+Пример TOML:
+
+```toml
+[[instructions]]
+kind = "System"
+text = "..."
+priority = 100
+
+[[instructions]]
+kind = "Developer"
+text = "..."
+priority = 90
+```
+
+Для Codex-compatible профилей не добавляйте примерные локальные prompt-и ради
+удобства. Если точные upstream instructions неизвестны, config должен оставить
+этот список пустым или явно документировать divergence отдельным режимом.
+
 ## Module Config
 
 `modules.*` выбирает реализацию slot-а. Настройки самой реализации задаются в

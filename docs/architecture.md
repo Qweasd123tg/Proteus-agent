@@ -235,6 +235,13 @@ Model contract имеет stream-first форму: provider реализует `
 неподдерживаемые tools/cache/reasoning options и ограничивает token limits
 возможностями модели.
 
+Base instructions являются частью runtime/model contract: `AppConfig.instructions`
+попадает в `RuntimeContext.instructions`, затем в
+`PluginWorkflowRuntimeInfo.instructions` для plugin workflows и дальше в
+`CanonicalModelRequest.instructions`. Codex-compatible workflows не должны
+держать собственные hidden prompt fallback-и; divergence оформляется отдельным
+module id или feature flag.
+
 ### Plugin Adapters
 
 `crates/proteus-core/src/plugin_adapters` содержит только ABI glue:

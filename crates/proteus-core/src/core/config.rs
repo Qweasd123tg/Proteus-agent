@@ -9,7 +9,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig};
+use crate::{
+    domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig},
+    model_standard::InstructionBlock,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -21,6 +24,8 @@ pub struct AppConfig {
     pub providers: BTreeMap<String, ProviderProfileConfig>,
     #[serde(default)]
     pub model: ModelConfig,
+    #[serde(default)]
+    pub instructions: Vec<InstructionBlock>,
     #[serde(default)]
     pub modules: ModulesConfig,
     #[serde(default)]

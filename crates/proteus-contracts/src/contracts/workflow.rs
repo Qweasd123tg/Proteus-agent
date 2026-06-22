@@ -13,7 +13,7 @@ use crate::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
         ReasoningConfig, SessionId, ThreadId, TurnId,
     },
-    model_standard::CanonicalMessage,
+    model_standard::{CanonicalMessage, InstructionBlock},
 };
 
 #[derive(Clone)]
@@ -23,6 +23,7 @@ pub struct RuntimeContext {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    pub instructions: Vec<InstructionBlock>,
     pub reasoning: ReasoningConfig,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
@@ -69,6 +70,7 @@ impl RuntimeContext {
             thread_id,
             turn_id,
             model_ref,
+            instructions: Vec::new(),
             reasoning,
             model_timeout_ms,
             context_timeout_ms,
@@ -90,6 +92,11 @@ impl RuntimeContext {
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.cancellation = cancellation;
+        self
+    }
+
+    pub fn with_instructions(mut self, instructions: Vec<InstructionBlock>) -> Self {
+        self.instructions = instructions;
         self
     }
 

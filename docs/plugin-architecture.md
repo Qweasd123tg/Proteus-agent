@@ -162,7 +162,9 @@ MCP-сервера в ToolRegistry.
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
   `complete_model`, `compact_history`, `select_tools`, `visible_tools`,
-  `execute_tool`, `emit_event`).
+  `execute_tool`, `emit_event`). Runtime metadata, включая model/ref,
+  reasoning, timeout-ы и base `InstructionBlock` prompt, приходит в
+  `PluginWorkflowInput.runtime`.
 
 Все эти plugin-facing trait'ы sync. Async внутри плагина разрешён через
 локальный tokio runtime или `reqwest::blocking` / `ureq`. Ядро оборачивает

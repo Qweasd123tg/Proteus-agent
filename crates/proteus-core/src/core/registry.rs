@@ -19,6 +19,7 @@ use crate::{
 pub struct BuiltinRegistry {
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
+    pub instructions: Vec<crate::model_standard::InstructionBlock>,
     pub model: Arc<dyn ModelClient>,
     /// Отдельная ссылка на ModelService для доступа к `set_event_context`
     /// (не выражается через trait ModelClient). `None` если model выбран
@@ -91,6 +92,7 @@ impl BuiltinRegistry {
         Ok(Self {
             model_config,
             runtime_config: config.runtime.clone(),
+            instructions: config.instructions.clone(),
             model,
             model_service: Some(model_service),
             search,
@@ -159,5 +161,6 @@ impl BuiltinRegistry {
             self.compactor.clone(),
             self.tool_exposure.clone(),
         )
+        .with_instructions(self.instructions.clone())
     }
 }
