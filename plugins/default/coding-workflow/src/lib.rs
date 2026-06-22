@@ -76,18 +76,6 @@ a short working plan in the assistant turn before using tools. If files are \
 changed, prefer targeted verification with the available tools when a relevant \
 command is clear. Do not invent dates or times; omit them unless the user \
 supplied them or you verified them with a tool.";
-const CODEX_EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "\
-Codex execute phase: continue using tools until the task is actually handled or \
-blocked. Prefer reading the relevant files before patching. Keep tool use \
-focused, avoid unrelated refactors, and do not call remember_fact for temporary \
-task notes. If dynamic tool exposure hides a needed tool, use the Proteus \
-meta-tools to discover and call it. Once no more tools are needed, provide a \
-concise draft answer that includes what changed, what was verified, and any \
-remaining gap.";
-const CODEX_FINAL_DEVELOPER_INSTRUCTIONS: &str = "\
-Codex final phase: produce the final user-facing answer. Do not call tools. \
-Summarize the completed work, mention verification that actually ran, and call \
-out any remaining gap plainly. Keep it concise.";
 
 pub struct CodingSingleLoopWorkflow {
     pub max_tool_rounds: usize,
@@ -401,10 +389,7 @@ fn run_codex_loop(
                 .with_name("context"),
         );
     }
-    let mut current_turn_messages_start = model_messages.len();
     let mut tool_rounds = 0usize;
-    let mut tool_round_limit_reached = true;
-    let mut draft_finish_reason = None;
     let mut executed_tools = Vec::new();
 
     for _round in 0..MAX_TOOL_ROUNDS {
@@ -413,18 +398,18 @@ fn run_codex_loop(
             host,
             &model_messages,
             CODEX_SYSTEM_INSTRUCTIONS,
-            Some(CODEX_EXECUTE_DEVELOPER_INSTRUCTIONS),
-            "codex_execute",
+            None,
+            "codex_loop",
         )?;
         if let Some(report) = prepared.compaction.as_ref() {
             compactions.push(report.clone());
             if report.changed {
-                current_turn_messages_start = replace_after_compaction(
+                replace_after_compaction(
                     &prepared.request.messages,
                     &mut model_messages,
                     &mut persistent_messages,
                     current_user_message_id,
-                    &["draft"],
+                    &[],
                 )?;
             }
         }
@@ -435,7 +420,7 @@ fn run_codex_loop(
                 model: request.model.clone(),
             },
         )?;
-        let response = complete_model(host, &request, "codex_execute")?;
+        let response = complete_model(host, &request, "codex_loop")?;
         emit_event(
             host,
             &Event::ModelResponseReceived {
@@ -443,26 +428,17 @@ fn run_codex_loop(
             },
         )?;
 
-        let finish_reason = response.finish_reason.clone();
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
-        let phase = if should_run_tools {
-            "execute"
-        } else if tool_rounds > 0 {
-            "draft"
-        } else {
-            "final"
-        };
-        let assistant_message =
-            with_workflow_phase(response.message.clone(), CODEX_LOOP_MODULE_ID, phase);
+        let assistant_message = response.message.clone();
         model_messages.push(assistant_message.clone());
+        persistent_messages.push(assistant_message.clone());
 
         if should_run_tools {
-            persistent_messages.push(assistant_message);
             tool_rounds += 1;
             for call in response.tool_calls {
                 executed_tools.push(call.name.clone());
-                let result = execute_or_handle_tool(host, &input, &call, "codex_execute")?;
+                let result = execute_or_handle_tool(host, &input, &call, "codex_loop")?;
                 let call_id = result.call_id.clone();
                 let tool_result_message = CanonicalMessage::new(
                     MessageRole::Tool,
@@ -475,125 +451,41 @@ fn run_codex_loop(
             continue;
         }
 
-        if tool_rounds == 0 {
-            persistent_messages.push(assistant_message.clone());
-            let output = AgentOutput::new(
-                output_text(
-                    &assistant_message,
-                    &model_messages[current_turn_messages_start..],
-                ),
-                output_metadata_with_extra(
-                    CODEX_LOOP_MODULE_ID,
-                    &input,
-                    &model_messages,
-                    context_chunks,
-                    context_token_estimate,
-                    json!({
-                        "max_tool_rounds": MAX_TOOL_ROUNDS,
-                        "tool_rounds": tool_rounds,
-                        "tool_round_limit_reached": false,
-                        "phases": ["execute"],
-                        "executed_tools": executed_tools,
-                    }),
-                ),
-            );
-            emit_event(
-                host,
-                &Event::TurnFinished {
-                    output: output.clone(),
-                },
-            )?;
-            let new_messages_start =
-                current_turn_start(&persistent_messages, current_user_message_id);
-            return Ok(PluginWorkflowOutput {
-                output,
-                messages: persistent_messages,
-                new_messages_start: Some(new_messages_start),
-                compactions,
-            });
-        }
-
-        draft_finish_reason = Some(finish_reason);
-        tool_round_limit_reached = false;
-        break;
+        let output = AgentOutput::new(
+            message_text(&assistant_message),
+            output_metadata_with_extra(
+                CODEX_LOOP_MODULE_ID,
+                &input,
+                &model_messages,
+                context_chunks,
+                context_token_estimate,
+                json!({
+                    "max_tool_rounds": MAX_TOOL_ROUNDS,
+                    "tool_rounds": tool_rounds,
+                    "tool_round_limit_reached": false,
+                    "phases": ["turn_loop"],
+                    "executed_tools": executed_tools,
+                }),
+            ),
+        );
+        emit_event(
+            host,
+            &Event::TurnFinished {
+                output: output.clone(),
+            },
+        )?;
+        let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
+        return Ok(PluginWorkflowOutput {
+            output,
+            messages: persistent_messages,
+            new_messages_start: Some(new_messages_start),
+            compactions,
+        });
     }
 
-    let prepared = request_from_state_with_options(
-        &input,
-        host,
-        &model_messages,
-        CODEX_SYSTEM_INSTRUCTIONS,
-        Some(CODEX_FINAL_DEVELOPER_INSTRUCTIONS),
-        "codex_final",
-        RequestOptions {
-            expose_tools: false,
-            include_dynamic_meta_tools: false,
-        },
-    )?;
-    if let Some(report) = prepared.compaction.as_ref() {
-        compactions.push(report.clone());
-        if report.changed {
-            current_turn_messages_start = replace_after_compaction(
-                &prepared.request.messages,
-                &mut model_messages,
-                &mut persistent_messages,
-                current_user_message_id,
-                &["draft"],
-            )?;
-        }
-    }
-    let final_request = prepared.request.with_tool_choice(ToolChoice::None);
-    emit_event(
-        host,
-        &Event::ModelRequestPrepared {
-            model: final_request.model.clone(),
-        },
-    )?;
-    let final_response = complete_model(host, &final_request, "codex_final")?;
-    emit_event(
-        host,
-        &Event::ModelResponseReceived {
-            finish_reason: final_response.finish_reason.clone(),
-        },
-    )?;
-
-    let final_message = with_workflow_phase(final_response.message, CODEX_LOOP_MODULE_ID, "final");
-    model_messages.push(final_message.clone());
-    persistent_messages.push(final_message.clone());
-    let output = AgentOutput::new(
-        output_text(
-            &final_message,
-            &model_messages[current_turn_messages_start..],
-        ),
-        output_metadata_with_extra(
-            CODEX_LOOP_MODULE_ID,
-            &input,
-            &model_messages,
-            context_chunks,
-            context_token_estimate,
-            json!({
-                "max_tool_rounds": MAX_TOOL_ROUNDS,
-                "tool_rounds": tool_rounds,
-                "tool_round_limit_reached": tool_round_limit_reached,
-                "draft_finish_reason": draft_finish_reason,
-                "phases": ["execute", "final"],
-                "executed_tools": executed_tools,
-            }),
-        ),
-    );
-    emit_event(
-        host,
-        &Event::TurnFinished {
-            output: output.clone(),
-        },
-    )?;
-    let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
-    Ok(PluginWorkflowOutput {
-        output,
-        messages: persistent_messages,
-        new_messages_start: Some(new_messages_start),
-        compactions,
-    })
+    Err(PluginWorkflowError::new(format!(
+        "codex loop tool round limit reached after {MAX_TOOL_ROUNDS} rounds"
+    )))
 }
 
 fn run_plan_execute_review(
@@ -1796,7 +1688,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_loop_runs_tool_round_then_finalizes_without_tools() {
+    fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
         let input = workflow_input("change code");
         let input_json = serde_json::to_string(&input).expect("input json");
         let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
@@ -1804,11 +1696,6 @@ mod tests {
         let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
         let mut host = FakeHost::with_responses(vec![
             tool_call_response(call.clone()),
-            CanonicalModelResponse::new(
-                CanonicalMessage::text(MessageRole::Assistant, "draft after tools"),
-                Vec::new(),
-                FinishReason::Stop,
-            ),
             CanonicalModelResponse::new(
                 CanonicalMessage::text(MessageRole::Assistant, "final answer"),
                 Vec::new(),
@@ -1833,10 +1720,7 @@ mod tests {
             output.output.metadata["workflow"]["module_id"],
             CODEX_LOOP_MODULE_ID
         );
-        assert_eq!(
-            output.output.metadata["phases"],
-            json!(["execute", "final"])
-        );
+        assert_eq!(output.output.metadata["phases"], json!(["turn_loop"]));
         assert_eq!(output.output.metadata["tool_rounds"], json!(1));
         assert_eq!(
             output.output.metadata["tool_round_limit_reached"],
@@ -1869,24 +1753,21 @@ mod tests {
             })
             .expect("persisted tool result");
         assert_eq!(persisted_tool_output, "read_file ok");
-        assert!(
-            output
-                .messages
-                .iter()
-                .all(|message| message_text(message) != "draft after tools")
-        );
-
         let executed_calls = host.executed_calls.lock().expect("executed calls");
         assert_eq!(executed_calls.len(), 1);
         assert_eq!(executed_calls[0].name, "read_file");
 
         let requests = host.requests.lock().expect("requests");
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 2);
         assert!(
-            requests[0]
-                .instructions
+            !requests
                 .iter()
-                .any(|instruction| instruction.text.contains("Codex execute phase"))
+                .any(
+                    |request| request.instructions.iter().any(|instruction| instruction
+                        .text
+                        .contains("Codex execute phase")
+                        || instruction.text.contains("Codex final phase"))
+                )
         );
         assert!(
             requests[0]
@@ -1900,20 +1781,84 @@ mod tests {
                 _ => false,
             })
         }));
-        assert_eq!(requests[2].tool_choice, ToolChoice::None);
-        assert!(requests[2].tools.is_empty());
         assert!(
-            !requests[2]
-                .instructions
+            requests[1]
+                .tools
                 .iter()
-                .any(|instruction| instruction.text.contains("full tool catalog"))
+                .any(|tool| tool.name == dynamic_tools::TOOL_CALL)
         );
 
         let compactions = host.compactions.lock().expect("compactions");
-        assert_eq!(compactions.len(), 3);
-        assert_eq!(compactions[0].reason.as_deref(), Some("codex_execute"));
-        assert_eq!(compactions[1].reason.as_deref(), Some("codex_execute"));
-        assert_eq!(compactions[2].reason.as_deref(), Some("codex_final"));
+        assert_eq!(compactions.len(), 2);
+        assert_eq!(compactions[0].reason.as_deref(), Some("codex_loop"));
+        assert_eq!(compactions[1].reason.as_deref(), Some("codex_loop"));
+    }
+
+    #[test]
+    fn codex_loop_errors_when_tool_round_limit_is_reached() {
+        let input = workflow_input("keep calling tools");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let responses = (0..MAX_TOOL_ROUNDS)
+            .map(|_| {
+                tool_call_response(ToolCall::new(
+                    new_call_id(),
+                    "read_file",
+                    json!({ "path": "src/lib.rs" }),
+                ))
+            })
+            .collect();
+        let mut host = FakeHost::with_responses(responses)
+            .with_tools(vec![read_file.clone()], vec![read_file]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(_) => panic!("workflow should fail after tool round limit"),
+            RResult::RErr(error) => error,
+        };
+        drop(host_to);
+
+        assert!(
+            error.message.as_str().contains("tool round limit reached"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            host.requests.lock().expect("requests").len(),
+            MAX_TOOL_ROUNDS
+        );
+    }
+
+    #[test]
+    fn codex_loop_empty_final_response_does_not_fallback_to_tool_result() {
+        let input = workflow_input("change code");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+        let mut host = FakeHost::with_responses(vec![
+            tool_call_response(call),
+            CanonicalModelResponse::new(
+                CanonicalMessage::text(MessageRole::Assistant, ""),
+                Vec::new(),
+                FinishReason::Stop,
+            ),
+        ])
+        .with_tools(vec![read_file.clone()], vec![read_file]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let output_json =
+            match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
+                RResult::ROk(json) => json,
+                RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+            };
+        let output: PluginWorkflowOutput =
+            serde_json::from_str(output_json.as_str()).expect("output json");
+
+        assert_eq!(output.output.text, "<empty model response>");
+        assert!(!output.output.text.contains("read_file ok"));
     }
 
     #[test]

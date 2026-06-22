@@ -384,10 +384,12 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 
 `coding.codex_loop` - экспериментальный workflow для named config `codex`
 (`codex.config.toml`).
-Он использует тот же event/runtime contract, но разделяет Codex-shaped
-`codex_execute` и `codex_final`: execute-фаза может искать/вызывать tools через
-workflow host, а final-фаза всегда делает model request без tools и без
-dynamic meta-tool instructions.
+Он использует тот же event/runtime contract, но ведёт один Codex-shaped
+model/tool loop: model request с tools, tool execution через workflow host,
+следующий model request с обновлённой историей. Первый response без tool calls
+становится финальным ответом. Отдельного forced final request без tools нет;
+исчерпание guard лимита tool rounds считается ошибкой workflow, а пустой
+финальный ответ не подменяется последним tool result.
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в

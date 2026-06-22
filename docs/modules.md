@@ -467,17 +467,20 @@ events вызывает через host API (`build_context`, `complete_model`,
 зависит от наличия соответствующих tools.
 
 `modules.workflow = "coding.codex_loop"` — экспериментальный Codex-shaped loop
-для named config `codex` (`codex.config.toml`). Он остаётся в том же plugin/slot boundary, но
-ведёт turn ближе к Codex:
+для named config `codex` (`codex.config.toml`). Он остаётся в том же
+plugin/slot boundary, но ведёт turn ближе к Codex: model request с tools,
+исполнение tool calls через host `execute_tool_json`, затем следующий model
+request с обновлённой историей. Первый response без tool calls становится
+финальным ответом; отдельного synthetic `codex_final` запроса без tools нет.
 
-- `codex_execute` — model/tool loop с Codex-oriented system/developer
-  instructions, dynamic meta-tools и обычным host `execute_tool_json`;
-- после tool work промежуточный draft остаётся model-facing state, но не
-  пишется в persistent history;
-- `codex_final` — отдельный финальный model call с `tool_choice = none` и
-  пустым tool list, без dynamic meta-tool instructions;
-- changed compaction в этом workflow обязана сохранить текущий user message,
-  иначе turn завершается ошибкой вместо тихого `new_messages_start = len`.
+Guard `MAX_TOOL_ROUNDS = 8` остаётся защитой от бесконечного plugin loop. Если
+модель продолжает просить tools после лимита, workflow возвращает ошибку, а не
+делает forced final fallback. Пустой финальный ответ модели не подменяется
+последним tool result. Changed compaction в этом workflow обязана сохранить
+текущий user message, иначе turn завершается ошибкой вместо тихого
+`new_messages_start = len`. Текущий gap совместимости: workflow всё ещё
+использует локальный `CODEX_SYSTEM_INSTRUCTIONS`, потому что contract пока не
+передаёт upstream Codex `base_instructions` в plugin.
 
 ## Renderer
 

@@ -318,10 +318,10 @@ task
 Максимальное число tool rounds в baseline `coding.single_loop` сейчас равно `8`. После исчерпания лимита workflow делает финальный запрос к модели с `tool_choice = none` и пустым списком tools, чтобы завершить turn нормальным ответом вместо выполнения новых tool calls.
 
 Экспериментальный `coding.codex_loop` использует тот же host boundary, но
-разделяет Codex-shaped execute/final phases: tool loop работает с
-Codex-oriented instructions и dynamic meta-tools, а финальный запрос идёт без
-tools и без dynamic meta-tool инструкций. После tool work промежуточный draft
-остаётся только model-facing state и не пишется в persistent history.
+ведёт один Codex-shaped model/tool loop: model request с tools, tool dispatch
+через host, затем следующий model request с обновлённой историей. Первый ответ
+без tool calls завершает turn. Workflow не делает отдельный forced final
+request без tools; если guard лимит tool rounds исчерпан, это ошибка workflow.
 
 ## Текущие Ограничения
 
