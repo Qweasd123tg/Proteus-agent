@@ -3,16 +3,14 @@
 `AppConfig` поддерживает JSON и TOML. Формат файла определяется по расширению: `.json` читается как JSON, остальные config-файлы читаются как TOML.
 
 `--config` может указывать на один файл, директорию или named config. Bare
-name без `/` и расширения резолвится как named config. Для `--config codex`
-правило строгое: используется только `codex.config.toml` из default config dir
-(`~/.config/Proteus-agent/configs/` или `$PROTEUS_CONFIG_HOME/configs/`), без
-поиска в текущем каталоге, без `codex.config.json` и без silent fallback. Если
-этого файла нет, запуск завершается ошибкой. Локальный или экспериментальный
-codex-файл передавайте явным путём, например `--config ./codex.config.toml`.
-Остальные named configs пока ищутся как `<name>.config.toml` или
-`<name>.config.json`: сначала в текущем каталоге, затем в default config dir.
-Директория читается как config tree: все `*.toml` и `*.json` внутри неё
-сортируются по имени, затем merge-ятся в один итоговый `AppConfig`.
+name без `/` и расширения резолвится строго в `<name>.config.toml` из default
+config dir (`~/.config/Proteus-agent/configs/` или
+`$PROTEUS_CONFIG_HOME/configs/`). Поиска в текущем каталоге, JSON-варианта и
+silent fallback нет: если файла нет, запуск завершается ошибкой. Локальный или
+экспериментальный config передавайте явным путём, например
+`--config ./codex.config.toml`. Директория читается как config tree: все
+`*.toml` и `*.json` внутри неё сортируются по имени, затем merge-ятся в один
+итоговый `AppConfig`.
 
 `./install.sh` устанавливает packaged named configs в default config dir
 (`~/.config/Proteus-agent/configs/` или `$PROTEUS_CONFIG_HOME/configs/`), не
@@ -70,9 +68,9 @@ proteus init full
 `$HOME/.config/Proteus-agent/configs/config.toml`. Если передать
 `--config /path/config.toml`, файл будет записан ровно туда; если передать
 `--config /path/configs`, `config.toml` будет создан внутри этой директории.
-Если передать named config, например `--config codex`, init создаст
-`codex.config.toml` в default config dir, чтобы следующий `--config codex`
-читал тот же файл.
+Если передать named config, например `--config codex` или `--config dev-slim`,
+init создаст `<name>.config.toml` в default config dir, чтобы следующий
+`--config <name>` читал тот же файл.
 `coding` и `full` используют рабочий coding profile, `codex` использует
 экспериментальный Codex-shaped profile, `safe` использует `proteus.example.toml`
 с fake model.

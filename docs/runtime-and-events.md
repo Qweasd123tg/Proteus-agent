@@ -32,11 +32,10 @@ cargo run --bin proteus -- doctor
 
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
-`--config`. Если `--config codex` передан как bare name, init пишет строгий
-named config `codex.config.toml` в default config dir; остальные bare names
-пишутся как `<name>.config.toml`. `coding`, `codex` и `full` включают
-real-provider coding profile с plugin tools после `./install.sh`, `safe`
-использует fake model.
+`--config`. Если `--config <name>` передан как bare name, init пишет строгий
+named config `<name>.config.toml` в default config dir. `coding`, `codex` и
+`full` включают real-provider coding profile с plugin tools после
+`./install.sh`, `safe` использует fake model.
 
 `doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
 module ids, активный model provider, наличие секрета провайдера, внешние

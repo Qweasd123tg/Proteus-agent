@@ -1965,9 +1965,16 @@ mod tests {
     fn init_config_path_from_arg_expands_named_config() {
         let expected_codex_path = AppConfig::named_config_destination_path(Path::new("codex"))
             .expect("codex config path");
+        let expected_dev_slim_path =
+            AppConfig::named_config_destination_path(Path::new("dev-slim"))
+                .expect("dev-slim config path");
         assert_eq!(
             init_config_path_from_arg(Path::new("codex")),
             expected_codex_path
+        );
+        assert_eq!(
+            init_config_path_from_arg(Path::new("dev-slim")),
+            expected_dev_slim_path
         );
         assert_eq!(
             init_config_path_from_arg(Path::new("./codex")),

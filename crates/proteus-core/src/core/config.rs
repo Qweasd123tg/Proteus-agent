@@ -11,9 +11,6 @@ use serde_json::{Map, Value};
 
 use crate::domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig};
 
-const CODEX_CONFIG_NAME: &str = "codex";
-const CODEX_CONFIG_FILE: &str = "codex.config.toml";
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -66,12 +63,9 @@ impl AppConfig {
 
     pub fn named_config_destination_path(path: &Path) -> Option<PathBuf> {
         config_name_ref(path).map(|name| {
-            if name == CODEX_CONFIG_NAME {
-                return default_config_dir()
-                    .map(|dir| dir.join(CODEX_CONFIG_FILE))
-                    .unwrap_or_else(|| PathBuf::from(CODEX_CONFIG_FILE));
-            }
-            PathBuf::from(format!("{name}.config.toml"))
+            default_config_dir()
+                .map(|dir| dir.join(named_config_file(name)))
+                .unwrap_or_else(|| PathBuf::from(named_config_file(name)))
         })
     }
 
@@ -680,17 +674,12 @@ async fn resolve_explicit_config_path(path: &Path) -> Result<PathBuf> {
         return Ok(path);
     };
 
-    let cwd = env::current_dir().context("failed to resolve cwd for config name")?;
     let config_dir = default_config_dir();
-    resolve_config_name_path(name, &cwd, config_dir.as_deref()).await
+    resolve_config_name_path(name, config_dir.as_deref()).await
 }
 
-async fn resolve_config_name_path(
-    name: &str,
-    cwd: &Path,
-    config_dir: Option<&Path>,
-) -> Result<PathBuf> {
-    let candidates = named_config_candidates(name, cwd, config_dir);
+async fn resolve_config_name_path(name: &str, config_dir: Option<&Path>) -> Result<PathBuf> {
+    let candidates = named_config_candidates(name, config_dir);
     if candidates.is_empty() {
         bail!("config name '{name}' was not found; no config candidates were available");
     }
@@ -711,25 +700,14 @@ async fn resolve_config_name_path(
     )
 }
 
-fn named_config_candidates(name: &str, cwd: &Path, config_dir: Option<&Path>) -> Vec<PathBuf> {
-    if name == CODEX_CONFIG_NAME {
-        return config_dir
-            .map(|dir| vec![dir.join(CODEX_CONFIG_FILE)])
-            .unwrap_or_default();
-    }
+fn named_config_candidates(name: &str, config_dir: Option<&Path>) -> Vec<PathBuf> {
+    config_dir
+        .map(|dir| vec![dir.join(named_config_file(name))])
+        .unwrap_or_default()
+}
 
-    let file_names = [format!("{name}.config.toml"), format!("{name}.config.json")];
-    let mut candidates = Vec::new();
-    let mut seen = BTreeSet::new();
-    for root in [Some(cwd), config_dir].into_iter().flatten() {
-        for file_name in &file_names {
-            let candidate = root.join(file_name);
-            if seen.insert(candidate.clone()) {
-                candidates.push(candidate);
-            }
-        }
-    }
-    candidates
+fn named_config_file(name: &str) -> String {
+    format!("{name}.config.toml")
 }
 
 fn config_name_ref(path: &Path) -> Option<&str> {
@@ -897,63 +875,48 @@ mod tests {
     }
 
     #[test]
-    fn named_config_candidates_search_cwd_before_config_dir() {
+    fn named_config_candidates_are_strict_default_toml() {
         assert_eq!(
             named_config_candidates(
                 "dev-slim",
-                Path::new("/work"),
-                Some(Path::new("/home/user/.config/Proteus-agent/configs"))
-            ),
-            vec![
-                PathBuf::from("/work/dev-slim.config.toml"),
-                PathBuf::from("/work/dev-slim.config.json"),
-                PathBuf::from("/home/user/.config/Proteus-agent/configs/dev-slim.config.toml"),
-                PathBuf::from("/home/user/.config/Proteus-agent/configs/dev-slim.config.json"),
-            ]
-        );
-    }
-
-    #[test]
-    fn codex_named_config_candidates_are_strict_default_toml() {
-        assert_eq!(
-            named_config_candidates(
-                "codex",
-                Path::new("/work"),
                 Some(Path::new("/home/user/.config/Proteus-agent/configs"))
             ),
             vec![PathBuf::from(
-                "/home/user/.config/Proteus-agent/configs/codex.config.toml"
+                "/home/user/.config/Proteus-agent/configs/dev-slim.config.toml"
             )]
         );
-        assert!(named_config_candidates("codex", Path::new("/work"), None).is_empty());
+        assert!(named_config_candidates("dev-slim", None).is_empty());
     }
 
     #[test]
-    fn codex_named_config_destination_uses_default_config_dir() {
+    fn named_config_destination_uses_default_config_dir() {
         let expected = default_config_dir()
-            .map(|dir| dir.join(CODEX_CONFIG_FILE))
-            .unwrap_or_else(|| PathBuf::from(CODEX_CONFIG_FILE));
+            .map(|dir| dir.join("codex.config.toml"))
+            .unwrap_or_else(|| PathBuf::from("codex.config.toml"));
         assert_eq!(
             AppConfig::named_config_destination_path(Path::new("codex")),
             Some(expected)
         );
+        let expected_dev_slim = default_config_dir()
+            .map(|dir| dir.join("dev-slim.config.toml"))
+            .unwrap_or_else(|| PathBuf::from("dev-slim.config.toml"));
         assert_eq!(
             AppConfig::named_config_destination_path(Path::new("dev-slim")),
-            Some(PathBuf::from("dev-slim.config.toml"))
+            Some(expected_dev_slim)
         );
     }
 
     #[tokio::test]
-    async fn resolve_codex_config_name_path_ignores_cwd_and_json_fallbacks() {
+    async fn resolve_config_name_path_ignores_cwd_and_json_fallbacks() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
-        std::fs::write(cwd.path().join("codex.config.toml"), "cwd").expect("cwd toml");
-        std::fs::write(config_dir.path().join("codex.config.json"), "{}").expect("config json");
-        let home_config = config_dir.path().join("codex.config.toml");
+        std::fs::write(cwd.path().join("dev-slim.config.toml"), "cwd").expect("cwd toml");
+        std::fs::write(config_dir.path().join("dev-slim.config.json"), "{}").expect("config json");
+        let home_config = config_dir.path().join("dev-slim.config.toml");
         std::fs::write(&home_config, "home").expect("home toml");
 
         assert_eq!(
-            resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+            resolve_config_name_path("dev-slim", Some(config_dir.path()))
                 .await
                 .expect("resolved config"),
             home_config
@@ -961,25 +924,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_codex_config_name_path_errors_without_default_toml() {
+    async fn resolve_config_name_path_errors_without_default_toml() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
-        std::fs::write(cwd.path().join("codex.config.toml"), "cwd").expect("cwd toml");
-        std::fs::write(config_dir.path().join("codex.config.json"), "{}").expect("config json");
+        std::fs::write(cwd.path().join("dev-slim.config.toml"), "cwd").expect("cwd toml");
+        std::fs::write(config_dir.path().join("dev-slim.config.json"), "{}").expect("config json");
 
-        let error = resolve_config_name_path("codex", cwd.path(), Some(config_dir.path()))
+        let error = resolve_config_name_path("dev-slim", Some(config_dir.path()))
             .await
-            .expect_err("missing strict codex config");
+            .expect_err("missing strict named config");
         let message = error.to_string();
 
-        assert!(message.contains("config name 'codex' was not found"));
-        assert!(message.contains("codex.config.toml"));
-        assert!(!message.contains("codex.config.json"));
+        assert!(message.contains("config name 'dev-slim' was not found"));
+        assert!(message.contains("dev-slim.config.toml"));
+        assert!(!message.contains("dev-slim.config.json"));
         assert!(!message.contains(cwd.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
-    async fn resolve_config_name_path_prefers_cwd_toml_for_generic_names() {
+    async fn resolve_config_name_path_uses_default_toml_for_generic_names() {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd_config = cwd.path().join("dev-slim.config.toml");
@@ -988,11 +951,12 @@ mod tests {
         std::fs::write(&home_config, "").expect("home config");
 
         assert_eq!(
-            resolve_config_name_path("dev-slim", cwd.path(), Some(config_dir.path()))
+            resolve_config_name_path("dev-slim", Some(config_dir.path()))
                 .await
                 .expect("resolved config"),
-            cwd_config
+            home_config
         );
+        assert_ne!(cwd_config, home_config);
     }
 
     #[tokio::test]
@@ -1000,26 +964,25 @@ mod tests {
         let cwd = tempfile::tempdir().expect("cwd");
         let config_dir = tempfile::tempdir().expect("config dir");
 
-        let error = resolve_config_name_path("dev-slim", cwd.path(), Some(config_dir.path()))
+        let error = resolve_config_name_path("dev-slim", Some(config_dir.path()))
             .await
             .expect_err("missing config");
         let message = error.to_string();
 
         assert!(message.contains("config name 'dev-slim' was not found"));
         assert!(message.contains("dev-slim.config.toml"));
-        assert!(message.contains("dev-slim.config.json"));
+        assert!(!message.contains("dev-slim.config.json"));
+        assert!(!message.contains(cwd.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
-    async fn resolve_codex_config_name_path_reports_no_candidates_without_default_dir() {
-        let cwd = tempfile::tempdir().expect("cwd");
-
-        let error = resolve_config_name_path("codex", cwd.path(), None)
+    async fn resolve_config_name_path_reports_no_candidates_without_default_dir() {
+        let error = resolve_config_name_path("dev-slim", None)
             .await
             .expect_err("missing config dir");
         let message = error.to_string();
 
-        assert!(message.contains("config name 'codex' was not found"));
+        assert!(message.contains("config name 'dev-slim' was not found"));
         assert!(message.contains("no config candidates were available"));
     }
 }
