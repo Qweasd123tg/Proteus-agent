@@ -485,6 +485,14 @@ message, иначе turn завершается ошибкой вместо ти
 Если config не задал instructions, `coding.codex_loop` не подставляет
 эвристический fallback prompt.
 
+`coding.codex_loop` валит turn при broken model/tool protocol вместо попытки
+угадать намерение модели: `finish_reason = ToolCalls` без tool calls,
+`finish_reason = Length`, non-success finish reasons, несовпадение
+`response.tool_calls` с `ContentPart::ToolCall` в assistant message, duplicate
+call id или прямой вызов tool-а, которого не было в текущем model request,
+считаются ошибкой workflow. Ошибки самого tool invocation остаются
+`ToolResult::error` через обычный host/orchestrator path.
+
 ## Renderer
 
 `modules.renderer = "text"` — core stub, который возвращает только

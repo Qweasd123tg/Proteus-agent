@@ -10,6 +10,8 @@
 
 mod dynamic_tools;
 
+use std::collections::HashSet;
+
 use proteus_contracts::{
     abi_stable::{
         export_root_module,
@@ -419,6 +421,7 @@ fn run_codex_loop(
                 finish_reason: response.finish_reason.clone(),
             },
         )?;
+        validate_codex_model_response(&request, &response)?;
 
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
@@ -799,6 +802,101 @@ fn execute_or_handle_tool(
     } else {
         execute_tool(host, input, call)
     }
+}
+
+fn validate_codex_model_response(
+    request: &CanonicalModelRequest,
+    response: &CanonicalModelResponse,
+) -> Result<(), PluginWorkflowError> {
+    match response.finish_reason {
+        FinishReason::ToolCalls if response.tool_calls.is_empty() => {
+            return Err(PluginWorkflowError::new(
+                "codex_loop model response used finish_reason=ToolCalls without tool calls",
+            ));
+        }
+        FinishReason::ToolCalls => {}
+        FinishReason::Stop if response.tool_calls.is_empty() => return Ok(()),
+        FinishReason::Length => {
+            return Err(PluginWorkflowError::new(
+                "codex_loop model response hit the length limit before finishing the turn",
+            ));
+        }
+        FinishReason::ContentFilter | FinishReason::Error | FinishReason::Unknown => {
+            return Err(PluginWorkflowError::new(format!(
+                "codex_loop model response returned non-success finish_reason={:?}",
+                response.finish_reason
+            )));
+        }
+        _ if !response.tool_calls.is_empty() => {
+            return Err(PluginWorkflowError::new(format!(
+                "codex_loop model response included tool calls with finish_reason={:?}",
+                response.finish_reason
+            )));
+        }
+        _ => return Ok(()),
+    }
+
+    validate_tool_calls_match_message(&response.message, &response.tool_calls)?;
+    validate_tool_calls_are_request_visible(&request.tools, &response.tool_calls)
+}
+
+fn validate_tool_calls_match_message(
+    message: &CanonicalMessage,
+    tool_calls: &[ToolCall],
+) -> Result<(), PluginWorkflowError> {
+    let message_tool_calls = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ToolCall { call } => Some(call),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if message_tool_calls.len() != tool_calls.len() {
+        return Err(PluginWorkflowError::new(format!(
+            "codex_loop model response tool_calls length {} does not match assistant message tool_call parts {}",
+            tool_calls.len(),
+            message_tool_calls.len()
+        )));
+    }
+
+    let mut seen_call_ids = HashSet::new();
+    for (index, (message_call, response_call)) in
+        message_tool_calls.iter().zip(tool_calls.iter()).enumerate()
+    {
+        if !seen_call_ids.insert(response_call.id.clone()) {
+            return Err(PluginWorkflowError::new(format!(
+                "codex_loop model response duplicated tool call id '{}'",
+                response_call.id
+            )));
+        }
+        if *message_call != response_call {
+            return Err(PluginWorkflowError::new(format!(
+                "codex_loop model response tool call at index {index} does not match assistant message part"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_tool_calls_are_request_visible(
+    request_tools: &[ToolSpec],
+    tool_calls: &[ToolCall],
+) -> Result<(), PluginWorkflowError> {
+    let visible_names = request_tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<HashSet<_>>();
+    for call in tool_calls {
+        if !visible_names.contains(call.name.as_str()) {
+            return Err(PluginWorkflowError::new(format!(
+                "codex_loop model requested tool '{}' that was not present in the model request",
+                call.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn compact_messages(
@@ -1841,6 +1939,147 @@ mod tests {
 
         assert_eq!(output.output.text, "<empty model response>");
         assert!(!output.output.text.contains("read_file ok"));
+    }
+
+    #[test]
+    fn codex_loop_errors_on_tool_finish_without_tool_calls() {
+        let input = workflow_input("change code");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, ""),
+            Vec::new(),
+            FinishReason::ToolCalls,
+        )]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+        drop(host_to);
+
+        assert!(
+            error
+                .message
+                .as_str()
+                .contains("ToolCalls without tool calls")
+        );
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
+        );
+        assert!(
+            host.events
+                .lock()
+                .expect("events")
+                .iter()
+                .all(|event| !matches!(event, Event::TurnFinished { .. }))
+        );
+    }
+
+    #[test]
+    fn codex_loop_errors_on_length_response() {
+        let input = workflow_input("change code");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "partial"),
+            Vec::new(),
+            FinishReason::Length,
+        )]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+        drop(host_to);
+
+        assert!(error.message.as_str().contains("length limit"));
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn codex_loop_errors_when_tool_calls_do_not_match_message_parts() {
+        let input = workflow_input("change code");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+        let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "calling tool"),
+            vec![call],
+            FinishReason::ToolCalls,
+        )])
+        .with_tools(vec![read_file.clone()], vec![read_file]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+        drop(host_to);
+
+        assert!(
+            error
+                .message
+                .as_str()
+                .contains("does not match assistant message")
+        );
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn codex_loop_errors_when_model_calls_unrequested_tool() {
+        let input = workflow_input("change code");
+        let input_json = serde_json::to_string(&input).expect("input json");
+        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
+        let call = ToolCall::new(
+            new_call_id(),
+            "apply_patch",
+            json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+        );
+        let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
+            .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
+        let mut host_to: PluginWorkflowHostMut<'_> =
+            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
+        {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+        drop(host_to);
+
+        assert!(
+            error
+                .message
+                .as_str()
+                .contains("not present in the model request")
+        );
+        assert!(
+            host.executed_calls
+                .lock()
+                .expect("executed calls")
+                .is_empty()
+        );
     }
 
     #[test]
