@@ -170,6 +170,8 @@ pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    #[serde(default)]
+    pub surface: ToolSurface,
     pub safety: ToolSafety,
     pub timeout_ms: Option<u64>,
     pub metadata: serde_json::Value,
@@ -186,6 +188,7 @@ impl ToolSpec {
             name: name.into(),
             description: description.into(),
             input_schema,
+            surface: ToolSurface::default(),
             safety,
             timeout_ms: None,
             metadata: serde_json::Value::Null,
@@ -200,6 +203,73 @@ impl ToolSpec {
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
         self
+    }
+
+    pub fn with_surface(mut self, surface: ToolSurface) -> Self {
+        self.surface = surface;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ToolSurface {
+    Function {
+        #[serde(default)]
+        strict: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_schema: Option<serde_json::Value>,
+    },
+    Freeform {
+        format: FreeformToolFormat,
+    },
+}
+
+impl ToolSurface {
+    pub fn function() -> Self {
+        Self::default()
+    }
+
+    pub fn strict_function() -> Self {
+        Self::Function {
+            strict: true,
+            output_schema: None,
+        }
+    }
+
+    pub fn freeform_lark(definition: impl Into<String>) -> Self {
+        Self::Freeform {
+            format: FreeformToolFormat::lark(definition),
+        }
+    }
+}
+
+impl Default for ToolSurface {
+    fn default() -> Self {
+        Self::Function {
+            strict: false,
+            output_schema: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FreeformToolFormat {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub syntax: String,
+    pub definition: String,
+}
+
+impl FreeformToolFormat {
+    pub fn lark(definition: impl Into<String>) -> Self {
+        Self {
+            kind: "grammar".to_owned(),
+            syntax: "lark".to_owned(),
+            definition: definition.into(),
+        }
     }
 }
 

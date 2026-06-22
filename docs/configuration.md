@@ -500,6 +500,7 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 | `name` | уникальное имя tool для модели и policy |
 | `description` | описание tool в `ToolSpec` |
 | `input_schema` | JSON Schema для аргументов модели; default `{ "type": "object", "additionalProperties": true }` |
+| `surface` | optional model-facing форма tool; default `{ kind = "function", strict = false }`; `freeform` требует adapter support |
 | `safety` | `ReadOnly`, `WritesFiles`, `RunsCommands`, `Network` или `Dangerous` |
 | `timeout_ms` | optional timeout на исполнение |
 | `metadata` | arbitrary JSON metadata в `ToolSpec` |

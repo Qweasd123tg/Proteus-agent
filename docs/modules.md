@@ -281,7 +281,18 @@ executor как обычный `Tool`. Для `tools.mcp_servers` runtime дел
 `<server>__<remote_tool>`. Вызов всё равно проходит через `ToolOrchestrator`
 и mode-aware `ApprovalPolicy`.
 
-Каждый tool возвращает `ToolSpec` с `ToolSafety`. `ToolRegistry` хранит source каждого tool и показывает labels вида `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в стабильном порядке по имени, чтобы model request не зависел от порядка `HashMap`.
+Каждый tool возвращает `ToolSpec` с `ToolSafety` и model-facing
+`ToolSurface`. Default surface — `function`: provider adapters передают
+модели `input_schema` как JSON Schema аргументов. Для Codex-like tools
+доступен явный `freeform` surface с grammar format; adapters, которые не
+поддерживают такую форму, должны вернуть ошибку, а не превращать её в function
+fallback. `ToolSurface` не решает безопасность и не выбирает executor: эти
+решения остаются в `ToolSafety`, `ApprovalPolicy` и `ToolOrchestrator`.
+`ToolRegistry` хранит source каждого tool и показывает labels вида
+`builtin:<provider>`, `config:<origin>`, `mcp:<server>` или
+`dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в
+стабильном порядке по имени, чтобы model request не зависел от порядка
+`HashMap`.
 
 `ToolRegistry` хранит все включённые tools. Workflow обращается к `ToolOrchestrator`, а тот показывает модели tools через `ApprovalPolicy::evaluate_visibility`. Runtime заранее оборачивает configured policy в `ModeAwarePolicy`: в `plan` доступны только `ReadOnly`, в `normal` visibility делегируется configured policy/approval, в `auto` доступны только `ReadOnly` и `WritesFiles`. `RunsCommands`, `Network` и `Dangerous` в `auto` не показываются и не исполняются. Execution path повторно проверяет каждый настоящий `ToolCall` через `ApprovalPolicy::evaluate` перед `Tool::invoke`.
 

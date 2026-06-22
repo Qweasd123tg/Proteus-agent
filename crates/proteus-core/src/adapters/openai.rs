@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::{
     adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
-    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
+    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec, ToolSurface},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
@@ -258,12 +258,18 @@ fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
     }
 
     if !request.tools.is_empty() {
-        body["tools"] = Value::Array(request.tools.iter().map(to_openai_tool).collect());
+        body["tools"] = Value::Array(
+            request
+                .tools
+                .iter()
+                .map(to_openai_tool)
+                .collect::<Result<Vec<_>>>()?,
+        );
         body["tool_choice"] = match &request.tool_choice {
             ToolChoice::None => Value::String("none".to_owned()),
             ToolChoice::Auto => Value::String("auto".to_owned()),
             ToolChoice::Required => Value::String("required".to_owned()),
-            ToolChoice::Tool(name) => json!({ "type": "function", "name": name }),
+            ToolChoice::Tool(name) => openai_named_tool_choice(request, name)?,
             _ => Value::String("auto".to_owned()),
         };
     }
@@ -302,14 +308,51 @@ fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn to_openai_tool(tool: &ToolSpec) -> Value {
-    json!({
-        "type": "function",
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": tool.input_schema,
-        "strict": false,
-    })
+fn to_openai_tool(tool: &ToolSpec) -> Result<Value> {
+    match &tool.surface {
+        ToolSurface::Function {
+            strict,
+            output_schema,
+        } => {
+            let mut value = json!({
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+                "strict": strict,
+            });
+            if let Some(output_schema) = output_schema {
+                value["output_schema"] = output_schema.clone();
+            }
+            Ok(value)
+        }
+        ToolSurface::Freeform { format } => Ok(json!({
+            "type": "custom",
+            "name": tool.name,
+            "description": tool.description,
+            "format": format,
+        })),
+        _ => Err(anyhow!(
+            "tool '{}' uses unsupported surface for openai.responses",
+            tool.name
+        )),
+    }
+}
+
+fn openai_named_tool_choice(request: &CanonicalModelRequest, name: &str) -> Result<Value> {
+    let tool = request
+        .tools
+        .iter()
+        .find(|tool| tool.name == name)
+        .ok_or_else(|| anyhow!("tool_choice references unknown tool '{name}'"))?;
+    match &tool.surface {
+        ToolSurface::Function { .. } => Ok(json!({ "type": "function", "name": name })),
+        ToolSurface::Freeform { .. } => Ok(json!({ "type": "custom", "name": name })),
+        _ => Err(anyhow!(
+            "tool '{}' uses unsupported surface for openai.responses",
+            tool.name
+        )),
+    }
 }
 
 fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
@@ -687,6 +730,63 @@ mod tests {
         );
         assert_eq!(body["max_output_tokens"], 123);
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    }
+
+    #[test]
+    fn request_serializes_freeform_tools_as_custom_tools() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "edit a file")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "apply_patch",
+                "Use the `apply_patch` tool to edit files.",
+                json!({}),
+                ToolSafety::WritesFiles,
+            )
+            .with_surface(ToolSurface::freeform_lark("start: \"*** Begin Patch\"")),
+        ])
+        .with_tool_choice(ToolChoice::Tool("apply_patch".to_owned()));
+
+        let body = to_openai_request(&request).unwrap();
+
+        assert_eq!(body["tools"][0]["type"], "custom");
+        assert_eq!(body["tools"][0]["name"], "apply_patch");
+        assert_eq!(body["tools"][0]["format"]["type"], "grammar");
+        assert_eq!(body["tools"][0]["format"]["syntax"], "lark");
+        assert_eq!(
+            body["tools"][0]["format"]["definition"],
+            "start: \"*** Begin Patch\""
+        );
+        assert_eq!(
+            body["tool_choice"],
+            json!({ "type": "custom", "name": "apply_patch" })
+        );
+        assert!(body["tools"][0].get("parameters").is_none());
+    }
+
+    #[test]
+    fn request_rejects_unknown_named_tool_choice() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "write a file")],
+        )
+        .with_tools(vec![ToolSpec::new(
+            "write_file",
+            "Write a file",
+            json!({ "type": "object" }),
+            ToolSafety::WritesFiles,
+        )])
+        .with_tool_choice(ToolChoice::Tool("missing".to_owned()));
+
+        let error = to_openai_request(&request).expect_err("unknown tool choice should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("tool_choice references unknown tool")
+        );
     }
 
     #[test]

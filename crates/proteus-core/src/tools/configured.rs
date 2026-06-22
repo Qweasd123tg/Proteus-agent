@@ -580,6 +580,7 @@ fn configured_tool_spec(configured: &ConfiguredToolConfig) -> ToolSpec {
         configured.input_schema.clone(),
         effective_configured_tool_safety(configured),
     )
+    .with_surface(configured.surface.clone())
     .with_metadata(configured.metadata.clone());
     if let Some(timeout_ms) = configured.timeout_ms {
         spec.with_timeout(timeout_ms)

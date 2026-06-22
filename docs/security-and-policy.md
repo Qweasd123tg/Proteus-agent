@@ -235,6 +235,12 @@ host timeout/`kill_on_drop`, но contract уже не требует менят
 path добавлен `ToolResult.content: Vec<ToolContent>` с text/json/image/binary
 blocks; новые tools могут возвращать structured output без изменения DTO.
 
+`ToolSpec.surface` описывает только то, как tool показывается модели
+конкретным provider adapter-ом (`function`, `freeform` и т.п.). Он не
+понижает `ToolSafety`, не обходит visibility/execution policy и не меняет
+executor. Если adapter не поддерживает surface, он должен вернуть ошибку
+model request, а не делать эвристический fallback к другой форме.
+
 Core не валидирует внутреннюю схему `ask_write`: значение
 `module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Имена в
 `allow`/`ask_before` влияют только на реально зарегистрированные tools.

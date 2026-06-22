@@ -443,6 +443,8 @@ pub struct ConfiguredToolConfig {
     pub description: String,
     #[serde(default = "default_tool_input_schema")]
     pub input_schema: serde_json::Value,
+    #[serde(default)]
+    pub surface: crate::domain::ToolSurface,
     pub safety: crate::domain::ToolSafety,
     #[serde(default)]
     pub timeout_ms: Option<u64>,

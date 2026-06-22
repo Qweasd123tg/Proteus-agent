@@ -2087,6 +2087,7 @@ mod tests {
                 name: "read_file".to_owned(),
                 description: "old file reader".to_owned(),
                 input_schema: serde_json::json!({ "type": "object" }),
+                surface: proteus_core::domain::ToolSurface::default(),
                 safety: ToolSafety::ReadOnly,
                 timeout_ms: None,
                 metadata: serde_json::Value::Null,

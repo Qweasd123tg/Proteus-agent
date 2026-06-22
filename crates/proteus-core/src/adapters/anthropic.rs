@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::{
     adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
     contracts::{ModelAdapter, ModelEventStream},
-    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec},
+    domain::{ModelRef, ToolCall, ToolChoice, ToolSpec, ToolSurface},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
@@ -502,7 +502,13 @@ fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
     }
 
     if !request.tools.is_empty() {
-        body["tools"] = Value::Array(request.tools.iter().map(to_anthropic_tool).collect());
+        body["tools"] = Value::Array(
+            request
+                .tools
+                .iter()
+                .map(to_anthropic_tool)
+                .collect::<Result<Vec<_>>>()?,
+        );
         body["tool_choice"] = match &request.tool_choice {
             ToolChoice::None => json!({ "type": "none" }),
             ToolChoice::Auto => json!({ "type": "auto" }),
@@ -554,12 +560,22 @@ fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn to_anthropic_tool(tool: &ToolSpec) -> Value {
-    json!({
-        "name": tool.name,
-        "description": tool.description,
-        "input_schema": tool.input_schema,
-    })
+fn to_anthropic_tool(tool: &ToolSpec) -> Result<Value> {
+    match &tool.surface {
+        ToolSurface::Function { .. } => Ok(json!({
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        })),
+        ToolSurface::Freeform { .. } => Err(anyhow!(
+            "tool '{}' uses freeform surface, which anthropic.messages does not support",
+            tool.name
+        )),
+        _ => Err(anyhow!(
+            "tool '{}' uses unsupported surface for anthropic.messages",
+            tool.name
+        )),
+    }
 }
 
 fn to_anthropic_messages(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
@@ -991,6 +1007,31 @@ mod tests {
                 "type": "adaptive",
                 "display": "summarized"
             })
+        );
+    }
+
+    #[test]
+    fn request_rejects_freeform_tools_without_fallback() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "edit")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "apply_patch",
+                "Use the `apply_patch` tool to edit files.",
+                json!({}),
+                crate::domain::ToolSafety::WritesFiles,
+            )
+            .with_surface(ToolSurface::freeform_lark("start: \"*** Begin Patch\"")),
+        ]);
+
+        let error = to_anthropic_request(&request).expect_err("freeform should be unsupported");
+
+        assert!(
+            error
+                .to_string()
+                .contains("anthropic.messages does not support")
         );
     }
 

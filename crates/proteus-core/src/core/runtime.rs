@@ -979,6 +979,7 @@ mod tests {
             name: "late_tool".to_owned(),
             description: "Appears after reload".to_owned(),
             input_schema: serde_json::json!({"type": "object"}),
+            surface: crate::domain::ToolSurface::default(),
             safety: ToolSafety::ReadOnly,
             timeout_ms: None,
             metadata: serde_json::Value::Null,

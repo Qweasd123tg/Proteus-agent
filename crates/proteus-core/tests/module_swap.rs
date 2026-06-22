@@ -46,8 +46,8 @@ use proteus_core::{
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
         ModuleKind, Patch, PatchResult, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
-        ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id,
-        new_turn_id,
+        ToolChoice, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id, new_session_id,
+        new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -1350,6 +1350,7 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
             },
             "required": ["query"]
         }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: json!({ "from": "config" }),
@@ -1413,6 +1414,7 @@ fn configured_native_tool_cannot_lower_handler_safety() {
             },
             "required": ["patch"]
         }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
@@ -1444,6 +1446,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
             },
             "required": ["message"]
         }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
@@ -1498,6 +1501,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
         name: "touch_marker".to_owned(),
         description: "Create a marker file".to_owned(),
         input_schema: json!({ "type": "object", "properties": {} }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::RunsCommands,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
@@ -1678,6 +1682,7 @@ done
         name: "mcp_echo".to_owned(),
         description: "Call a fixed MCP echo tool".to_owned(),
         input_schema: json!({ "type": "object", "properties": {} }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
@@ -1742,6 +1747,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
         name: "mcp_hidden".to_owned(),
         description: "Hidden MCP command tool".to_owned(),
         input_schema: json!({ "type": "object", "properties": {} }),
+        surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
         metadata: serde_json::Value::Null,
