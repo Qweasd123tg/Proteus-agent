@@ -392,7 +392,7 @@ fn run_codex_loop(
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
 
-    for _round in 0..MAX_TOOL_ROUNDS {
+    loop {
         let prepared = request_from_state(
             &input,
             host,
@@ -460,9 +460,7 @@ fn run_codex_loop(
                 context_chunks,
                 context_token_estimate,
                 json!({
-                    "max_tool_rounds": MAX_TOOL_ROUNDS,
                     "tool_rounds": tool_rounds,
-                    "tool_round_limit_reached": false,
                     "phases": ["turn_loop"],
                     "executed_tools": executed_tools,
                 }),
@@ -482,10 +480,6 @@ fn run_codex_loop(
             compactions,
         });
     }
-
-    Err(PluginWorkflowError::new(format!(
-        "codex loop tool round limit reached after {MAX_TOOL_ROUNDS} rounds"
-    )))
 }
 
 fn run_plan_execute_review(
@@ -1722,10 +1716,7 @@ mod tests {
         );
         assert_eq!(output.output.metadata["phases"], json!(["turn_loop"]));
         assert_eq!(output.output.metadata["tool_rounds"], json!(1));
-        assert_eq!(
-            output.output.metadata["tool_round_limit_reached"],
-            json!(false)
-        );
+        assert!(output.output.metadata["tool_round_limit_reached"].is_null());
         assert_eq!(output.new_messages_start, Some(0));
 
         let persisted = output
@@ -1792,43 +1783,6 @@ mod tests {
         assert_eq!(compactions.len(), 2);
         assert_eq!(compactions[0].reason.as_deref(), Some("codex_loop"));
         assert_eq!(compactions[1].reason.as_deref(), Some("codex_loop"));
-    }
-
-    #[test]
-    fn codex_loop_errors_when_tool_round_limit_is_reached() {
-        let input = workflow_input("keep calling tools");
-        let input_json = serde_json::to_string(&input).expect("input json");
-        let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
-        let responses = (0..MAX_TOOL_ROUNDS)
-            .map(|_| {
-                tool_call_response(ToolCall::new(
-                    new_call_id(),
-                    "read_file",
-                    json!({ "path": "src/lib.rs" }),
-                ))
-            })
-            .collect();
-        let mut host = FakeHost::with_responses(responses)
-            .with_tools(vec![read_file.clone()], vec![read_file]);
-        let mut host_to: PluginWorkflowHostMut<'_> =
-            PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
-
-        let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to)
-        {
-            RResult::ROk(_) => panic!("workflow should fail after tool round limit"),
-            RResult::RErr(error) => error,
-        };
-        drop(host_to);
-
-        assert!(
-            error.message.as_str().contains("tool round limit reached"),
-            "{}",
-            error.message
-        );
-        assert_eq!(
-            host.requests.lock().expect("requests").len(),
-            MAX_TOOL_ROUNDS
-        );
     }
 
     #[test]

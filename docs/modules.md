@@ -473,11 +473,11 @@ plugin/slot boundary, но ведёт turn ближе к Codex: model request с
 request с обновлённой историей. Первый response без tool calls становится
 финальным ответом; отдельного synthetic `codex_final` запроса без tools нет.
 
-Guard `MAX_TOOL_ROUNDS = 8` остаётся защитой от бесконечного plugin loop. Если
-модель продолжает просить tools после лимита, workflow возвращает ошибку, а не
-делает forced final fallback. Пустой финальный ответ модели не подменяется
-последним tool result. Changed compaction в этом workflow обязана сохранить
-текущий user message, иначе turn завершается ошибкой вместо тихого
+В `coding.codex_loop` нет `MAX_TOOL_ROUNDS`: loop продолжается, пока model
+response просит tools, а завершается первым response без tool calls или внешней
+ошибкой/cancel/timeout. Пустой финальный ответ модели не подменяется последним
+tool result. Changed compaction в этом workflow обязана сохранить текущий user
+message, иначе turn завершается ошибкой вместо тихого
 `new_messages_start = len`. Текущий gap совместимости: workflow всё ещё
 использует локальный `CODEX_SYSTEM_INSTRUCTIONS`, потому что contract пока не
 передаёт upstream Codex `base_instructions` в plugin.

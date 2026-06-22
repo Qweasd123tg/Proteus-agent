@@ -321,7 +321,8 @@ task
 ведёт один Codex-shaped model/tool loop: model request с tools, tool dispatch
 через host, затем следующий model request с обновлённой историей. Первый ответ
 без tool calls завершает turn. Workflow не делает отдельный forced final
-request без tools; если guard лимит tool rounds исчерпан, это ошибка workflow.
+request без tools и не имеет внутреннего лимита tool rounds; остановка идёт
+через no-tool response, ошибку, cancel или runtime timeout.
 
 ## Текущие Ограничения
 
