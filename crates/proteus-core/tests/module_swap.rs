@@ -703,7 +703,7 @@ async fn codex_context_collects_codex_ordered_chunks_and_git_diff() {
             .contains("codex_context")
     );
     assert!(
-        bundle
+        !bundle
             .chunks
             .iter()
             .any(|chunk| chunk.source == "codex_context:task")

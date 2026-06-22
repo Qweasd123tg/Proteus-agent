@@ -305,15 +305,7 @@ fn build_codex_context(
     config: CodexContextConfig,
 ) -> anyhow::Result<ContextBundle> {
     let repo_config = RepoAwareContextConfig::from(&config);
-    let mut chunks = vec![
-        ContextChunk::new("codex_context:task", input.task.text.clone())
-            .with_score(1.0)
-            .with_metadata(json!({
-                "provider": "task",
-                "reason": "current user task",
-                "context_profile": "codex_context",
-            })),
-    ];
+    let mut chunks = Vec::new();
 
     for provider in &config.providers {
         let provider_chunks = match provider.as_str() {

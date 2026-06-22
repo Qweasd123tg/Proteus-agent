@@ -793,7 +793,9 @@ targeted queries из текущей задачи и вызывает `SearchBac
 `module_config.context.codex_context` использует тот же `ContextBuilder` slot и
 host callbacks, но меняет порядок providers под Codex-shaped profile:
 instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
-`git_diff_max_bytes` ограничивает суммарный diff chunk.
+`git_diff_max_bytes` ограничивает суммарный diff chunk. Текущий user prompt не
+добавляется в `codex_context` как отдельный chunk, чтобы model input не получал
+одну и ту же задачу дважды.
 
 ## Memory
 

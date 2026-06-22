@@ -237,7 +237,8 @@ manifest и targeted search. Дополнительный provider `git_diff` д
 ограниченный `git diff --stat`, `git diff`, `git diff --cached --stat` и
 `git diff --cached` chunk с лимитом `git_diff_max_bytes`. Источники chunks
 помечаются префиксом `codex_context:*`, а metadata получает
-`context_profile = "codex_context"`.
+`context_profile = "codex_context"`. Текущий user prompt не дублируется как
+context chunk: workflow уже передаёт его отдельным user message.
 
 ## Tools
 
