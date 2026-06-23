@@ -788,7 +788,7 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
         "repo_tree_max_entries": 300,
         "repo_tree_max_depth": 3,
         "repo_tree_skip_entries": [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build"],
-        "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
+        "project_instruction_files": ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
         "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
       },
       "codex_context": {
@@ -800,7 +800,7 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
         "repo_tree_max_depth": 4,
         "repo_tree_skip_entries": [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build", "examples/source", "examples/research"],
         "git_diff_max_bytes": 16000,
-        "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
+        "project_instruction_files": ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
         "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "README.md"]
       }
     }
@@ -817,6 +817,9 @@ Core содержит только no-op backend `modules.search = "null"`. Ripg
 добавляются через `register_context_provider` и могут быть включены в этот же
 список. `max_context_bytes` ограничивает суммарный объём selected chunks,
 `max_bytes_per_file` ограничивает project instruction/manifest файлы.
+`project_instruction_files` является ordered fallback list для каждой
+директории от git root до `cwd`: по умолчанию
+`AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`.
 `repo_tree_max_depth`, `repo_tree_max_entries` и `repo_tree_skip_entries`
 ограничивают recursive tree provider. Search provider извлекает несколько
 targeted queries из текущей задачи и вызывает `SearchBackend` по ним, вместо

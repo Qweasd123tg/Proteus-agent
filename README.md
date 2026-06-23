@@ -38,7 +38,7 @@ plugins/
     rg-search/           — SearchBackend на ripgrep под id "rg"
     shell-tool/          — tool shell (sh -lc)
     sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
-    codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary + fallback
+    codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary без fallback
     codex-tool-exposure/ — ToolExposure под id "codex_dynamic": Codex-style hot tool set
     coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
     context-pack/        — ContextBuilder-плагины "simple", "repo_aware" и "codex_context"

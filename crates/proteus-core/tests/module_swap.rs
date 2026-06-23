@@ -2925,6 +2925,13 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
             .iter()
             .any(|entry| entry == "target")
     );
+    assert!(
+        repo_aware["project_instruction_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry == "AGENTS.override.md")
+    );
 }
 
 #[tokio::test]
@@ -3030,6 +3037,13 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     );
     assert_eq!(codex_context["max_context_bytes"], 60000);
     assert_eq!(codex_context["git_diff_max_bytes"], 16000);
+    assert!(
+        codex_context["project_instruction_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry == "AGENTS.override.md")
+    );
 }
 
 #[tokio::test]

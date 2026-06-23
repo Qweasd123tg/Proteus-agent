@@ -96,7 +96,7 @@ repo_tree_skip_entries = [
   "secrets.json",
   "config.local.json",
 ]
-project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "README.md"]
 
 [app_server]

@@ -139,8 +139,8 @@ Runtime должен сохранять эти свойства:
 
 - usable local-agent profile: `proteus init`, `proteus doctor`, понятная
   diagnostics вокруг config/tools;
-- усиление `repo_aware`: nested `AGENTS.md`, README/docs providers, provider
-  scoring/budget и git diff summary без записи в conversation history;
+- усиление `repo_aware`: README/docs providers, provider scoring/budget и git
+  diff summary без записи в conversation history;
 - line-oriented edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
 - `coding.codex_loop` и `coding.plan_execute_review` как plugin `Workflow`,

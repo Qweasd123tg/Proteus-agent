@@ -88,7 +88,8 @@ UI/business logic в CLI.
 
 Сделано в базовом виде:
 
-- читать project instructions (`AGENTS.md`) и top-level docs;
+- читать project instructions (`AGENTS.override.md`/`AGENTS.md` и fallback
+  names) от git root до `cwd`;
 - учитывать manifest files (`Cargo.toml`, `package.json`, etc.);
 - учитывать `git status`;
 - recursive repo tree с depth/max/skip settings;

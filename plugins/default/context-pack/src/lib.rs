@@ -339,27 +339,86 @@ fn project_instruction_chunks(
     input: &PluginContextBuilderInput,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
+    let root = project_instruction_root(&input.task.cwd)?;
+    project_instruction_chunks_from_root(&input.task.cwd, &root, config)
+}
+
+fn project_instruction_root(cwd: &Path) -> anyhow::Result<PathBuf> {
+    let cwd = cwd.canonicalize()?;
+    if let Some(root) = git_output(&cwd, &["rev-parse", "--show-toplevel"])?
+        && let Ok(root) = PathBuf::from(root).canonicalize()
+        && cwd.starts_with(&root)
+    {
+        return Ok(root);
+    }
+    Ok(cwd)
+}
+
+fn project_instruction_chunks_from_root(
+    cwd: &Path,
+    root: &Path,
+    config: &RepoAwareContextConfig,
+) -> anyhow::Result<Vec<ContextChunk>> {
+    let root = root.canonicalize()?;
     let mut chunks = Vec::new();
+    for dir in project_instruction_dirs(&root, cwd)? {
+        if let Some(chunk) = project_instruction_chunk_for_dir(&root, &dir, config)? {
+            chunks.push(chunk);
+        }
+    }
+    Ok(chunks)
+}
+
+fn project_instruction_dirs(root: &Path, cwd: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let root = root.canonicalize()?;
+    let cwd = cwd.canonicalize()?;
+    if !cwd.starts_with(&root) {
+        return Ok(vec![cwd]);
+    }
+
+    let mut dirs = vec![root.clone()];
+    let mut current = root.clone();
+    let relative = cwd.strip_prefix(&root)?;
+    for component in relative.components() {
+        if let Component::Normal(part) = component {
+            current.push(part);
+            if current.is_dir() {
+                dirs.push(current.clone());
+            }
+        }
+    }
+    Ok(dirs)
+}
+
+fn project_instruction_chunk_for_dir(
+    root: &Path,
+    dir: &Path,
+    config: &RepoAwareContextConfig,
+) -> anyhow::Result<Option<ContextChunk>> {
     for file in &config.project_instruction_files {
         let Some(relative_path) = safe_relative_path(file) else {
             continue;
         };
-        let path = input.task.cwd.join(&relative_path);
+        let path = dir.join(&relative_path);
         let Some(content) =
-            read_bounded_workspace_utf8_file(&input.task.cwd, &path, config.max_bytes_per_file)?
+            read_bounded_workspace_utf8_file(root, &path, config.max_bytes_per_file)?
         else {
             continue;
         };
-        chunks.push(chunk(
+        if content.trim().is_empty() {
+            continue;
+        }
+        let display_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        return Ok(Some(chunk(
             "repo_aware:project_instructions",
-            Some(relative_path),
+            Some(display_path),
             content,
             0.95,
             "project_instructions",
             "project instruction file",
-        ));
+        )));
     }
-    Ok(chunks)
+    Ok(None)
 }
 
 fn manifest_chunks(
@@ -1090,10 +1149,15 @@ fn default_repo_tree_skip_entries() -> Vec<String> {
 }
 
 fn default_project_instruction_files() -> Vec<String> {
-    ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+    [
+        "AGENTS.override.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".cursorrules",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 fn default_manifest_files() -> Vec<String> {
@@ -1178,6 +1242,83 @@ mod tests {
             read_bounded_workspace_utf8_file(dir.path(), &link, 100).expect("bounded read");
 
         assert!(content.is_none());
+    }
+
+    #[test]
+    fn project_instruction_chunks_layer_root_to_cwd_and_use_override_first() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let root = dir.path();
+        let service = root.join("services");
+        let cwd = service.join("payments");
+        std::fs::create_dir_all(&cwd).expect("nested cwd");
+        std::fs::write(root.join("AGENTS.md"), "root rules\n").expect("root agents");
+        std::fs::write(service.join("AGENTS.md"), "service rules\n").expect("service agents");
+        std::fs::write(cwd.join("AGENTS.md"), "base payment rules\n").expect("cwd agents");
+        std::fs::write(cwd.join("AGENTS.override.md"), "override payment rules\n")
+            .expect("cwd override");
+        let config = RepoAwareContextConfig::default();
+
+        let chunks = project_instruction_chunks_from_root(&cwd, root, &config).expect("chunks");
+
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.path.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some(Path::new("AGENTS.md")),
+                Some(Path::new("services/AGENTS.md")),
+                Some(Path::new("services/payments/AGENTS.override.md")),
+            ]
+        );
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.content.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "root rules\n",
+                "service rules\n",
+                "override payment rules\n",
+            ]
+        );
+    }
+
+    #[test]
+    fn project_instruction_chunks_skip_empty_override_for_fallback_file() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("AGENTS.override.md"), "").expect("empty override");
+        std::fs::write(dir.path().join("AGENTS.md"), "fallback rules\n").expect("agents");
+        let config = RepoAwareContextConfig::default();
+
+        let chunks =
+            project_instruction_chunks_from_root(dir.path(), dir.path(), &config).expect("chunks");
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].path.as_deref(), Some(Path::new("AGENTS.md")));
+        assert_eq!(chunks[0].content, "fallback rules\n");
+    }
+
+    #[test]
+    fn project_instruction_root_uses_git_root_when_available() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let status = Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .current_dir(dir.path())
+            .status();
+        let Ok(status) = status else {
+            return;
+        };
+        if !status.success() {
+            return;
+        }
+        let cwd = dir.path().join("services/payments");
+        std::fs::create_dir_all(&cwd).expect("nested cwd");
+
+        let root = project_instruction_root(&cwd).expect("instruction root");
+
+        assert_eq!(root, dir.path().canonicalize().expect("canonical root"));
     }
 
     #[test]
