@@ -8,6 +8,10 @@ api_key_env = "ANTHROPIC_API_KEY"
 base_url = "https://api.anthropic.com"
 auth = "x-api-key"
 api_version = "2023-06-01"
+prompt_cache = true
+# По умолчанию Anthropic prompt cache живёт 5m. Включайте 1h явно только
+# если повышенная цена cache-write подходит под workload.
+# prompt_cache_ttl = "1h"
 
 [providers.anthropic.reasoning]
 effort = "high"

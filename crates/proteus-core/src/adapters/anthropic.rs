@@ -28,6 +28,7 @@ pub struct AnthropicMessagesClient {
     /// полем `stream` в provider config; provider profiles включают его
     /// по умолчанию, `stream = false` оставляет non-stream fallback.
     stream_enabled: bool,
+    prompt_cache: AnthropicPromptCacheConfig,
 }
 
 impl AnthropicMessagesClient {
@@ -53,6 +54,7 @@ impl AnthropicMessagesClient {
             .get("stream")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let prompt_cache = AnthropicPromptCacheConfig::from_provider_config(&config);
 
         Ok(Self {
             http: reqwest::Client::new(),
@@ -61,8 +63,37 @@ impl AnthropicMessagesClient {
             api_version,
             auth,
             stream_enabled,
+            prompt_cache,
         })
     }
+}
+
+#[derive(Debug, Clone, Default)]
+struct AnthropicPromptCacheConfig {
+    enabled: bool,
+    ttl: Option<String>,
+}
+
+impl AnthropicPromptCacheConfig {
+    fn from_provider_config(config: &Value) -> Self {
+        Self {
+            enabled: config
+                .get("prompt_cache")
+                .or_else(|| config.get("prompt_caching"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            ttl: non_empty_config_string(config, "prompt_cache_ttl"),
+        }
+    }
+}
+
+fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +123,7 @@ impl ModelAdapter for AnthropicMessagesClient {
             .with_tools(true)
             .with_parallel_tool_calls(true)
             .with_system_role(true)
+            .with_cache_hints(true)
             .with_reasoning_config(true)
             .with_streaming(true)
             .with_max_input_tokens(Some(200_000))
@@ -115,7 +147,7 @@ impl AnthropicMessagesClient {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
-        let body = to_anthropic_request(&request)?;
+        let body = to_anthropic_request_with_cache(&request, &self.prompt_cache)?;
         let url = format!("{}/v1/messages", self.base_url);
         let api_key = self.api_key()?;
         let response =
@@ -132,7 +164,7 @@ impl AnthropicMessagesClient {
     }
 
     async fn stream_response(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let mut body = to_anthropic_request(&request)?;
+        let mut body = to_anthropic_request_with_cache(&request, &self.prompt_cache)?;
         body["stream"] = json!(true);
         let url = format!("{}/v1/messages", self.base_url);
         let api_key = self.api_key()?;
@@ -490,15 +522,29 @@ impl AnthropicStreamState {
     }
 }
 
+#[cfg(test)]
 fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
+    to_anthropic_request_with_cache(request, &AnthropicPromptCacheConfig::default())
+}
+
+fn to_anthropic_request_with_cache(
+    request: &CanonicalModelRequest,
+    prompt_cache: &AnthropicPromptCacheConfig,
+) -> Result<Value> {
     let mut body = json!({
         "model": request.model.model,
         "max_tokens": request.limits.max_output_tokens.unwrap_or(2048),
         "messages": to_anthropic_messages(&request.messages)?,
     });
 
+    let cache_control = anthropic_cache_control(request, prompt_cache);
     if let Some(system) = joined_instructions(request) {
-        body["system"] = Value::String(system);
+        body["system"] = anthropic_system_value(system, cache_control.as_ref());
+    }
+    if request.cache.cache_context
+        && let Some(cache_control) = cache_control.as_ref()
+    {
+        body["cache_control"] = cache_control.clone();
     }
 
     if !request.tools.is_empty() {
@@ -546,6 +592,33 @@ fn to_anthropic_request(request: &CanonicalModelRequest) -> Result<Value> {
     }
 
     Ok(body)
+}
+
+fn anthropic_cache_control(
+    request: &CanonicalModelRequest,
+    prompt_cache: &AnthropicPromptCacheConfig,
+) -> Option<Value> {
+    if !prompt_cache.enabled || !(request.cache.cache_instructions || request.cache.cache_context) {
+        return None;
+    }
+    let mut cache = serde_json::Map::new();
+    cache.insert("type".to_owned(), Value::String("ephemeral".to_owned()));
+    if let Some(ttl) = prompt_cache.ttl.as_deref().filter(|ttl| *ttl != "5m") {
+        cache.insert("ttl".to_owned(), Value::String(ttl.to_owned()));
+    }
+    Some(Value::Object(cache))
+}
+
+fn anthropic_system_value(system: String, cache_control: Option<&Value>) -> Value {
+    if let Some(cache_control) = cache_control {
+        json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": cache_control,
+        }])
+    } else {
+        Value::String(system)
+    }
 }
 
 fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
@@ -964,7 +1037,8 @@ fn strip_dsml_tags(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::ReasoningConfig;
+    use crate::domain::{CacheHints, ReasoningConfig};
+    use crate::model_standard::InstructionBlock;
 
     #[test]
     fn provider_config_does_not_require_secret_until_request() {
@@ -1022,6 +1096,57 @@ mod tests {
                 "display": "summarized"
             })
         );
+    }
+
+    #[test]
+    fn request_serializes_prompt_cache_control_when_cache_hints_are_enabled() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_instructions(vec![InstructionBlock::new(
+            crate::model_standard::InstructionKind::System,
+            "stable system prompt",
+            100,
+        )])
+        .with_cache(CacheHints::new(true, true));
+        let cache = AnthropicPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_ttl": "1h"
+        }));
+
+        let body = to_anthropic_request_with_cache(&request, &cache).unwrap();
+
+        assert_eq!(
+            body["cache_control"],
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        );
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["text"], "stable system prompt");
+        assert_eq!(
+            body["system"][0]["cache_control"],
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        );
+    }
+
+    #[test]
+    fn request_keeps_legacy_system_shape_without_cache_hints() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_instructions(vec![InstructionBlock::new(
+            crate::model_standard::InstructionKind::System,
+            "stable system prompt",
+            100,
+        )]);
+        let cache = AnthropicPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_ttl": "1h"
+        }));
+
+        let body = to_anthropic_request_with_cache(&request, &cache).unwrap();
+
+        assert_eq!(body["system"], "stable system prompt");
+        assert!(body.get("cache_control").is_none());
     }
 
     #[test]

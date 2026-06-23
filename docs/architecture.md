@@ -234,6 +234,10 @@ Model contract имеет stream-first форму: provider реализует `
 `RequestShaper` применяет `ModelCapabilities` перед вызовом provider-а: убирает
 неподдерживаемые tools/cache/reasoning options и ограничивает token limits
 возможностями модели.
+Prompt caching остаётся provider-owned оптимизацией поверх этого contract:
+workflow выставляет generic `CacheHints`, shaper проверяет capability, а
+OpenAI/Anthropic adapters сериализуют только свои cache параметры. Workflow,
+context, tools и policy не зависят от provider-specific cache schema.
 
 Base instructions являются частью runtime/model contract: `AppConfig.instructions`
 попадает в `RuntimeContext.instructions`, затем в

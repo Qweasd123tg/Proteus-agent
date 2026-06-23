@@ -13,7 +13,7 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{CompactionInput, CompactionOutput},
-    domain::ToolChoice,
+    domain::{CacheHints, ToolChoice},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
         InstructionBlock, InstructionKind, MessageRole,
@@ -270,11 +270,47 @@ fn model_summary_request(
             100,
         )])
         .with_tool_choice(ToolChoice::None)
+        .with_cache(CacheHints::new(true, false))
         .with_metadata(json!({
             "compactor": MODULE_ID,
             "phase": "history_compaction",
+            "prompt_cache_key": prompt_cache_key(input),
             "suppress_stream_deltas": true,
         }))
+}
+
+fn prompt_cache_key(input: &CompactionInput) -> String {
+    let model = sanitize_cache_key_component(&input.model_ref.model);
+    let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
+    format!("proteus:{model}:{workspace_hash:016x}:compact")
+}
+
+fn sanitize_cache_key_component(value: &str) -> String {
+    let mut out = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    out.truncate(64);
+    if out.is_empty() {
+        "model".to_owned()
+    } else {
+        out
+    }
+}
+
+fn stable_hash64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn model_summary_prompt(input: &CompactionInput, compacted_messages: usize) -> String {

@@ -162,6 +162,15 @@ Provider usage является source of truth для фактических in
 breakdown остаётся оценкой для UI и исследования context budget; он не является
 provider billing source of truth.
 
+Provider prompt cache не является локальным response-cache. Workflow выставляет
+`CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
+активный adapter заявил `supports_cache_hints`, а provider adapter переводит их
+в свой API. OpenAI получает request-level `prompt_cache_key` и optional
+`prompt_cache_retention`; Anthropic получает `cache_control` для prompt-prefix
+cache. Runtime никогда не возвращает старый model response из локального cache:
+кэш влияет только на provider-side стоимость/latency и отражается в usage
+полях вроде `cached_input_tokens` / `cache_creation_input_tokens`.
+
 UI-клиент может хранить последний `TokenUsageUpdated`, суммировать
 request-level usage по текущему turn/session и восстанавливать snapshot из
 durable event log при resume. При смене `turn_id` в `EventEnvelope` turn totals

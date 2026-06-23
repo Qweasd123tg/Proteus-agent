@@ -21,7 +21,7 @@ use proteus_contracts::{
     },
     contracts::{CompactionInput, ToolExposureRequest},
     domain::{
-        AgentOutput, ContextBundle, Event, HistoryCompactionReport, TokenUsageCategory,
+        AgentOutput, CacheHints, ContextBundle, Event, HistoryCompactionReport, TokenUsageCategory,
         TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolChoice, ToolResult, ToolSafety,
         ToolSpec,
     },
@@ -770,7 +770,8 @@ fn request_from_state_with_instruction_blocks_and_options(
         CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
             .with_instructions(instructions)
             .with_tools(tools)
-            .with_reasoning(input.runtime.reasoning.clone());
+            .with_reasoning(input.runtime.reasoning.clone())
+            .with_cache(CacheHints::new(true, true));
     // Прокидываем потолок окна из capabilities в лимиты запроса, чтобы снимок
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как плагин собрал снимок, поэтому делаем это здесь).
@@ -785,6 +786,11 @@ fn request_from_state_with_instruction_blocks_and_options(
     {
         insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", trigger);
     }
+    insert_request_metadata_value(
+        &mut request,
+        "prompt_cache_key",
+        json!(prompt_cache_key(input)),
+    );
     Ok(PreparedRequest {
         request,
         compaction: compacted.report,
@@ -1327,9 +1333,13 @@ fn with_workflow_phase(
 }
 
 fn insert_request_metadata_u32(request: &mut CanonicalModelRequest, key: &str, value: u32) {
+    insert_request_metadata_value(request, key, json!(value));
+}
+
+fn insert_request_metadata_value(request: &mut CanonicalModelRequest, key: &str, value: Value) {
     match &mut request.metadata {
         Value::Object(metadata) => {
-            metadata.insert(key.to_owned(), json!(value));
+            metadata.insert(key.to_owned(), value);
         }
         Value::Null => {
             request.metadata = json!({ key: value });
@@ -1342,6 +1352,40 @@ fn insert_request_metadata_u32(request: &mut CanonicalModelRequest, key: &str, v
             });
         }
     }
+}
+
+fn prompt_cache_key(input: &PluginWorkflowInput) -> String {
+    let model = sanitize_cache_key_component(&input.runtime.model_ref.model);
+    let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
+    format!("proteus:{model}:{workspace_hash:016x}")
+}
+
+fn sanitize_cache_key_component(value: &str) -> String {
+    let mut out = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    out.truncate(64);
+    if out.is_empty() {
+        "model".to_owned()
+    } else {
+        out
+    }
+}
+
+fn stable_hash64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn estimate_message_tokens(messages: &[CanonicalMessage]) -> Option<u32> {

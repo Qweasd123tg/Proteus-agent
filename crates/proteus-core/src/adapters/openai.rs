@@ -29,6 +29,14 @@ pub struct OpenAiResponsesClient {
     /// Потолок контекстного окна (`max_input_tokens` в provider config).
     /// Сообщается в capabilities и питает индикатор заполнения контекста.
     max_input_tokens: Option<u32>,
+    prompt_cache: OpenAiPromptCacheConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+struct OpenAiPromptCacheConfig {
+    enabled: bool,
+    key: Option<String>,
+    retention: Option<String>,
 }
 
 impl OpenAiResponsesClient {
@@ -48,6 +56,7 @@ impl OpenAiResponsesClient {
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
             .filter(|value| *value > 0);
+        let prompt_cache = OpenAiPromptCacheConfig::from_provider_config(&config);
 
         Ok(Self {
             http: reqwest::Client::new(),
@@ -55,8 +64,32 @@ impl OpenAiResponsesClient {
             base_url,
             stream_enabled,
             max_input_tokens,
+            prompt_cache,
         })
     }
+}
+
+impl OpenAiPromptCacheConfig {
+    fn from_provider_config(config: &Value) -> Self {
+        Self {
+            enabled: config
+                .get("prompt_cache")
+                .or_else(|| config.get("prompt_caching"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            key: non_empty_config_string(config, "prompt_cache_key"),
+            retention: non_empty_config_string(config, "prompt_cache_retention"),
+        }
+    }
+}
+
+fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 #[async_trait]
@@ -72,6 +105,7 @@ impl ModelAdapter for OpenAiResponsesClient {
             .with_json_schema(true)
             .with_system_role(true)
             .with_developer_role(true)
+            .with_cache_hints(true)
             .with_reasoning_config(true)
             .with_streaming(true)
             .with_max_input_tokens(self.max_input_tokens)
@@ -94,7 +128,7 @@ impl OpenAiResponsesClient {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
-        let body = to_openai_request(&request)?;
+        let body = to_openai_request_with_cache(&request, &self.prompt_cache)?;
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
         let response: Value =
@@ -108,7 +142,7 @@ impl OpenAiResponsesClient {
     }
 
     async fn stream_response(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let mut body = to_openai_request(&request)?;
+        let mut body = to_openai_request_with_cache(&request, &self.prompt_cache)?;
         body["stream"] = json!(true);
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
@@ -248,7 +282,15 @@ fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
     }
 }
 
+#[cfg(test)]
 fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
+    to_openai_request_with_cache(request, &OpenAiPromptCacheConfig::default())
+}
+
+fn to_openai_request_with_cache(
+    request: &CanonicalModelRequest,
+    prompt_cache: &OpenAiPromptCacheConfig,
+) -> Result<Value> {
     let mut body = json!({
         "model": request.model.model,
         "input": to_openai_input(&request.messages)?,
@@ -295,7 +337,34 @@ fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
         body["reasoning"] = Value::Object(reasoning);
     }
 
+    apply_openai_prompt_cache(request, prompt_cache, &mut body);
+
     Ok(body)
+}
+
+fn apply_openai_prompt_cache(
+    request: &CanonicalModelRequest,
+    prompt_cache: &OpenAiPromptCacheConfig,
+    body: &mut Value,
+) {
+    if !prompt_cache.enabled || !(request.cache.cache_instructions || request.cache.cache_context) {
+        return;
+    }
+
+    let key = prompt_cache.key.as_deref().or_else(|| {
+        request
+            .metadata
+            .get("prompt_cache_key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    });
+    if let Some(key) = key {
+        body["prompt_cache_key"] = Value::String(key.to_owned());
+    }
+    if let Some(retention) = prompt_cache.retention.as_deref() {
+        body["prompt_cache_retention"] = Value::String(retention.to_owned());
+    }
 }
 
 fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
@@ -618,7 +687,8 @@ fn is_length_limited_response(response: &Value) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{
-        ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolResult, ToolSafety,
+        CacheHints, ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolResult,
+        ToolSafety,
     };
 
     #[test]
@@ -868,6 +938,41 @@ mod tests {
         );
         assert_eq!(body["max_output_tokens"], 123);
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    }
+
+    #[test]
+    fn request_serializes_prompt_cache_fields_when_cache_hints_are_enabled() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_cache(CacheHints::new(true, true))
+        .with_metadata(json!({ "prompt_cache_key": "proteus:gpt-test:abc" }));
+        let cache = OpenAiPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_retention": "24h"
+        }));
+
+        let body = to_openai_request_with_cache(&request, &cache).unwrap();
+
+        assert_eq!(body["prompt_cache_key"], "proteus:gpt-test:abc");
+        assert_eq!(body["prompt_cache_retention"], "24h");
+    }
+
+    #[test]
+    fn request_omits_prompt_cache_fields_without_cache_hints() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_metadata(json!({ "prompt_cache_key": "proteus:gpt-test:abc" }));
+        let cache = OpenAiPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_retention": "24h"
+        }));
+
+        let body = to_openai_request_with_cache(&request, &cache).unwrap();
+
+        assert!(body.get("prompt_cache_key").is_none());
+        assert!(body.get("prompt_cache_retention").is_none());
     }
 
     #[test]
