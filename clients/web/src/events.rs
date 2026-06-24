@@ -5,7 +5,7 @@ use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, get_json, js_error};
-use crate::app::{load_sidebar_sessions, replace_transcript};
+use crate::app_helpers::{load_sidebar_sessions, replace_transcript};
 use crate::messages::{
     append_streaming_assistant_delta, finish_active_streaming_assistant_message,
     finish_all_streaming_assistant_messages, finish_streaming_assistant_message,

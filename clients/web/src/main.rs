@@ -1,6 +1,7 @@
 mod actions;
 mod api;
 mod app;
+mod app_helpers;
 mod components;
 mod events;
 mod markdown;
