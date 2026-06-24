@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use async_stream::stream;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, StreamBody, combinators::UnsyncBoxBody};
+use http_body_util::{BodyExt, Full, Limited, StreamBody, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Body, Frame},
@@ -49,6 +49,7 @@ const SESSION_TOKEN_HEADERS: [&str; 2] = ["x-proteus-session", "x-proteus-sessio
 const SESSION_TOKEN_QUERY: &str = "token";
 const SESSION_TOKEN_QUERY_ALIASES: [&str; 3] = ["session", "session_token", "proteus_session"];
 const SSE_HEARTBEAT_SECS: u64 = 15;
+const MAX_JSON_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpServerConfig {
@@ -233,7 +234,7 @@ async fn route_request<B>(
 ) -> Result<HttpResponse, Infallible>
 where
     B: Body<Data = Bytes> + Send + 'static,
-    B::Error: std::fmt::Display,
+    B::Error: std::error::Error + Send + Sync + 'static,
 {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
@@ -647,13 +648,14 @@ async fn read_json<T, B>(request: Request<B>) -> Result<T>
 where
     T: DeserializeOwned,
     B: Body<Data = Bytes> + Send + 'static,
-    B::Error: std::fmt::Display,
+    B::Error: std::error::Error + Send + Sync + 'static,
 {
-    let bytes = request
-        .into_body()
+    let bytes = Limited::new(request.into_body(), MAX_JSON_BODY_BYTES)
         .collect()
         .await
-        .map_err(|error| anyhow!("could not read request body: {error}"))?
+        .map_err(|error| {
+            anyhow!("could not read request body within {MAX_JSON_BODY_BYTES} bytes: {error}")
+        })?
         .to_bytes();
     serde_json::from_slice(&bytes).map_err(anyhow::Error::from)
 }
@@ -1272,7 +1274,7 @@ mod tests {
                 .expect("approval request event should arrive")
                 .expect("event stream should stay open");
             match event {
-                AppServerEvent::ApprovalRequested { request } => return request,
+                AppServerEvent::ApprovalRequested { request } => return *request,
                 AppServerEvent::Error { message } => {
                     panic!("unexpected app-server error: {message}")
                 }
@@ -1290,7 +1292,7 @@ mod tests {
                 .expect("user-input request event should arrive")
                 .expect("event stream should stay open");
             match event {
-                AppServerEvent::UserInputRequested { request } => return request,
+                AppServerEvent::UserInputRequested { request } => return *request,
                 AppServerEvent::Error { message } => {
                     panic!("unexpected app-server error: {message}")
                 }
@@ -1353,6 +1355,23 @@ mod tests {
             "/config",
             &security
         ));
+    }
+
+    #[tokio::test]
+    async fn read_json_rejects_oversized_body() {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/send")
+            .body(Full::new(Bytes::from(vec![b' '; MAX_JSON_BODY_BYTES + 1])))
+            .expect("request");
+
+        let error = read_json::<Value, _>(request)
+            .await
+            .expect_err("oversized body should be rejected")
+            .to_string();
+
+        assert!(error.contains("within"), "{error}");
+        assert!(error.contains(&MAX_JSON_BODY_BYTES.to_string()), "{error}");
     }
 
     #[test]

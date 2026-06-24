@@ -44,17 +44,17 @@ pub type AppUserInputRequestId = String;
 pub enum AppServerEvent {
     /// Runtime-событие с полным envelope. UI использует его для
     /// прогресс-индикации, timeline/replay и correlation по event/turn ids.
-    Runtime { envelope: EventEnvelope },
+    Runtime { envelope: Box<EventEnvelope> },
 
     /// Пользователь отправил текстовое сообщение (echo обратно клиенту).
     UserMessageSubmitted { text: String },
 
     /// Финальный AgentOutput после завершения turn'а.
-    TurnOutput { output: AgentOutput },
+    TurnOutput { output: Box<AgentOutput> },
 
     /// Запрос на approval от модели. Клиент должен показать пользователю
     /// и ответить через `StdioRequest::Approval`.
-    ApprovalRequested { request: AppApprovalRequest },
+    ApprovalRequested { request: Box<AppApprovalRequest> },
 
     /// Approval разрешён (через любой источник: клиент, timeout, shutdown).
     ApprovalResolved {
@@ -63,7 +63,7 @@ pub enum AppServerEvent {
     },
 
     /// Запрос typed user input от tool `request_user_input`.
-    UserInputRequested { request: UserInputRequest },
+    UserInputRequested { request: Box<UserInputRequest> },
 
     /// User-input request разрешён клиентом, timeout'ом или shutdown'ом.
     UserInputResolved { request_id: AppUserInputRequestId },
@@ -291,7 +291,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::new_call_id;
+    use crate::domain::{
+        Event, EventContext, EventEnvelope, new_call_id, new_session_id, new_thread_id,
+    };
 
     #[test]
     fn approval_request_defaults_missing_preview_to_none() {
@@ -350,5 +352,34 @@ mod tests {
 
         assert!(pending.approvals.is_empty());
         assert!(pending.user_inputs.is_empty());
+    }
+
+    #[test]
+    fn boxed_app_server_event_keeps_wire_shape() {
+        let session_id = new_session_id();
+        let thread_id = new_thread_id();
+        let event = AppServerEvent::Runtime {
+            envelope: Box::new(EventEnvelope::new(
+                EventContext::new(session_id, thread_id, None),
+                1,
+                Event::SessionStarted {
+                    session_id,
+                    cwd: PathBuf::from("/workspace"),
+                    model: None,
+                    session_dir: None,
+                },
+            )),
+        };
+
+        let value = serde_json::to_value(event).expect("event JSON");
+
+        assert_eq!(value["type"], "runtime");
+        assert_eq!(value["envelope"]["seq"], 1);
+
+        let decoded: AppServerEvent = serde_json::from_value(value).expect("decode event");
+        match decoded {
+            AppServerEvent::Runtime { envelope } => assert_eq!(envelope.seq, 1),
+            other => panic!("expected runtime event, got {other:?}"),
+        }
     }
 }

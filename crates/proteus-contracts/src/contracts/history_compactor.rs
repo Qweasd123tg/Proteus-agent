@@ -111,9 +111,9 @@ impl HistoryCompactionReport {
     pub fn from_compaction_output(input: &CompactionInput, output: &CompactionOutput) -> Self {
         let metadata = output.metadata.clone();
         let input_messages =
-            metadata_usize(&metadata, "input_messages").unwrap_or_else(|| input.messages.len());
+            metadata_usize(&metadata, "input_messages").unwrap_or(input.messages.len());
         let output_messages =
-            metadata_usize(&metadata, "output_messages").unwrap_or_else(|| output.messages.len());
+            metadata_usize(&metadata, "output_messages").unwrap_or(output.messages.len());
         Self {
             changed: output.changed,
             reason: input.reason.clone(),

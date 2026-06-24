@@ -167,6 +167,33 @@ mod tests {
     }
 
     #[test]
+    fn read_file_rejects_full_read_above_size_limit_but_allows_ranges() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let content = "x\n".repeat(crate::read::MAX_READ_FILE_BYTES as usize / 2 + 1);
+        std::fs::write(dir.path().join("large.txt"), content).expect("large file");
+
+        let full = invoke(&ReadFileTool, dir.path(), json!({ "path": "large.txt" }));
+
+        assert_eq!(full["ok"], false);
+        assert!(full["error"].as_str().unwrap().contains("too large"));
+
+        let ranged = invoke(
+            &ReadFileTool,
+            dir.path(),
+            json!({
+                "path": "large.txt",
+                "start_line": 2,
+                "limit": 2,
+                "line_numbers": true
+            }),
+        );
+
+        assert_eq!(ranged["ok"], true);
+        assert_eq!(ranged["output"], "2\tx\n3\tx");
+        assert_eq!(ranged["metadata"]["truncated"], true);
+    }
+
+    #[test]
     fn write_file_creates_file_inside_workspace() {
         let dir = tempfile::tempdir().expect("workspace");
 

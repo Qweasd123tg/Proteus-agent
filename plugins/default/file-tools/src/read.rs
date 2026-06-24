@@ -1,6 +1,10 @@
 //! `read_file` tool: чтение файла целиком или по диапазону строк.
 
-use std::path::Path;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
 use proteus_contracts::abi_stable::std_types::{RResult, RString};
 use proteus_contracts::plugin::{PluginTool, PluginToolError};
@@ -10,6 +14,8 @@ use crate::util::{
     err_result, ok_result, optional_positive_usize, parse_call, plugin_error, required_string,
     workspace_path,
 };
+
+pub(crate) const MAX_READ_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct ReadFileTool;
 
@@ -88,22 +94,40 @@ impl PluginTool for ReadFileTool {
             );
         }
 
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                return err_result(
-                    &call.id,
-                    &call.name,
-                    format!("failed to read {}: {e}", path.display()),
-                );
-            }
-        };
-
         let options = match ReadOptions::from_args(&call.args, &call.name) {
             Ok(o) => o,
             Err(e) => return err_result(&call.id, &call.name, e),
         };
-        let (output, metadata) = render_read_output(&content, &path, options);
+
+        let (output, metadata) = if options.is_default() {
+            if metadata_res.len() > MAX_READ_FILE_BYTES {
+                return err_result(
+                    &call.id,
+                    &call.name,
+                    format!(
+                        "file is too large to read fully ({} bytes > {} bytes); use start_line and limit",
+                        metadata_res.len(),
+                        MAX_READ_FILE_BYTES
+                    ),
+                );
+            }
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    return err_result(
+                        &call.id,
+                        &call.name,
+                        format!("failed to read {}: {e}", path.display()),
+                    );
+                }
+            };
+            render_read_output(&content, &path, options)
+        } else {
+            match render_read_output_streaming(&path, options) {
+                Ok(rendered) => rendered,
+                Err(error) => return err_result(&call.id, &call.name, error),
+            }
+        };
         ok_result(&call.id, &call.name, output, metadata)
     }
 }
@@ -183,4 +207,54 @@ fn render_read_output(
             "truncated": truncated,
         }),
     )
+}
+
+fn render_read_output_streaming(
+    path: &Path,
+    options: ReadOptions,
+) -> Result<(String, serde_json::Value), String> {
+    let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    let reader = BufReader::new(file);
+    let start_line = options.start_line.unwrap_or(1);
+    let limit = options.limit.unwrap_or(usize::MAX);
+    let mut total_lines = 0usize;
+    let mut returned = 0usize;
+    let mut rendered = Vec::new();
+
+    for line in reader.lines() {
+        let line =
+            line.map_err(|e| format!("failed to read UTF-8 line from {}: {e}", path.display()))?;
+        total_lines += 1;
+        if total_lines < start_line || returned >= limit {
+            continue;
+        }
+        returned += 1;
+        if options.line_numbers {
+            rendered.push(format!("{}\t{}", total_lines, line));
+        } else {
+            rendered.push(line);
+        }
+    }
+
+    let end_line = if returned == 0 {
+        None
+    } else {
+        Some(start_line + returned - 1)
+    };
+    let start_index = start_line.saturating_sub(1);
+    let truncated = start_index + returned < total_lines;
+
+    Ok((
+        rendered.join("\n"),
+        json!({
+            "path": path.display().to_string(),
+            "start_line": start_line,
+            "end_line": end_line,
+            "limit": options.limit,
+            "line_numbers": options.line_numbers,
+            "total_lines": total_lines,
+            "returned_lines": returned,
+            "truncated": truncated,
+        }),
+    ))
 }

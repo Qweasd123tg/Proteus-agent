@@ -821,7 +821,7 @@ fn ordered_slots(snapshot: &TopologySnapshot) -> Vec<&SlotTopology> {
     // build_slots уже сортирует по slot.order; стабильная пересортировка
     // оставляет порядок snapshot-а и для legacy snapshot с order=0.
     let mut slots = snapshot.slots.iter().collect::<Vec<_>>();
-    slots.sort_by(|left, right| left.order.cmp(&right.order));
+    slots.sort_by_key(|slot| slot.order);
     slots
 }
 

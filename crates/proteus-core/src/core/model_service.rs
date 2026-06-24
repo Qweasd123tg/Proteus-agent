@@ -133,11 +133,10 @@ impl ModelClient for ModelService {
                         .await;
                     }
                 }
-                ModelStreamEvent::ReasoningSummaryDelta { text } => {
-                    if !suppress_stream_deltas {
-                        emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
-                    }
+                ModelStreamEvent::ReasoningSummaryDelta { text } if !suppress_stream_deltas => {
+                    emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
                 }
+                ModelStreamEvent::ReasoningSummaryDelta { .. } => {}
                 ModelStreamEvent::ToolCallFinished { .. } => {
                     saw_tool_finished = true;
                 }

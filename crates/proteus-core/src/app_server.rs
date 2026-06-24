@@ -98,7 +98,7 @@ impl AppServerHandle {
         match self.runtime.run_with_cancellation(text, cancellation).await {
             Ok(output) => {
                 let _ = self.events.send(AppServerEvent::TurnOutput {
-                    output: output.clone(),
+                    output: Box::new(output.clone()),
                 });
                 Ok(output)
             }
@@ -871,7 +871,9 @@ fn spawn_runtime_event_forwarder(
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
-                    let _ = events.send(AppServerEvent::Runtime { envelope });
+                    let _ = events.send(AppServerEvent::Runtime {
+                        envelope: Box::new(envelope),
+                    });
                 }
                 Err(broadcast::error::RecvError::Lagged(count)) => {
                     let _ = events.send(AppServerEvent::Error {
@@ -910,7 +912,7 @@ fn spawn_approval_forwarder(
                 },
             );
             let _ = events.send(AppServerEvent::ApprovalRequested {
-                request: app_request,
+                request: Box::new(app_request),
             });
 
             if !approval_timeout.is_zero() {
@@ -963,7 +965,9 @@ fn spawn_user_input_forwarder(
                     responder,
                 },
             );
-            let _ = events.send(AppServerEvent::UserInputRequested { request });
+            let _ = events.send(AppServerEvent::UserInputRequested {
+                request: Box::new(request),
+            });
 
             if !timeout.is_zero() {
                 spawn_user_input_timeout(

@@ -167,7 +167,11 @@ fn tool_query(task: &AgentTask, query: Option<&str>) -> String {
 fn score_tool(tool: &ToolSpec, query: &str) -> f32 {
     let query_terms = tokenize(query);
     if query_terms.is_empty() {
-        return metadata_hot(&tool.metadata).then_some(1.0).unwrap_or(0.0);
+        return if metadata_hot(&tool.metadata) {
+            1.0
+        } else {
+            0.0
+        };
     }
 
     let mut score = 0.0;
