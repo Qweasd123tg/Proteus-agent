@@ -7,7 +7,9 @@ use web_sys::{MouseEvent, window};
 use crate::api::{get_json, post_json};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
-use crate::ui_utils::{compact_json, compact_text, copy_to_clipboard, set_timeout, short_id, short_path};
+use crate::ui_utils::{
+    compact_json, compact_text, copy_to_clipboard, set_timeout, short_id, short_path,
+};
 
 const REASONING_RENDER_LIMIT: usize = 8000;
 const APPROVAL_PREVIEW_RENDER_LIMIT: usize = 12000;
@@ -216,7 +218,7 @@ where
                             </button>
                         }.into_any()
                     } else {
-                        view! { <></> }.into_any()
+                        ().into_any()
                     }}
                 </div>
             </div>
@@ -242,7 +244,7 @@ where
 
 fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
     let Some(preview) = preview else {
-        return view! { <></> }.into_any();
+        return ().into_any();
     };
     let ApprovalPreviewInfo {
         kind,
@@ -282,7 +284,7 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
                     </div>
                 }.into_any()
             } else {
-                view! { <></> }.into_any()
+                ().into_any()
             }}
             {if let Some(body) = body {
                 view! {
@@ -297,7 +299,7 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
                     </div>
                 }.into_any()
             } else {
-                view! { <></> }.into_any()
+                ().into_any()
             }}
         </section>
     }
@@ -332,7 +334,7 @@ fn approval_is_command(request: &ApprovalRequestInfo) -> bool {
 }
 
 fn approval_allows_workspace_write_cache(request: &ApprovalRequestInfo) -> bool {
-    if !tool_safety(request).is_some_and(|safety| safety == "WritesFiles") {
+    if tool_safety(request).is_none_or(|safety| safety != "WritesFiles") {
         return false;
     }
     request.tool_spec.as_ref().is_some_and(|spec| {
@@ -551,7 +553,7 @@ where
                                 />
                             }.into_any()
                         } else {
-                            view! { <></> }.into_any()
+                            ().into_any()
                         }}
                     </section>
                 }.into_any()
@@ -734,12 +736,12 @@ fn ToolActivityCard(
                             {move || if let Some(result) = current_tool(message).and_then(|tool| tool.result_preview) {
                                 view! { <pre>{result}</pre> }.into_any()
                             } else {
-                                view! { <></> }.into_any()
+                                ().into_any()
                             }}
                         </div>
                     }.into_any()
                 } else {
-                    view! { <></> }.into_any()
+                    ().into_any()
                 }
             }}
         </article>
@@ -767,7 +769,7 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
     move || {
         let Some(context) = usage.get() else {
-            return view! { <></> }.into_any();
+            return ().into_any();
         };
         let percent = context.percent();
         let degrees = f64::from(percent) / 100.0 * 360.0;
@@ -828,11 +830,7 @@ fn format_token_count(tokens: u32) -> String {
 /// Кнопка копирования с короткой обратной связью: после клика подсвечивается
 /// и меняет ярлык на «Скопировано», затем сама сбрасывается.
 #[component]
-fn CopyButton<F>(
-    text: F,
-    #[prop(into)] class: String,
-    #[prop(into)] title: String,
-) -> impl IntoView
+fn CopyButton<F>(text: F, #[prop(into)] class: String, #[prop(into)] title: String) -> impl IntoView
 where
     F: Fn() -> String + 'static,
 {
@@ -862,7 +860,7 @@ pub(crate) fn MessageView(
 ) -> impl IntoView {
     let message = Memo::new(move |_| current_message(messages, message_id));
     let Some(initial_message) = message.get_untracked() else {
-        return view! { <></> }.into_any();
+        return ().into_any();
     };
 
     if initial_message.tool.is_some() {
@@ -980,7 +978,7 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
                         <div class="message reasoning-message" inner_html=move || current_reasoning_html(message)></div>
                     }.into_any()
                 } else {
-                    view! { <></> }.into_any()
+                    ().into_any()
                 }
             }}
         </article>

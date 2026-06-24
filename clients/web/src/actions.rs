@@ -356,6 +356,7 @@ pub(crate) fn handle_command_response(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cancel_active_turn(
     active_turn_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,

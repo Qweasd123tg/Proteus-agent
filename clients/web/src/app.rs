@@ -339,7 +339,7 @@ pub(crate) fn App() -> impl IntoView {
         set_stick_to_bottom.set(true);
     };
 
-    let reset_chat_view_for_clear = reset_chat_view.clone();
+    let reset_chat_view_for_clear = reset_chat_view;
     let clear_transcript = move |_| {
         reset_chat_view_for_clear();
         spawn_local(async move {
@@ -366,7 +366,7 @@ pub(crate) fn App() -> impl IntoView {
         });
     };
 
-    let reset_chat_view_for_new_session = reset_chat_view.clone();
+    let reset_chat_view_for_new_session = reset_chat_view;
     let start_new_session = move |_| {
         reset_chat_view_for_new_session();
         set_active_session_dir.set(None);
@@ -413,7 +413,7 @@ pub(crate) fn App() -> impl IntoView {
         });
     };
 
-    let reset_chat_view_for_delete_session = reset_chat_view.clone();
+    let reset_chat_view_for_delete_session = reset_chat_view;
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
         spawn_local(async move {
@@ -553,7 +553,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
         set_draft.set(String::new());
-        send_planning_request(actions.clone(), text);
+        send_planning_request(actions, text);
     };
     let revise_plan = move |_| {
         let text = draft.get();
@@ -566,21 +566,17 @@ pub(crate) fn App() -> impl IntoView {
         }
         set_draft.set(String::new());
         set_stick_to_bottom.set(true);
-        actions
-            .clone()
-            .send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
+        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
     };
     let execute_plan = move |_| {
         if is_sending.get() {
             return;
         }
         set_stick_to_bottom.set(true);
-        actions
-            .clone()
-            .send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
+        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
     };
     let exit_plan = move |_| {
-        actions.clone().set_permission_mode(PermissionMode::Normal);
+        actions.set_permission_mode(PermissionMode::Normal);
     };
 
     let submit_prompt = move || {
@@ -598,7 +594,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
 
-        send_prompt_for_mode(actions.clone(), mode.get(), text);
+        send_prompt_for_mode(actions, mode.get(), text);
     };
     let submit = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -966,7 +962,7 @@ pub(crate) fn App() -> impl IntoView {
                                                     Some(preview) => view! {
                                                         <div class="session-preview">{preview}</div>
                                                     }.into_any(),
-                                                    None => view! { <></> }.into_any(),
+                                                    None => ().into_any(),
                                                 }}
                                                 <div class="session-meta">
                                                     <span class="session-time">{format!("{message_count} сообщений")}</span>
@@ -1090,7 +1086,7 @@ pub(crate) fn App() -> impl IntoView {
                                         }
                                         .into_any()
                                     } else {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     }
                                 }}
                                 <For
@@ -1138,7 +1134,7 @@ pub(crate) fn App() -> impl IntoView {
                                             />
                                         }.into_any()
                                     } else {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     }
                                 }}
                                 <For
@@ -1153,7 +1149,7 @@ pub(crate) fn App() -> impl IntoView {
                                             set_stick_to_bottom.set(true);
                                             set_queued_prompts
                                                 .update(|items| items.retain(|(id, _)| *id != queued_id));
-                                            send_prompt_for_mode(actions.clone(), mode.get(), send_text.clone());
+                                            send_prompt_for_mode(actions, mode.get(), send_text.clone());
                                         };
                                         let on_clear = move |_| {
                                             set_queued_prompts
@@ -1176,7 +1172,7 @@ pub(crate) fn App() -> impl IntoView {
                                     {
                                         view! { <WorkingCard status=agent_status /> }.into_any()
                                     } else {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     }
                                 }}
                             </section>
@@ -1188,7 +1184,7 @@ pub(crate) fn App() -> impl IntoView {
                             >
                                 {move || {
                                     if stick_to_bottom.get() {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     } else {
                                         view! {
                                             <button
@@ -1230,7 +1226,7 @@ pub(crate) fn App() -> impl IntoView {
                                             </button>
                                             {move || {
                                                 if mode.get() == PermissionMode::Plan {
-                                                    view! { <></> }.into_any()
+                                                    ().into_any()
                                                 } else {
                                                     view! {
                                                         <button
@@ -1288,7 +1284,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                                         type="button"
                                                                                         class="menu-option"
                                                                                         class:active=move || model_name.get() == active_model
-                                                                                        on:click=move |_| actions.clone().set_model_name(click_model.clone())
+                                                                                        on:click=move |_| actions.set_model_name(click_model.clone())
                                                                                     >
                                                                                         {model}
                                                                                     </button>
@@ -1309,7 +1305,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 class="menu-option"
                                                                 class:active=move || mode.get() == PermissionMode::Plan
                                                                 title=PermissionMode::Plan.description()
-                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Plan)
+                                                                on:click=move |_| actions.set_permission_mode(PermissionMode::Plan)
                                                             >
                                                                 {PermissionMode::Plan.label()}
                                                             </button>
@@ -1318,7 +1314,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 class="menu-option"
                                                                 class:active=move || mode.get() == PermissionMode::Normal
                                                                 title=PermissionMode::Normal.description()
-                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Normal)
+                                                                on:click=move |_| actions.set_permission_mode(PermissionMode::Normal)
                                                             >
                                                                 {PermissionMode::Normal.label()}
                                                             </button>
@@ -1327,7 +1323,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 class="menu-option"
                                                                 class:active=move || mode.get() == PermissionMode::Auto
                                                                 title=PermissionMode::Auto.description()
-                                                                on:click=move |_| actions.clone().set_permission_mode(PermissionMode::Auto)
+                                                                on:click=move |_| actions.set_permission_mode(PermissionMode::Auto)
                                                             >
                                                                 {PermissionMode::Auto.label()}
                                                             </button>
@@ -1341,7 +1337,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 type="button"
                                                                 class="menu-option"
                                                                 class:active=move || reasoning_enabled.get()
-                                                                on:click=move |_| actions.clone().set_reasoning_enabled(true)
+                                                                on:click=move |_| actions.set_reasoning_enabled(true)
                                                             >
                                                                 "on"
                                                             </button>
@@ -1349,7 +1345,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 type="button"
                                                                 class="menu-option"
                                                                 class:active=move || !reasoning_enabled.get()
-                                                                on:click=move |_| actions.clone().set_reasoning_enabled(false)
+                                                                on:click=move |_| actions.set_reasoning_enabled(false)
                                                             >
                                                                 "off"
                                                             </button>
@@ -1364,7 +1360,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                 class="menu-option"
                                                                 class:active=move || effort.get() == ReasoningEffort::Config
                                                                 disabled=move || !reasoning_enabled.get()
-                                                                on:click=move |_| actions.clone().set_reasoning_effort(ReasoningEffort::Config)
+                                                                on:click=move |_| actions.set_reasoning_effort(ReasoningEffort::Config)
                                                             >
                                                                 "auto"
                                                             </button>
@@ -1380,7 +1376,7 @@ pub(crate) fn App() -> impl IntoView {
                                                                             class="menu-option"
                                                                             class:active=move || effort.get().value() == active_effort
                                                                             disabled=move || !reasoning_enabled.get()
-                                                                            on:click=move |_| actions.clone().set_reasoning_effort(click_effort.clone())
+                                                                            on:click=move |_| actions.set_reasoning_effort(click_effort.clone())
                                                                         >
                                                                             {option}
                                                                         </button>
@@ -1414,6 +1410,7 @@ pub(crate) fn App() -> impl IntoView {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,
@@ -1457,10 +1454,10 @@ fn load_runtime_settings(
                             .map(ToOwned::to_owned)
                     })
                     .collect::<Vec<_>>();
-                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
-                    if !options.iter().any(|item| item == model) {
-                        options.push(model.to_owned());
-                    }
+                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str)
+                    && !options.iter().any(|item| item == model)
+                {
+                    options.push(model.to_owned());
                 }
                 set_model_options.set(options);
                 if let Some(enabled) = config
@@ -1612,6 +1609,7 @@ pub(crate) fn load_sidebar_sessions(
     });
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1732,11 +1730,11 @@ fn scroll_results_to_bottom(
     stick_to_bottom: ReadSignal<bool>,
     set_last_results_scroll_top: WriteSignal<i32>,
 ) {
-    if let Some(results) = results_ref.get() {
-        if stick_to_bottom.get() {
-            results.set_scroll_top(results.scroll_height());
-            set_last_results_scroll_top.set(results.scroll_top());
-        }
+    if let Some(results) = results_ref.get()
+        && stick_to_bottom.get()
+    {
+        results.set_scroll_top(results.scroll_height());
+        set_last_results_scroll_top.set(results.scroll_top());
     }
 }
 

@@ -207,6 +207,7 @@ fn refresh_pending_control_plane(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_app_output(
     output: StdioOutput,
     set_messages: WriteSignal<Vec<Message>>,
@@ -238,7 +239,7 @@ fn handle_app_output(
                 set_event_count.update(|count| *count += 1);
             }
             handle_app_event(
-                event,
+                *event,
                 set_messages,
                 next_message_id,
                 set_next_message_id,
@@ -272,6 +273,7 @@ fn handle_app_output(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_app_event(
     event: AppServerEvent,
     set_messages: WriteSignal<Vec<Message>>,
@@ -364,6 +366,7 @@ fn handle_app_event(
             load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         }
         AppServerEvent::ApprovalRequested { request } => {
+            let request = *request;
             set_agent_status.set("ждёт доступ".to_owned());
             set_pending_approvals.update(|items| {
                 if let Some(item) = items
@@ -389,6 +392,7 @@ fn handle_app_event(
                 .update(|items| items.retain(|item| item.approval_id != approval_id));
         }
         AppServerEvent::UserInputRequested { request } => {
+            let request = *request;
             set_agent_status.set("ждёт ответ".to_owned());
             set_pending_user_inputs.update(|items| {
                 if let Some(item) = items
@@ -521,6 +525,7 @@ fn flush_stream_delta_buffer(bindings: StreamFlushBindings) {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_runtime_status_and_tools(
     envelope: &Value,
     set_messages: WriteSignal<Vec<Message>>,

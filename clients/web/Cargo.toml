@@ -39,3 +39,6 @@ web-sys = { version = "0.3", features = [
     "WheelEvent",
     "Window",
 ] }
+
+[dev-dependencies]
+proteus-contracts = { path = "../../crates/proteus-contracts" }
