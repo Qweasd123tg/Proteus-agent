@@ -739,20 +739,27 @@ fn ToolActivityCard(
                 title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                <span class=move || current_tool(message).map(|tool| tool.status.badge_class()).unwrap_or("status-badge idle")>
-                    <span class=move || {
-                        current_tool(message)
-                            .map(|tool| {
-                                if matches!(tool.status, ToolActivityStatus::Running | ToolActivityStatus::WaitingApproval) {
-                                    "spinner-dot"
-                                } else {
-                                    "dot"
-                                }
-                            })
-                            .unwrap_or("dot")
-                    }></span>
-                    {move || current_tool_status_label(message, activity_now_ms)}
-                </span>
+                // Статус карточки несёт точка на рейке-цепочке; в заголовке
+                // показываем бейдж только пока тул в работе (спиннер + таймер).
+                {move || match current_tool(message) {
+                    Some(tool)
+                        if matches!(
+                            tool.status,
+                            ToolActivityStatus::Running
+                                | ToolActivityStatus::WaitingApproval
+                                | ToolActivityStatus::Approved
+                        ) =>
+                    {
+                        view! {
+                            <span class=tool.status.badge_class()>
+                                <span class="spinner-dot"></span>
+                                {move || current_tool_status_label(message, activity_now_ms)}
+                            </span>
+                        }
+                        .into_any()
+                    }
+                    _ => ().into_any(),
+                }}
                 <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
                 <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
             </button>
@@ -892,7 +899,8 @@ pub(crate) fn MessageView(
             MessageViewKind::User => user_message_view(message),
             MessageViewKind::Reasoning => reasoning_message_view(message),
             MessageViewKind::Assistant => {
-                text_message_view(message, "task-card assistant-turn role-assistant")
+                // Ответ агента — финальный узел цепочки текущего хода.
+                text_message_view(message, "task-card assistant-turn role-assistant agent-turn-item")
             }
             MessageViewKind::System => {
                 text_message_view(message, "task-card assistant-turn role-system")

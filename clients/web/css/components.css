@@ -381,6 +381,13 @@
     font-weight: 600;
 }
 
+/* У ответа агента всю шапку (метку «Proteus ●» и кнопку копирования) убираем —
+   роль показывает синий узел на рейке, а одинокая кнопка смотрелась нелепо.
+   У системных сообщений шапка остаётся. */
+.role-assistant .task-card-header {
+    display: none;
+}
+
 .assistant-role::before {
     width: 6px;
     height: 6px;
@@ -766,10 +773,10 @@
 .agent-turn-item::before {
     position: absolute;
     top: 16px;
-    left: 1px;
+    left: 2px;
     z-index: 1;
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border: 2px solid var(--bg-root);
     border-radius: 50%;
     background: var(--border-strong);
@@ -783,7 +790,7 @@
     position: absolute;
     top: 20px;
     bottom: calc((var(--space-3) + 20px) * -1);
-    left: 4px;
+    left: 5px;
     width: 2px;
     border-radius: 1px;
     background: var(--border-subtle);
@@ -798,6 +805,7 @@
     display: none;
 }
 
+/* Цвет несёт только узел (точка); звено всегда нейтральное, чтобы не рябило. */
 .agent-turn-item.running::before,
 .agent-turn-item.status-running::before,
 .agent-turn-item.status-waiting_approval::before,
@@ -806,21 +814,9 @@
     background: var(--accent-blue);
 }
 
-.agent-turn-item.running::after,
-.agent-turn-item.status-running::after,
-.agent-turn-item.status-waiting_approval::after,
-.agent-turn-item.status-approved::after {
-    background: rgb(107 158 255 / 45%);
-}
-
 .agent-turn-item.success::before,
 .agent-turn-item.status-done::before {
     background: var(--accent-green);
-}
-
-.agent-turn-item.success::after,
-.agent-turn-item.status-done::after {
-    background: rgb(92 199 132 / 42%);
 }
 
 .agent-turn-item.error::before,
@@ -829,10 +825,9 @@
     background: var(--accent-red);
 }
 
-.agent-turn-item.error::after,
-.agent-turn-item.status-denied::after,
-.agent-turn-item.status-failed::after {
-    background: rgb(239 107 107 / 42%);
+/* Узел ответа агента — синий (цвет самого Proteus). */
+.agent-turn-item.role-assistant::before {
+    background: var(--accent-blue);
 }
 
 .tool-turn-item .tool-card {
