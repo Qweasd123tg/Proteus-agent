@@ -104,6 +104,40 @@ pub(crate) fn push_assistant_message_once(
     }
 }
 
+pub(crate) fn push_assistant_message_if_missing(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    text: String,
+) {
+    if text.trim().is_empty() {
+        return;
+    }
+
+    let id = next_message_id.get();
+    let mut pushed = false;
+    set_messages.update(|items| {
+        if items
+            .iter()
+            .any(|message| message.role == MessageRole::Assistant && message.text == text)
+        {
+            return;
+        }
+        items.push(Message {
+            id,
+            version: 0,
+            role: MessageRole::Assistant,
+            text,
+            tool: None,
+            streaming: false,
+        });
+        pushed = true;
+    });
+    if pushed {
+        set_next_message_id.set(id + 1);
+    }
+}
+
 /// Завершить активный reasoning-блок (сворачивается в UI). Вызывается, когда
 /// начинается текст ответа, tool call или ход завершается.
 pub(crate) fn finish_streaming_reasoning(set_messages: WriteSignal<Vec<Message>>) {
@@ -291,6 +325,61 @@ mod tests {
             assert!(!items[0].streaming);
             assert_eq!(items[0].version, 1);
             assert_eq!(active_stream_message_id.get_untracked(), None);
+        });
+    }
+
+    #[test]
+    fn push_assistant_message_if_missing_appends_new_final_output() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                version: 0,
+                role: MessageRole::Assistant,
+                text: "pre-tool note".to_owned(),
+                tool: None,
+                streaming: false,
+            }]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_assistant_message_if_missing(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                "final answer".to_owned(),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[1].id, 2);
+            assert_eq!(items[1].text, "final answer");
+            assert_eq!(next_message_id.get_untracked(), 3);
+        });
+    }
+
+    #[test]
+    fn push_assistant_message_if_missing_skips_existing_final_output() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                version: 0,
+                role: MessageRole::Assistant,
+                text: "final answer".to_owned(),
+                tool: None,
+                streaming: false,
+            }]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_assistant_message_if_missing(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                "final answer".to_owned(),
+            );
+
+            assert_eq!(messages.get_untracked().len(), 1);
+            assert_eq!(next_message_id.get_untracked(), 2);
         });
     }
 }

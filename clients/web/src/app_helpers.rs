@@ -9,6 +9,7 @@ use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title};
 
 pub(crate) const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
+const CONTEXT_USAGE_STORAGE_KEY: &str = "proteus.contextUsage";
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -139,18 +140,26 @@ pub(crate) fn load_runtime_settings(
 }
 
 pub(crate) fn load_transcript(
+    messages: ReadSignal<Vec<Message>>,
     set_messages: WriteSignal<Vec<Message>>,
+    transcript_generation: ReadSignal<u64>,
+    expected_generation: u64,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
+    let expected_next_message_id = next_message_id.get_untracked();
     spawn_local(async move {
         match get_json::<Vec<TranscriptMessage>>("/history").await {
             Ok(items) => {
-                let messages = transcript_messages(items);
-                if !messages.is_empty() {
-                    set_next_message_id.set(messages.len() as u64 + 1);
-                    set_messages.set(messages);
+                let transcript = transcript_messages(items);
+                if !transcript.is_empty()
+                    && transcript_generation.get_untracked() == expected_generation
+                    && next_message_id.get_untracked() == expected_next_message_id
+                    && messages.get_untracked().is_empty()
+                {
+                    set_next_message_id.set(next_message_id_after(&transcript));
+                    set_messages.set(transcript);
                 }
             }
             Err(error) => report_error(
@@ -204,6 +213,8 @@ pub(crate) fn sidebar_session_preview(session: &SessionSummary) -> Option<String
 
 pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
+    transcript_generation: ReadSignal<u64>,
+    expected_generation: u64,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -211,9 +222,12 @@ pub(crate) fn replace_transcript(
     spawn_local(async move {
         match get_json::<Vec<TranscriptMessage>>("/history").await {
             Ok(items) => {
-                let messages = transcript_messages(items);
-                set_next_message_id.set(messages.len() as u64 + 1);
-                set_messages.set(messages);
+                if transcript_generation.get_untracked() != expected_generation {
+                    return;
+                }
+                let transcript = transcript_messages(items);
+                set_next_message_id.set(next_message_id_after(&transcript));
+                set_messages.set(transcript);
             }
             Err(error) => report_error(
                 set_messages,
@@ -259,6 +273,15 @@ fn message_role_from_wire(role: &str) -> MessageRole {
     }
 }
 
+fn next_message_id_after(messages: &[Message]) -> u64 {
+    messages
+        .iter()
+        .map(|message| message.id)
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
 pub(crate) fn current_path() -> String {
     window()
         .and_then(|window| window.location().pathname().ok())
@@ -290,6 +313,21 @@ pub(crate) fn load_bool_setting(key: &str, fallback: bool) -> bool {
 pub(crate) fn save_bool_setting(key: &str, value: bool) {
     if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
         let _ = storage.set_item(key, if value { "true" } else { "false" });
+    }
+}
+
+pub(crate) fn load_context_usage() -> Option<ContextUsage> {
+    window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(CONTEXT_USAGE_STORAGE_KEY).ok().flatten())
+        .and_then(|value| serde_json::from_str(&value).ok())
+}
+
+pub(crate) fn save_context_usage(usage: ContextUsage) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten())
+        && let Ok(value) = serde_json::to_string(&usage)
+    {
+        let _ = storage.set_item(CONTEXT_USAGE_STORAGE_KEY, &value);
     }
 }
 

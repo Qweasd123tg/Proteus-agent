@@ -5,12 +5,12 @@ use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, get_json, js_error};
-use crate::app_helpers::{load_sidebar_sessions, replace_transcript};
+use crate::app_helpers::{load_sidebar_sessions, replace_transcript, save_context_usage};
 use crate::messages::{
     append_streaming_assistant_delta, finish_active_streaming_assistant_message,
     finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
-    finish_streaming_reasoning, push_message, push_tool_message, push_user_message_once,
-    update_tool_status,
+    finish_streaming_reasoning, push_assistant_message_if_missing, push_message, push_tool_message,
+    push_user_message_once, update_tool_status,
 };
 use crate::types::*;
 use crate::ui_utils::{compact_json, compact_text, output_text, set_timeout, short_id, short_path};
@@ -56,6 +56,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_context_usage: WriteSignal<Option<ContextUsage>>,
+    pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -117,8 +118,11 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                 .set_value(BufferedStreamDeltas::default());
             bindings.set_active_stream_message_id.set(None);
             bindings.set_streamed_this_turn.set(false);
+            let expected_generation = bindings.transcript_generation.get_untracked();
             replace_transcript(
                 bindings.set_messages,
+                bindings.transcript_generation,
+                expected_generation,
                 bindings.next_message_id,
                 bindings.set_next_message_id,
                 bindings.set_transport_status,
@@ -338,6 +342,7 @@ fn handle_app_event(
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
+            let final_text = non_empty_output_text(&output);
             if streamed_this_turn.get() {
                 if let Some(message_id) = active_stream_message_id.get() {
                     set_messages.update(|items| {
@@ -353,6 +358,14 @@ fn handle_app_event(
                 }
                 set_active_stream_message_id.set(None);
                 set_streamed_this_turn.set(false);
+                if let Some(final_text) = final_text {
+                    push_assistant_message_if_missing(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        final_text,
+                    );
+                }
             } else {
                 finish_streaming_assistant_message(
                     set_messages,
@@ -541,7 +554,10 @@ fn update_runtime_status_and_tools(
     };
 
     if let Some(usage_event) = event.get("TokenUsageUpdated") {
-        set_context_usage.set(usage_event.get("usage").and_then(parse_context_usage));
+        if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
+            save_context_usage(usage);
+            set_context_usage.set(Some(usage));
+        }
         return;
     }
 
@@ -785,6 +801,14 @@ fn compact_content_preview(content: &Value) -> String {
     }
     preview.push(']');
     compact_text(&preview, 600)
+}
+
+fn non_empty_output_text(output: &Value) -> Option<String> {
+    output
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn compaction_report_text(report: &Value) -> String {

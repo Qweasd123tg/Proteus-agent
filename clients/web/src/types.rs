@@ -171,8 +171,9 @@ pub(crate) struct ToastMessage {
 }
 
 /// Заполнение контекстного окна по данным события `TokenUsageUpdated`.
-/// Конструируется только когда известен потолок окна, иначе бублик скрыт.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Последний валидный снимок сохраняется клиентом, чтобы бублик сразу
+/// восстанавливался при возврате в чат.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ContextUsage {
     pub(crate) used_tokens: u32,
     pub(crate) max_tokens: u32,

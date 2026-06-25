@@ -74,7 +74,8 @@ pub(crate) fn App() -> impl IntoView {
     let (streamed_this_turn, set_streamed_this_turn) = signal(false);
     let (agent_status, set_agent_status) = signal("ожидает".to_owned());
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
-    let (context_usage, set_context_usage) = signal(None::<ContextUsage>);
+    let (context_usage, set_context_usage) = signal(load_context_usage());
+    let (transcript_generation, set_transcript_generation) = signal(0_u64);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
     let (sidebar_sessions, set_sidebar_sessions) = signal(Vec::<SessionSummary>::new());
@@ -226,7 +227,10 @@ pub(crate) fn App() -> impl IntoView {
             set_transport_status,
         );
         load_transcript(
+            messages,
             set_messages,
+            transcript_generation,
+            transcript_generation.get_untracked(),
             next_message_id,
             set_next_message_id,
             set_transport_status,
@@ -255,6 +259,7 @@ pub(crate) fn App() -> impl IntoView {
         set_agent_status,
         set_tool_activities,
         set_context_usage,
+        transcript_generation,
         set_pending_approvals,
         set_pending_user_inputs,
         set_sidebar_sessions,
@@ -284,6 +289,7 @@ pub(crate) fn App() -> impl IntoView {
     };
 
     let reset_chat_view = move || {
+        set_transcript_generation.update(|generation| *generation += 1);
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
         set_active_stream_message_id.set(None);
@@ -295,7 +301,6 @@ pub(crate) fn App() -> impl IntoView {
         set_is_sending.set(false);
         set_active_turn_id.set(None);
         set_agent_status.set("ожидает".to_owned());
-        set_context_usage.set(None);
         set_stick_to_bottom.set(true);
     };
 
@@ -329,12 +334,16 @@ pub(crate) fn App() -> impl IntoView {
     let reset_chat_view_for_new_session = reset_chat_view;
     let start_new_session = move |_| {
         reset_chat_view_for_new_session();
+        let expected_generation = transcript_generation.get_untracked();
         set_active_session_dir.set(None);
         set_session_label.set("not started".to_owned());
         set_sidebar_sessions_status.set("создаю новую сессию".to_owned());
         spawn_local(async move {
             match post_json("/new-session", &json!({ "id": "new-session" })).await {
                 Ok(StdioOutput::Response { ok: true, .. }) => {
+                    if transcript_generation.get_untracked() != expected_generation {
+                        return;
+                    }
                     set_sidebar_sessions_status.set("новая сессия открыта".to_owned());
                     reconnect_event_stream(event_source, event_stream_bindings);
                     load_runtime_settings(
@@ -353,6 +362,8 @@ pub(crate) fn App() -> impl IntoView {
                     );
                     replace_transcript(
                         set_messages,
+                        transcript_generation,
+                        expected_generation,
                         next_message_id,
                         set_next_message_id,
                         set_transport_status,
@@ -628,6 +639,8 @@ pub(crate) fn App() -> impl IntoView {
         if active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
             return;
         }
+        set_transcript_generation.update(|generation| *generation += 1);
+        let expected_generation = transcript_generation.get_untracked();
         let session_dir = session.session_dir.clone();
         set_sidebar_sessions_status.set("открываю сессию".to_owned());
         spawn_local(async move {
@@ -641,6 +654,9 @@ pub(crate) fn App() -> impl IntoView {
             .await
             {
                 Ok(StdioOutput::Response { ok: true, .. }) => {
+                    if transcript_generation.get_untracked() != expected_generation {
+                        return;
+                    }
                     set_sidebar_sessions_status.set("сессия открыта".to_owned());
                     set_active_session_dir.set(Some(session.session_dir.clone()));
                     if let Some(workspace) = session.workspace_path {
@@ -660,7 +676,6 @@ pub(crate) fn App() -> impl IntoView {
                     set_streamed_this_turn.set(false);
                     set_agent_status.set("ожидает".to_owned());
                     set_tool_activities.set(Vec::new());
-                    set_context_usage.set(None);
                     set_pending_approvals.set(Vec::new());
                     set_pending_user_inputs.set(Vec::new());
                     reconnect_event_stream(event_source, event_stream_bindings);
@@ -680,6 +695,8 @@ pub(crate) fn App() -> impl IntoView {
                     );
                     replace_transcript(
                         set_messages,
+                        transcript_generation,
+                        expected_generation,
                         next_message_id,
                         set_next_message_id,
                         set_transport_status,
@@ -709,6 +726,7 @@ pub(crate) fn App() -> impl IntoView {
 
         let session_dir = session.session_dir.clone();
         let deleting_active = active_session_dir.get().as_deref() == Some(session_dir.as_str());
+        let delete_request_generation = transcript_generation.get_untracked();
         set_sidebar_sessions_status.set("удаляю сессию".to_owned());
         spawn_local(async move {
             match post_json(
@@ -733,7 +751,11 @@ pub(crate) fn App() -> impl IntoView {
                         .and_then(Value::as_bool)
                         .unwrap_or(deleting_active);
                     if active_replaced {
+                        if transcript_generation.get_untracked() != delete_request_generation {
+                            return;
+                        }
                         reset_chat_view_for_delete_session();
+                        let expected_generation = transcript_generation.get_untracked();
                         set_active_session_dir.set(None);
                         set_session_label.set("not started".to_owned());
                         reconnect_event_stream(event_source, event_stream_bindings);
@@ -753,6 +775,8 @@ pub(crate) fn App() -> impl IntoView {
                         );
                         replace_transcript(
                             set_messages,
+                            transcript_generation,
+                            expected_generation,
                             next_message_id,
                             set_next_message_id,
                             set_transport_status,

@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+};
 
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
@@ -22,7 +25,18 @@ const CONTEXT_RING_CRIT_PERCENT: u8 = 90;
 struct RenderedMessageCache {
     id: u64,
     version: u64,
+    text_fingerprint: u64,
     html: String,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MessageViewKind {
+    Missing,
+    Tool,
+    User,
+    Reasoning,
+    Assistant,
+    System,
 }
 
 #[component]
@@ -763,8 +777,8 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 }
 
 /// Маленький бублик в строке ввода: показывает, насколько заполнено
-/// контекстное окно. Скрыт, пока не пришёл первый снимок `TokenUsageUpdated`
-/// с известным потолком окна.
+/// контекстное окно. На старте использует последний сохранённый снимок,
+/// если текущая сессия ещё не прислала свежий `TokenUsageUpdated`.
 #[component]
 pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
     move || {
@@ -859,36 +873,25 @@ pub(crate) fn MessageView(
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
     let message = Memo::new(move |_| current_message(messages, message_id));
-    let Some(initial_message) = message.get_untracked() else {
-        return ().into_any();
-    };
+    let kind = Memo::new(move |_| current_message_kind(message));
 
-    if initial_message.tool.is_some() {
-        return view! {
-            <article class=move || {
-                current_tool(message)
-                    .map(|tool| tool_turn_card_class(tool.status))
-                    .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
-            }>
-                <ToolActivityCard message activity_now_ms />
-            </article>
-        }
-        .into_any();
+    view! {
+        {move || match kind.get() {
+            MessageViewKind::Missing => ().into_any(),
+            MessageViewKind::Tool => tool_message_view(message, activity_now_ms),
+            MessageViewKind::User => user_message_view(message),
+            MessageViewKind::Reasoning => reasoning_message_view(message),
+            MessageViewKind::Assistant => {
+                text_message_view(message, "task-card assistant-turn role-assistant")
+            }
+            MessageViewKind::System => {
+                text_message_view(message, "task-card assistant-turn role-system")
+            }
+        }}
     }
+}
 
-    if initial_message.role == MessageRole::User {
-        return user_message_view(message);
-    }
-
-    if initial_message.role == MessageRole::Reasoning {
-        return reasoning_message_view(message);
-    }
-
-    let turn_class = match initial_message.role {
-        MessageRole::Assistant => "task-card assistant-turn role-assistant",
-        MessageRole::System => "task-card assistant-turn role-system",
-        MessageRole::User | MessageRole::Reasoning => "task-card assistant-turn",
-    };
+fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -> AnyView {
     let rendered_html = cached_message_html(message);
     view! {
         <article class=turn_class>
@@ -906,6 +909,22 @@ pub(crate) fn MessageView(
                 class=move || current_message_content_class(message)
                 inner_html=move || rendered_html.get()
             ></div>
+        </article>
+    }
+    .into_any()
+}
+
+fn tool_message_view(
+    message: Memo<Option<Message>>,
+    activity_now_ms: ReadSignal<u64>,
+) -> AnyView {
+    view! {
+        <article class=move || {
+            current_tool(message)
+                .map(|tool| tool_turn_card_class(tool.status))
+                .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
+        }>
+            <ToolActivityCard message activity_now_ms />
         </article>
     }
     .into_any()
@@ -990,6 +1009,21 @@ fn current_message(messages: Memo<HashMap<u64, Message>>, message_id: u64) -> Op
     messages.with(|items| items.get(&message_id).cloned())
 }
 
+fn current_message_kind(message: Memo<Option<Message>>) -> MessageViewKind {
+    let Some(message) = message.get() else {
+        return MessageViewKind::Missing;
+    };
+    if message.tool.is_some() {
+        return MessageViewKind::Tool;
+    }
+    match message.role {
+        MessageRole::User => MessageViewKind::User,
+        MessageRole::Assistant => MessageViewKind::Assistant,
+        MessageRole::System => MessageViewKind::System,
+        MessageRole::Reasoning => MessageViewKind::Reasoning,
+    }
+}
+
 fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
     message.get().and_then(|message| message.tool)
 }
@@ -1042,11 +1076,13 @@ fn cached_message_html(message: Memo<Option<Message>>) -> Memo<String> {
         let Some(message) = message.get() else {
             return String::new();
         };
+        let text_fingerprint = rendered_text_fingerprint(&message.text);
         let mut cached = None;
         cache.with_value(|slot| {
             if let Some(slot) = slot.as_ref()
                 && slot.id == message.id
                 && slot.version == message.version
+                && slot.text_fingerprint == text_fingerprint
             {
                 cached = Some(slot.html.clone());
             }
@@ -1058,10 +1094,17 @@ fn cached_message_html(message: Memo<Option<Message>>) -> Memo<String> {
         cache.set_value(Some(RenderedMessageCache {
             id: message.id,
             version: message.version,
+            text_fingerprint,
             html: html.clone(),
         }));
         html
     })
+}
+
+fn rendered_text_fingerprint(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn render_message_html(message: &Message) -> String {
