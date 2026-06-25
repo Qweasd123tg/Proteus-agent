@@ -8,14 +8,16 @@ use serde_json::Value;
 use web_sys::{MouseEvent, window};
 
 use crate::api::{get_json, post_json};
-use crate::markdown::{markdown_html, plain_text_html};
+use crate::markdown::{highlight_preview, markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{
     compact_text, copy_to_clipboard, format_json, set_timeout, short_id, short_path,
 };
 
 const REASONING_RENDER_LIMIT: usize = 8000;
-const TOOL_DETAIL_VISIBLE_LINES: usize = 5;
+/// Превью tool-карточки раскрывается ступенями: компактно → расширенно → полностью.
+const TOOL_PREVIEW_COMPACT_LINES: usize = 5;
+const TOOL_PREVIEW_EXPANDED_LINES: usize = 20;
 const COPY_FEEDBACK_MS: i32 = 1200;
 /// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
 const CONTEXT_RING_WARN_PERCENT: u8 = 70;
@@ -37,12 +39,6 @@ enum MessageViewKind {
     Reasoning,
     Assistant,
     System,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ToolPreview {
-    text: String,
-    hidden_lines: usize,
 }
 
 #[component]
@@ -209,7 +205,7 @@ where
             </div>
             <p>{spec_hint}</p>
             {approval_preview(request.preview.clone())}
-            {tool_preview_view(args_preview)}
+            <ToolPreview text=Signal::derive(move || args_preview.clone()) />
             <div class="control-row">
                 <span class="control-label">"Кэш"</span>
                 <div class="segmented">
@@ -315,7 +311,7 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
                                 {body_label}
                             </span>
                         </div>
-                        {tool_preview_view(body)}
+                        <ToolPreview text=Signal::derive(move || body.clone()) />
                     </div>
                 }.into_any()
             } else {
@@ -723,8 +719,20 @@ fn ToolActivityCard(
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
     let (expanded, set_expanded) = signal(true);
+    // Тексты держим в Memo поверх карточки, чтобы стриминг результата обновлял
+    // превью, не пересоздавая внутренний компонент и его состояние раскрытия.
+    let args_text = Memo::new(move |_| {
+        current_tool(message)
+            .map(|tool| tool.args_preview)
+            .unwrap_or_default()
+    });
+    let result_text = Memo::new(move |_| {
+        current_tool(message)
+            .and_then(|tool| tool.result_preview)
+            .unwrap_or_default()
+    });
     view! {
-        <article class="tool-card">
+        <article class=move || if expanded.get() { "tool-card expanded" } else { "tool-card" }>
             <button
                 type="button"
                 class="tool-card-summary"
@@ -752,12 +760,8 @@ fn ToolActivityCard(
                 if expanded.get() {
                     view! {
                         <div class="tool-card-details">
-                            {move || tool_preview_view(current_tool(message).map(|tool| tool.args_preview).unwrap_or_default())}
-                            {move || if let Some(result) = current_tool(message).and_then(|tool| tool.result_preview) {
-                                tool_preview_view(result)
-                            } else {
-                                ().into_any()
-                            }}
+                            <ToolPreview text=args_text caption="запрос" />
+                            <ToolPreview text=result_text caption="ответ" />
                         </div>
                     }.into_any()
                 } else {
@@ -1061,38 +1065,83 @@ fn current_tool_status_label(
     }
 }
 
-fn tool_preview_view(text: String) -> AnyView {
-    let preview = tool_preview(text);
-    let more = if preview.hidden_lines > 0 {
+/// Превью содержимого tool-вызова с пошаговым раскрытием. Уровень хранится в
+/// собственном сигнале, поэтому стриминг результата (обновление `text`) не
+/// сбрасывает выбор пользователя. Создавать компонент нужно вне перезапускаемых
+/// замыканий, иначе сигнал пересоздаётся.
+#[component]
+fn ToolPreview(
+    #[prop(into)] text: Signal<String>,
+    /// Подпись секции («запрос»/«ответ»). Пустая — секция без заголовка.
+    #[prop(optional)] caption: &'static str,
+) -> impl IntoView {
+    // 0 — компактно (5 строк), 1 — расширенно (20 строк), 2 — полностью.
+    let (level, set_level) = signal(0u8);
+    move || {
+        let raw = text.get();
+        if raw.trim().is_empty() {
+            return ().into_any();
+        }
+        let head = if caption.is_empty() {
+            ().into_any()
+        } else {
+            view! { <div class="tool-preview-caption">{caption}</div> }.into_any()
+        };
+        let lines: Vec<&str> = raw.lines().collect();
+        let total = lines.len();
+        let shown = tool_preview_visible_lines(total, level.get());
+        let body = highlight_preview(&lines[..shown].join("\n"));
+        let hidden = total - shown;
+        let control = if hidden > 0 {
+            // С первого шага прыгаем сразу к полному, если средняя ступень
+            // ничего бы не добавила (текст короче порога расширения).
+            let next = if level.get() == 0 && total > TOOL_PREVIEW_EXPANDED_LINES {
+                1
+            } else {
+                2
+            };
+            let label = format!("▾ {}", hidden_tool_lines_label(hidden));
+            view! {
+                <button
+                    type="button"
+                    class="tool-preview-toggle"
+                    on:click=move |_| set_level.set(next)
+                >
+                    {label}
+                </button>
+            }
+            .into_any()
+        } else if total > TOOL_PREVIEW_COMPACT_LINES {
+            view! {
+                <button
+                    type="button"
+                    class="tool-preview-toggle"
+                    on:click=move |_| set_level.set(0)
+                >
+                    "▴ свернуть"
+                </button>
+            }
+            .into_any()
+        } else {
+            ().into_any()
+        };
         view! {
-            <div class="tool-preview-more">{hidden_tool_lines_label(preview.hidden_lines)}</div>
+            <div class="tool-preview">
+                {head}
+                <pre inner_html=body></pre>
+                {control}
+            </div>
         }
         .into_any()
-    } else {
-        ().into_any()
-    };
-
-    view! {
-        <div class="tool-preview">
-            <pre>{preview.text}</pre>
-            {more}
-        </div>
     }
-    .into_any()
 }
 
-fn tool_preview(text: String) -> ToolPreview {
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() <= TOOL_DETAIL_VISIBLE_LINES {
-        return ToolPreview {
-            text,
-            hidden_lines: 0,
-        };
-    }
-
-    ToolPreview {
-        text: lines[..TOOL_DETAIL_VISIBLE_LINES].join("\n"),
-        hidden_lines: lines.len() - TOOL_DETAIL_VISIBLE_LINES,
+/// Сколько строк превью показать на данной ступени раскрытия.
+fn tool_preview_visible_lines(total: usize, level: u8) -> usize {
+    match level {
+        0 => TOOL_PREVIEW_COMPACT_LINES.min(total),
+        1 => TOOL_PREVIEW_EXPANDED_LINES.min(total),
+        _ => total,
     }
 }
 
@@ -1209,34 +1258,19 @@ mod tests {
     }
 
     #[test]
-    fn tool_preview_keeps_first_visible_lines_and_counts_hidden_tail() {
-        let preview = tool_preview(
-            [
-                "line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7",
-            ]
-            .join("\n"),
-        );
-
-        assert_eq!(
-            preview,
-            ToolPreview {
-                text: ["line 1", "line 2", "line 3", "line 4", "line 5"].join("\n"),
-                hidden_lines: 2,
-            }
-        );
+    fn tool_preview_visible_lines_steps_from_compact_to_full() {
+        // Компактная ступень показывает не больше пяти строк.
+        assert_eq!(tool_preview_visible_lines(40, 0), 5);
+        // Расширенная — не больше двадцати.
+        assert_eq!(tool_preview_visible_lines(40, 1), 20);
+        // Полная — весь текст.
+        assert_eq!(tool_preview_visible_lines(40, 2), 40);
     }
 
     #[test]
-    fn tool_preview_does_not_truncate_five_lines() {
-        let text = ["line 1", "line 2", "line 3", "line 4", "line 5"].join("\n");
-
-        assert_eq!(
-            tool_preview(text.clone()),
-            ToolPreview {
-                text,
-                hidden_lines: 0,
-            }
-        );
+    fn tool_preview_visible_lines_never_exceeds_total() {
+        assert_eq!(tool_preview_visible_lines(3, 0), 3);
+        assert_eq!(tool_preview_visible_lines(12, 1), 12);
     }
 
     #[test]

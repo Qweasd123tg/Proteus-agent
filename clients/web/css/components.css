@@ -269,7 +269,11 @@
     position: relative;
     min-width: 0;
     max-width: 100%;
-    overflow-x: hidden;
+    /* `clip`, а не `hidden`: hidden по спецификации превращает overflow-y в
+       auto и даёт паразитный вертикальный ползунок на каждой карточке
+       (таймлайн-рейка ::after торчит на 12px ниже бокса). clip обрезает
+       по горизонтали, не создавая скролл-контейнера. */
+    overflow-x: clip;
     margin-bottom: var(--space-5);
     padding: 0;
 }
@@ -757,30 +761,38 @@
     padding-left: var(--space-4);
 }
 
+/* Узел цепочки — кружок со статусным цветом и «дыркой» (border цвета фона),
+   чтобы звено чисто проходило сквозь него. */
 .agent-turn-item::before {
     position: absolute;
-    top: 15px;
-    left: 2px;
+    top: 16px;
+    left: 1px;
     z-index: 1;
-    width: 7px;
-    height: 7px;
+    width: 9px;
+    height: 9px;
     border: 2px solid var(--bg-root);
     border-radius: 50%;
     background: var(--border-strong);
     content: "";
 }
 
+/* Звено цепочки — линия от центра этого узла до центра следующего узла
+   (top на центре точки, bottom уходит в зазор + на высоту до точки соседа).
+   Так узлы соседних карточек соединяются в непрерывную цепочку. */
 .agent-turn-item::after {
     position: absolute;
-    top: 25px;
-    bottom: calc(var(--space-3) * -1);
-    left: 6px;
-    width: 1px;
+    top: 20px;
+    bottom: calc((var(--space-3) + 20px) * -1);
+    left: 4px;
+    width: 2px;
+    border-radius: 1px;
     background: var(--border-subtle);
     content: "";
     pointer-events: none;
 }
 
+/* Последний узел группы (за ним нет тул-карточки) звена вниз не рисует —
+   цепочка обрывается на нём. */
 .agent-turn-item:not(:has(+ .agent-turn-item))::after,
 .agent-turn-item:last-child::after {
     display: none;
@@ -794,15 +806,33 @@
     background: var(--accent-blue);
 }
 
+.agent-turn-item.running::after,
+.agent-turn-item.status-running::after,
+.agent-turn-item.status-waiting_approval::after,
+.agent-turn-item.status-approved::after {
+    background: rgb(107 158 255 / 45%);
+}
+
 .agent-turn-item.success::before,
 .agent-turn-item.status-done::before {
     background: var(--accent-green);
+}
+
+.agent-turn-item.success::after,
+.agent-turn-item.status-done::after {
+    background: rgb(92 199 132 / 42%);
 }
 
 .agent-turn-item.error::before,
 .agent-turn-item.status-denied::before,
 .agent-turn-item.status-failed::before {
     background: var(--accent-red);
+}
+
+.agent-turn-item.error::after,
+.agent-turn-item.status-denied::after,
+.agent-turn-item.status-failed::after {
+    background: rgb(239 107 107 / 42%);
 }
 
 .tool-turn-item .tool-card {
@@ -859,7 +889,7 @@
     margin-top: -1px;
 }
 
-.tool-card:has(.tool-card-details) .tool-card-summary {
+.tool-card.expanded .tool-card-summary {
     border-radius: 10px 10px 0 0;
 }
 
@@ -869,6 +899,24 @@
     gap: 4px;
 }
 
+/* Заголовок секции превью: «запрос» / «ответ». */
+.tool-preview-caption {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* Разделитель между запросом и ответом: линия появляется только когда внутри
+   деталей есть второй блок (пустой ответ не рендерится — линии не будет). */
+.tool-card-details > .tool-preview + .tool-preview {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+    margin-top: var(--space-1);
+}
+
 .control-card .tool-preview {
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
@@ -876,19 +924,74 @@
     padding: var(--space-3);
 }
 
+/* Карточка цельная: контент течёт целиком, без внутреннего скролла. */
 .tool-preview pre {
     margin: 0;
+    max-width: 100%;
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
+    line-height: 1.55;
     white-space: pre-wrap;
+    overflow: visible;
     overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-.tool-preview-more {
-    color: var(--text-faint);
+/* Кнопка-ступень раскрытия превью (ещё N строк / свернуть). */
+.tool-preview-toggle {
+    justify-self: start;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--accent-blue);
+    padding: 2px 6px;
+    margin-left: -6px;
     font-family: var(--font-mono);
     font-size: 11px;
+    cursor: pointer;
+}
+
+.tool-preview-toggle:hover {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+/* Подсветка содержимого превью. */
+.tool-preview .tk-key {
+    color: var(--accent-blue);
+}
+
+.tool-preview .tk-str {
+    color: var(--accent-green);
+}
+
+.tool-preview .tk-num {
+    color: var(--accent-yellow);
+}
+
+.tool-preview .tk-bool {
+    color: #c08cf0;
+}
+
+.tool-preview .tk-punct {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-add {
+    color: var(--accent-green);
+}
+
+.tool-preview .tk-del {
+    color: var(--accent-red);
+}
+
+.tool-preview .tk-hunk {
+    color: var(--accent-blue);
+}
+
+.tool-preview .tk-meta {
+    color: var(--text-faint);
 }
 
 .spinner-dot {

@@ -298,6 +298,137 @@ fn escape_html(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// Лёгкая подсветка превью tool-вызовов: JSON-аргументы, унифицированные diff'ы
+/// и всё остальное (без ложной раскраски). Возвращает безопасный HTML —
+/// весь текст экранируется, цвет навешивается классами `tk-*`.
+pub(crate) fn highlight_preview(text: &str) -> String {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        highlight_json(text)
+    } else if looks_like_diff(text) {
+        highlight_diff(text)
+    } else {
+        escape_html(text)
+    }
+}
+
+fn looks_like_diff(text: &str) -> bool {
+    text.lines().any(|line| {
+        line.starts_with("@@")
+            || line.starts_with("diff --git")
+            || line.starts_with("--- ")
+            || line.starts_with("+++ ")
+    })
+}
+
+fn highlight_diff(text: &str) -> String {
+    let mut out = String::new();
+    for (index, line) in text.lines().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let class = if line.starts_with("@@") {
+            Some("tk-hunk")
+        } else if line.starts_with("+++")
+            || line.starts_with("---")
+            || line.starts_with("diff ")
+            || line.starts_with("index ")
+        {
+            Some("tk-meta")
+        } else if line.starts_with('+') {
+            Some("tk-add")
+        } else if line.starts_with('-') {
+            Some("tk-del")
+        } else {
+            None
+        };
+        match class {
+            Some(class) => {
+                out.push_str("<span class=\"");
+                out.push_str(class);
+                out.push_str("\">");
+                out.push_str(&escape_html(line));
+                out.push_str("</span>");
+            }
+            None => out.push_str(&escape_html(line)),
+        }
+    }
+    out
+}
+
+fn highlight_json(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                let mut raw = String::from('"');
+                let mut escaped = false;
+                for next in chars.by_ref() {
+                    raw.push(next);
+                    if escaped {
+                        escaped = false;
+                    } else if next == '\\' {
+                        escaped = true;
+                    } else if next == '"' {
+                        break;
+                    }
+                }
+                // Строка-ключ, если следующий значимый символ — двоеточие.
+                let is_key = chars
+                    .clone()
+                    .find(|c| !c.is_whitespace())
+                    .is_some_and(|c| c == ':');
+                let class = if is_key { "tk-key" } else { "tk-str" };
+                out.push_str("<span class=\"");
+                out.push_str(class);
+                out.push_str("\">");
+                out.push_str(&escape_html(&raw));
+                out.push_str("</span>");
+            }
+            '{' | '}' | '[' | ']' | ':' | ',' => {
+                out.push_str("<span class=\"tk-punct\">");
+                out.push(ch);
+                out.push_str("</span>");
+            }
+            '-' | '0'..='9' => {
+                let mut num = String::from(ch);
+                while let Some(&next) = chars.peek() {
+                    if next.is_ascii_digit() || matches!(next, '.' | 'e' | 'E' | '+' | '-') {
+                        num.push(next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                out.push_str("<span class=\"tk-num\">");
+                out.push_str(&num);
+                out.push_str("</span>");
+            }
+            't' | 'f' | 'n' => {
+                let mut word = String::from(ch);
+                while let Some(&next) = chars.peek() {
+                    if next.is_ascii_alphabetic() {
+                        word.push(next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if matches!(word.as_str(), "true" | "false" | "null") {
+                    out.push_str("<span class=\"tk-bool\">");
+                    out.push_str(&word);
+                    out.push_str("</span>");
+                } else {
+                    out.push_str(&escape_html(&word));
+                }
+            }
+            _ => out.push_str(&escape_html(&ch.to_string())),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,6 +445,32 @@ mod tests {
         let html = plain_text_html("<b>one</b>\n& two");
 
         assert_eq!(html, "&lt;b&gt;one&lt;/b&gt;<br>&amp; two");
+    }
+
+    #[test]
+    fn highlight_preview_colors_json_keys_and_values() {
+        let html = highlight_preview("{\n  \"path\": \"a.rs\",\n  \"n\": 12\n}");
+
+        assert!(html.contains("<span class=\"tk-key\">\"path\"</span>"));
+        assert!(html.contains("<span class=\"tk-str\">\"a.rs\"</span>"));
+        assert!(html.contains("<span class=\"tk-num\">12</span>"));
+    }
+
+    #[test]
+    fn highlight_preview_colors_diff_lines() {
+        let html = highlight_preview("@@ -1 +1 @@\n-old\n+new");
+
+        assert!(html.contains("<span class=\"tk-hunk\">@@ -1 +1 @@</span>"));
+        assert!(html.contains("<span class=\"tk-del\">-old</span>"));
+        assert!(html.contains("<span class=\"tk-add\">+new</span>"));
+    }
+
+    #[test]
+    fn highlight_preview_escapes_markup_in_all_modes() {
+        // JSON-режим: значение с тегами не должно протечь как разметка.
+        assert!(highlight_preview("{\"x\": \"<img>\"}").contains("&lt;img&gt;"));
+        // Generic-режим экранирует целиком.
+        assert_eq!(highlight_preview("<script>"), "&lt;script&gt;");
     }
 
     #[test]
