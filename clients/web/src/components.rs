@@ -16,6 +16,7 @@ use crate::ui_utils::{
 
 const REASONING_RENDER_LIMIT: usize = 8000;
 const APPROVAL_PREVIEW_RENDER_LIMIT: usize = 12000;
+const TOOL_DETAIL_VISIBLE_LINES: usize = 5;
 const COPY_FEEDBACK_MS: i32 = 1200;
 /// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
 const CONTEXT_RING_WARN_PERCENT: u8 = 70;
@@ -37,6 +38,12 @@ enum MessageViewKind {
     Reasoning,
     Assistant,
     System,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ToolPreview {
+    text: String,
+    hidden_lines: usize,
 }
 
 #[component]
@@ -746,9 +753,9 @@ fn ToolActivityCard(
                 if expanded.get() {
                     view! {
                         <div class="tool-card-details">
-                            <pre>{move || current_tool(message).map(|tool| tool.args_preview).unwrap_or_default()}</pre>
+                            {move || tool_preview_view(current_tool(message).map(|tool| tool.args_preview).unwrap_or_default())}
                             {move || if let Some(result) = current_tool(message).and_then(|tool| tool.result_preview) {
-                                view! { <pre>{result}</pre> }.into_any()
+                                tool_preview_view(result)
                             } else {
                                 ().into_any()
                             }}
@@ -1055,6 +1062,52 @@ fn current_tool_status_label(
     }
 }
 
+fn tool_preview_view(text: String) -> AnyView {
+    let preview = tool_preview(text);
+    let more = if preview.hidden_lines > 0 {
+        view! {
+            <div class="tool-preview-more">{hidden_tool_lines_label(preview.hidden_lines)}</div>
+        }
+        .into_any()
+    } else {
+        ().into_any()
+    };
+
+    view! {
+        <div class="tool-preview">
+            <pre>{preview.text}</pre>
+            {more}
+        </div>
+    }
+    .into_any()
+}
+
+fn tool_preview(text: String) -> ToolPreview {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= TOOL_DETAIL_VISIBLE_LINES {
+        return ToolPreview {
+            text,
+            hidden_lines: 0,
+        };
+    }
+
+    ToolPreview {
+        text: lines[..TOOL_DETAIL_VISIBLE_LINES].join("\n"),
+        hidden_lines: lines.len() - TOOL_DETAIL_VISIBLE_LINES,
+    }
+}
+
+fn hidden_tool_lines_label(hidden_lines: usize) -> String {
+    let form = match (hidden_lines % 10, hidden_lines % 100) {
+        (1, 11) => "строк",
+        (1, _) => "строка",
+        (2..=4, 12..=14) => "строк",
+        (2..=4, _) => "строки",
+        _ => "строк",
+    };
+    format!("ещё {hidden_lines} {form}")
+}
+
 fn format_elapsed_seconds(seconds: u64) -> String {
     if seconds < 60 {
         format!("{seconds}s")
@@ -1154,6 +1207,46 @@ mod tests {
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
         assert_eq!(format_elapsed_seconds(9), "9s");
         assert_eq!(format_elapsed_seconds(65), "1m 05s");
+    }
+
+    #[test]
+    fn tool_preview_keeps_first_visible_lines_and_counts_hidden_tail() {
+        let preview = tool_preview(
+            [
+                "line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7",
+            ]
+            .join("\n"),
+        );
+
+        assert_eq!(
+            preview,
+            ToolPreview {
+                text: ["line 1", "line 2", "line 3", "line 4", "line 5"].join("\n"),
+                hidden_lines: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn tool_preview_does_not_truncate_five_lines() {
+        let text = ["line 1", "line 2", "line 3", "line 4", "line 5"].join("\n");
+
+        assert_eq!(
+            tool_preview(text.clone()),
+            ToolPreview {
+                text,
+                hidden_lines: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn hidden_tool_lines_label_uses_russian_line_forms() {
+        assert_eq!(hidden_tool_lines_label(1), "ещё 1 строка");
+        assert_eq!(hidden_tool_lines_label(2), "ещё 2 строки");
+        assert_eq!(hidden_tool_lines_label(5), "ещё 5 строк");
+        assert_eq!(hidden_tool_lines_label(11), "ещё 11 строк");
+        assert_eq!(hidden_tool_lines_label(21), "ещё 21 строка");
     }
 
     #[test]

@@ -865,15 +865,25 @@
     border-radius: 10px 10px 0 0;
 }
 
+.tool-preview {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+}
+
 .tool-card-details pre {
-    max-height: 220px;
-    overflow: auto;
     margin: 0;
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+.tool-preview-more {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
 }
 
 .spinner-dot {
