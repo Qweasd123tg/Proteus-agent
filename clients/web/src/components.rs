@@ -716,13 +716,13 @@ fn ToolActivityCard(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    let (expanded, set_expanded) = signal(false);
+    let (expanded, set_expanded) = signal(true);
     view! {
         <article class="tool-card">
             <button
                 type="button"
                 class="tool-card-summary"
-                title="Показать детали tool"
+                title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
                 <span class=move || current_tool(message).map(|tool| tool.status.badge_class()).unwrap_or("status-badge idle")>

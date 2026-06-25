@@ -65,10 +65,10 @@
 
 .message code {
     max-width: 100%;
-    border: 0;
+    border: 1px solid rgb(216 162 30 / 18%);
     border-radius: 4px;
-    background: var(--bg-panel-soft);
-    color: var(--text-main);
+    background: rgb(216 162 30 / 9%);
+    color: #f0d38a;
     font-family: var(--font-mono);
     font-size: 12.5px;
     padding: 1px 6px;
@@ -94,6 +94,7 @@
     display: block;
     border: 0;
     background: transparent;
+    color: inherit;
     padding: 0;
     white-space: pre;
     overflow-wrap: normal;
@@ -204,9 +205,10 @@
 .code-block {
     max-width: 100%;
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid rgb(107 158 255 / 22%);
     border-radius: 10px;
-    background: var(--bg-panel-soft);
+    background: #1b1f25;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
 }
 
 .code-block-head {
@@ -214,16 +216,21 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid rgb(107 158 255 / 18%);
+    background: rgb(107 158 255 / 7%);
     padding: 4px var(--space-3);
 }
 
 .code-lang {
     overflow: hidden;
-    color: var(--text-faint);
+    border: 1px solid rgb(107 158 255 / 22%);
+    border-radius: var(--radius-chip);
+    background: rgb(107 158 255 / 10%);
+    color: var(--accent-blue);
     font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.04em;
+    padding: 1px 7px;
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
@@ -233,7 +240,7 @@
     display: flex;
     flex-shrink: 0;
     gap: var(--space-1);
-    opacity: 0;
+    opacity: 0.78;
     transition: opacity 0.12s;
 }
 
@@ -244,26 +251,56 @@
 
 .code-actions button {
     min-height: 20px;
-    border: 1px solid var(--border-subtle);
-    background: transparent;
-    color: var(--text-faint);
+    border: 1px solid rgb(255 255 255 / 8%);
+    border-radius: 6px;
+    background: rgb(255 255 255 / 4%);
+    color: var(--text-muted);
     cursor: pointer;
     font-family: var(--font-mono);
     font-size: 10px;
     padding: 0 6px;
     transition:
+        background 0.12s,
         color 0.12s,
         border-color 0.12s;
 }
 
+.code-actions .code-wrap {
+    color: var(--accent-yellow);
+}
+
+.code-actions .code-copy {
+    color: var(--accent-green);
+}
+
 .code-actions button:hover,
 .code-actions button.active {
-    border-color: var(--border-strong);
+    border-color: currentcolor;
+    background: rgb(255 255 255 / 8%);
     color: var(--text-main);
+}
+
+.code-actions button:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+}
+
+.code-actions .code-wrap.active {
+    background: rgb(107 158 255 / 14%);
+    color: var(--accent-blue);
+}
+
+.code-actions .code-copy.active {
+    background: rgb(92 199 132 / 14%);
+    color: var(--accent-green);
 }
 
 .code-block pre {
     border: 0;
+    border-radius: 0;
+    background: #1b1f25;
+    color: #d6e2f0;
+    margin: 0;
 }
 
 .code-block.wrap pre,
