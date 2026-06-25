@@ -11,11 +11,10 @@ use crate::api::{get_json, post_json};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{
-    compact_json, compact_text, copy_to_clipboard, set_timeout, short_id, short_path,
+    compact_text, copy_to_clipboard, format_json, set_timeout, short_id, short_path,
 };
 
 const REASONING_RENDER_LIMIT: usize = 8000;
-const APPROVAL_PREVIEW_RENDER_LIMIT: usize = 12000;
 const TOOL_DETAIL_VISIBLE_LINES: usize = 5;
 const COPY_FEEDBACK_MS: i32 = 1200;
 /// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
@@ -183,7 +182,7 @@ where
     let (cache, set_cache) = signal(ApprovalCacheScope::None);
     let approve_id = request.approval_id.clone();
     let deny_id = request.approval_id.clone();
-    let args_preview = compact_json(&request.call.args);
+    let args_preview = format_json(&request.call.args);
     let exact_scope = if approval_is_command(&request) {
         ApprovalCacheScope::ExactCommand
     } else {
@@ -210,7 +209,7 @@ where
             </div>
             <p>{spec_hint}</p>
             {approval_preview(request.preview.clone())}
-            <pre>{args_preview}</pre>
+            {tool_preview_view(args_preview)}
             <div class="control-row">
                 <span class="control-label">"Кэш"</span>
                 <div class="segmented">
@@ -285,7 +284,7 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
         .to_owned();
     let body = body
         .filter(|body| !body.trim().is_empty())
-        .map(|body| compact_text(&body, APPROVAL_PREVIEW_RENDER_LIMIT));
+        .map(|body| body.to_owned());
 
     view! {
         <section>
@@ -316,7 +315,7 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
                                 {body_label}
                             </span>
                         </div>
-                        <pre><code>{body}</code></pre>
+                        {tool_preview_view(body)}
                     </div>
                 }.into_any()
             } else {

@@ -13,7 +13,7 @@ use crate::messages::{
     push_user_message_once, update_tool_status,
 };
 use crate::types::*;
-use crate::ui_utils::{compact_json, compact_text, output_text, set_timeout, short_id, short_path};
+use crate::ui_utils::{compact_text, format_json, output_text, set_timeout, short_id, short_path};
 
 const STREAM_DELTA_FLUSH_MS: i32 = 80;
 
@@ -642,7 +642,7 @@ fn update_runtime_status_and_tools(
                 .and_then(Value::as_str)
                 .unwrap_or("tool")
                 .to_owned();
-            let args_preview = call.get("args").map(compact_json).unwrap_or_default();
+            let args_preview = call.get("args").map(format_json).unwrap_or_default();
             let tool = ToolActivity {
                 call_id: call_id.clone(),
                 name,
@@ -705,7 +705,7 @@ fn update_runtime_status_and_tools(
                 return;
             };
             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-            let preview = tool_result_preview(result);
+            let preview = tool_result_text(result);
             update_tool_status(
                 set_tool_activities,
                 set_messages,
@@ -758,23 +758,23 @@ fn trim_tool_activities(items: &mut Vec<ToolActivity>) {
     }
 }
 
-fn tool_result_preview(result: &Value) -> String {
+fn tool_result_text(result: &Value) -> String {
     if let Some(error) = result.get("error").and_then(Value::as_str)
         && !error.is_empty()
     {
-        return compact_text(error, 600);
+        return error.to_owned();
     }
 
     if let Some(output) = result.get("output").and_then(Value::as_str)
         && !output.is_empty()
     {
-        return compact_text(output, 600);
+        return output.to_owned();
     }
 
     if let Some(content) = result.get("content")
         && !content.as_array().is_none_or(Vec::is_empty)
     {
-        return compact_content_preview(content);
+        return tool_content_text(content);
     }
 
     if result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
@@ -784,23 +784,46 @@ fn tool_result_preview(result: &Value) -> String {
     }
 }
 
-fn compact_content_preview(content: &Value) -> String {
+fn tool_content_text(content: &Value) -> String {
     let Some(parts) = content.as_array() else {
-        return compact_text(&compact_json(content), 600);
+        return format_json(content);
     };
-    let mut preview = String::new();
-    preview.push('[');
-    for (index, part) in parts.iter().take(4).enumerate() {
-        if index > 0 {
-            preview.push_str(", ");
+
+    let rendered = parts
+        .iter()
+        .filter_map(tool_content_part_text)
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>();
+    if rendered.is_empty() {
+        format_json(content)
+    } else {
+        rendered.join("\n")
+    }
+}
+
+fn tool_content_part_text(part: &Value) -> Option<String> {
+    match part.get("type").and_then(Value::as_str) {
+        Some("text") => part
+            .get("text")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        Some("json") => part.get("value").map(format_json),
+        Some("image") => {
+            let mime_type = part
+                .get("mime_type")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            Some(format!("[image tool content: {mime_type}]"))
         }
-        preview.push_str(&compact_json(part));
+        Some("binary") => {
+            let mime_type = part
+                .get("mime_type")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            Some(format!("[binary tool content: {mime_type}]"))
+        }
+        _ => Some(format_json(part)),
     }
-    if parts.len() > 4 {
-        preview.push_str(", ...");
-    }
-    preview.push(']');
-    compact_text(&preview, 600)
 }
 
 fn non_empty_output_text(output: &Value) -> Option<String> {
@@ -836,4 +859,43 @@ fn compaction_report_text(report: &Value) -> String {
     format!(
         "История сжата: {input_messages} -> {output_messages} сообщений{token_text}. Summary: {summary_source}."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn tool_result_text_keeps_full_output_for_line_preview() {
+        let output = "x".repeat(700);
+        let result = json!({
+            "call_id": "call-1",
+            "ok": true,
+            "output": output,
+            "content": [],
+            "error": null,
+        });
+
+        assert_eq!(tool_result_text(&result), "x".repeat(700));
+    }
+
+    #[test]
+    fn tool_content_text_renders_all_structured_parts_without_compacting_list() {
+        let content = json!([
+            {"type": "text", "text": "first"},
+            {"type": "json", "value": {"a": 1, "b": [2, 3]}},
+            {"type": "text", "text": "third"},
+            {"type": "text", "text": "fourth"},
+            {"type": "text", "text": "fifth"}
+        ]);
+
+        let rendered = tool_content_text(&content);
+
+        assert!(rendered.contains("first"));
+        assert!(rendered.contains("\"b\": ["));
+        assert!(rendered.contains("fifth"));
+        assert!(!rendered.contains("..."));
+    }
 }

@@ -6,7 +6,7 @@ use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 use crate::api::get_json;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_json, compact_text, compact_title};
+use crate::ui_utils::{compact_text, compact_title, format_json};
 
 pub(crate) const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 const CONTEXT_USAGE_STORAGE_KEY: &str = "proteus.contextUsage";
@@ -291,10 +291,10 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
     ToolActivity {
         call_id: tool.call_id,
         name: tool.name,
-        args_preview: compact_json(&tool.args),
+        args_preview: format_json(&tool.args),
         started_at_ms,
         status,
-        result_preview: tool.result.map(|result| compact_text(&result, 600)),
+        result_preview: tool.result,
     }
 }
 
@@ -474,7 +474,7 @@ mod tests {
         let tool = messages[0].tool.as_ref().expect("tool activity");
         assert_eq!(tool.call_id, "call-1");
         assert_eq!(tool.name, "read_file");
-        assert_eq!(tool.args_preview, r#"{"path":"src/lib.rs"}"#);
+        assert_eq!(tool.args_preview, "{\n  \"path\": \"src/lib.rs\"\n}");
         assert_eq!(tool.status, ToolActivityStatus::Done);
         assert_eq!(tool.result_preview.as_deref(), Some("line 1\nline 2"));
     }

@@ -95,14 +95,8 @@ pub(crate) fn output_text(output: &Value) -> String {
         .to_owned()
 }
 
-pub(crate) fn compact_json(value: &Value) -> String {
-    let text = serde_json::to_string(value).unwrap_or_else(|_| "<invalid json>".to_owned());
-    let limit = 180;
-    if text.chars().count() > limit {
-        format!("{}...", text.chars().take(limit).collect::<String>())
-    } else {
-        text
-    }
+pub(crate) fn format_json(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| "<invalid json>".to_owned())
 }
 
 pub(crate) fn copy_to_clipboard(text: String) {
