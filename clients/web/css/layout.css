@@ -382,6 +382,7 @@ button.session-item.active {
 }
 
 .session-workspace {
+    position: relative;
     display: flex;
     min-height: 0;
     flex: 1;
@@ -399,8 +400,9 @@ button.session-item.active {
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-6) var(--space-4) var(--space-5);
-    scroll-padding-bottom: var(--space-5);
+    /* Нижний отступ держит последнее сообщение над плавающим композером. */
+    padding: var(--space-6) var(--space-4) 132px;
+    scroll-padding-bottom: 132px;
 }
 
 .results-panel.sticky-bottom {
@@ -420,25 +422,29 @@ button.session-item.active {
     max-width: none;
 }
 
-.results-panel > .task-card,
-.results-panel > .user-turn,
-.results-panel > .control-card,
-.results-panel > .queued-prompt,
-.results-panel > .empty-state {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 160px;
-}
-
+/* Плавающий композер: вынут из потока и лежит над лентой по центру снизу.
+   Сам враппер прозрачный и кликов не ловит (pointer-events: none) — кликабельны
+   только shell и кнопка «вниз», поэтому лента под краями враппера остаётся
+   доступной. */
 .composer {
-    position: relative;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
     display: flex;
-    flex-shrink: 0;
     flex-direction: column;
     width: 100%;
     max-width: var(--chat-max-width);
     margin: 0 auto;
     background: transparent;
-    padding: var(--space-1) var(--space-4) var(--space-3);
+    padding: var(--space-1) var(--space-4) var(--space-4);
+    pointer-events: none;
+}
+
+.composer-shell,
+.jump-to-bottom {
+    pointer-events: auto;
 }
 
 .composer-resize-handle {
@@ -475,8 +481,11 @@ button.session-item.active {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-panel);
-    background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
-    box-shadow: 0 1px 0 rgb(0 0 0 / 25%);
+    background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow:
+        0 4px 24px rgb(0 0 0 / 35%),
+        0 1px 0 rgb(0 0 0 / 25%);
     transition:
         border-color 0.15s,
         box-shadow 0.15s;
