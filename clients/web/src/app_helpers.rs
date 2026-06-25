@@ -6,7 +6,7 @@ use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 use crate::api::get_json;
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, compact_title};
+use crate::ui_utils::{compact_json, compact_text, compact_title};
 
 pub(crate) const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 const CONTEXT_USAGE_STORAGE_KEY: &str = "proteus.contextUsage";
@@ -178,13 +178,16 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
     items
         .into_iter()
         .enumerate()
-        .map(|(index, item)| Message {
-            id: index as u64 + 1,
-            version: 0,
-            role: message_role_from_wire(&item.role),
-            text: item.text,
-            tool: None,
-            streaming: false,
+        .map(|(index, item)| {
+            let tool = item.tool.map(transcript_tool_activity);
+            Message {
+                id: index as u64 + 1,
+                version: 0,
+                role: message_role_from_wire(&item.role),
+                text: item.text,
+                tool,
+                streaming: false,
+            }
         })
         .collect()
 }
@@ -270,6 +273,39 @@ fn message_role_from_wire(role: &str) -> MessageRole {
         "user" => MessageRole::User,
         "assistant" => MessageRole::Assistant,
         _ => MessageRole::System,
+    }
+}
+
+fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
+    let status = tool_status_from_wire(&tool.status);
+    let started_at_ms = if matches!(
+        status,
+        ToolActivityStatus::Running
+            | ToolActivityStatus::WaitingApproval
+            | ToolActivityStatus::Approved
+    ) {
+        js_sys::Date::now().max(0.0) as u64
+    } else {
+        0
+    };
+    ToolActivity {
+        call_id: tool.call_id,
+        name: tool.name,
+        args_preview: compact_json(&tool.args),
+        started_at_ms,
+        status,
+        result_preview: tool.result.map(|result| compact_text(&result, 600)),
+    }
+}
+
+fn tool_status_from_wire(status: &str) -> ToolActivityStatus {
+    match status {
+        "waiting_approval" => ToolActivityStatus::WaitingApproval,
+        "approved" => ToolActivityStatus::Approved,
+        "denied" => ToolActivityStatus::Denied,
+        "done" => ToolActivityStatus::Done,
+        "failed" => ToolActivityStatus::Failed,
+        _ => ToolActivityStatus::Running,
     }
 }
 
@@ -418,5 +454,28 @@ mod tests {
 
         assert_eq!(sidebar_session_title(&session), "Новый чат");
         assert_eq!(sidebar_session_preview(&session), None);
+    }
+
+    #[test]
+    fn transcript_messages_restore_tool_activity_cards() {
+        let messages = transcript_messages(vec![TranscriptMessage {
+            role: "system".to_owned(),
+            text: String::new(),
+            tool: Some(TranscriptTool {
+                call_id: "call-1".to_owned(),
+                name: "read_file".to_owned(),
+                args: serde_json::json!({"path": "src/lib.rs"}),
+                status: "done".to_owned(),
+                result: Some("line 1\nline 2".to_owned()),
+            }),
+        }]);
+
+        assert_eq!(messages.len(), 1);
+        let tool = messages[0].tool.as_ref().expect("tool activity");
+        assert_eq!(tool.call_id, "call-1");
+        assert_eq!(tool.name, "read_file");
+        assert_eq!(tool.args_preview, r#"{"path":"src/lib.rs"}"#);
+        assert_eq!(tool.status, ToolActivityStatus::Done);
+        assert_eq!(tool.result_preview.as_deref(), Some("line 1\nline 2"));
     }
 }

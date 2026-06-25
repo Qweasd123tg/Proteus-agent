@@ -341,10 +341,23 @@ pub(crate) struct SessionSummary {
     pub(crate) resumable: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub(crate) struct TranscriptMessage {
     pub(crate) role: String,
     pub(crate) text: String,
+    #[serde(default)]
+    pub(crate) tool: Option<TranscriptTool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct TranscriptTool {
+    pub(crate) call_id: String,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) args: Value,
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) result: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

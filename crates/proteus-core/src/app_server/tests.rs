@@ -15,8 +15,8 @@ use super::*;
 use crate::{
     contracts::{ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest},
     core::{PendingApproval, PendingUserInput, SessionStore},
-    domain::{Event, PermissionMode, ToolCall, new_call_id, new_session_id},
-    model_standard::{CanonicalMessage, MessageRole},
+    domain::{Event, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
 fn test_catalog() -> BuiltinModuleCatalog {
@@ -712,6 +712,28 @@ async fn transcript_projects_runtime_history_for_resume_ui() {
     }));
 
     handle.shutdown().await;
+}
+
+#[test]
+fn transcript_projects_tool_calls_as_restorable_tool_cards() {
+    let call = ToolCall::new(
+        "call-1",
+        "read_file",
+        serde_json::json!({"path": "src/lib.rs"}),
+    );
+    let result = ToolResult::ok("call-1".to_owned(), "line 1\nline 2");
+    let transcript = transcript_messages(&[
+        CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }]),
+        CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }]),
+    ]);
+
+    assert_eq!(transcript.len(), 1);
+    let tool = transcript[0].tool.as_ref().expect("tool transcript");
+    assert_eq!(tool.call_id, "call-1");
+    assert_eq!(tool.name, "read_file");
+    assert_eq!(tool.args, serde_json::json!({"path": "src/lib.rs"}));
+    assert_eq!(tool.status, "done");
+    assert_eq!(tool.result.as_deref(), Some("line 1\nline 2"));
 }
 
 #[tokio::test]
