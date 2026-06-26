@@ -77,7 +77,8 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   (`git_status`/`git_diff`) и `shell` поставляются плагинами
   `file-tools`, `git-tools` и `shell-tool` — устанавливаются через
   `./install.sh`. Плюс configured native/process/MCP wrappers через
-  main config.
+  main config; `tools.mcp_servers` discovery держит persistent stdio host в
+  runtime snapshot.
 - Permission modes: `plan` / `normal` / `auto`.
 - Session approval cache (`exact_call`, `exact_command`, `workspace_write` и
   legacy `tool_in_cwd` scopes).
@@ -329,6 +330,9 @@ proteus doctor
 - `proteus.external-tools.example.toml` — bring-your-own tools profile:
   `tools.enabled = []`, полный набор tools приходит из директории `tools`
   рядом с config root.
+- `proteus.mcp.example.toml` — локальный smoke-test для stdio MCP:
+  `examples/mcp/echo_server.sh` подключается через `tools.mcp_servers`, а
+  `tools list` должен показать `local_echo__echo` с source `mcp:local_echo`.
 - `docs/scope.md` фиксирует active / parked / research зоны. `proteus init
   coding` или `proteus init codex` создаёт
   `$HOME/.config/Proteus-agent/configs/config.toml`, где

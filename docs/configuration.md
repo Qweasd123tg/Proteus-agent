@@ -166,6 +166,9 @@ context plugin.
 `tools.enabled = []`, а полный набор tools приходит из директории `tools`
 рядом с config root.
 
+`proteus.mcp.example.toml` - smoke-test stdio MCP discovery: локальный
+`examples/mcp/echo_server.sh` регистрирует tool `local_echo__echo`.
+
 Core-owned sections имеют фиксированную schema. Payloads конкретных модулей
 живут в `module_config.<slot>.<module_id>` и считаются module-owned config:
 core выбирает id модуля, а выбранная реализация парсит свой payload.
@@ -561,16 +564,18 @@ optional `args`, optional `server`, remote `tool` и optional
 
 `process` запускает фиксированные `command` + `args` в рабочей директории задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как `ToolResult`.
 
-Inline `mcp` запускает stdio MCP server per call, выполняет `initialize`,
-отправляет `notifications/initialized`, затем вызывает фиксированный remote
-`tools/call` из поля `tool`. Model args становятся только MCP `arguments`; имя
-remote tool не берётся из model args.
+Inline `mcp` создаёт ленивый persistent stdio MCP host внутри текущего
+`ToolRegistry` snapshot: при первом вызове выполняет `initialize`, отправляет
+`notifications/initialized`, затем вызывает фиксированный remote `tools/call`
+из поля `tool`. Следующие вызовы того же tool переиспользуют тот же process до
+замены snapshot или ошибки transport. Model args становятся только MCP
+`arguments`; имя remote tool не берётся из model args.
 
 Для стандартного MCP discovery используйте `tools.mcp_servers`. Сервер
-описывается один раз, runtime при сборке `ToolRegistry` выполняет
-`initialize` + `tools/list`, регистрирует каждый remote tool как обычный tool
-с локальным именем `<server>__<remote_tool>`, а вызов по-прежнему мапится на
-фиксированный remote `tools/call`.
+описывается один раз, runtime при сборке `ToolRegistry` стартует persistent
+stdio host, выполняет `initialize` + `tools/list`, регистрирует каждый remote
+tool как обычный tool с локальным именем `<server>__<remote_tool>`, а вызов
+по-прежнему мапится на фиксированный remote `tools/call` через тот же host.
 
 ```toml
 [[tools.mcp_servers]]
@@ -582,10 +587,15 @@ timeout_ms = 30000
 metadata = { scope = "documentation" }
 ```
 
-`tools.mcp_servers` пока не является persistent MCP host: discovery делается
-при сборке registry, а execution использует тот же spawn-per-call stdio путь,
-что и inline `mcp`. Это совместимо со стандартным `tools/list` и уже убирает
-ручное описание сотен remote tools в config.
+Для локальной smoke-проверки есть `proteus.mcp.example.toml` и тестовый server
+`examples/mcp/echo_server.sh`:
+
+```bash
+cargo run --bin proteus -- --config proteus.mcp.example.toml tools list
+```
+
+Текущая MCP поддержка покрывает stdio `tools/list` и `tools/call`. Resources,
+prompts, subscriptions и non-stdio transports пока не implemented.
 
 `ToolResult.call_id`, `ok`, `error` и metadata формируются host runtime-ом, а не внешним процессом/MCP server.
 

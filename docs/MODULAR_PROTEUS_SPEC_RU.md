@@ -48,10 +48,12 @@ workflow, tool, renderer, memory policy или model adapter. Debug/visibility
   `plugin-architecture.md`).
 
 Dylib-плагины через `abi_stable` **уже являются частью v0**: loader, PluginRegistry
-и рабочие примеры есть в `~/.proteus/plugins/`. Что пока не закрыто —
-полноценный MCP host (вместо spawn-per-call `ConfiguredMcpTool`) и перенос
-builtin-модулей в плагины (Волна 3). Config-defined process/MCP tools остаются
-executor surface-ом для простых shell-обёрток и не дублируют plugin boundary.
+и рабочие примеры есть в `~/.proteus/plugins/`. Stdio MCP tools host для
+`ConfiguredMcpTool` / `tools.mcp_servers` уже работает через `ToolRegistry`.
+Что пока не закрыто — полный MCP provider для resources/prompts/subscriptions и
+перенос builtin-модулей в плагины (Волна 3). Config-defined process/MCP tools
+остаются executor surface-ом для простых shell-обёрток и не дублируют plugin
+boundary.
 
 ## Принцип Границ
 
@@ -187,8 +189,8 @@ path CLI smoke test.
 7. ⏳ Волна 4: async-ABI для ModelAdapter через `FfiFuture` / `FfiStream`.
 
 `ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
-простых shell-обёрток и spawn-per-call MCP-вызовов, не замена plugin system и
-не полноценный MCP registry.
+простых shell-обёрток и stdio MCP tools, не замена plugin system и не полный
+MCP registry/provider для resources/prompts/subscriptions.
 
 ## Как Брать Идеи Из Других Проектов
 

@@ -228,8 +228,8 @@ Scope:
 - расширение `memory_policy` за пределы декларативного `MemoryPolicyPlan`, если
   понадобится callback/retrieval во время `after_turn`; blueprint остаётся в
   `docs/memory-research.md` (per-call capability + mailbox);
-- persistent MCP host (сейчас есть `tools/list` discovery, но execution ещё
-  spawn-per-call через `ConfiguredMcpTool`);
+- MCP resources/prompts/subscriptions и non-stdio transports поверх уже
+  реализованного stdio tools host;
 - Волна 3 — вынос builtin-модулей в плагины по одному;
 - Волна 4 — async model slot (`ModelAdapter`) через `FfiFuture` / `FfiStream`.
 
@@ -314,8 +314,8 @@ Scope:
 - App-server protocol tests для submit, stream, tool call, approval
   request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
 - Durable task/session metadata и event-log based debugging для UI/evals.
-- Persistent MCP host: reuse server process между calls, но execution всё равно
-  должен проходить через `ToolRegistry`, policy visibility и approval.
+- MCP resources/prompts/subscriptions и non-stdio transports: execution tools
+  уже проходят через `ToolRegistry`, policy visibility и approval.
 - Hot-swap/reload для config-defined tools и MCP discovery: агент может
   добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
   snapshot видит discovered tools, старые turns доживают на прежнем snapshot.

@@ -1,0 +1,52 @@
+[profile]
+name = "mcp-demo"
+
+[model]
+provider = "fake"
+model = "fake-tool-model"
+stream = true
+
+[modules]
+# Provided by the coding-workflow plugin installed by ./install.sh.
+workflow = "coding.single_loop"
+search = "null"
+memory = "none"
+memory_policy = "none"
+context = "simple"
+policy = "ask_write"
+patch = "null"
+compactor = "none"
+tool_exposure = "all_visible"
+renderer = "statusline"
+
+[tools]
+enabled = ["request_user_input"]
+
+[[tools.mcp_servers]]
+name = "local_echo"
+command = "sh"
+args = ["examples/mcp/echo_server.sh"]
+safety = "RunsCommands"
+timeout_ms = 30000
+metadata = { scope = "local-smoke-test" }
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.ask_write]
+allow = ["request_user_input"]
+ask_before = ["local_echo__echo"]
+
+[module_config.context.simple]
+max_search_results = 50
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"

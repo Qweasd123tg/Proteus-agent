@@ -1,20 +1,20 @@
 use std::{
     io::{BufRead, BufReader as StdBufReader, Write},
-    path::Path,
-    process::{Command as StdCommand, Stdio},
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
-    time::Duration,
+    path::{Path, PathBuf},
+    process::{Child as StdChild, ChildStdin as StdChildStdin, Command as StdCommand, Stdio},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        mpsc::{self, Receiver, RecvTimeoutError},
+    },
+    time::{Duration, Instant},
 };
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{ChildStdin, ChildStdout, Command},
-};
-
-use std::sync::Arc;
+#[cfg(test)]
+use tokio::io::{AsyncBufRead, AsyncBufReadExt};
+use tokio::{io::AsyncWriteExt, process::Command};
 
 const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES;
 
@@ -42,13 +42,11 @@ pub struct ConfiguredProcessTool {
     args: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ConfiguredMcpTool {
     spec: ToolSpec,
-    command: String,
-    args: Vec<String>,
     remote_tool: String,
-    protocol_version: String,
+    host: Arc<McpStdioHost>,
 }
 
 impl ConfiguredNativeTool {
@@ -68,20 +66,245 @@ impl ConfiguredProcessTool {
 }
 
 impl ConfiguredMcpTool {
-    pub fn new(
-        spec: ToolSpec,
-        command: String,
-        args: Vec<String>,
-        remote_tool: String,
-        protocol_version: String,
-    ) -> Self {
+    fn new(spec: ToolSpec, remote_tool: String, host: Arc<McpStdioHost>) -> Self {
         Self {
             spec,
+            remote_tool,
+            host,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct McpStdioHost {
+    server_name: String,
+    command: String,
+    args: Vec<String>,
+    protocol_version: String,
+    cwd: PathBuf,
+    timeout: Duration,
+    session: Mutex<Option<McpStdioSession>>,
+}
+
+impl McpStdioHost {
+    fn new(
+        server_name: String,
+        command: String,
+        args: Vec<String>,
+        protocol_version: String,
+        cwd: PathBuf,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            server_name,
             command,
             args,
-            remote_tool,
             protocol_version,
+            cwd,
+            timeout,
+            session: Mutex::new(None),
         }
+    }
+
+    fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    fn call_tool(&self, remote_tool: &str, args: Value, timeout: Duration) -> Result<Value> {
+        let mut session = self.lock_session()?;
+        self.ensure_session(&mut session)?;
+        let result = session
+            .as_mut()
+            .expect("MCP session initialized")
+            .call_tool(remote_tool, args, timeout);
+        if result.is_err() {
+            *session = None;
+        }
+        result
+    }
+
+    fn list_tools(&self, server: &ConfiguredMcpServerConfig) -> Result<Vec<DiscoveredMcpTool>> {
+        let mut session = self.lock_session()?;
+        self.ensure_session(&mut session)?;
+        let result = session
+            .as_mut()
+            .expect("MCP session initialized")
+            .list_tools(server, self.timeout);
+        if result.is_err() {
+            *session = None;
+        }
+        result
+    }
+
+    fn lock_session(&self) -> Result<MutexGuard<'_, Option<McpStdioSession>>> {
+        self.session
+            .lock()
+            .map_err(|_| anyhow!("MCP host '{}' session lock poisoned", self.server_name))
+    }
+
+    fn ensure_session(&self, session: &mut Option<McpStdioSession>) -> Result<()> {
+        if session.is_none() {
+            *session = Some(McpStdioSession::start(
+                &self.server_name,
+                &self.command,
+                &self.args,
+                &self.protocol_version,
+                &self.cwd,
+                self.timeout,
+            )?);
+        }
+        Ok(())
+    }
+}
+
+struct McpStdioSession {
+    server_name: String,
+    child: StdChild,
+    stdin: StdChildStdin,
+    stdout_rx: Receiver<Result<Value>>,
+    next_request_id: i64,
+}
+
+impl std::fmt::Debug for McpStdioSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpStdioSession")
+            .field("server_name", &self.server_name)
+            .field("next_request_id", &self.next_request_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl McpStdioSession {
+    fn start(
+        server_name: &str,
+        command: &str,
+        args: &[String],
+        protocol_version: &str,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<Self> {
+        let mut child = StdCommand::new(command)
+            .args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("failed to open MCP server stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
+        let stdout_rx = spawn_sync_json_line_reader(stdout);
+
+        let mut session = Self {
+            server_name: server_name.to_owned(),
+            child,
+            stdin,
+            stdout_rx,
+            next_request_id: 1,
+        };
+        session.initialize(protocol_version, timeout)?;
+        Ok(session)
+    }
+
+    fn initialize(&mut self, protocol_version: &str, timeout: Duration) -> Result<()> {
+        let request_id = self.next_request_id();
+        sync_write_json_line(
+            &mut self.stdin,
+            json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": protocol_version,
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "proteus-core",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }
+            }),
+        )?;
+        self.recv_success(request_id, timeout)?;
+
+        sync_write_json_line(
+            &mut self.stdin,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+            }),
+        )?;
+        Ok(())
+    }
+
+    fn list_tools(
+        &mut self,
+        server: &ConfiguredMcpServerConfig,
+        timeout: Duration,
+    ) -> Result<Vec<DiscoveredMcpTool>> {
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let request_id = self.next_request_id();
+            let params = cursor
+                .as_ref()
+                .map(|cursor| json!({ "cursor": cursor }))
+                .unwrap_or_else(|| json!({}));
+            sync_write_json_line(
+                &mut self.stdin,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "tools/list",
+                    "params": params
+                }),
+            )?;
+            let result = self.recv_success(request_id, timeout)?;
+            tools.extend(mcp_tools_from_list_result(server, &result)?);
+            cursor = next_mcp_cursor(&result);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        Ok(tools)
+    }
+
+    fn call_tool(&mut self, remote_tool: &str, args: Value, timeout: Duration) -> Result<Value> {
+        let request_id = self.next_request_id();
+        sync_write_json_line(
+            &mut self.stdin,
+            json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": {
+                    "name": remote_tool,
+                    "arguments": args
+                }
+            }),
+        )?;
+        self.recv_success(request_id, timeout)
+    }
+
+    fn recv_success(&mut self, expected_id: i64, timeout: Duration) -> Result<Value> {
+        recv_sync_jsonrpc_success(&self.stdout_rx, expected_id, timeout, &mut self.child)
+    }
+
+    fn next_request_id(&mut self) -> i64 {
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+        request_id
+    }
+}
+
+impl Drop for McpStdioSession {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -165,82 +388,22 @@ impl Tool for ConfiguredMcpTool {
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        let mut child = Command::new(&self.command)
-            .args(&self.args)
-            .current_dir(ctx.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("failed to open MCP server stdin"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
-        let mut stdout = BufReader::new(stdout);
+        if ctx.cancellation.is_cancelled() {
+            bail!("tool call canceled");
+        }
 
-        let result = self.call_mcp(call, &mut stdin, &mut stdout).await;
-        let _ = child.kill().await;
-        let _ = child.wait().await;
-        result
-    }
-}
+        let host = Arc::clone(&self.host);
+        let remote_tool = self.remote_tool.clone();
+        let args = call.args.clone();
+        let timeout = self
+            .spec
+            .timeout_ms
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| host.timeout());
 
-impl ConfiguredMcpTool {
-    async fn call_mcp(
-        &self,
-        call: &ToolCall,
-        stdin: &mut ChildStdin,
-        stdout: &mut BufReader<ChildStdout>,
-    ) -> Result<ToolResult> {
-        write_json_line(
-            stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": self.protocol_version,
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "proteus-core",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }
-            }),
-        )
-        .await?;
-        let initialize = read_json_line(stdout).await?;
-        ensure_jsonrpc_success(&initialize, 1)?;
-
-        write_json_line(
-            stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized"
-            }),
-        )
-        .await?;
-
-        write_json_line(
-            stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": self.remote_tool,
-                    "arguments": call.args
-                }
-            }),
-        )
-        .await?;
-        let response = read_json_line(stdout).await?;
-        let result = ensure_jsonrpc_success(&response, 2)?;
+        let result =
+            tokio::task::spawn_blocking(move || host.call_tool(&remote_tool, args, timeout))
+                .await??;
         let is_error = result
             .get("isError")
             .and_then(Value::as_bool)
@@ -290,21 +453,25 @@ pub fn register_configured_tools(
                 )?;
             }
             ConfiguredToolExecutorConfig::Mcp {
-                server: _,
+                server,
                 command,
                 args,
                 tool,
                 protocol_version,
-            } => registry.register_with_source(
-                source,
-                ConfiguredMcpTool::new(
-                    spec,
+            } => {
+                let host = Arc::new(McpStdioHost::new(
+                    server.clone().unwrap_or_else(|| command.clone()),
                     command.clone(),
                     args.clone(),
-                    tool.clone(),
                     protocol_version.clone(),
-                ),
-            )?,
+                    cwd.to_path_buf(),
+                    Duration::from_millis(configured.timeout_ms.unwrap_or(30_000)),
+                ));
+                registry.register_with_source(
+                    source,
+                    ConfiguredMcpTool::new(spec, tool.clone(), host),
+                )?;
+            }
         }
     }
     Ok(())
@@ -316,7 +483,8 @@ fn register_discovered_mcp_tools(
     cwd: &Path,
 ) -> Result<()> {
     for server in mcp_servers {
-        let discovered = discover_mcp_tools(server, cwd)?;
+        let host = configured_mcp_server_host(server, cwd);
+        let discovered = host.list_tools(server)?;
         for discovered_tool in discovered {
             registry.register_with_source(
                 ToolSource::Mcp {
@@ -324,15 +492,24 @@ fn register_discovered_mcp_tools(
                 },
                 ConfiguredMcpTool::new(
                     discovered_tool.spec,
-                    server.command.clone(),
-                    server.args.clone(),
                     discovered_tool.remote_tool,
-                    server.protocol_version.clone(),
+                    Arc::clone(&host),
                 ),
             )?;
         }
     }
     Ok(())
+}
+
+fn configured_mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Arc<McpStdioHost> {
+    Arc::new(McpStdioHost::new(
+        server.name.clone(),
+        server.command.clone(),
+        server.args.clone(),
+        server.protocol_version.clone(),
+        cwd.to_path_buf(),
+        Duration::from_millis(server.timeout_ms.unwrap_or(30_000)),
+    ))
 }
 
 #[derive(Debug)]
@@ -341,87 +518,12 @@ struct DiscoveredMcpTool {
     spec: ToolSpec,
 }
 
+#[cfg(test)]
 fn discover_mcp_tools(
     server: &ConfiguredMcpServerConfig,
     cwd: &Path,
 ) -> Result<Vec<DiscoveredMcpTool>> {
-    let timeout = Duration::from_millis(server.timeout_ms.unwrap_or(30_000));
-    let mut child = StdCommand::new(&server.command)
-        .args(&server.args)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let result = (|| {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("failed to open MCP server stdin"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
-        let stdout_rx = spawn_sync_json_line_reader(stdout);
-
-        sync_write_json_line(
-            &mut stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": server.protocol_version,
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "proteus-core",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }
-            }),
-        )?;
-        let initialize = recv_sync_json_line(&stdout_rx, timeout, &mut child)?;
-        ensure_jsonrpc_success(&initialize, 1)?;
-
-        sync_write_json_line(
-            &mut stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized"
-            }),
-        )?;
-
-        let mut tools = Vec::new();
-        let mut cursor: Option<String> = None;
-        let mut request_id = 2;
-        loop {
-            let params = cursor
-                .as_ref()
-                .map(|cursor| json!({ "cursor": cursor }))
-                .unwrap_or_else(|| json!({}));
-            sync_write_json_line(
-                &mut stdin,
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "method": "tools/list",
-                    "params": params
-                }),
-            )?;
-            let response = recv_sync_json_line(&stdout_rx, timeout, &mut child)?;
-            let result = ensure_jsonrpc_success(&response, request_id)?;
-            tools.extend(mcp_tools_from_list_result(server, result)?);
-            cursor = next_mcp_cursor(result);
-            if cursor.is_none() {
-                break;
-            }
-            request_id += 1;
-        }
-        Ok(tools)
-    })();
-    let _ = child.kill();
-    let _ = child.wait();
-    result
+    configured_mcp_server_host(server, cwd).list_tools(server)
 }
 
 fn spawn_sync_json_line_reader<R>(reader: R) -> Receiver<Result<Value>>
@@ -442,22 +544,50 @@ where
     rx
 }
 
-fn recv_sync_json_line(
+fn recv_sync_jsonrpc_success(
     rx: &Receiver<Result<Value>>,
+    expected_id: i64,
     timeout: Duration,
     child: &mut std::process::Child,
 ) -> Result<Value> {
-    match rx.recv_timeout(timeout) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => {
+    let started = Instant::now();
+    loop {
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
             let _ = child.kill();
             let _ = child.wait();
             bail!(
-                "MCP server did not send a response within {}ms",
+                "MCP server did not send response id {} within {}ms",
+                expected_id,
                 timeout.as_millis()
-            )
+            );
         }
-        Err(RecvTimeoutError::Disconnected) => bail!("MCP server stdout reader stopped"),
+
+        let remaining = timeout - elapsed;
+        let response = match rx.recv_timeout(remaining) {
+            Ok(value) => value?,
+            Err(RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "MCP server did not send response id {} within {}ms",
+                    expected_id,
+                    timeout.as_millis()
+                );
+            }
+            Err(RecvTimeoutError::Disconnected) => bail!("MCP server stdout reader stopped"),
+        };
+
+        let Some(id) = response.get("id") else {
+            continue;
+        };
+        let Some(id) = id.as_i64() else {
+            bail!("MCP response id is not numeric: {id}");
+        };
+        if id != expected_id {
+            bail!("MCP response id {id} did not match expected id {expected_id}");
+        }
+        return ensure_jsonrpc_success(&response, expected_id).cloned();
     }
 }
 
@@ -699,13 +829,7 @@ where
     serde_json::from_str(line).map_err(Into::into)
 }
 
-async fn write_json_line(stdin: &mut ChildStdin, message: Value) -> Result<()> {
-    stdin.write_all(message.to_string().as_bytes()).await?;
-    stdin.write_all(b"\n").await?;
-    stdin.flush().await?;
-    Ok(())
-}
-
+#[cfg(test)]
 async fn read_json_line<R>(stdout: &mut R) -> Result<Value>
 where
     R: AsyncBufRead + Unpin,
@@ -824,7 +948,7 @@ mod tests {
     #[tokio::test]
     async fn mcp_json_line_rejects_oversized_response_without_newline() {
         let response = vec![b' '; MCP_STDIO_RESPONSE_LIMIT_BYTES + 1];
-        let mut stdout = BufReader::new(&response[..]);
+        let mut stdout = tokio::io::BufReader::new(&response[..]);
 
         let error = read_json_line(&mut stdout)
             .await

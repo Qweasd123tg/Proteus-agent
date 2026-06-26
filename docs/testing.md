@@ -38,6 +38,9 @@ plugin-адаптеров в `proteus-core`, интеграционные тес
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
+- stdio MCP tools проходят через `ToolRegistry`, discovery регистрирует
+  `mcp:<server>` source, а host process переиспользуется между calls внутри
+  одного snapshot;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `apply_patch` делегирует выполнение выбранному `PatchApplier`;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;

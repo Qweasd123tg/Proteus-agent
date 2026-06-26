@@ -45,8 +45,8 @@ executors, но external process modules и package manager ещё не реал
 Для config-defined tools и MCP discovery есть app-server reload:
 `StdioRequest::ReloadTools` / HTTP `POST /reload-tools` перечитывает `tools.*`
 из config, пересобирает catalog/registry и публикует новый `RuntimeSnapshot`.
-Активные turns продолжают работать на старом snapshot. Общий `reload_modules`,
-persistent MCP host и dylib unload не реализованы; модель reload описана в
+Активные turns продолжают работать на старом snapshot и его MCP host-процессах.
+Общий `reload_modules`, MCP resources/prompts/subscriptions и dylib unload не реализованы; модель reload описана в
 `docs/hot-swap.md`.
 
 ## Slots
@@ -278,10 +278,13 @@ Config-defined tools добавляются через manifests в `tools.path`
 `tools.configured` или MCP discovery через `tools.mcp_servers`. В v0
 поддержаны `native`, `process` и stdio `mcp` executors: config задаёт
 `ToolSpec`-поля и фиксированный executor target, а runtime регистрирует
-executor как обычный `Tool`. Для `tools.mcp_servers` runtime делает
-стандартный `tools/list` и создаёт host tools с именами
-`<server>__<remote_tool>`. Вызов всё равно проходит через `ToolOrchestrator`
-и mode-aware `ApprovalPolicy`.
+executor как обычный `Tool`. Для inline `mcp` host стартует лениво при первом
+вызове и переиспользуется внутри текущего registry snapshot. Для
+`tools.mcp_servers` runtime стартует stdio host при сборке snapshot, делает
+стандартный `initialize` + `tools/list` и создаёт host tools с именами
+`<server>__<remote_tool>`, которые переиспользуют тот же host для
+`tools/call`. Вызов всё равно проходит через `ToolOrchestrator` и mode-aware
+`ApprovalPolicy`.
 
 Каждый tool возвращает `ToolSpec` с `ToolSafety` и model-facing
 `ToolSurface`. Default surface — `function`: provider adapters передают

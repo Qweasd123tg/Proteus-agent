@@ -1569,23 +1569,26 @@ async fn configured_mcp_server_discovers_tools_into_registry() {
     std::fs::write(
         &server,
         r#"#!/bin/sh
+calls=0
 while IFS= read -r line; do
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
   case "$line" in
     *'"method":"initialize"'*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}'
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}\n' "$id"
       ;;
     *'"method":"notifications/initialized"'*)
       ;;
     *'"method":"tools/list"'*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"remote_echo","description":"Remote echo","inputSchema":{"type":"object","properties":{"message":{"type":"string"}}}}]}}'
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"remote_echo","description":"Remote echo","inputSchema":{"type":"object","properties":{"message":{"type":"string"}}}}]}}\n' "$id"
       ;;
     *'"method":"tools/call"'*)
       case "$line" in
         *'"name":"remote_echo"'*)
-          printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"discovered ok"}],"isError":false}}'
+          calls=$((calls + 1))
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"discovered-%s"}],"isError":false}}\n' "$id" "$calls"
           ;;
         *)
-          printf '%s\n' '{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"wrong tool"}}'
+          printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32602,"message":"wrong tool"}}\n' "$id"
           ;;
       esac
       ;;
@@ -1634,7 +1637,8 @@ done
         Arc::new(TestApprovalTransport { interactive: false }),
         PermissionMode::Normal,
     );
-    let result = ToolOrchestrator::default()
+    let orchestrator = ToolOrchestrator::default();
+    let result = orchestrator
         .execute(
             &ctx,
             &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
@@ -1646,9 +1650,22 @@ done
         )
         .await
         .unwrap();
+    let second = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "demo-mcp__remote_echo".to_owned(),
+                json!({ "message": "again" }),
+            ),
+        )
+        .await
+        .unwrap();
 
     assert!(result.ok);
-    assert_eq!(result.output, "discovered ok");
+    assert_eq!(result.output, "discovered-1");
+    assert_eq!(second.output, "discovered-2");
     assert_eq!(result.metadata["remote_tool"], "remote_echo");
 }
 
@@ -1742,6 +1759,84 @@ done
     let events = events.events().await;
     assert!(matches!(events[0], Event::ToolCallRequested { .. }));
     assert!(matches!(events[1], Event::ToolFinished { .. }));
+}
+
+#[tokio::test]
+async fn configured_mcp_tool_reuses_stdio_session_between_calls() {
+    let dir = temp_workspace();
+    let server = dir.path().join("mcp_persistent_server.sh");
+    std::fs::write(
+        &server,
+        r#"#!/bin/sh
+calls=0
+while IFS= read -r line; do
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}\n' "$id"
+      ;;
+    *'"method":"notifications/initialized"'*)
+      ;;
+    *'"method":"tools/call"'*)
+      calls=$((calls + 1))
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"call-%s"}],"isError":false}}\n' "$id" "$calls"
+      ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    clear_ask_write_config(&mut config);
+    config.modules.policy = "allow_all".to_owned();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "mcp_counter".to_owned(),
+        description: "Call a persistent MCP counter tool".to_owned(),
+        input_schema: json!({ "type": "object", "properties": {} }),
+        surface: ToolSurface::default(),
+        safety: ToolSafety::ReadOnly,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Mcp {
+            server: Some("counter-mcp".to_owned()),
+            command: "sh".to_owned(),
+            args: vec![server.to_string_lossy().to_string()],
+            tool: "counter".to_owned(),
+            protocol_version: "2025-06-18".to_owned(),
+        },
+    });
+    let registry = registry_from_test_config(&config, dir.path());
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    let orchestrator = ToolOrchestrator::default();
+
+    let first = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(new_call_id(), "mcp_counter".to_owned(), json!({})),
+        )
+        .await
+        .unwrap();
+    let second = orchestrator
+        .execute(
+            &ctx,
+            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(new_call_id(), "mcp_counter".to_owned(), json!({})),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first.output, "call-1");
+    assert_eq!(second.output, "call-2");
 }
 
 #[tokio::test]

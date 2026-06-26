@@ -53,7 +53,7 @@ Research-код не считается production/default pack:
 - `BudgetTracker` / `UsageMeter`;
 - `ArtifactStore`;
 - `ToolResultProcessor`;
-- persistent MCP host.
+- MCP resources/prompts/subscriptions и non-stdio transports.
 
 Research может иметь README и tests, но не должен быть root workspace member,
 не должен устанавливаться через `install.sh` и не должен появляться в default
@@ -68,7 +68,7 @@ dogfood path.
 - memory polish;
 - renderer polish;
 - artifact pipeline;
-- persistent MCP;
+- MCP resources/prompts/subscriptions;
 - marketplace/package manager;
 - большой web UI rewrite;
 - RAG/index daemon.

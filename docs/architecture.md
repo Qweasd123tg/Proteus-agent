@@ -21,9 +21,9 @@ External CLI/UI -> AppServer/transport -> AgentRuntime -> BuiltinRegistry
 Это не marketplace и не sandbox. Dylib-плагины грузятся статически при сборке
 snapshot-а и не выгружаются из процесса. Для config-defined tools и MCP
 discovery app-server уже умеет `ReloadTools`: новый `RuntimeSnapshot` получает
-новый registry, а активные turns доживают на старом snapshot. Общий
-`reload_modules` и persistent MCP host остаются planned; правила зафиксированы
-в [hot-swap.md](hot-swap.md).
+новый registry и новые stdio MCP host-процессы, а активные turns доживают на
+старом snapshot. Общий `reload_modules`, MCP resources/prompts/subscriptions и
+dylib unload остаются planned; правила зафиксированы в [hot-swap.md](hot-swap.md).
 
 ## Статус Ядра
 
@@ -39,7 +39,7 @@ prototype-2: stable core invariants + dylib plugin boundary
 `compactor`, `tool_exposure`, `repo_aware` `context_provider` и plugin
 `workflow` (`coding.single_loop`, `coding.codex_loop`,
 `coding.plan_execute_review`). Но это ещё не marketplace, не package manager, не
-persistent MCP host и не multi-agent runtime.
+полный MCP provider для resources/prompts/subscriptions и не multi-agent runtime.
 
 Стабильные инварианты:
 
@@ -341,8 +341,9 @@ request без tools и не имеет внутреннего лимита tool
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors, MCP
-  `tools/list` discovery и dylib-плагины; полноценный MCP provider/registry
-  как persistent host ещё не реализован, но `ToolRegistry` уже хранит source.
+  `tools/list` discovery с persistent stdio host-процессом на snapshot и
+  dylib-плагины; полный MCP provider для resources/prompts/subscriptions ещё не
+  реализован, но `ToolRegistry` уже хранит source.
 - `MemoryStore` отвечает за хранение и retrieval; `MemoryPolicy` отвечает за lifecycle записи после turn. Default `memory_policy = "none"` ничего не записывает, поэтому `recall` работает только если выбранный context builder включает memory provider.
 - Streaming: OpenAI и Anthropic adapters поддерживают SSE-стрим; для provider profiles `stream` по умолчанию включён и прокидывается в `provider_config.stream`. Если SSE transport/body decode ломается до финального ответа, adapter один раз повторяет тот же запрос через non-stream path и возвращает финальный `CanonicalModelResponse`; если fallback тоже не удался, ошибка уходит в `ModelStreamEvent::Error`. Fake adapter имитирует стрим по словам через `with_streaming(delay_ms)`. `ModelService` draining-ит поток и эмитит `Event::AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta`; text-only stream без финального `Response` завершается синтезированным response, а tool-call stream без `Response` считается ошибкой. По умолчанию delta-события не пишутся в durable JSONL лог (`FilteredEventSink`); включить можно через `event_log.persist_deltas = true`. UI-клиент сам решает, как показывать completed deltas, partial tail и reasoning summary, не меняя runtime stream contract.
 - Approval transport подключён для CLI single-run, line REPL и app-server

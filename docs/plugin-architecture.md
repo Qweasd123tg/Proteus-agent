@@ -106,15 +106,16 @@ args = ["status", "--short"]
 
 В далёком будущем (Волна 3) `ConfiguredProcessTool` можно будет вынести в отдельный default-плагин, но сейчас остаётся в ядре.
 
-### MCP (отложено)
+### MCP (tools реализованы, остальное отложено)
 
-Текущий `ConfiguredMcpTool` в ядре работает через spawn-per-call. `tools.mcp_servers`
-уже использует стандартный `initialize` + `tools/list` discovery и наполняет
-`ToolRegistry` remote tools автоматически, но execution всё ещё spawn-per-call.
-Полноценный persistent MCP host с долгоживущим процессом, resources, prompts и
-subscriptions — отдельная большая задача. Когда придёт — скорее всего будет
-реализован как отдельный плагин (или модуль в ядре), интегрирующий внешние
-MCP-сервера в ToolRegistry.
+`ConfiguredMcpTool` и `tools.mcp_servers` в ядре работают через persistent
+stdio MCP host внутри текущего `ToolRegistry` snapshot. `tools.mcp_servers`
+использует стандартный `initialize` + `tools/list` discovery и наполняет
+`ToolRegistry` remote tools автоматически; execution идёт через тот же host и
+фиксированный remote `tools/call`. MCP resources, prompts, subscriptions и
+non-stdio transports — отдельная задача. Если они появятся, это должно
+оставаться интеграцией с `ToolRegistry`/contracts, а не альтернативной системой
+плагинов.
 
 ---
 
@@ -421,7 +422,8 @@ UI-клиенты (активный Leptos web client и будущий desktop 
 
 Принятая модель угроз: плагины пишутся автором или агентом-кодером под review. Не ставятся чужие плагины из недоверенных источников.
 
-MCP server процессы (если/когда будет полноценный MCP host) изолированы через границу процесса: crash MCP server не валит ядро.
+Stdio MCP server процессы изолированы через границу процесса: crash MCP server
+не валит ядро, а соответствующий tool call завершится ошибкой transport.
 
 ---
 

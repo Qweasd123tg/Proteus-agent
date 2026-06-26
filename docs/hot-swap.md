@@ -2,7 +2,8 @@
 
 Этот документ фиксирует boundary горячей замены модулей. Текущая реализация
 поддерживает snapshot-based reload для app-server tools/config/MCP discovery.
-Полный `reload_modules`, persistent MCP host и dylib unload остаются planned.
+Полный `reload_modules`, MCP resources/prompts/subscriptions и dylib unload
+остаются planned.
 
 Hot-swap здесь означает не "выгрузить dylib из процесса", а атомарно
 переключить новые turn/model-request на новый snapshot модулей.
@@ -54,7 +55,8 @@ new turn/model request uses epoch=N+1
 2. Если нужно установить пакет или скачать binary, агент запрашивает approval.
 3. Агент добавляет `[[tools.mcp_servers]]` в config.
 4. Core получает явную команду `reload_tools` / `reload_modules`.
-5. Новый snapshot выполняет MCP `initialize` + `tools/list`.
+5. Новый snapshot стартует stdio MCP host и выполняет MCP `initialize` +
+   `tools/list`.
 6. Discovered tools регистрируются в новом `ToolRegistry` с source
    `mcp:<server>` и safety floor не ниже `RunsCommands`.
 7. Следующий model request видит новые tools напрямую или через deferred
