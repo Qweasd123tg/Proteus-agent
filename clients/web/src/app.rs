@@ -639,8 +639,32 @@ pub(crate) fn App() -> impl IntoView {
         if active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
             return;
         }
-        set_transcript_generation.update(|generation| *generation += 1);
-        let expected_generation = transcript_generation.get_untracked();
+        // Захватываем поколение явно (а не update + get_untracked): хрупкий
+        // паттерн мог оставлять expected рассинхронизированным и guard ниже
+        // ложно срабатывал, бросая пользователя на старой сессии.
+        let expected_generation = transcript_generation.get_untracked() + 1;
+        set_transcript_generation.set(expected_generation);
+        // Сбрасываем вид СИНХРОННО, как start_new_session. Иначе пока медленный
+        // /resume не вернулся, пользователь продолжает видеть старую сессию.
+        set_active_session_dir.set(Some(session.session_dir.clone()));
+        if let Some(workspace) = session.workspace_path.clone() {
+            set_workspace_label.set(workspace);
+        }
+        match session.session_id.clone() {
+            Some(session_id) => set_session_label.set(short_id(&session_id).to_owned()),
+            None => set_session_label.set(short_path(&session.session_dir)),
+        }
+        set_messages.set(Vec::new());
+        set_next_message_id.set(1);
+        set_queued_prompts.set(Vec::new());
+        set_is_sending.set(false);
+        set_active_turn_id.set(None);
+        set_active_stream_message_id.set(None);
+        set_streamed_this_turn.set(false);
+        set_agent_status.set("ожидает".to_owned());
+        set_tool_activities.set(Vec::new());
+        set_pending_approvals.set(Vec::new());
+        set_pending_user_inputs.set(Vec::new());
         let session_dir = session.session_dir.clone();
         set_sidebar_sessions_status.set("открываю сессию".to_owned());
         spawn_local(async move {
@@ -658,26 +682,6 @@ pub(crate) fn App() -> impl IntoView {
                         return;
                     }
                     set_sidebar_sessions_status.set("сессия открыта".to_owned());
-                    set_active_session_dir.set(Some(session.session_dir.clone()));
-                    if let Some(workspace) = session.workspace_path {
-                        set_workspace_label.set(workspace);
-                    }
-                    if let Some(session_id) = session.session_id {
-                        set_session_label.set(short_id(&session_id).to_owned());
-                    } else {
-                        set_session_label.set(short_path(&session.session_dir));
-                    }
-                    set_messages.set(Vec::new());
-                    set_next_message_id.set(1);
-                    set_queued_prompts.set(Vec::new());
-                    set_is_sending.set(false);
-                    set_active_turn_id.set(None);
-                    set_active_stream_message_id.set(None);
-                    set_streamed_this_turn.set(false);
-                    set_agent_status.set("ожидает".to_owned());
-                    set_tool_activities.set(Vec::new());
-                    set_pending_approvals.set(Vec::new());
-                    set_pending_user_inputs.set(Vec::new());
                     reconnect_event_stream(event_source, event_stream_bindings);
                     load_runtime_settings(
                         set_mode,
