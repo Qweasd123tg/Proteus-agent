@@ -2,6 +2,7 @@ target/
 /clients/web/dist/
 /clients/inspector/dist/
 /.proteus/
+/.playwright-mcp/
 /.agent/
 /sessions/
 /examples/source/

@@ -3086,6 +3086,14 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
+    let playwright = config
+        .tools
+        .mcp_servers
+        .iter()
+        .find(|server| server.name == "playwright")
+        .expect("playwright MCP server");
+    assert_eq!(playwright.command, "npx");
+    assert_eq!(playwright.safety, ToolSafety::Network);
     assert_eq!(configured_tool_names(&config), vec!["apply_patch"]);
     let apply_patch = config
         .tools
@@ -3104,6 +3112,13 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "request_user_input")
     );
+    assert!(
+        codex_dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "playwright__browser_snapshot")
+    );
 
     let codex_policy = config.module_config_value(ModuleKind::Policy, "codex_policy");
     assert!(
@@ -3120,7 +3135,16 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "shell")
     );
-    assert!(codex_policy["deny"].as_array().unwrap().is_empty());
+    assert!(
+        codex_policy["ask_before"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "playwright__browser_navigate")
+    );
+    let deny = codex_policy["deny"].as_array().unwrap();
+    assert_eq!(deny.len(), 1);
+    assert_eq!(deny[0], "playwright__browser_run_code_unsafe");
 
     let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
     assert!(

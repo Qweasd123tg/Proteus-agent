@@ -320,11 +320,13 @@ proteus doctor
   запускается через `--config codex`:
   отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
   `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
-  `codex-tool-exposure`, `codex` compactor и локального MCP smoke tool
-  `local_echo__echo`. Bare named configs резолвятся строго в
-  `<name>.config.toml` из default config dir; локальный вариант запускайте
-  явным путём, например `--config ./codex.config.toml`. Старый
-  `proteus.codex.example.toml` оставлен как compatibility include.
+  `codex-tool-exposure`, `codex` compactor и Playwright MCP browser tools
+  (`playwright__browser_*`). Для первого запуска нужен Node/npx и browser
+  install, например `npx -y @playwright/mcp@latest install-browser firefox`.
+  Bare named configs резолвятся строго в `<name>.config.toml` из default config
+  dir; локальный вариант запускайте явным путём, например
+  `--config ./codex.config.toml`. Старый `proteus.codex.example.toml` оставлен
+  как compatibility include.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding
   tools. Запускается явно через `--config proteus.dev-slim.example.toml`.

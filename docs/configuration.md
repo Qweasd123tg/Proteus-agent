@@ -146,11 +146,12 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`. В этом profile
 `apply_patch` регистрируется через `tools.configured` как native handler с
-`surface.kind = "freeform"` и OpenAI custom-tool grammar, а локальный
-`examples/mcp/echo_server.sh` подключается через `tools.mcp_servers` как
-smoke-test tool `local_echo__echo`; baseline profiles оставляют builtin
-`apply_patch` function tool с JSON аргументом `patch` и не включают этот MCP
-server.
+`surface.kind = "freeform"` и OpenAI custom-tool grammar, а Playwright MCP
+подключается через `tools.mcp_servers` как набор browser tools
+`playwright__browser_*`. Baseline profiles оставляют builtin `apply_patch`
+function tool с JSON аргументом `patch` и не включают этот MCP server.
+Для первого запуска Playwright MCP может потребоваться browser install:
+`npx -y @playwright/mcp@latest install-browser firefox`.
 После `./install.sh` запускается явно через `--config codex` из любой рабочей
 директории; старый
 `proteus.codex.example.toml` оставлен как compatibility include на этот же
@@ -752,8 +753,8 @@ Codex-shaped профиль использует отдельную секцию
 ```toml
 [module_config.policy.codex_policy]
 allow = ["search", "read_file", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact", "local_echo__echo"]
-deny = []
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact", "playwright__browser_navigate"]
+deny = ["playwright__browser_run_code_unsafe"]
 ```
 
 `codex_policy` сначала проверяет `deny`, затем `allow`, затем `ask_before`.

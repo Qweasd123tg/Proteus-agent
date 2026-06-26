@@ -21,12 +21,12 @@ renderer = "statusline"
 enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "write_file", "shell", "remember_fact"]
 
 [[tools.mcp_servers]]
-name = "local_echo"
-command = "sh"
-args = ["examples/mcp/echo_server.sh"]
-safety = "RunsCommands"
-timeout_ms = 30000
-metadata = { scope = "local-smoke-test", category = "mcp", tags = ["mcp", "echo", "tool-test"] }
+name = "playwright"
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--browser", "firefox", "--output-dir", ".playwright-mcp", "--output-mode", "stdout"]
+safety = "Network"
+timeout_ms = 60000
+metadata = { scope = "browser-automation", category = "mcp", tags = ["mcp", "browser", "playwright", "desktop-app"] }
 
 [[tools.configured]]
 name = "apply_patch"
@@ -72,15 +72,42 @@ mode = "normal"
 
 [module_config.policy.codex_policy]
 allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact", "local_echo__echo"]
-deny = []
+ask_before = [
+  "apply_patch",
+  "write_file",
+  "shell",
+  "remember_fact",
+  "playwright__browser_close",
+  "playwright__browser_resize",
+  "playwright__browser_console_messages",
+  "playwright__browser_handle_dialog",
+  "playwright__browser_evaluate",
+  "playwright__browser_file_upload",
+  "playwright__browser_drop",
+  "playwright__browser_fill_form",
+  "playwright__browser_press_key",
+  "playwright__browser_type",
+  "playwright__browser_navigate",
+  "playwright__browser_navigate_back",
+  "playwright__browser_network_requests",
+  "playwright__browser_network_request",
+  "playwright__browser_take_screenshot",
+  "playwright__browser_snapshot",
+  "playwright__browser_click",
+  "playwright__browser_drag",
+  "playwright__browser_hover",
+  "playwright__browser_select_option",
+  "playwright__browser_tabs",
+  "playwright__browser_wait_for",
+]
+deny = ["playwright__browser_run_code_unsafe"]
 
 [module_config.compactor.codex]
 trigger_fraction = 0.8
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input", "local_echo__echo"]
+always_include = ["request_user_input", "playwright__browser_navigate", "playwright__browser_snapshot"]
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
