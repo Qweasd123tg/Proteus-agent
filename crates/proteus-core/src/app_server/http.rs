@@ -92,7 +92,9 @@ pub async fn run_http_app_server(
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |request| route_request(state.clone(), request));
                     if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-                        eprintln!("app-server HTTP connection error: {error}");
+                        if should_log_http_connection_error(&error) {
+                            eprintln!("app-server HTTP connection error: {error}");
+                        }
                     }
                 });
             }
@@ -100,6 +102,10 @@ pub async fn run_http_app_server(
         }
     }
     Ok(())
+}
+
+fn should_log_http_connection_error(error: &hyper::Error) -> bool {
+    !(error.is_closed() || error.is_incomplete_message())
 }
 
 async fn route_request<B>(
