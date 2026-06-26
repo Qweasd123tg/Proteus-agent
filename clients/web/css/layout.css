@@ -228,6 +228,13 @@ button.session-item.active {
     display: none;
 }
 
+.session-title-line {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+}
+
 .session-id {
     overflow: hidden;
     color: var(--text-main);
@@ -259,6 +266,10 @@ button.session-item.active {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.session-activity {
+    color: var(--accent-yellow);
 }
 
 .sidebar-panel {

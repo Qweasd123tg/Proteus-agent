@@ -19,8 +19,8 @@ use serde_json::Value;
 
 use super::*;
 use crate::contracts::{
-    ApprovalResponse, UserInputAnswer, UserInputRequest as ContractUserInputRequest,
-    UserInputResponse,
+    ApprovalResponse, CancellationToken, UserInputAnswer,
+    UserInputRequest as ContractUserInputRequest, UserInputResponse,
 };
 use crate::core::{AppConfig, BuiltinModuleCatalog};
 use crate::domain::{PermissionMode, ToolCall, new_call_id};
@@ -1091,6 +1091,212 @@ async fn route_new_session_replaces_active_session_dir() {
 }
 
 #[tokio::test]
+async fn route_new_session_keeps_background_turn_registered() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let original_session_dir = server
+        .config_summary()
+        .await
+        .get("session_dir")
+        .and_then(Value::as_str)
+        .expect("original session dir")
+        .to_owned();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let cancellation = CancellationToken::new();
+    state.running_turns.lock().await.insert(
+        "turn-background".to_owned(),
+        RunningTurn::new(
+            cancellation.clone(),
+            Some(PathBuf::from(&original_session_dir)),
+        ),
+    );
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request("/new-session", json!({ "id": "new-session" })),
+    )
+    .await
+    .expect("new session response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        state
+            .running_turns
+            .lock()
+            .await
+            .contains_key("turn-background")
+    );
+    let original_session_path = PathBuf::from(&original_session_dir);
+    assert!(
+        state
+            .server_for_session_dir(&original_session_path)
+            .await
+            .is_some()
+    );
+
+    let response = route_request(state.clone(), authed_get_request("/sessions/current"))
+        .await
+        .expect("sessions response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response_bytes(response).await;
+    let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
+    let background = sessions
+        .iter()
+        .find(|session| {
+            session.get("session_dir").and_then(Value::as_str) == Some(&original_session_dir)
+        })
+        .expect("running background session should be listed");
+    assert_eq!(
+        background
+            .pointer("/activity/status")
+            .and_then(Value::as_str),
+        Some("running")
+    );
+
+    cancellation.cancel();
+    server.shutdown().await;
+    state.current_server().await.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_resume_reuses_live_session_without_materialized_metadata() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let original_session_dir = server
+        .config_summary()
+        .await
+        .get("session_dir")
+        .and_then(Value::as_str)
+        .expect("original session dir")
+        .to_owned();
+    assert!(!PathBuf::from(&original_session_dir).exists());
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request("/new-session", json!({ "id": "new-session" })),
+    )
+    .await
+    .expect("new session response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/resume",
+            json!({
+                "id": "resume-original",
+                "session_dir": original_session_dir.clone(),
+            }),
+        ),
+    )
+    .await
+    .expect("resume response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let output = response_output(response).await;
+    let StdioOutput::Response {
+        ok: true,
+        output: Some(summary),
+        ..
+    } = output
+    else {
+        panic!("expected successful resume response");
+    };
+    assert_eq!(
+        summary.get("session_dir").and_then(Value::as_str),
+        Some(original_session_dir.as_str())
+    );
+    assert_eq!(
+        state
+            .current_server()
+            .await
+            .config_summary()
+            .await
+            .get("session_dir")
+            .and_then(Value::as_str),
+        Some(original_session_dir.as_str())
+    );
+
+    state.current_server().await.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_approval_resolves_background_session_request() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let (responder, response_rx) = tokio::sync::oneshot::channel();
+    let approval_id = "approval-background".to_owned();
+    server.pending_approvals.lock().await.insert(
+        approval_id.clone(),
+        pending_approval_entry(&approval_id, responder),
+    );
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request("/new-session", json!({ "id": "new-session" })),
+    )
+    .await
+    .expect("new session response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/approval",
+            json!({
+                "id": "approval-response",
+                "approval_id": approval_id,
+                "approved": true,
+                "note": "approved in background",
+                "cache": "none",
+            }),
+        ),
+    )
+    .await
+    .expect("approval response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    match response_output(response).await {
+        StdioOutput::Response { ok, error, .. } => {
+            assert!(ok, "approval response should succeed: {error:?}");
+        }
+        other => panic!("expected response output, got {other:?}"),
+    }
+    let approval = response_rx.await.expect("approval should resolve");
+    assert!(approval.approved);
+    assert_eq!(approval.note.as_deref(), Some("approved in background"));
+
+    server.shutdown().await;
+    state.current_server().await.shutdown().await;
+}
+
+#[tokio::test]
 async fn route_delete_unsaved_active_session_opens_new_one() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
@@ -1425,11 +1631,10 @@ async fn cancel_active_turn_clears_pending_approval_and_user_input() {
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     let turn_id = "turn-cancel".to_owned();
     let cancellation = CancellationToken::new();
-    state
-        .running_turns
-        .lock()
-        .await
-        .insert(turn_id.clone(), cancellation.clone());
+    state.running_turns.lock().await.insert(
+        turn_id.clone(),
+        RunningTurn::new(cancellation.clone(), server.session_dir_path()),
+    );
 
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-cancel".to_owned();

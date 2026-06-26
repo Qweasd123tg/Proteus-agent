@@ -1,4 +1,9 @@
-use std::{convert::Infallible, path::PathBuf, time::Duration};
+use std::{
+    collections::HashSet,
+    convert::Infallible,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Result, anyhow};
 use async_stream::stream;
@@ -26,7 +31,7 @@ use crate::{
 };
 
 use super::{
-    AgentAppServer, AppServerEvent, AppServerHandle,
+    AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity,
     protocol::{StdioOutput, StdioRequest},
 };
 
@@ -45,7 +50,7 @@ use requests::{
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
 };
-use state::HttpAppState;
+use state::{HttpAppState, RunningTurn};
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
@@ -154,18 +159,14 @@ where
             let snapshot = state.current_server().await.topology_snapshot().await;
             text_response(StatusCode::OK, render_topology_runtime_mermaid(&snapshot))
         }
-        (Method::GET, "/sessions") => match state.current_server().await.session_summaries() {
+        (Method::GET, "/sessions") => match session_summaries_json(&state, false).await {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
-        (Method::GET, "/sessions/current") => {
-            match state.current_server().await.workspace_session_summaries() {
-                Ok(sessions) => json_response(StatusCode::OK, &sessions),
-                Err(error) => {
-                    error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}"))
-                }
-            }
-        }
+        (Method::GET, "/sessions/current") => match session_summaries_json(&state, true).await {
+            Ok(sessions) => json_response(StatusCode::OK, &sessions),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
+        },
         (Method::GET, "/history") => {
             let transcript = state.current_server().await.transcript().await;
             json_response(StatusCode::OK, &transcript)
@@ -365,6 +366,130 @@ fn options_response<B>(request: &Request<B>, cors_origin: Option<HeaderValue>) -
     response
 }
 
+async fn session_summaries_json(
+    state: &HttpAppState,
+    current_workspace_only: bool,
+) -> Result<Vec<Value>> {
+    let current = state.current_server().await;
+    let summaries = if current_workspace_only {
+        current.workspace_session_summaries()?
+    } else {
+        current.session_summaries()?
+    };
+    let activity_by_dir = state.activity_by_session_dir().await;
+    let mut seen = HashSet::new();
+    let mut values = Vec::new();
+
+    for summary in summaries {
+        let session_dir = summary.session_dir.clone();
+        seen.insert(session_dir.clone());
+        let mut value = serde_json::to_value(&summary)?;
+        if let Some(activity) = activity_by_dir.get(&session_dir)
+            && let Value::Object(fields) = &mut value
+        {
+            fields.insert("activity".to_owned(), serde_json::to_value(activity)?);
+        }
+        values.push(value);
+    }
+
+    for server in state.all_servers().await {
+        let Some(session_dir) = server.session_dir_path() else {
+            continue;
+        };
+        if seen.contains(&session_dir) {
+            continue;
+        }
+        if current_workspace_only && !super::paths_equal(server.cwd_path(), current.cwd_path()) {
+            continue;
+        }
+        let activity = state.activity_for_server(&server).await;
+        if let Some(value) = known_session_summary_value(&server, &session_dir, activity).await? {
+            seen.insert(session_dir);
+            values.push(value);
+        }
+    }
+
+    values.sort_by(|left, right| {
+        summary_updated_at_ms(right)
+            .cmp(&summary_updated_at_ms(left))
+            .then_with(|| summary_session_dir(right).cmp(&summary_session_dir(left)))
+    });
+    Ok(values)
+}
+
+async fn known_session_summary_value(
+    server: &AppServerHandle,
+    session_dir: &Path,
+    activity: AppSessionActivity,
+) -> Result<Option<Value>> {
+    let transcript = server.transcript().await;
+    let message_count = transcript.len();
+    if message_count == 0 && session_activity_is_idle(&activity) {
+        return Ok(None);
+    }
+
+    Ok(Some(json!({
+        "session_dir": session_dir.to_path_buf(),
+        "session_id": null,
+        "workspace_path": server.cwd_path().to_path_buf(),
+        "message_count": message_count,
+        "updated_at_ms": current_time_ms(),
+        "preview": transcript_preview(&transcript),
+        "resumable": true,
+        "activity": activity,
+    })))
+}
+
+fn session_activity_is_idle(activity: &AppSessionActivity) -> bool {
+    activity.status == "idle"
+        && activity.running_turns == 0
+        && activity.pending_approvals == 0
+        && activity.pending_user_inputs == 0
+}
+
+fn transcript_preview(transcript: &[crate::app_server::AppTranscriptMessage]) -> Option<String> {
+    transcript
+        .iter()
+        .find(|message| message.role == "user" && !message.text.trim().is_empty())
+        .or_else(|| {
+            transcript
+                .iter()
+                .find(|message| !message.text.trim().is_empty())
+        })
+        .map(|message| truncate_session_preview(message.text.trim()))
+}
+
+fn truncate_session_preview(text: &str) -> String {
+    let limit = 160;
+    if text.chars().count() <= limit {
+        text.to_owned()
+    } else {
+        format!("{}...", text.chars().take(limit).collect::<String>())
+    }
+}
+
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+fn summary_updated_at_ms(value: &Value) -> u64 {
+    value
+        .get("updated_at_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn summary_session_dir(value: &Value) -> String {
+    value
+        .get("session_dir")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
 async fn read_json<T, B>(request: Request<B>) -> Result<T>
 where
     T: DeserializeOwned,
@@ -401,22 +526,34 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
             note,
             cache,
             ..
-        } => state
-            .current_server()
-            .await
-            .respond_approval(&approval_id, approved, note, cache)
-            .await
-            .map(|_| None),
+        } => {
+            let server = match state.server_for_pending_approval(&approval_id).await {
+                Some(server) => server,
+                None => state.current_server().await,
+            };
+            let result = server
+                .respond_approval(&approval_id, approved, note, cache)
+                .await
+                .map(|_| None);
+            state.emit_session_activity_for_server(&server).await;
+            result
+        }
         StdioRequest::UserInput {
             request_id,
             response,
             ..
-        } => state
-            .current_server()
-            .await
-            .respond_user_input(&request_id, response)
-            .await
-            .map(|_| None),
+        } => {
+            let server = match state.server_for_pending_user_input(&request_id).await {
+                Some(server) => server,
+                None => state.current_server().await,
+            };
+            let result = server
+                .respond_user_input(&request_id, response)
+                .await
+                .map(|_| None);
+            state.emit_session_activity_for_server(&server).await;
+            result
+        }
         StdioRequest::Cancel { target_id, .. } => {
             execute_cancel(state, &target_id).await.map(|_| None)
         }
@@ -462,7 +599,7 @@ async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> Std
                     .map_err(anyhow::Error::from)
             }),
         StdioRequest::Shutdown { .. } => {
-            state.current_server().await.shutdown().await;
+            shutdown_all_servers(state).await;
             let _ = state.shutdown.send(());
             Ok(None)
         }
@@ -477,29 +614,36 @@ async fn execute_send(
     text: String,
 ) -> Result<AgentOutput> {
     let cancellation = CancellationToken::new();
+    let server = state.current_server().await;
+    let session_dir = server.session_dir_path();
     if let Some(turn_id) = id.as_deref() {
         let mut running_turns = state.running_turns.lock().await;
         if running_turns.contains_key(turn_id) {
             return Err(anyhow!("turn id is already running: {turn_id}"));
         }
-        running_turns.insert(turn_id.to_owned(), cancellation.clone());
+        running_turns.insert(
+            turn_id.to_owned(),
+            RunningTurn::new(cancellation.clone(), session_dir.clone()),
+        );
     }
+    state.emit_session_activity_for_server(&server).await;
 
-    let result = state
-        .current_server()
-        .await
+    let result = server
         .send_user_message_with_cancellation(text, cancellation)
         .await;
 
     if let Some(turn_id) = id.as_deref() {
         state.running_turns.lock().await.remove(turn_id);
     }
+    state.emit_session_activity_for_server(&server).await;
     result
 }
 
 async fn execute_send_async(state: &HttpAppState, id: Option<String>, text: String) -> StdioOutput {
     let turn_id = id.unwrap_or_else(new_session_token);
     let cancellation = CancellationToken::new();
+    let server = state.current_server().await;
+    let session_dir = server.session_dir_path();
     {
         let mut running_turns = state.running_turns.lock().await;
         if running_turns.contains_key(&turn_id) {
@@ -508,17 +652,25 @@ async fn execute_send_async(state: &HttpAppState, id: Option<String>, text: Stri
                 Err(anyhow!("turn id is already running: {turn_id}")),
             );
         }
-        running_turns.insert(turn_id.clone(), cancellation.clone());
+        running_turns.insert(
+            turn_id.clone(),
+            RunningTurn::new(cancellation.clone(), session_dir.clone()),
+        );
     }
+    state.emit_session_activity_for_server(&server).await;
 
-    let server = state.current_server().await;
     let running_turns = state.running_turns.clone();
+    let state_for_activity = state.clone();
     let task_turn_id = turn_id.clone();
+    let task_server = server.clone();
     tokio::spawn(async move {
-        let _ = server
+        let _ = task_server
             .send_user_message_with_cancellation(text, cancellation)
             .await;
         running_turns.lock().await.remove(&task_turn_id);
+        state_for_activity
+            .emit_session_activity_for_server(&task_server)
+            .await;
     });
 
     command_response(
@@ -554,8 +706,13 @@ async fn execute_delete_session(
 }
 
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
-    cancel_active_work(state, "session switched by client").await;
     let current = state.current_server().await;
+    let session_dir = crate::core::normalize_session_dir_path(session_dir)?;
+    if let Some(existing) = state.server_for_session_dir(&session_dir).await {
+        state.set_current_server(existing.clone()).await;
+        return Ok(existing.config_summary().await);
+    }
+
     let config = current.config.read().await.clone();
     let next = AgentAppServer::launch_resumed(
         config,
@@ -564,24 +721,28 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
         session_dir,
     )?;
     let summary = next.config_summary().await;
-    *state.server.lock().await = next;
+    state.set_current_server(next).await;
     Ok(summary)
 }
 
 async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
     let current = state.current_server().await;
+    let session_dir = crate::core::normalize_session_dir_path(session_dir)?;
     let deleting_active = current.is_session_dir(&session_dir);
     let mut replacement_summary = None;
+    if let Some(deleting_server) = state.server_for_session_dir(&session_dir).await {
+        cancel_work_for_server(state, &deleting_server, "session deleted by client").await;
+        state.remove_session_server(&session_dir).await;
+    }
 
     if deleting_active {
-        cancel_active_work(state, "session deleted by client").await;
         let current = state.current_server().await;
         let config = current.config.read().await.clone();
         let next =
             AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
         next.start_session().await?;
         replacement_summary = Some(next.config_summary().await);
-        *state.server.lock().await = next;
+        state.set_current_server(next).await;
     }
 
     let deleted = current.delete_workspace_session(session_dir).await?;
@@ -593,51 +754,84 @@ async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
 }
 
 async fn new_session(state: &HttpAppState) -> Result<Value> {
-    cancel_active_work(state, "new session started by client").await;
     let current = state.current_server().await;
     let config = current.config.read().await.clone();
     let next = AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
     next.start_session().await?;
     let summary = next.config_summary().await;
-    *state.server.lock().await = next;
+    state.set_current_server(next).await;
     Ok(summary)
 }
 
-async fn cancel_active_work(state: &HttpAppState, note: &str) {
+async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, note: &str) {
+    let session_dir = server.session_dir_path();
     let active_turns = {
         let mut running_turns = state.running_turns.lock().await;
-        running_turns
-            .drain()
-            .map(|(_, cancellation)| cancellation)
+        let turn_ids = running_turns
+            .iter()
+            .filter_map(|(turn_id, turn)| {
+                if turn.session_dir == session_dir {
+                    Some(turn_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        turn_ids
+            .into_iter()
+            .filter_map(|turn_id| running_turns.remove(&turn_id))
+            .map(|turn| turn.cancellation)
             .collect::<Vec<_>>()
     };
     for cancellation in active_turns {
         cancellation.cancel();
     }
 
-    let current = state.current_server().await;
-    current.cancel_pending_approvals(note.to_owned()).await;
-    current.cancel_pending_user_inputs(note.to_owned()).await;
+    server.cancel_pending_approvals(note.to_owned()).await;
+    server.cancel_pending_user_inputs(note.to_owned()).await;
+    state.emit_session_activity_for_server(server).await;
+}
+
+async fn shutdown_all_servers(state: &HttpAppState) {
+    let cancellations = {
+        let mut running_turns = state.running_turns.lock().await;
+        running_turns
+            .drain()
+            .map(|(_, turn)| turn.cancellation)
+            .collect::<Vec<_>>()
+    };
+    for cancellation in cancellations {
+        cancellation.cancel();
+    }
+
+    for server in state.all_servers().await {
+        server.shutdown().await;
+        state.emit_session_activity_for_server(&server).await;
+    }
 }
 
 async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
-    let cancellation = state
+    let turn = state
         .running_turns
         .lock()
         .await
         .remove(target_id)
         .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
-    cancellation.cancel();
-    state
-        .current_server()
-        .await
+    turn.cancellation.cancel();
+    let server = match turn.session_dir.as_deref() {
+        Some(session_dir) => match state.server_for_session_dir(session_dir).await {
+            Some(server) => server,
+            None => state.current_server().await,
+        },
+        None => state.current_server().await,
+    };
+    server
         .cancel_pending_approvals("turn canceled by client".to_owned())
         .await;
-    state
-        .current_server()
-        .await
+    server
         .cancel_pending_user_inputs("turn canceled by client".to_owned())
         .await;
+    state.emit_session_activity_for_server(&server).await;
     Ok(())
 }
 
@@ -661,6 +855,7 @@ fn command_response(id: Option<String>, result: Result<Option<Value>>) -> StdioO
 async fn sse_response(state: HttpAppState) -> HttpResponse {
     let server = state.current_server().await;
     let mut events = server.subscribe();
+    let mut activity_events = state.subscribe_activity();
     let body = StreamBody::new(stream! {
         yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
 
@@ -669,6 +864,8 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
             yield Ok(Frame::data(encode_sse_output(&output)));
             return;
         }
+        state.remember_server(server.clone()).await;
+        state.emit_session_activity_for_server(&server).await;
 
         let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));
         loop {
@@ -692,6 +889,24 @@ async fn sse_response(state: HttpAppState) -> HttpResponse {
                             let output = command_response(
                                 None,
                                 Err(anyhow!("app-server event stream lagged by {count} events")),
+                            );
+                            yield Ok(Frame::data(encode_sse_output(&output)));
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                event = activity_events.recv() => {
+                    match event {
+                        Ok(event) => {
+                            let output = StdioOutput::Event {
+                                event: Box::new(event),
+                            };
+                            yield Ok(Frame::data(encode_sse_output(&output)));
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            let output = command_response(
+                                None,
+                                Err(anyhow!("app-server activity stream lagged by {count} events")),
                             );
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }

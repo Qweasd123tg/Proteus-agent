@@ -76,11 +76,56 @@ pub enum AppServerEvent {
         tool_names: Vec<String>,
     },
 
+    /// App-server обновил control-plane состояние session. Это событие не
+    /// несёт transcript/runtime deltas и может приходить для фоновой session,
+    /// чтобы клиенты могли подсветить running/pending чат в sidebar.
+    SessionActivityUpdated {
+        session_dir: PathBuf,
+        activity: AppSessionActivity,
+    },
+
     /// Ошибка в turn или ядре.
     Error { message: String },
 
     /// Ядро завершило работу. Клиент должен выйти.
     Shutdown,
+}
+
+/// Короткий UI/control-plane snapshot работы одной session.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppSessionActivity {
+    pub status: String,
+    #[serde(default)]
+    pub running_turns: usize,
+    #[serde(default)]
+    pub pending_approvals: usize,
+    #[serde(default)]
+    pub pending_user_inputs: usize,
+}
+
+impl AppSessionActivity {
+    pub fn from_counts(
+        running_turns: usize,
+        pending_approvals: usize,
+        pending_user_inputs: usize,
+    ) -> Self {
+        let status = if pending_user_inputs > 0 {
+            "waiting_input"
+        } else if pending_approvals > 0 {
+            "waiting_approval"
+        } else if running_turns > 0 {
+            "running"
+        } else {
+            "idle"
+        };
+        Self {
+            status: status.to_owned(),
+            running_turns,
+            pending_approvals,
+            pending_user_inputs,
+        }
+    }
 }
 
 /// Approval request, адресованный клиенту.
@@ -381,5 +426,25 @@ mod tests {
             AppServerEvent::Runtime { envelope } => assert_eq!(envelope.seq, 1),
             other => panic!("expected runtime event, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn session_activity_uses_stable_status_order() {
+        assert_eq!(
+            AppSessionActivity::from_counts(0, 0, 0).status,
+            "idle".to_owned()
+        );
+        assert_eq!(
+            AppSessionActivity::from_counts(1, 0, 0).status,
+            "running".to_owned()
+        );
+        assert_eq!(
+            AppSessionActivity::from_counts(1, 1, 0).status,
+            "waiting_approval".to_owned()
+        );
+        assert_eq!(
+            AppSessionActivity::from_counts(1, 1, 1).status,
+            "waiting_input".to_owned()
+        );
     }
 }

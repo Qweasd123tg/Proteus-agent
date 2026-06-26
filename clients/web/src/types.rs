@@ -339,6 +339,19 @@ pub(crate) struct SessionSummary {
     pub(crate) updated_at_ms: Option<u64>,
     pub(crate) preview: Option<String>,
     pub(crate) resumable: bool,
+    #[serde(default)]
+    pub(crate) activity: Option<SessionActivityInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct SessionActivityInfo {
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) running_turns: usize,
+    #[serde(default)]
+    pub(crate) pending_approvals: usize,
+    #[serde(default)]
+    pub(crate) pending_user_inputs: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -417,6 +430,10 @@ pub(crate) enum AppServerEvent {
     },
     UserInputResolved {
         request_id: String,
+    },
+    SessionActivityUpdated {
+        session_dir: String,
+        activity: SessionActivityInfo,
     },
     Error {
         message: String,
@@ -651,6 +668,10 @@ mod protocol_contract_tests {
             contract_protocol::AppServerEvent::UserInputResolved {
                 request_id: "input-1".to_owned(),
             },
+            contract_protocol::AppServerEvent::SessionActivityUpdated {
+                session_dir: PathBuf::from("/workspace/session-1"),
+                activity: contract_protocol::AppSessionActivity::from_counts(1, 0, 0),
+            },
             contract_protocol::AppServerEvent::ModulesReloaded {
                 old_epoch: 1,
                 new_epoch: 2,
@@ -712,6 +733,14 @@ mod protocol_contract_tests {
                 }
                 AppServerEvent::UserInputResolved { request_id } => {
                     assert_eq!(request_id, "input-1")
+                }
+                AppServerEvent::SessionActivityUpdated {
+                    session_dir,
+                    activity,
+                } => {
+                    assert_eq!(session_dir, "/workspace/session-1");
+                    assert_eq!(activity.status, "running");
+                    assert_eq!(activity.running_turns, 1);
                 }
                 AppServerEvent::Error { message } => assert_eq!(message, "boom"),
                 AppServerEvent::Shutdown => {}

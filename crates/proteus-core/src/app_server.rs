@@ -36,7 +36,7 @@ pub mod stdio;
 // совместимости внутри proteus-core.
 pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppPendingRequests, AppServerEvent,
-    AppUserInputRequestId, StdioOutput, StdioRequest,
+    AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
 const APPROVAL_PREVIEW_BODY_LIMIT: usize = 20_000;
@@ -88,6 +88,14 @@ pub struct AppServerHandle {
 impl AppServerHandle {
     pub fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
         self.events.subscribe()
+    }
+
+    pub fn cwd_path(&self) -> &Path {
+        &self.cwd
+    }
+
+    pub fn session_dir_path(&self) -> Option<PathBuf> {
+        self.runtime.session_dir().map(Path::to_path_buf)
     }
 
     pub async fn start_session(&self) -> Result<()> {
@@ -293,6 +301,26 @@ impl AppServerHandle {
         user_inputs.sort_by(|left, right| left.request_id.cmp(&right.request_id));
 
         AppPendingRequests::new(approvals, user_inputs)
+    }
+
+    pub async fn has_pending_approval(&self, approval_id: &str) -> bool {
+        self.pending_approvals
+            .lock()
+            .await
+            .contains_key(approval_id)
+    }
+
+    pub async fn has_pending_user_input(&self, request_id: &str) -> bool {
+        self.pending_user_inputs
+            .lock()
+            .await
+            .contains_key(request_id)
+    }
+
+    pub async fn session_activity(&self, running_turns: usize) -> AppSessionActivity {
+        let pending_approvals = self.pending_approvals.lock().await.len();
+        let pending_user_inputs = self.pending_user_inputs.lock().await.len();
+        AppSessionActivity::from_counts(running_turns, pending_approvals, pending_user_inputs)
     }
 
     pub async fn respond_approval(

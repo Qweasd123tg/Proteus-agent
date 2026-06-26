@@ -214,6 +214,31 @@ pub(crate) fn sidebar_session_preview(session: &SessionSummary) -> Option<String
         .map(|text| compact_text(text, 80))
 }
 
+pub(crate) fn sidebar_session_activity_label(
+    activity: Option<&SessionActivityInfo>,
+) -> Option<String> {
+    let activity = activity?;
+    match activity.status.as_str() {
+        "waiting_input" => Some("ждёт ответ".to_owned()),
+        "waiting_approval" => Some("ждёт доступ".to_owned()),
+        "running" => Some("работает".to_owned()),
+        "idle" => None,
+        other if !other.trim().is_empty() => Some(other.replace('_', " ")),
+        _ => None,
+    }
+}
+
+pub(crate) fn sidebar_session_activity_dot_class(
+    activity: Option<&SessionActivityInfo>,
+) -> &'static str {
+    match activity.map(|activity| activity.status.as_str()) {
+        Some("waiting_input" | "waiting_approval") => "session-status-dot warning",
+        Some("running") => "session-status-dot running",
+        Some("idle") | None => "session-status-dot",
+        Some(_) => "session-status-dot running",
+    }
+}
+
 pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
     transcript_generation: ReadSignal<u64>,
@@ -445,6 +470,7 @@ mod tests {
             updated_at_ms: None,
             preview: preview.map(ToOwned::to_owned),
             resumable: true,
+            activity: None,
         }
     }
 

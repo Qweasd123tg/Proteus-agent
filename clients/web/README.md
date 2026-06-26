@@ -32,8 +32,9 @@ math-delimiters. Tool-карточки во время долгих команд
 обработчик в `index.html`); по умолчанию большие логи не переносятся строками,
 чтобы не раздувать layout. Экран
 Sidebar показывает sessions текущего workspace с коротким preview первого
-сообщения, умеет открывать, создавать и удалять чат; пустой чат подписывается
-как `Новый чат`.
+сообщения, умеет открывать, создавать и удалять чат, а также подсвечивает
+фоновые чаты со статусом running/pending; пустой чат подписывается как
+`Новый чат`.
 Mode, model, reasoning on/off и raw reasoning effort задаются компактным menu в
 строке composer actions; model выбирается только из config options, а effort —
 из config/capability options, чтобы не зашивать provider-specific значения во
@@ -48,8 +49,11 @@ approval через `/approval`, отправляет typed input через `/u
 Боковой список чатов читает только sessions текущего workspace через
 `/sessions/current`, а страница `/resume`
 читает прошлые sessions всех workspace через `/sessions` и переключает текущий
-app-server на выбранную session через `/resume`. После перехода обратно в чат
-клиент подгружает transcript текущей session через `/history`.
+app-server на выбранную session через `/resume`. Переключение и создание
+нового чата не отменяют running turn старого чата; явная отмена остаётся через
+`/cancel`, а статус фоновой session приходит через `SessionActivityUpdated`.
+После перехода обратно в чат клиент подгружает transcript текущей session
+через `/history`.
 Пустые session directories backend не показывает; при restart app-server
 автоматически открывает последнюю непустую session текущего workspace.
 Для `plan` mode composer переключается в planning controls с

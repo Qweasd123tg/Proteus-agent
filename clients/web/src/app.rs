@@ -919,6 +919,10 @@ pub(crate) fn App() -> impl IntoView {
                                     .to_owned();
                                 let title = sidebar_session_title(&session);
                                 let preview = sidebar_session_preview(&session);
+                                let activity_label =
+                                    sidebar_session_activity_label(session.activity.as_ref());
+                                let activity_dot_class =
+                                    sidebar_session_activity_dot_class(session.activity.as_ref());
                                 let message_count = session.message_count;
                                 let updated_at = relative_time_from_now(session.updated_at_ms);
                                 let resumable = session.resumable;
@@ -939,7 +943,10 @@ pub(crate) fn App() -> impl IntoView {
                                                 on:click=move |_| open_sidebar_session(session_for_click.clone())
                                             >
                                                 <div class="session-item-header">
-                                                    <span class="session-id">{title}</span>
+                                                    <span class="session-title-line">
+                                                        <span class=activity_dot_class></span>
+                                                        <span class="session-id">{title}</span>
+                                                    </span>
                                                     <code class="session-code">{session_id}</code>
                                                 </div>
                                                 {match preview {
@@ -949,6 +956,12 @@ pub(crate) fn App() -> impl IntoView {
                                                     None => ().into_any(),
                                                 }}
                                                 <div class="session-meta">
+                                                    {match activity_label {
+                                                        Some(label) => view! {
+                                                            <span class="session-time session-activity">{label}</span>
+                                                        }.into_any(),
+                                                        None => ().into_any(),
+                                                    }}
                                                     <span class="session-time">{format!("{message_count} сообщений")}</span>
                                                     <span class="session-time">{updated_at}</span>
                                                 </div>

@@ -424,6 +424,24 @@ fn handle_app_event(
                 items.retain(|item| item.request_id != request_id);
             });
         }
+        AppServerEvent::SessionActivityUpdated {
+            session_dir,
+            activity,
+        } => {
+            let mut found = false;
+            set_sidebar_sessions.update(|items| {
+                if let Some(session) = items
+                    .iter_mut()
+                    .find(|session| session.session_dir == session_dir)
+                {
+                    session.activity = Some(activity.clone());
+                    found = true;
+                }
+            });
+            if !found {
+                load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+            }
+        }
         AppServerEvent::Error { message } => {
             flush_stream_delta_buffer(stream_bindings);
             set_is_sending.set(false);
