@@ -363,7 +363,7 @@ async fn init_codex_writes_loadable_single_config_file() {
         .expect("generated config loads");
 
     assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.modules.workflow, "coding.codex_loop");
+    assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");

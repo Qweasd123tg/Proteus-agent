@@ -142,8 +142,8 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 
 `codex.config.toml` - экспериментальный Codex-shaped profile для чистой
 проверки Codex-подобной сборки модулей. Он подключает тот же provider
-через `include`, использует `coding.codex_loop`, `codex_context`, `rg`,
-`direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
+через `include`, использует `coding.codex_loop_diagnostic`, `codex_context`,
+`rg`, `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`. В этом profile
 `apply_patch` регистрируется через `tools.configured` как native handler с
 `surface.kind = "freeform"` и OpenAI custom-tool grammar, а Playwright MCP
@@ -423,8 +423,8 @@ Codex-oriented порядком и добавляет intent boosts для `shel
 передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
 `always_include`.
 
-Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
-`coding.plan_execute_review`,
+Когда active workflow — `coding.single_loop`, `coding.codex_loop`,
+`coding.codex_loop_diagnostic` или `coding.plan_execute_review`,
 скрытые policy-visible tools остаются reachable через workflow-owned
 meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
 `proteus_tool_call`. Они не являются registry tools. `proteus_tool_call`

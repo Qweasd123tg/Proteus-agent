@@ -40,7 +40,7 @@ plugins/
     sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
     codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary без fallback
     codex-tool-exposure/ — ToolExposure под id "codex_dynamic": Codex-style hot tool set
-    coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
+        coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop", "coding.codex_loop_diagnostic" и "coding.plan_execute_review"
     context-pack/        — ContextBuilder-плагины "simple", "repo_aware" и "codex_context"
     memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
     policy-pack/         — ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"
@@ -63,7 +63,7 @@ docs/                  — architecture, plugin-architecture, configuration, mem
   summary model call поставляет плагин `codex-compactor`; Codex-style selector
   `codex_dynamic` поставляет плагин `codex-tool-exposure`. Production workflow
   в core больше не встроен:
-  `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` поставляет
+  `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и `coding.plan_execute_review` поставляет
   плагин `coding-workflow`; production context builders `simple`,
   `repo_aware` и `codex_context` поставляет плагин `context-pack`; `jsonl` memory и
   `carry_forward` memory policy поставляет плагин `memory-pack`;
@@ -318,7 +318,8 @@ proteus doctor
   tool set, ask_write policy).
 - `codex.config.toml` — экспериментальный Codex-shaped named config,
   запускается через `--config codex`:
-  отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
+  отдельная сборка модулей для проверки `coding.codex_loop_diagnostic`,
+  Codex-подобного
   `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
   `codex-tool-exposure`, `codex` compactor и Playwright MCP browser tools
   (`playwright__browser_*`). Для первого запуска нужен Node/npx и browser

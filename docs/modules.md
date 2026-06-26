@@ -71,7 +71,7 @@ executors, но external process modules и package manager ещё не реал
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
-| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
+| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
 ## Model Providers
@@ -488,8 +488,8 @@ events вызывает через host API (`build_context`, `complete_model`,
 не расползается в core. Полная автоматическая проверка diff/test runner пока
 зависит от наличия соответствующих tools.
 
-`modules.workflow = "coding.codex_loop"` — экспериментальный Codex-shaped loop
-для named config `codex` (`codex.config.toml`). Он остаётся в том же
+`modules.workflow = "coding.codex_loop"` — экспериментальный Codex-shaped loop.
+Он остаётся в том же
 plugin/slot boundary, но ведёт turn ближе к Codex: model request с tools,
 исполнение tool calls через host `execute_tool_json`, затем следующий model
 request с обновлённой историей. Первый response без tool calls становится
@@ -513,6 +513,14 @@ message, иначе turn завершается ошибкой вместо ти
 call id или прямой вызов tool-а, которого не было в текущем model request,
 считаются ошибкой workflow. Ошибки самого tool invocation остаются
 `ToolResult::error` через обычный host/orchestrator path.
+
+`modules.workflow = "coding.codex_loop_diagnostic"` — явно названный variant для
+named config `codex` (`codex.config.toml`). Он сохраняет тот же model/tool loop
+и protocol validation, что `coding.codex_loop`, но user-facing `AgentOutput`
+для пустого финального ответа после tool call заменяет на диагностическое
+сообщение с последним `ToolResult`. Это осознанная UX-divergence: MCP/tool
+smoke-тесты не выглядят как зависание с `<empty model response>`, а strict
+Codex-shaped behavior остаётся доступным через `coding.codex_loop`.
 
 ## Renderer
 

@@ -31,7 +31,7 @@ plugins/
         sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
         codex-compactor/     - HistoryCompactor под id "codex"
         codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
-        coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
+        coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop", "coding.codex_loop_diagnostic" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
         policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"

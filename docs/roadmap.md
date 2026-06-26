@@ -118,8 +118,9 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 Цель - заменить “один hardcoded loop” на настраиваемое поведение coding-agent.
 
 Первые дополнительные workflow живут в плагине `coding-workflow`:
-`coding.codex_loop` для Codex-shaped профиля и `coding.plan_execute_review`
-для staged plan/execute/review экспериментов.
+`coding.codex_loop` для strict Codex-shaped parity,
+`coding.codex_loop_diagnostic` для dogfood Codex-shaped профиля и
+`coding.plan_execute_review` для staged plan/execute/review экспериментов.
 
 Поведение должно настраиваться config-ом:
 
@@ -203,8 +204,8 @@ Scope:
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
   `direct-patch`, baseline/Codex-shaped/staged workflows вынесены как plugin ids
-  `coding.single_loop`, `coding.codex_loop` и `coding.plan_execute_review` в
-  `coding-workflow`.
+  `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и
+  `coding.plan_execute_review` в `coding-workflow`.
   Context builders `simple`, `repo_aware` и `codex_context` вынесены в
   `context-pack`,
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,

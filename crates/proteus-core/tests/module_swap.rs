@@ -11,7 +11,8 @@ use async_trait::async_trait;
 use codex_compactor::CodexCompactorPlugin;
 use codex_tool_exposure::CodexDynamicToolExposurePlugin;
 use coding_workflow::{
-    CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow,
+    CodingCodexLoopDiagnosticWorkflow, CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow,
+    CodingSingleLoopWorkflow,
 };
 use context_pack::{
     CodexContextBuilderPlugin, RepoAwareContextBuilderPlugin, SimpleContextBuilderPlugin,
@@ -287,6 +288,12 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginWorkflow_TO::from_value(CodingCodexLoopWorkflow, TD_Opaque),
         )
         .expect("register test codex loop workflow");
+    catalog
+        .register_plugin_workflow(
+            "coding.codex_loop_diagnostic",
+            PluginWorkflow_TO::from_value(CodingCodexLoopDiagnosticWorkflow, TD_Opaque),
+        )
+        .expect("register test diagnostic codex loop workflow");
     catalog
         .register_plugin_workflow(
             "coding.plan_execute_review",
@@ -3078,7 +3085,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.modules.workflow, "coding.codex_loop");
+    assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
@@ -3174,7 +3181,7 @@ async fn legacy_codex_example_toml_includes_named_codex_config() {
     .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.modules.workflow, "coding.codex_loop");
+    assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.compactor, "codex");
 }

@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 
 const SINGLE_LOOP_MODULE_ID: &str = "coding.single_loop";
 const CODEX_LOOP_MODULE_ID: &str = "coding.codex_loop";
+const CODEX_LOOP_DIAGNOSTIC_MODULE_ID: &str = "coding.codex_loop_diagnostic";
 const PLAN_EXECUTE_REVIEW_MODULE_ID: &str = "coding.plan_execute_review";
 const MAX_TOOL_ROUNDS: usize = 8;
 const SYSTEM_INSTRUCTIONS: &str = "\
@@ -84,6 +85,13 @@ impl Default for CodingSingleLoopWorkflow {
 }
 pub struct CodingPlanExecuteReviewWorkflow;
 pub struct CodingCodexLoopWorkflow;
+pub struct CodingCodexLoopDiagnosticWorkflow;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmptyFinalResponseMode {
+    Strict,
+    LastToolResultDiagnostic,
+}
 
 struct PreparedRequest {
     request: CanonicalModelRequest,
@@ -133,7 +141,38 @@ impl PluginWorkflow for CodingCodexLoopWorkflow {
             Err(error) => return workflow_err(error),
         };
 
-        match run_codex_loop(input, host) {
+        match run_codex_loop(
+            input,
+            host,
+            CODEX_LOOP_MODULE_ID,
+            EmptyFinalResponseMode::Strict,
+        ) {
+            Ok(output) => match serde_json::to_string(&output) {
+                Ok(json) => RResult::ROk(RString::from(json)),
+                Err(error) => workflow_err(error),
+            },
+            Err(error) => RResult::RErr(error),
+        }
+    }
+}
+
+impl PluginWorkflow for CodingCodexLoopDiagnosticWorkflow {
+    fn run_json(
+        &self,
+        input_json: RString,
+        host: &mut PluginWorkflowHostMut<'_>,
+    ) -> RResult<RString, PluginWorkflowError> {
+        let input: PluginWorkflowInput = match serde_json::from_str(input_json.as_str()) {
+            Ok(input) => input,
+            Err(error) => return workflow_err(error),
+        };
+
+        match run_codex_loop(
+            input,
+            host,
+            CODEX_LOOP_DIAGNOSTIC_MODULE_ID,
+            EmptyFinalResponseMode::LastToolResultDiagnostic,
+        ) {
             Ok(output) => match serde_json::to_string(&output) {
                 Ok(json) => RResult::ROk(RString::from(json)),
                 Err(error) => workflow_err(error),
@@ -351,6 +390,8 @@ fn run_single_loop(
 fn run_codex_loop(
     input: PluginWorkflowInput,
     host: &mut PluginWorkflowHostMut<'_>,
+    module_id: &str,
+    empty_final_response_mode: EmptyFinalResponseMode,
 ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
     emit_event(
         host,
@@ -383,6 +424,7 @@ fn run_codex_loop(
                 .with_name("context"),
         );
     }
+    let mut current_turn_messages_start = model_messages.len();
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
 
@@ -405,6 +447,8 @@ fn run_codex_loop(
                     current_user_message_id,
                     &[],
                 )?;
+                current_turn_messages_start =
+                    current_turn_start(&model_messages, current_user_message_id);
             }
         }
         let request = prepared.request;
@@ -447,9 +491,15 @@ fn run_codex_loop(
         }
 
         let output = AgentOutput::new(
-            message_text(&assistant_message),
+            match empty_final_response_mode {
+                EmptyFinalResponseMode::Strict => message_text(&assistant_message),
+                EmptyFinalResponseMode::LastToolResultDiagnostic => output_text(
+                    &assistant_message,
+                    &model_messages[current_turn_messages_start..],
+                ),
+            },
             output_metadata_with_extra(
-                CODEX_LOOP_MODULE_ID,
+                module_id,
                 &input,
                 &model_messages,
                 context_chunks,
@@ -1507,6 +1557,15 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
+    let codex_diagnostic_workflow: WorkflowObject =
+        PluginWorkflow_TO::from_value(CodingCodexLoopDiagnosticWorkflow, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_workflow(
+        RString::from(CODEX_LOOP_DIAGNOSTIC_MODULE_ID),
+        codex_diagnostic_workflow,
+    ) {
+        return RResult::RErr(err);
+    }
+
     let plan_workflow: WorkflowObject =
         PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque);
     registry.register_workflow(RString::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
@@ -1517,7 +1576,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("coding-workflow"),
         description: RStr::from_str(
-            "Workflow plugin providing coding.single_loop, coding.codex_loop, and coding.plan_execute_review through the workflow host API",
+            "Workflow plugin providing coding.single_loop, coding.codex_loop, coding.codex_loop_diagnostic, and coding.plan_execute_review through the workflow host API",
         ),
         register_modules,
     }

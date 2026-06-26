@@ -391,14 +391,20 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 `coding.single_loop`, чтобы обычный чат и простые coding-запросы не проходили
 через лишние plan/execute/review model calls.
 
-`coding.codex_loop` - экспериментальный workflow для named config `codex`
-(`codex.config.toml`).
+`coding.codex_loop` - экспериментальный strict Codex-shaped workflow.
 Он использует тот же event/runtime contract, но ведёт один Codex-shaped
 model/tool loop: model request с tools, tool execution через workflow host,
 следующий model request с обновлённой историей. Первый response без tool calls
 становится финальным ответом. Отдельного forced final request без tools нет;
 внутреннего лимита tool rounds нет, а пустой финальный ответ не подменяется
 последним tool result.
+
+`coding.codex_loop_diagnostic` - variant для named config `codex`
+(`codex.config.toml`). Он использует тот же loop, но если модель после tool call
+вернула пустой финальный assistant-message, итоговый `AgentOutput.text`
+содержит диагностическое сообщение и последний `ToolResult`. Это не меняет
+history и model protocol, но делает MCP/tool smoke-тесты читаемыми вместо
+`<empty model response>`.
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в

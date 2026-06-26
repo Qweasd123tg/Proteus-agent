@@ -6,7 +6,7 @@ name = "codex-experimental"
 [modules]
 # Experimental Codex-shaped profile. Keep this profile explicit so baseline
 # coding profiles do not inherit Codex parity experiments by accident.
-workflow = "coding.codex_loop"
+workflow = "coding.codex_loop_diagnostic"
 search = "rg"
 memory = "none"
 memory_policy = "none"

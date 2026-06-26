@@ -145,7 +145,8 @@ Runtime должен сохранять эти свойства:
   diff summary без записи в conversation history;
 - line-oriented edit/git tools через `ToolRegistry`;
 - diff-first approval для write/patch tools;
-- `coding.codex_loop` и `coding.plan_execute_review` как plugin `Workflow`,
+- `coding.codex_loop`, `coding.codex_loop_diagnostic` и
+  `coding.plan_execute_review` как plugin `Workflow`,
   вынесенные из core;
 - eval report поверх event log для сравнения workflow/context/edit связок;
 - streaming model path;
