@@ -157,11 +157,27 @@ impl OpenAiResponsesClient {
         let fallback_request = request.clone();
         let mut sse = response.bytes_stream().eventsource();
         let events = async_stream::stream! {
+            // Накапливаем финализированные output-item'ы из response.output_item.done.
+            // Некоторые OpenAI-совместимые прокси отдают response.completed с пустым
+            // output, хотя сами item'ы (message/function_call) уже были доставлены
+            // через output_item.done. Без этого ход теряется как <empty model response>.
+            let mut completed_items: Vec<Value> = Vec::new();
             while let Some(chunk) = sse.next().await {
                 match chunk {
                     Ok(event) => {
+                        if event.event == "response.output_item.done"
+                            && let Ok(parsed) = serde_json::from_str::<Value>(&event.data)
+                            && let Some(item) = parsed.get("item")
+                        {
+                            completed_items.push(item.clone());
+                        }
+                        let mapped = if event.event == "response.completed" {
+                            finalize_completed_event(&event.data, &completed_items)
+                        } else {
+                            translate_sse_event(&event.event, &event.data)
+                        };
                         let mut saw_response = false;
-                        for mapped in translate_sse_event(&event.event, &event.data) {
+                        for mapped in mapped {
                             if matches!(mapped, ModelStreamEvent::Response { .. }) {
                                 saw_response = true;
                             }
@@ -279,6 +295,31 @@ fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
             vec![ModelStreamEvent::Error { message }]
         }
         _ => Vec::new(),
+    }
+}
+
+/// Строит финальный Response из события response.completed. Если прокси
+/// прислал пустой `output` (хотя item'ы были доставлены через
+/// response.output_item.done) — подставляем накопленные item'ы, иначе
+/// настоящий ответ модели теряется как <empty model response>.
+fn finalize_completed_event(data: &str, fallback_items: &[Value]) -> Vec<ModelStreamEvent> {
+    let Ok(parsed) = serde_json::from_str::<Value>(data) else {
+        return Vec::new();
+    };
+    let mut response_value = parsed.get("response").cloned().unwrap_or(parsed);
+    let output_is_empty = response_value
+        .get("output")
+        .and_then(Value::as_array)
+        .map(|items| items.is_empty())
+        .unwrap_or(true);
+    if output_is_empty && !fallback_items.is_empty() {
+        response_value["output"] = Value::Array(fallback_items.to_vec());
+    }
+    match from_openai_response(response_value) {
+        Ok(response) => vec![ModelStreamEvent::Response { response }],
+        Err(error) => vec![ModelStreamEvent::Error {
+            message: format!("failed to parse final response: {error}"),
+        }],
     }
 }
 
@@ -889,6 +930,71 @@ mod tests {
                 .iter()
                 .all(|part| !matches!(part, ContentPart::ToolCall { .. }))
         );
+    }
+
+    #[test]
+    fn empty_completed_output_recovered_from_output_item_done() {
+        // Прокси отдал response.completed с пустым output, но message-item был
+        // доставлен через output_item.done — финальный ответ берём из него.
+        let fallback_items = vec![json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{ "type": "output_text", "text": "recovered answer" }]
+        })];
+        let completed = json!({
+            "type": "response.completed",
+            "response": { "status": "completed", "output": [],
+                "usage": { "input_tokens": 5, "output_tokens": 3 } }
+        })
+        .to_string();
+
+        let events = finalize_completed_event(&completed, &fallback_items);
+        let [ModelStreamEvent::Response { response }] = events.as_slice() else {
+            panic!("expected single Response event");
+        };
+        assert_eq!(response.finish_reason, FinishReason::Stop);
+        let text: String = response
+            .message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, "recovered answer");
+    }
+
+    #[test]
+    fn nonempty_completed_output_ignores_fallback_items() {
+        // Когда output непустой — fallback не подставляется, дублирования нет.
+        let fallback_items = vec![json!({
+            "type": "message", "role": "assistant",
+            "content": [{ "type": "output_text", "text": "FALLBACK" }]
+        })];
+        let completed = json!({
+            "type": "response.completed",
+            "response": { "status": "completed", "output": [{
+                "type": "message", "role": "assistant",
+                "content": [{ "type": "output_text", "text": "real answer" }]
+            }], "usage": { "input_tokens": 5, "output_tokens": 3 } }
+        })
+        .to_string();
+
+        let events = finalize_completed_event(&completed, &fallback_items);
+        let [ModelStreamEvent::Response { response }] = events.as_slice() else {
+            panic!("expected single Response event");
+        };
+        let text: String = response
+            .message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, "real answer");
     }
 
     #[test]
