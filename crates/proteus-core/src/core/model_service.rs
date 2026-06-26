@@ -8,8 +8,8 @@ use crate::{
     contracts::{EventEmitter, ModelAdapter, ModelClient, ModelEventStream},
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
-        ModelCapabilities, ModelStreamEvent, RequestShaper,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        MessageRole, ModelCapabilities, ModelStreamEvent, RequestShaper,
     },
 };
 
@@ -100,7 +100,28 @@ impl ModelClient for ModelService {
         while let Some(event) = stream.next().await {
             let event = event?;
             match event {
-                ModelStreamEvent::Response { response } => return Ok(response),
+                ModelStreamEvent::Response { response } => {
+                    // Некоторые OpenAI-совместимые прокси стримят ответ через
+                    // output_text.delta, но в финальном response.completed
+                    // возвращают пустой output. Тогда финальный Response пуст,
+                    // хотя текст уже пришёл в дельтах. Без восстановления ход
+                    // теряется: <empty model response> в UI и пустой parts в
+                    // персисте (история исчезает после перезахода).
+                    if !text.is_empty() && response_lacks_emittable_content(&response) {
+                        let mut recovered = CanonicalModelResponse::new(
+                            CanonicalMessage::text(MessageRole::Assistant, std::mem::take(&mut text)),
+                            response.tool_calls.clone(),
+                            response.finish_reason.clone(),
+                        );
+                        if let Some(usage) = response.usage.clone() {
+                            recovered = recovered.with_usage(usage);
+                        }
+                        // Сохраняем сырой ответ провайдера для диагностики.
+                        recovered.provider_metadata = response.provider_metadata.clone();
+                        return Ok(recovered);
+                    }
+                    return Ok(response);
+                }
                 ModelStreamEvent::Error { message } => {
                     return Err(anyhow!("model stream error: {message}"));
                 }
@@ -175,6 +196,18 @@ async fn emit_delta(ctx: &DeltaEventContext, event: Event) {
     // Ошибки эмиссии намеренно игнорируем: сломавшийся sink не должен
     // валить model call.
     let _ = emitter.emit(envelope_ctx, event).await;
+}
+
+/// Финальный Response не несёт ничего, что можно показать пользователю:
+/// нет tool_calls и нет непустых text-частей. Используется, чтобы решить,
+/// нужно ли восстанавливать ответ из накопленных stream-дельт.
+fn response_lacks_emittable_content(response: &CanonicalModelResponse) -> bool {
+    response.tool_calls.is_empty()
+        && !response
+            .message
+            .parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Text { text } if !text.trim().is_empty()))
 }
 
 #[cfg(test)]
@@ -264,6 +297,31 @@ mod tests {
         ]));
         let service = ModelService::new(adapter);
         let response = service.complete(sample_request()).await.unwrap();
+        assert_eq!(response.finish_reason, FinishReason::Stop);
+    }
+
+    #[tokio::test]
+    async fn empty_final_response_recovers_streamed_text() {
+        // Прокси отдал текст в дельтах, но в финальном response.completed
+        // вернул пустой output. Текст должен восстановиться из дельт, а не
+        // потеряться как <empty model response>.
+        let empty = CanonicalModelResponse::new(
+            CanonicalMessage::new(MessageRole::Assistant, Vec::new()),
+            Vec::new(),
+            FinishReason::Stop,
+        );
+        let adapter = Arc::new(ScriptedAdapter::new(vec![
+            ModelStreamEvent::TextDelta { text: "the time ".into() },
+            ModelStreamEvent::TextDelta { text: "is 12:00".into() },
+            ModelStreamEvent::Response { response: empty },
+        ]));
+        let service = ModelService::new(adapter);
+        let response = service.complete(sample_request()).await.unwrap();
+        let text = response.message.parts.iter().find_map(|part| match part {
+            ContentPart::Text { text } => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(text.as_deref(), Some("the time is 12:00"));
         assert_eq!(response.finish_reason, FinishReason::Stop);
     }
 
