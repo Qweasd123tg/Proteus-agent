@@ -320,9 +320,10 @@ proteus doctor
   запускается через `--config codex`:
   отдельная сборка модулей для проверки `coding.codex_loop`, Codex-подобного
   `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
-  `codex-tool-exposure` и `codex` compactor. Bare named configs резолвятся
-  строго в `<name>.config.toml` из default config dir; локальный вариант
-  запускайте явным путём, например `--config ./codex.config.toml`. Старый
+  `codex-tool-exposure`, `codex` compactor и локального MCP smoke tool
+  `local_echo__echo`. Bare named configs резолвятся строго в
+  `<name>.config.toml` из default config dir; локальный вариант запускайте
+  явным путём, например `--config ./codex.config.toml`. Старый
   `proteus.codex.example.toml` оставлен как compatibility include.
 - `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
   Proteus: dynamic tool exposure, меньший context budget и только hot coding

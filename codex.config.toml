@@ -20,6 +20,14 @@ renderer = "statusline"
 [tools]
 enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "write_file", "shell", "remember_fact"]
 
+[[tools.mcp_servers]]
+name = "local_echo"
+command = "sh"
+args = ["examples/mcp/echo_server.sh"]
+safety = "RunsCommands"
+timeout_ms = 30000
+metadata = { scope = "local-smoke-test", category = "mcp", tags = ["mcp", "echo", "tool-test"] }
+
 [[tools.configured]]
 name = "apply_patch"
 description = "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON."
@@ -64,7 +72,7 @@ mode = "normal"
 
 [module_config.policy.codex_policy]
 allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact", "local_echo__echo"]
 deny = []
 
 [module_config.compactor.codex]
@@ -72,7 +80,7 @@ trigger_fraction = 0.8
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input"]
+always_include = ["request_user_input", "local_echo__echo"]
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
