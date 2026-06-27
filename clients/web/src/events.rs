@@ -5,7 +5,9 @@ use web_sys::{Event, EventSource, MessageEvent};
 
 use crate::actions::handle_command_response;
 use crate::api::{event_stream_url, get_json, js_error};
-use crate::app_helpers::{load_sidebar_sessions, replace_transcript, save_context_usage};
+use crate::app_helpers::{
+    apply_active_session_activity, load_sidebar_sessions, replace_transcript, save_context_usage,
+};
 use crate::messages::{
     append_streaming_assistant_delta, finish_active_streaming_assistant_message,
     finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
@@ -45,6 +47,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_event_count: WriteSignal<u64>,
     pub(crate) set_workspace_label: WriteSignal<String>,
     pub(crate) set_session_label: WriteSignal<String>,
+    pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
@@ -167,6 +170,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     output_event_count,
                     bindings.set_workspace_label,
                     bindings.set_session_label,
+                    bindings.active_session_dir,
                     bindings.set_active_session_dir,
                     bindings.set_is_sending,
                     bindings.set_active_turn_id,
@@ -240,6 +244,7 @@ fn handle_app_output(
     set_event_count: WriteSignal<u64>,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    active_session_dir: ReadSignal<Option<String>>,
     set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
@@ -269,6 +274,7 @@ fn handle_app_output(
                 set_transport_status,
                 set_workspace_label,
                 set_session_label,
+                active_session_dir,
                 set_active_session_dir,
                 set_is_sending,
                 set_active_turn_id,
@@ -305,6 +311,7 @@ fn handle_app_event(
     set_transport_status: WriteSignal<TransportStatus>,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
+    active_session_dir: ReadSignal<Option<String>>,
     set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_turn_id: WriteSignal<Option<String>>,
@@ -447,6 +454,14 @@ fn handle_app_event(
             session_dir,
             activity,
         } => {
+            if active_session_dir.get_untracked().as_deref() == Some(session_dir.as_str()) {
+                apply_active_session_activity(
+                    Some(&activity),
+                    set_is_sending,
+                    set_active_turn_id,
+                    set_agent_status,
+                );
+            }
             let mut found = false;
             set_sidebar_sessions.update(|items| {
                 if let Some(session) = items

@@ -457,6 +457,7 @@ async fn known_session_summary_value(
 fn session_activity_is_idle(activity: &AppSessionActivity) -> bool {
     activity.status == AppSessionActivityStatus::Idle
         && activity.running_turns == 0
+        && activity.running_turn_ids.is_empty()
         && activity.pending_approvals == 0
         && activity.pending_user_inputs == 0
 }
@@ -739,9 +740,18 @@ async fn spawn_send_turn(
 ) -> Result<oneshot::Receiver<Result<AgentOutput>>> {
     let session_dir = server.session_dir_path();
     if let Some(turn_id) = turn_id.as_deref() {
+        let session_key = session_dir.clone().map(canonical_session_key);
         let mut running_turns = state.running_turns.lock().await;
         if running_turns.contains_key(turn_id) {
             return Err(anyhow!("turn id is already running: {turn_id}"));
+        }
+        if let Some((existing_turn_id, _)) = running_turns
+            .iter()
+            .find(|(_, turn)| turn.session_dir == session_key)
+        {
+            return Err(anyhow!(
+                "session already has a running turn: {existing_turn_id}"
+            ));
         }
         running_turns.insert(
             turn_id.to_owned(),
@@ -886,7 +896,7 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(existing) = state.server_for_session_dir(&session_dir).await {
         state.set_current_server(existing.clone()).await;
-        return Ok(existing.config_summary().await);
+        return config_summary_with_activity(state, &existing).await;
     }
 
     let config = current.config.read().await.clone();
@@ -896,8 +906,23 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
         current.config_path.as_deref(),
         session_dir,
     )?;
-    let summary = next.config_summary().await;
     state.set_current_server(next).await;
+    let next = state.current_server().await;
+    let summary = config_summary_with_activity(state, &next).await?;
+    Ok(summary)
+}
+
+async fn config_summary_with_activity(
+    state: &HttpAppState,
+    server: &AppServerHandle,
+) -> Result<Value> {
+    let mut summary = server.config_summary().await;
+    if let Value::Object(fields) = &mut summary {
+        fields.insert(
+            "activity".to_owned(),
+            serde_json::to_value(state.activity_for_server(server).await)?,
+        );
+    }
     Ok(summary)
 }
 

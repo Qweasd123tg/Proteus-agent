@@ -1257,6 +1257,14 @@ async fn route_new_session_keeps_background_turn_registered() {
             .and_then(Value::as_str),
         Some("running")
     );
+    assert_eq!(
+        background
+            .pointer("/activity/running_turn_ids")
+            .and_then(Value::as_array)
+            .and_then(|ids| ids.first())
+            .and_then(Value::as_str),
+        Some("turn-background")
+    );
 
     cancellation.cancel();
     server.shutdown().await;
@@ -1362,6 +1370,14 @@ async fn route_resume_reuses_live_session_without_materialized_metadata() {
     .await
     .expect("new session response");
     assert_eq!(response.status(), StatusCode::OK);
+    let original_cancellation = CancellationToken::new();
+    state.running_turns.lock().await.insert(
+        "turn-original".to_owned(),
+        RunningTurn::new(
+            original_cancellation.clone(),
+            Some(PathBuf::from(&original_session_dir)),
+        ),
+    );
 
     let response = route_request(
         state.clone(),
@@ -1391,6 +1407,18 @@ async fn route_resume_reuses_live_session_without_materialized_metadata() {
         Some(original_session_dir.as_str())
     );
     assert_eq!(
+        summary.pointer("/activity/status").and_then(Value::as_str),
+        Some("running")
+    );
+    assert_eq!(
+        summary
+            .pointer("/activity/running_turn_ids")
+            .and_then(Value::as_array)
+            .and_then(|ids| ids.first())
+            .and_then(Value::as_str),
+        Some("turn-original")
+    );
+    assert_eq!(
         state
             .current_server()
             .await
@@ -1401,6 +1429,7 @@ async fn route_resume_reuses_live_session_without_materialized_metadata() {
         Some(original_session_dir.as_str())
     );
 
+    original_cancellation.cancel();
     state.current_server().await.shutdown().await;
 }
 
@@ -1587,6 +1616,47 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
     assert!(state.running_turns.lock().await.is_empty());
 
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_send_async_rejects_second_turn_for_same_session() {
+    let (state, server) = dogfood_loop_state().await;
+    let existing_cancellation = CancellationToken::new();
+    state.running_turns.lock().await.insert(
+        "turn-existing".to_owned(),
+        RunningTurn::new(existing_cancellation.clone(), server.session_dir_path()),
+    );
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/send-async",
+            json!({
+                "id": "turn-next",
+                "text": "hello",
+            }),
+        ),
+    )
+    .await
+    .expect("send-async response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    match response_output(response).await {
+        StdioOutput::Response { id, ok, error, .. } => {
+            assert_eq!(id.as_deref(), Some("turn-next"));
+            assert!(!ok);
+            assert_eq!(
+                error.as_deref(),
+                Some("session already has a running turn: turn-existing")
+            );
+        }
+        StdioOutput::Event { .. } => panic!("expected command response"),
+        _ => panic!("unexpected output variant"),
+    }
+    assert!(!state.running_turns.lock().await.contains_key("turn-next"));
+
+    existing_cancellation.cancel();
     server.shutdown().await;
 }
 

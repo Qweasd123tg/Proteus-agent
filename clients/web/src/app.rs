@@ -250,6 +250,7 @@ pub(crate) fn App() -> impl IntoView {
         set_event_count,
         set_workspace_label,
         set_session_label,
+        active_session_dir,
         set_active_session_dir,
         set_is_sending,
         set_active_turn_id,
@@ -662,11 +663,14 @@ pub(crate) fn App() -> impl IntoView {
         set_messages.set(Vec::new());
         set_next_message_id.set(1);
         set_queued_prompts.set(Vec::new());
-        set_is_sending.set(false);
-        set_active_turn_id.set(None);
         set_active_stream_message_id.set(None);
         set_streamed_this_turn.set(false);
-        set_agent_status.set("ожидает".to_owned());
+        apply_active_session_activity(
+            session.activity.as_ref(),
+            set_is_sending,
+            set_active_turn_id,
+            set_agent_status,
+        );
         set_tool_activities.set(Vec::new());
         set_pending_approvals.set(Vec::new());
         set_pending_user_inputs.set(Vec::new());
@@ -691,9 +695,24 @@ pub(crate) fn App() -> impl IntoView {
             )
             .await
             {
-                Ok(StdioOutput::Response { ok: true, .. }) => {
+                Ok(StdioOutput::Response {
+                    ok: true, output, ..
+                }) => {
                     if transcript_generation.get_untracked() != expected_generation {
                         return;
+                    }
+                    if let Some(activity) = output
+                        .as_ref()
+                        .and_then(|value| value.get("activity"))
+                        .cloned()
+                        .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())
+                    {
+                        apply_active_session_activity(
+                            Some(&activity),
+                            set_is_sending,
+                            set_active_turn_id,
+                            set_agent_status,
+                        );
                     }
                     set_sidebar_sessions_status.set("сессия открыта".to_owned());
                     reconnect_event_stream(event_source, event_stream_bindings);

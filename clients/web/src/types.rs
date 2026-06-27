@@ -349,6 +349,8 @@ pub(crate) struct SessionActivityInfo {
     #[serde(default)]
     pub(crate) running_turns: usize,
     #[serde(default)]
+    pub(crate) running_turn_ids: Vec<String>,
+    #[serde(default)]
     pub(crate) pending_approvals: usize,
     #[serde(default)]
     pub(crate) pending_user_inputs: usize,

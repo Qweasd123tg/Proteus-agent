@@ -266,13 +266,23 @@ HTTP/SSE transport:
   turns других sessions;
 - `POST /clear` и `/shutdown` - control-plane команды без body.
 
+Live `activity` в session summary и `SessionActivityUpdated` содержит
+`status`, счётчики pending/running и `running_turn_ids`. Этот snapshot является
+source of truth для sidebar и активного чата после `/resume` или SSE reconnect:
+клиент восстанавливает working status, блокировку composer и target для
+`/cancel` из activity, а не только из локального состояния текущего окна.
+`/resume` также возвращает свежий `activity` в response summary, чтобы клиент
+не ждал следующего SSE event для блокировки composer.
+
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`, даже если
 пользователь уже переключился на другую session.
-`POST /request` сохраняет stdio-compatible поведение и работает с текущей
-выбранной session; для parallel-session UI нужно использовать короткие HTTP
-endpoint'ы с явным `session_dir`.
+HTTP app-server принимает только один running turn на session: второй
+`/send-async` в ту же session получает protocol error, а разные sessions могут
+работать параллельно. `POST /request` сохраняет stdio-compatible поведение и
+работает с текущей выбранной session; для parallel-session UI нужно
+использовать короткие HTTP endpoint'ы с явным `session_dir`.
 Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
 delete или shutdown. Если SSE connection оборвался до доставки
 `ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`

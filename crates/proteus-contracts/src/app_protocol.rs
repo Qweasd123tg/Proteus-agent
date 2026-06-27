@@ -98,6 +98,8 @@ pub struct AppSessionActivity {
     pub status: AppSessionActivityStatus,
     #[serde(default)]
     pub running_turns: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub running_turn_ids: Vec<String>,
     #[serde(default)]
     pub pending_approvals: usize,
     #[serde(default)]
@@ -146,9 +148,24 @@ impl AppSessionActivity {
         Self {
             status,
             running_turns,
+            running_turn_ids: Vec::new(),
             pending_approvals,
             pending_user_inputs,
         }
+    }
+
+    pub fn from_running_turn_ids(
+        running_turn_ids: Vec<String>,
+        pending_approvals: usize,
+        pending_user_inputs: usize,
+    ) -> Self {
+        let mut activity = Self::from_counts(
+            running_turn_ids.len(),
+            pending_approvals,
+            pending_user_inputs,
+        );
+        activity.running_turn_ids = running_turn_ids;
+        activity
     }
 }
 
@@ -478,6 +495,28 @@ mod tests {
         let value = serde_json::to_value(activity).expect("activity JSON");
 
         assert_eq!(value["status"], "running");
+    }
+
+    #[test]
+    fn session_activity_can_carry_running_turn_ids() {
+        let activity = AppSessionActivity::from_running_turn_ids(
+            vec!["turn-2".to_owned(), "turn-1".to_owned()],
+            0,
+            0,
+        );
+        let value = serde_json::to_value(&activity).expect("activity JSON");
+
+        assert_eq!(activity.running_turns, 2);
+        assert_eq!(
+            value["running_turn_ids"],
+            serde_json::json!(["turn-2", "turn-1"])
+        );
+
+        let decoded: AppSessionActivity = serde_json::from_value(value).expect("activity decode");
+        assert_eq!(
+            decoded.running_turn_ids,
+            vec!["turn-2".to_owned(), "turn-1".to_owned()]
+        );
     }
 
     #[test]

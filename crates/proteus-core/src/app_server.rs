@@ -317,10 +317,14 @@ impl AppServerHandle {
             .contains_key(request_id)
     }
 
-    pub async fn session_activity(&self, running_turns: usize) -> AppSessionActivity {
+    pub async fn session_activity(&self, running_turn_ids: Vec<String>) -> AppSessionActivity {
         let pending_approvals = self.pending_approvals.lock().await.len();
         let pending_user_inputs = self.pending_user_inputs.lock().await.len();
-        AppSessionActivity::from_counts(running_turns, pending_approvals, pending_user_inputs)
+        AppSessionActivity::from_running_turn_ids(
+            running_turn_ids,
+            pending_approvals,
+            pending_user_inputs,
+        )
     }
 
     pub async fn respond_approval(

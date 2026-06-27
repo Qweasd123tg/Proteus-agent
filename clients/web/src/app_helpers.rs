@@ -228,6 +228,59 @@ pub(crate) fn sidebar_session_activity_label(
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ActiveSessionActivityState {
+    pub(crate) is_sending: bool,
+    pub(crate) active_turn_id: Option<String>,
+    pub(crate) agent_status: String,
+}
+
+pub(crate) fn active_session_activity_state(
+    activity: Option<&SessionActivityInfo>,
+) -> ActiveSessionActivityState {
+    let is_sending = activity.is_some_and(session_activity_is_busy);
+    let active_turn_id = activity
+        .and_then(|activity| activity.running_turn_ids.first())
+        .cloned();
+    let agent_status = match activity.map(|activity| activity.status.as_str()) {
+        Some("waiting_input") => "ждёт ответ",
+        Some("waiting_approval") => "ждёт доступ",
+        Some("running") => "работает",
+        Some("idle") | None => "ожидает",
+        Some(other) if !other.trim().is_empty() => other,
+        Some(_) => "ожидает",
+    }
+    .replace('_', " ");
+
+    ActiveSessionActivityState {
+        is_sending,
+        active_turn_id,
+        agent_status,
+    }
+}
+
+pub(crate) fn apply_active_session_activity(
+    activity: Option<&SessionActivityInfo>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
+) {
+    let state = active_session_activity_state(activity);
+    set_is_sending.set(state.is_sending);
+    set_active_turn_id.set(state.active_turn_id);
+    set_agent_status.set(state.agent_status);
+}
+
+fn session_activity_is_busy(activity: &SessionActivityInfo) -> bool {
+    activity.running_turns > 0
+        || activity.pending_approvals > 0
+        || activity.pending_user_inputs > 0
+        || matches!(
+            activity.status.as_str(),
+            "running" | "waiting_approval" | "waiting_input"
+        )
+}
+
 pub(crate) fn sidebar_session_activity_dot_class(
     activity: Option<&SessionActivityInfo>,
 ) -> &'static str {
@@ -242,7 +295,7 @@ pub(crate) fn sidebar_session_activity_dot_class(
 pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
     let activity = session.activity.as_ref();
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         session.session_dir,
         session.message_count,
         session.updated_at_ms.unwrap_or_default(),
@@ -250,6 +303,9 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
         session.resumable,
         activity.map(|activity| activity.status.as_str()).unwrap_or(""),
         activity.map(|activity| activity.running_turns).unwrap_or(0),
+        activity
+            .map(|activity| activity.running_turn_ids.join(","))
+            .unwrap_or_default(),
         activity
             .map(|activity| activity.pending_approvals + activity.pending_user_inputs)
             .unwrap_or(0),
@@ -537,11 +593,52 @@ mod tests {
         session.activity = Some(SessionActivityInfo {
             status: "running".to_owned(),
             running_turns: 1,
+            running_turn_ids: vec!["turn-1".to_owned()],
             pending_approvals: 0,
             pending_user_inputs: 0,
         });
 
         assert_ne!(sidebar_session_render_key(&session), idle_key);
+    }
+
+    #[test]
+    fn active_session_activity_restores_running_turn_state() {
+        let activity = SessionActivityInfo {
+            status: "running".to_owned(),
+            running_turns: 1,
+            running_turn_ids: vec!["turn-1".to_owned()],
+            pending_approvals: 0,
+            pending_user_inputs: 0,
+        };
+
+        assert_eq!(
+            active_session_activity_state(Some(&activity)),
+            ActiveSessionActivityState {
+                is_sending: true,
+                active_turn_id: Some("turn-1".to_owned()),
+                agent_status: "работает".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn active_session_activity_idle_clears_turn_state() {
+        let activity = SessionActivityInfo {
+            status: "idle".to_owned(),
+            running_turns: 0,
+            running_turn_ids: Vec::new(),
+            pending_approvals: 0,
+            pending_user_inputs: 0,
+        };
+
+        assert_eq!(
+            active_session_activity_state(Some(&activity)),
+            ActiveSessionActivityState {
+                is_sending: false,
+                active_turn_id: None,
+                agent_status: "ожидает".to_owned(),
+            }
+        );
     }
 
     #[test]

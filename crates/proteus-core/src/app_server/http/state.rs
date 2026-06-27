@@ -141,27 +141,30 @@ impl HttpAppState {
         None
     }
 
-    pub(super) async fn running_turn_count_for(&self, session_dir: Option<&Path>) -> usize {
+    pub(super) async fn running_turn_ids_for(&self, session_dir: Option<&Path>) -> Vec<String> {
         let session_dir = session_dir.map(|path| session_key(path.to_path_buf()));
-        self.running_turns
+        let mut turn_ids = self
+            .running_turns
             .lock()
             .await
-            .values()
-            .filter(
-                |turn| match (turn.session_dir.as_deref(), session_dir.as_deref()) {
-                    (Some(left), Some(right)) => left == right,
-                    (None, None) => true,
-                    _ => false,
-                },
-            )
-            .count()
+            .iter()
+            .filter_map(|(turn_id, turn)| {
+                match (turn.session_dir.as_deref(), session_dir.as_deref()) {
+                    (Some(left), Some(right)) if left == right => Some(turn_id.clone()),
+                    (None, None) => Some(turn_id.clone()),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        turn_ids.sort();
+        turn_ids
     }
 
     pub(super) async fn activity_for_server(&self, server: &AppServerHandle) -> AppSessionActivity {
-        let running_turns = self
-            .running_turn_count_for(server.session_dir_path().as_deref())
+        let running_turn_ids = self
+            .running_turn_ids_for(server.session_dir_path().as_deref())
             .await;
-        server.session_activity(running_turns).await
+        server.session_activity(running_turn_ids).await
     }
 
     pub(super) async fn activity_by_session_dir(&self) -> HashMap<PathBuf, AppSessionActivity> {
