@@ -24,15 +24,16 @@ use tokio::{net::TcpListener, sync::broadcast};
 use crate::{
     contracts::CancellationToken,
     core::{
-        AppConfig, render_topology_map, render_topology_mermaid, render_topology_runtime_mermaid,
-        render_topology_runtime_path,
+        AppConfig, SessionStore, canonicalize_session_dir_path, render_topology_map,
+        render_topology_mermaid, render_topology_runtime_mermaid, render_topology_runtime_path,
     },
-    domain::AgentOutput,
+    domain::{AgentOutput, PermissionMode},
 };
 
 use super::{
-    AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity,
+    AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity, AppTranscriptMessage,
     protocol::{StdioOutput, StdioRequest},
+    transcript_messages,
 };
 
 mod config;
@@ -118,6 +119,7 @@ where
 {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
+    let query = request.uri().query().map(str::to_owned);
     let cors_origin = match validate_origin(&request, &state.security) {
         Ok(origin) => origin,
         Err(response) => return Ok(*response),
@@ -173,14 +175,14 @@ where
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
-        (Method::GET, "/history") => {
-            let transcript = state.current_server().await.transcript().await;
-            json_response(StatusCode::OK, &transcript)
-        }
         (Method::GET, "/pending") => {
             let pending = state.current_server().await.pending_requests().await;
             json_response(StatusCode::OK, &pending)
         }
+        (Method::GET, "/history") => match history_json(&state, query.as_deref()).await {
+            Ok(transcript) => json_response(StatusCode::OK, &transcript),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
+        },
         (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
@@ -189,21 +191,25 @@ where
         },
         (Method::POST, "/send") => match read_json::<SendRequest, _>(request).await {
             Ok(command) => {
-                let output = execute_app_request(
-                    &state,
-                    StdioRequest::Send {
-                        id: command.id,
-                        text: command.text,
-                    },
-                )
-                .await;
+                let id = command.id;
+                let output = command_response(
+                    id.clone(),
+                    execute_send(&state, id, command.text, command.session_dir)
+                        .await
+                        .and_then(|output| {
+                            serde_json::to_value(output)
+                                .map(Some)
+                                .map_err(anyhow::Error::from)
+                        }),
+                );
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
         (Method::POST, "/send-async") => match read_json::<SendRequest, _>(request).await {
             Ok(command) => {
-                let output = execute_send_async(&state, command.id, command.text).await;
+                let output =
+                    execute_send_async(&state, command.id, command.text, command.session_dir).await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
@@ -256,12 +262,11 @@ where
         },
         (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest, _>(request).await {
             Ok(command) => {
-                let output = execute_app_request(
+                let output = execute_set_permission_mode(
                     &state,
-                    StdioRequest::SetPermissionMode {
-                        id: command.id,
-                        mode: command.mode,
-                    },
+                    command.id,
+                    command.mode,
+                    command.session_dir,
                 )
                 .await;
                 json_response(StatusCode::OK, &output)
@@ -270,14 +275,8 @@ where
         },
         (Method::POST, "/model") => match read_json::<SetModelRequest, _>(request).await {
             Ok(command) => {
-                let output = execute_app_request(
-                    &state,
-                    StdioRequest::SetModel {
-                        id: command.id,
-                        model: command.model,
-                    },
-                )
-                .await;
+                let output =
+                    execute_set_model(&state, command.id, command.model, command.session_dir).await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
@@ -285,12 +284,11 @@ where
         (Method::POST, "/effort") => match read_json::<SetReasoningEffortRequest, _>(request).await
         {
             Ok(command) => {
-                let output = execute_app_request(
+                let output = execute_set_reasoning_effort(
                     &state,
-                    StdioRequest::SetReasoningEffort {
-                        id: command.id,
-                        effort: command.effort,
-                    },
+                    command.id,
+                    command.effort,
+                    command.session_dir,
                 )
                 .await;
                 json_response(StatusCode::OK, &output)
@@ -300,12 +298,11 @@ where
         (Method::POST, "/reasoning") => {
             match read_json::<SetReasoningEnabledRequest, _>(request).await {
                 Ok(command) => {
-                    let output = execute_app_request(
+                    let output = execute_set_reasoning_enabled(
                         &state,
-                        StdioRequest::SetReasoningEnabled {
-                            id: command.id,
-                            enabled: command.enabled,
-                        },
+                        command.id,
+                        command.enabled,
+                        command.session_dir,
                     )
                     .await;
                     json_response(StatusCode::OK, &output)
@@ -388,9 +385,10 @@ async fn session_summaries_json(
 
     for summary in summaries {
         let session_dir = summary.session_dir.clone();
-        seen.insert(session_dir.clone());
+        let session_key = session_dir_key(session_dir.clone());
+        seen.insert(session_key.clone());
         let mut value = serde_json::to_value(&summary)?;
-        if let Some(activity) = activity_by_dir.get(&session_dir)
+        if let Some(activity) = activity_by_dir.get(&session_key)
             && let Value::Object(fields) = &mut value
         {
             fields.insert("activity".to_owned(), serde_json::to_value(activity)?);
@@ -402,7 +400,8 @@ async fn session_summaries_json(
         let Some(session_dir) = server.session_dir_path() else {
             continue;
         };
-        if seen.contains(&session_dir) {
+        let session_key = session_dir_key(session_dir.clone());
+        if seen.contains(&session_key) {
             continue;
         }
         if current_workspace_only && !super::paths_equal(server.cwd_path(), current.cwd_path()) {
@@ -410,7 +409,7 @@ async fn session_summaries_json(
         }
         let activity = state.activity_for_server(&server).await;
         if let Some(value) = known_session_summary_value(&server, &session_dir, activity).await? {
-            seen.insert(session_dir);
+            seen.insert(session_key);
             values.push(value);
         }
     }
@@ -496,6 +495,100 @@ fn summary_session_dir(value: &Value) -> String {
         .to_owned()
 }
 
+async fn history_json(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<Vec<AppTranscriptMessage>> {
+    let Some(session_dir) = query_path_param(query, "session_dir")? else {
+        return Ok(state.current_server().await.transcript().await);
+    };
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    if let Some(server) = state.server_for_session_dir(&session_dir).await {
+        return Ok(server.transcript().await);
+    }
+
+    let messages = SessionStore::from_session_dir(session_dir).load_messages()?;
+    Ok(transcript_messages(&messages))
+}
+
+async fn server_for_optional_session(
+    state: &HttpAppState,
+    session_dir: Option<PathBuf>,
+) -> Result<AppServerHandle> {
+    let Some(session_dir) = session_dir else {
+        return Ok(state.current_server().await);
+    };
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    state
+        .server_for_session_dir(&session_dir)
+        .await
+        .ok_or_else(|| {
+            anyhow!(
+                "session is not active; resume it first: {}",
+                session_dir.display()
+            )
+        })
+}
+
+fn query_path_param(query: Option<&str>, name: &str) -> Result<Option<PathBuf>> {
+    let Some(query) = query else {
+        return Ok(None);
+    };
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key == name {
+            return Ok(Some(PathBuf::from(percent_decode_query_value(value)?)));
+        }
+    }
+    Ok(None)
+}
+
+fn percent_decode_query_value(value: &str) -> Result<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                decoded.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                if let (Some(high), Some(low)) =
+                    (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+                {
+                    decoded.push((high << 4) | low);
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(decoded).map_err(anyhow::Error::from)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn session_dir_key(session_dir: PathBuf) -> PathBuf {
+    canonicalize_session_dir_path(session_dir.clone()).unwrap_or(session_dir)
+}
+
 async fn read_json<T, B>(request: Request<B>) -> Result<T>
 where
     T: DeserializeOwned,
@@ -515,11 +608,15 @@ where
 async fn execute_app_request(state: &HttpAppState, request: StdioRequest) -> StdioOutput {
     let id = request.id();
     let result = match request {
-        StdioRequest::Send { id, text } => execute_send(state, id, text).await.and_then(|output| {
-            serde_json::to_value(output)
-                .map(Some)
-                .map_err(anyhow::Error::from)
-        }),
+        StdioRequest::Send { id, text } => {
+            execute_send(state, id, text, None)
+                .await
+                .and_then(|output| {
+                    serde_json::to_value(output)
+                        .map(Some)
+                        .map_err(anyhow::Error::from)
+                })
+        }
         StdioRequest::ClearHistory { .. } => state
             .current_server()
             .await
@@ -618,9 +715,10 @@ async fn execute_send(
     state: &HttpAppState,
     id: Option<String>,
     text: String,
+    session_dir: Option<PathBuf>,
 ) -> Result<AgentOutput> {
     let cancellation = CancellationToken::new();
-    let server = state.current_server().await;
+    let server = server_for_optional_session(state, session_dir).await?;
     let session_dir = server.session_dir_path();
     if let Some(turn_id) = id.as_deref() {
         let mut running_turns = state.running_turns.lock().await;
@@ -645,10 +743,18 @@ async fn execute_send(
     result
 }
 
-async fn execute_send_async(state: &HttpAppState, id: Option<String>, text: String) -> StdioOutput {
+async fn execute_send_async(
+    state: &HttpAppState,
+    id: Option<String>,
+    text: String,
+    session_dir: Option<PathBuf>,
+) -> StdioOutput {
     let turn_id = id.unwrap_or_else(new_session_token);
     let cancellation = CancellationToken::new();
-    let server = state.current_server().await;
+    let server = match server_for_optional_session(state, session_dir).await {
+        Ok(server) => server,
+        Err(error) => return command_response(Some(turn_id), Err(error)),
+    };
     let session_dir = server.session_dir_path();
     {
         let mut running_turns = state.running_turns.lock().await;
@@ -688,6 +794,66 @@ async fn execute_send_async(state: &HttpAppState, id: Option<String>, text: Stri
     )
 }
 
+async fn execute_set_permission_mode(
+    state: &HttpAppState,
+    id: Option<String>,
+    mode: PermissionMode,
+    session_dir: Option<PathBuf>,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_optional_session(state, session_dir).await?;
+        server.set_permission_mode(mode).await;
+        Ok(Some(json!({ "mode": mode })))
+    }
+    .await;
+    command_response(id, result)
+}
+
+async fn execute_set_model(
+    state: &HttpAppState,
+    id: Option<String>,
+    model: String,
+    session_dir: Option<PathBuf>,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_optional_session(state, session_dir).await?;
+        server.set_model_name(model.clone()).await;
+        Ok(Some(json!({ "model": model })))
+    }
+    .await;
+    command_response(id, result)
+}
+
+async fn execute_set_reasoning_effort(
+    state: &HttpAppState,
+    id: Option<String>,
+    effort: Option<String>,
+    session_dir: Option<PathBuf>,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_optional_session(state, session_dir).await?;
+        server.set_reasoning_effort(effort.clone()).await;
+        Ok(Some(json!({ "effort": effort })))
+    }
+    .await;
+    command_response(id, result)
+}
+
+async fn execute_set_reasoning_enabled(
+    state: &HttpAppState,
+    id: Option<String>,
+    enabled: bool,
+    session_dir: Option<PathBuf>,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_optional_session(state, session_dir).await?;
+        server.set_reasoning_enabled(enabled).await;
+        Ok(Some(json!({ "enabled": enabled })))
+    }
+    .await;
+    command_response(id, result)
+}
+
 async fn execute_resume(
     state: &HttpAppState,
     id: Option<String>,
@@ -713,7 +879,7 @@ async fn execute_delete_session(
 
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
     let current = state.current_server().await;
-    let session_dir = crate::core::normalize_session_dir_path(session_dir)?;
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(existing) = state.server_for_session_dir(&session_dir).await {
         state.set_current_server(existing.clone()).await;
         return Ok(existing.config_summary().await);
@@ -733,7 +899,7 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
 
 async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
     let current = state.current_server().await;
-    let session_dir = crate::core::normalize_session_dir_path(session_dir)?;
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
     let deleting_active = current.is_session_dir(&session_dir);
     let mut replacement_summary = None;
     if let Some(deleting_server) = state.server_for_session_dir(&session_dir).await {
@@ -770,7 +936,7 @@ async fn new_session(state: &HttpAppState) -> Result<Value> {
 }
 
 async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, note: &str) {
-    let session_dir = server.session_dir_path();
+    let session_dir = server.session_dir_path().map(session_dir_key);
     let active_turns = {
         let mut running_turns = state.running_turns.lock().await;
         let turn_ids = running_turns

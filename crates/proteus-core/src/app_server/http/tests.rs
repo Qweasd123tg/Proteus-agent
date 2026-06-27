@@ -239,6 +239,20 @@ async fn wait_for_user_input_request(
     }
 }
 
+async fn wait_for_transcript_text(
+    server: &AppServerHandle,
+    text: &str,
+) -> Vec<crate::app_server::AppTranscriptMessage> {
+    for _ in 0..50 {
+        let transcript = server.transcript().await;
+        if transcript.iter().any(|message| message.text == text) {
+            return transcript;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    server.transcript().await
+}
+
 #[test]
 fn protected_endpoints_require_session_token_except_health_and_preflight() {
     let security = test_security();
@@ -1019,6 +1033,60 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
 }
 
 #[tokio::test]
+async fn route_history_can_read_requested_session_without_switching_current() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let saved_session_id = crate::domain::new_session_id();
+    let saved_store =
+        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id);
+    saved_store
+        .append_messages(&[crate::model_standard::CanonicalMessage::text(
+            crate::model_standard::MessageRole::User,
+            "saved cold history",
+        )])
+        .await
+        .expect("append saved history");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&format!(
+            "/history?session_dir={}",
+            saved_store.session_dir().display()
+        )),
+    )
+    .await
+    .expect("history response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response_bytes(response).await;
+    let transcript: Vec<Value> = serde_json::from_slice(&bytes).expect("history JSON");
+    assert_eq!(transcript.len(), 1);
+    assert_eq!(
+        transcript[0].get("role").and_then(Value::as_str),
+        Some("user")
+    );
+    assert_eq!(
+        transcript[0].get("text").and_then(Value::as_str),
+        Some("saved cold history")
+    );
+    assert_ne!(
+        state.current_server().await.session_dir_path().as_deref(),
+        Some(saved_store.session_dir())
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn route_new_session_replaces_active_session_dir() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
@@ -1162,6 +1230,76 @@ async fn route_new_session_keeps_background_turn_registered() {
     );
 
     cancellation.cancel();
+    server.shutdown().await;
+    state.current_server().await.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_send_async_targets_requested_session_after_current_switches() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let original_session_dir = server
+        .config_summary()
+        .await
+        .get("session_dir")
+        .and_then(Value::as_str)
+        .expect("original session dir")
+        .to_owned();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request("/new-session", json!({ "id": "new-session" })),
+    )
+    .await
+    .expect("new session response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let current_after_switch = state.current_server().await;
+    assert!(!current_after_switch.is_session_dir(PathBuf::from(&original_session_dir).as_path()));
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/send-async",
+            json!({
+                "id": "send-old-session",
+                "text": "sent to original session",
+                "session_dir": original_session_dir,
+            }),
+        ),
+    )
+    .await
+    .expect("send response");
+    assert_eq!(response.status(), StatusCode::OK);
+    match response_output(response).await {
+        StdioOutput::Response { ok: true, .. } => {}
+        other => panic!("expected successful send response, got {other:?}"),
+    }
+
+    let original_transcript = wait_for_transcript_text(&server, "sent to original session").await;
+    assert!(
+        original_transcript
+            .iter()
+            .any(|message| message.role == "user" && message.text == "sent to original session")
+    );
+    assert!(
+        !state
+            .current_server()
+            .await
+            .transcript()
+            .await
+            .iter()
+            .any(|message| message.text == "sent to original session")
+    );
+
     server.shutdown().await;
     state.current_server().await.shutdown().await;
 }

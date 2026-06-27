@@ -409,7 +409,7 @@ impl AppServerHandle {
     }
 }
 
-fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTranscriptMessage> {
+pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTranscriptMessage> {
     let mut transcript = Vec::new();
     for message in messages {
         append_transcript_message(&mut transcript, message);

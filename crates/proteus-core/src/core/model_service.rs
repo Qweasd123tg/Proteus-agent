@@ -109,7 +109,10 @@ impl ModelClient for ModelService {
                     // персисте (история исчезает после перезахода).
                     if !text.is_empty() && response_lacks_emittable_content(&response) {
                         let mut recovered = CanonicalModelResponse::new(
-                            CanonicalMessage::text(MessageRole::Assistant, std::mem::take(&mut text)),
+                            CanonicalMessage::text(
+                                MessageRole::Assistant,
+                                std::mem::take(&mut text),
+                            ),
                             response.tool_calls.clone(),
                             response.finish_reason.clone(),
                         );
@@ -311,8 +314,12 @@ mod tests {
             FinishReason::Stop,
         );
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta { text: "the time ".into() },
-            ModelStreamEvent::TextDelta { text: "is 12:00".into() },
+            ModelStreamEvent::TextDelta {
+                text: "the time ".into(),
+            },
+            ModelStreamEvent::TextDelta {
+                text: "is 12:00".into(),
+            },
             ModelStreamEvent::Response { response: empty },
         ]));
         let service = ModelService::new(adapter);

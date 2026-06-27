@@ -1,12 +1,14 @@
 use std::{
+    collections::HashMap,
     path::{Component, Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex, OnceLock},
     time::UNIX_EPOCH,
 };
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
+use uuid::Uuid;
 
 use crate::{
     domain::SessionId,
@@ -58,26 +60,28 @@ impl SessionStore {
             .join(session_name);
         let messages_path = session_dir.join("messages.jsonl");
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
+        let lock = lock_for_messages_path(&messages_path);
         Self {
             session_dir,
             messages_path,
             metadata_path,
             session_id: Some(session_id),
             workspace_path: Some(canonical_or_original(cwd)),
-            lock: Arc::new(Mutex::new(())),
+            lock,
         }
     }
 
     pub fn from_session_dir(session_dir: PathBuf) -> Self {
         let messages_path = session_dir.join("messages.jsonl");
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
+        let lock = lock_for_messages_path(&messages_path);
         Self {
             session_dir,
             messages_path,
             metadata_path,
             session_id: None,
             workspace_path: None,
-            lock: Arc::new(Mutex::new(())),
+            lock,
         }
     }
 
@@ -167,7 +171,9 @@ impl SessionStore {
             })?;
         self.write_metadata_if_needed().await?;
 
-        let tmp_path = self.messages_path.with_extension("jsonl.tmp");
+        let tmp_path = self
+            .messages_path
+            .with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
         let mut content = Vec::new();
         for message in messages {
             let mut line = serde_json::to_vec(message)?;
@@ -345,6 +351,19 @@ pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
             .ok_or_else(|| anyhow!("messages.jsonl path has no parent session dir"));
     }
     Ok(session_path)
+}
+
+pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
+    let session_dir = normalize_session_dir_path(session_path)?;
+    if let Ok(canonical) = std::fs::canonicalize(&session_dir) {
+        return Ok(canonical);
+    }
+    if let (Some(parent), Some(name)) = (session_dir.parent(), session_dir.file_name())
+        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
+    {
+        return Ok(canonical_parent.join(name));
+    }
+    Ok(session_dir)
 }
 
 pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
@@ -528,6 +547,29 @@ fn sanitize_path_part(input: &str) -> String {
 
 fn canonical_or_original(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn lock_for_messages_path(messages_path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let key = canonicalize_message_lock_path(messages_path);
+    let locks = LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut locks = locks.lock().expect("session store lock map poisoned");
+    locks
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+fn canonicalize_message_lock_path(messages_path: &Path) -> PathBuf {
+    if let Ok(canonical) = std::fs::canonicalize(messages_path) {
+        return canonical;
+    }
+    if let (Some(parent), Some(name)) = (messages_path.parent(), messages_path.file_name())
+        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
+    {
+        return canonical_parent.join(name);
+    }
+    messages_path.to_path_buf()
 }
 
 #[cfg(test)]

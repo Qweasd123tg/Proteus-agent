@@ -3,7 +3,7 @@ use serde_json::Value;
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
-use crate::api::get_json;
+use crate::api::{encode_query_component, get_json};
 use crate::messages::report_error;
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
@@ -247,8 +247,28 @@ pub(crate) fn replace_transcript(
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
+    replace_transcript_for_session(
+        None,
+        set_messages,
+        transcript_generation,
+        expected_generation,
+        next_message_id,
+        set_next_message_id,
+        set_transport_status,
+    );
+}
+
+pub(crate) fn replace_transcript_for_session(
+    session_dir: Option<String>,
+    set_messages: WriteSignal<Vec<Message>>,
+    transcript_generation: ReadSignal<u64>,
+    expected_generation: u64,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    set_transport_status: WriteSignal<TransportStatus>,
+) {
     spawn_local(async move {
-        match get_json::<Vec<TranscriptMessage>>("/history").await {
+        match get_json::<Vec<TranscriptMessage>>(&history_path(session_dir.as_deref())).await {
             Ok(items) => {
                 if transcript_generation.get_untracked() != expected_generation {
                     return;
@@ -267,6 +287,16 @@ pub(crate) fn replace_transcript(
             ),
         }
     });
+}
+
+fn history_path(session_dir: Option<&str>) -> String {
+    match session_dir {
+        Some(session_dir) => format!(
+            "/history?session_dir={}",
+            encode_query_component(session_dir)
+        ),
+        None => "/history".to_owned(),
+    }
 }
 
 pub(crate) fn load_sidebar_sessions(

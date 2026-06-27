@@ -179,6 +179,10 @@ fn encode_uri_component(value: &str) -> String {
         .unwrap_or_else(|| value.to_owned())
 }
 
+pub(crate) fn encode_query_component(value: &str) -> String {
+    encode_uri_component(value)
+}
+
 fn decode_uri_component(value: &str) -> Option<String> {
     js_sys::decode_uri_component(value).ok()?.as_string()
 }

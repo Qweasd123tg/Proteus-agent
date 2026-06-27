@@ -11,6 +11,7 @@ pub(crate) struct AppActions {
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
+    pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) next_request_id: ReadSignal<u64>,
     pub(crate) set_next_request_id: WriteSignal<u64>,
     pub(crate) mode: ReadSignal<PermissionMode>,
@@ -30,6 +31,7 @@ pub(crate) struct AppActions {
 impl AppActions {
     pub(crate) fn set_permission_mode(self, new_mode: PermissionMode) {
         let previous_mode = self.mode.get();
+        let session_dir = self.active_session_dir.get_untracked();
         self.set_mode.set(new_mode);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
         spawn_local(async move {
@@ -38,6 +40,7 @@ impl AppActions {
                 &SetPermissionModeRequest {
                     id: Some(request_id),
                     mode: new_mode,
+                    session_dir,
                 },
             )
             .await
@@ -68,6 +71,7 @@ impl AppActions {
             return;
         }
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
+        let session_dir = self.active_session_dir.get_untracked();
         spawn_local(async move {
             let requested_model = new_model.clone();
             match post_json(
@@ -75,6 +79,7 @@ impl AppActions {
                 &SetModelRequest {
                     id: Some(request_id),
                     model: requested_model,
+                    session_dir,
                 },
             )
             .await
@@ -105,12 +110,14 @@ impl AppActions {
         }
         let request_id =
             take_request_id(self.next_request_id, self.set_next_request_id, "reasoning");
+        let session_dir = self.active_session_dir.get_untracked();
         spawn_local(async move {
             match post_json(
                 "/reasoning",
                 &SetReasoningEnabledRequest {
                     id: Some(request_id),
                     enabled,
+                    session_dir,
                 },
             )
             .await
@@ -145,12 +152,14 @@ impl AppActions {
         let effort_value = new_effort.effort();
         self.set_effort.set(new_effort);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
+        let session_dir = self.active_session_dir.get_untracked();
         spawn_local(async move {
             match post_json(
                 "/effort",
                 &SetReasoningEffortRequest {
                     id: Some(request_id),
                     effort: effort_value,
+                    session_dir,
                 },
             )
             .await
@@ -193,6 +202,7 @@ impl AppActions {
             .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
         let turn_id = request_id.clone();
+        let session_dir = self.active_session_dir.get_untracked();
         self.set_active_turn_id.set(Some(turn_id.clone()));
 
         spawn_local(async move {
@@ -202,6 +212,7 @@ impl AppActions {
                     &SetPermissionModeRequest {
                         id: mode_request_id,
                         mode: new_mode,
+                        session_dir: session_dir.clone(),
                     },
                 )
                 .await
@@ -239,6 +250,7 @@ impl AppActions {
                 &SendRequest {
                     id: Some(request_id),
                     text,
+                    session_dir,
                 },
             )
             .await

@@ -21,7 +21,7 @@ use crate::{
         AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig,
         SessionId, ThreadId, ToolSpec, new_session_id, new_thread_id, new_turn_id,
     },
-    model_standard::CanonicalMessage,
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
 pub struct AgentRuntime {
@@ -179,6 +179,8 @@ impl AgentRuntime {
         let snapshot = self.snapshot().await;
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = new_turn_id();
+        let task = AgentTask::new(text.clone(), self.services.cwd.clone());
+        let user_message = CanonicalMessage::text(MessageRole::User, text);
         if cancellation.is_cancelled() {
             anyhow::bail!("turn canceled by client");
         }
@@ -198,7 +200,8 @@ impl AgentRuntime {
                 },
             )
             .await?;
-        let task = AgentTask::new(text, self.services.cwd.clone());
+        let history = self.persist_current_user_message(&user_message).await?;
+        let previous_history_len = history.len();
         // Выставляем delta event context для ModelService, чтобы
         // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
         // правильным envelope (session/thread/turn). Без этого дельты
@@ -226,14 +229,12 @@ impl AgentRuntime {
         runtime_context.model_ref = model_ref;
         runtime_context.reasoning = reasoning;
         let runtime_context = runtime_context.with_cancellation(cancellation.clone());
-        let history = self.session.history.lock().await.clone();
-        let previous_history_len = history.len();
         let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
         let workflow = snapshot
             .registry
             .workflow
             .run(task.clone(), history, runtime_context);
-        let workflow_output = if workflow_timeout_ms == 0 {
+        let mut workflow_output = if workflow_timeout_ms == 0 {
             workflow.await?
         } else {
             timeout(Duration::from_millis(workflow_timeout_ms), workflow)
@@ -253,10 +254,20 @@ impl AgentRuntime {
         let new_messages_start = workflow_output
             .new_messages_start
             .unwrap_or(previous_history_len);
+        let current_user_already_persisted = reconcile_current_user_message(
+            &mut workflow_output.messages,
+            new_messages_start,
+            &user_message,
+        );
+        anyhow::ensure!(
+            current_user_already_persisted,
+            "workflow output did not preserve the current user message at new_messages_start {}",
+            new_messages_start,
+        );
         if !history_compacted {
             anyhow::ensure!(
-                workflow_output.messages.len() >= previous_history_len,
-                "workflow returned fewer messages than it received without compaction: output {}, input {}",
+                workflow_output.messages.len() > previous_history_len,
+                "workflow returned no current-turn messages without compaction: output {}, input {}",
                 workflow_output.messages.len(),
                 previous_history_len
             );
@@ -268,6 +279,8 @@ impl AgentRuntime {
             workflow_output.messages.len()
         );
         let new_messages = &workflow_output.messages[new_messages_start..];
+        let messages_to_persist_start = new_messages_start + 1;
+        let messages_to_persist = &workflow_output.messages[messages_to_persist_start..];
         let memory_output = snapshot
             .registry
             .memory_policy
@@ -300,11 +313,26 @@ impl AgentRuntime {
                     .replace_messages(&workflow_output.messages)
                     .await?;
             } else {
-                session_store.append_messages(new_messages).await?;
+                session_store.append_messages(messages_to_persist).await?;
             }
         }
         *history = workflow_output.messages;
         Ok(workflow_output.output)
+    }
+
+    async fn persist_current_user_message(
+        &self,
+        user_message: &CanonicalMessage,
+    ) -> Result<Vec<CanonicalMessage>> {
+        let mut history = self.session.history.lock().await;
+        let previous_history = history.clone();
+        history.push(user_message.clone());
+        if let Some(session_store) = &self.session.session_store {
+            session_store
+                .append_messages(std::slice::from_ref(user_message))
+                .await?;
+        }
+        Ok(previous_history)
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
@@ -662,6 +690,39 @@ pub fn config_store_root(path: &std::path::Path) -> PathBuf {
     parent.to_path_buf()
 }
 
+fn reconcile_current_user_message(
+    messages: &mut [CanonicalMessage],
+    new_messages_start: usize,
+    persisted_user_message: &CanonicalMessage,
+) -> bool {
+    let Some(message) = messages.get_mut(new_messages_start) else {
+        return false;
+    };
+    if !same_user_text(message, persisted_user_message) {
+        return false;
+    }
+    *message = persisted_user_message.clone();
+    true
+}
+
+fn same_user_text(left: &CanonicalMessage, right: &CanonicalMessage) -> bool {
+    left.role == MessageRole::User
+        && right.role == MessageRole::User
+        && canonical_text(left) == canonical_text(right)
+}
+
+fn canonical_text(message: &CanonicalMessage) -> String {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{
@@ -728,6 +789,21 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn successful_messages(
+        mut history: Vec<CanonicalMessage>,
+        task: AgentTask,
+        answer: impl Into<String>,
+    ) -> WorkflowOutput {
+        let new_messages_start = history.len();
+        history.push(CanonicalMessage::text(MessageRole::User, task.text));
+        history.push(CanonicalMessage::text(
+            MessageRole::Assistant,
+            answer.into(),
+        ));
+        WorkflowOutput::new(AgentOutput::text("done"), history)
+            .with_new_messages_start(new_messages_start)
     }
 
     struct ShortHistoryWorkflow;
@@ -811,12 +887,12 @@ mod tests {
     impl Workflow for DelayedWorkflow {
         async fn run(
             &self,
-            _task: AgentTask,
-            _history: Vec<CanonicalMessage>,
+            task: AgentTask,
+            history: Vec<CanonicalMessage>,
             _ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
             tokio::time::sleep(Duration::from_millis(20)).await;
-            Ok(WorkflowOutput::new(AgentOutput::text("done"), Vec::new()))
+            Ok(successful_messages(history, task, "done"))
         }
     }
 
@@ -824,8 +900,8 @@ mod tests {
     impl Workflow for SnapshotProbeWorkflow {
         async fn run(
             &self,
-            _task: AgentTask,
-            _history: Vec<CanonicalMessage>,
+            task: AgentTask,
+            history: Vec<CanonicalMessage>,
             ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
             if self.wait_once.swap(false, Ordering::SeqCst) {
@@ -833,10 +909,15 @@ mod tests {
                 self.proceed.notified().await;
             }
             let has_late_tool = ctx.tools.spec("late_tool").is_ok();
-            Ok(WorkflowOutput::new(
-                AgentOutput::text(format!("has_late_tool={has_late_tool}")),
-                Vec::new(),
-            ))
+            let output = AgentOutput::text(format!("has_late_tool={has_late_tool}"));
+            let new_messages_start = history.len();
+            let mut messages = history;
+            messages.push(CanonicalMessage::text(MessageRole::User, task.text));
+            messages.push(CanonicalMessage::text(
+                MessageRole::Assistant,
+                output.text.clone(),
+            ));
+            Ok(WorkflowOutput::new(output, messages).with_new_messages_start(new_messages_start))
         }
     }
 
@@ -866,8 +947,46 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("workflow returned fewer messages than it received")
+                .contains("workflow output did not preserve the current user message")
         );
+    }
+
+    #[tokio::test]
+    async fn failed_turn_keeps_user_message_in_runtime_and_session_store() {
+        let config_root = tempfile::tempdir().expect("config root");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let config_path = config_root.path().join("configs").join("config.toml");
+        let mut config = AppConfig::default();
+        config.modules.patch = "null".to_owned();
+        let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+            .with_config_path(Some(&config_path))
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+        replace_workflow_for_test(&runtime, Arc::new(ShortHistoryWorkflow)).await;
+
+        let error = runtime
+            .run("current request".to_owned())
+            .await
+            .expect_err("bad workflow must fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("workflow output did not preserve the current user message")
+        );
+        let history = runtime.history().await;
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].role, MessageRole::User);
+        assert_eq!(message_text_for_test(&history[0]), "current request");
+        let stored = runtime
+            .session
+            .session_store
+            .as_ref()
+            .expect("session store")
+            .load_messages()
+            .expect("load messages");
+        assert_eq!(stored, history);
     }
 
     #[tokio::test]

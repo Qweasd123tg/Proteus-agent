@@ -20,7 +20,7 @@ impl RunningTurn {
     pub(super) fn new(cancellation: CancellationToken, session_dir: Option<PathBuf>) -> Self {
         Self {
             cancellation,
-            session_dir,
+            session_dir: session_dir.map(session_key),
         }
     }
 }
@@ -45,7 +45,7 @@ impl HttpAppState {
         let initial_server = server.clone();
         let mut session_servers = HashMap::new();
         if let Some(session_dir) = server.session_dir_path() {
-            session_servers.insert(session_dir, server.clone());
+            session_servers.insert(session_key(session_dir), server.clone());
         }
         let (activity_events, _) = broadcast::channel(1024);
         let state = Self {
@@ -76,12 +76,13 @@ impl HttpAppState {
 
     pub(super) async fn remember_server(&self, server: AppServerHandle) {
         if let Some(session_dir) = server.session_dir_path() {
+            let key = session_key(session_dir.clone());
             self.session_servers
                 .lock()
                 .await
-                .insert(session_dir.clone(), server.clone());
+                .insert(key.clone(), server.clone());
             self.watch_server(server);
-            self.emit_session_activity_for_dir(&session_dir).await;
+            self.emit_session_activity_for_dir(&key).await;
         }
     }
 
@@ -89,20 +90,22 @@ impl HttpAppState {
         &self,
         session_dir: &Path,
     ) -> Option<AppServerHandle> {
-        self.session_servers.lock().await.remove(session_dir)
+        let key = session_key(session_dir.to_path_buf());
+        self.session_servers.lock().await.remove(&key)
     }
 
     pub(super) async fn server_for_session_dir(
         &self,
         session_dir: &Path,
     ) -> Option<AppServerHandle> {
-        self.session_servers.lock().await.get(session_dir).cloned()
+        let key = session_key(session_dir.to_path_buf());
+        self.session_servers.lock().await.get(&key).cloned()
     }
 
     pub(super) async fn all_servers(&self) -> Vec<AppServerHandle> {
         let current = self.current_server().await;
         let mut servers = vec![current.clone()];
-        let current_dir = current.session_dir_path();
+        let current_dir = current.session_dir_path().map(session_key);
         servers.extend(
             self.session_servers
                 .lock()
@@ -139,15 +142,18 @@ impl HttpAppState {
     }
 
     pub(super) async fn running_turn_count_for(&self, session_dir: Option<&Path>) -> usize {
+        let session_dir = session_dir.map(|path| session_key(path.to_path_buf()));
         self.running_turns
             .lock()
             .await
             .values()
-            .filter(|turn| match (turn.session_dir.as_deref(), session_dir) {
-                (Some(left), Some(right)) => left == right,
-                (None, None) => true,
-                _ => false,
-            })
+            .filter(
+                |turn| match (turn.session_dir.as_deref(), session_dir.as_deref()) {
+                    (Some(left), Some(right)) => left == right,
+                    (None, None) => true,
+                    _ => false,
+                },
+            )
             .count()
     }
 
@@ -162,7 +168,10 @@ impl HttpAppState {
         let mut activity = HashMap::new();
         for server in self.all_servers().await {
             if let Some(session_dir) = server.session_dir_path() {
-                activity.insert(session_dir, self.activity_for_server(&server).await);
+                activity.insert(
+                    session_key(session_dir),
+                    self.activity_for_server(&server).await,
+                );
             }
         }
         activity
@@ -172,6 +181,7 @@ impl HttpAppState {
         let Some(server) = self.server_for_session_dir(session_dir).await else {
             return;
         };
+        let session_dir = session_key(session_dir.to_path_buf());
         let activity = self.activity_for_server(&server).await;
         let _ = self
             .activity_events
@@ -191,6 +201,7 @@ impl HttpAppState {
         let Some(session_dir) = server.session_dir_path() else {
             return;
         };
+        let session_dir = session_key(session_dir);
         {
             let mut watched = self
                 .watched_sessions
@@ -237,4 +248,8 @@ fn app_event_affects_session_activity(event: &AppServerEvent) -> bool {
             | AppServerEvent::Error { .. }
             | AppServerEvent::Shutdown
     )
+}
+
+fn session_key(session_dir: PathBuf) -> PathBuf {
+    crate::core::canonicalize_session_dir_path(session_dir.clone()).unwrap_or(session_dir)
 }

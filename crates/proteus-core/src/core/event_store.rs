@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex as StdMutex, OnceLock},
+};
 
 use anyhow::{Context, Result};
 use tokio::{
@@ -15,14 +19,14 @@ use crate::{
 #[derive(Debug)]
 pub struct JsonlEventStore {
     path: PathBuf,
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
 }
 
 impl JsonlEventStore {
     pub fn new(path: PathBuf) -> Self {
         Self {
+            lock: lock_for_path(&path),
             path,
-            lock: Mutex::new(()),
         }
     }
 }
@@ -50,6 +54,29 @@ impl EventSink for JsonlEventStore {
         file.flush().await?;
         Ok(())
     }
+}
+
+fn lock_for_path(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let key = canonicalize_lock_path(path);
+    let locks = LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut locks = locks.lock().expect("event store lock map poisoned");
+    locks
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+fn canonicalize_lock_path(path: &Path) -> PathBuf {
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        return canonical;
+    }
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
+    {
+        return canonical_parent.join(name);
+    }
+    path.to_path_buf()
 }
 
 #[derive(Debug, Default)]

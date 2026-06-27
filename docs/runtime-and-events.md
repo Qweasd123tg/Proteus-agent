@@ -252,9 +252,14 @@ HTTP/SSE transport:
 - `GET /pending` - snapshot pending approval/user-input запросов выбранной
   session для восстановления UI после initial load или SSE reconnect;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
+- `GET /history` - transcript текущей live session; `GET
+  /history?session_dir=<path>` читает transcript указанной session, не меняя
+  текущую выбранную session и без обязательного cold resume;
 - `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/model`,
-  `/reasoning`, `/effort` - короткие
-  endpoint'ы над соответствующими `StdioRequest` вариантами;
+  `/reasoning`, `/effort` - короткие endpoint'ы над соответствующими
+  `StdioRequest` вариантами; mutating request bodies могут передать
+  `session_dir`, чтобы команда ушла в конкретную live session, а не в
+  process-wide текущую session;
 - `POST /resume` - переключает текущий HTTP app-server на выбранный
   `session_dir` без отмены running turn старой session;
 - `POST /new-session` - выбирает новый пустой runtime, не отменяя фоновые
@@ -275,6 +280,10 @@ sidebar получает `SessionActivityUpdated`, а pending approval/user-inpu
 session можно увидеть и закрыть после переключения обратно. Явная отмена
 остаётся через `/cancel`, а удаление session отменяет только работу этой
 session.
+При переключении web-клиент закрывает старый SSE connection, оптимистично
+читает `/history?session_dir=...`, а затем делает `/resume`. Это даёт быстрый
+первый paint сохранённого transcript и не позволяет поздним событиям старой
+session мутировать новый экран.
 
 ## Session Store
 
@@ -331,6 +340,13 @@ in-memory history и атомарно переписывает `messages.jsonl` 
 чтобы resume не восстанавливал старую длинную историю.
 
 Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` добавляется только в model request текущего turn и не дописывается в runtime history/session store.
+User prompt текущего turn сохраняется в in-memory history и `messages.jsonl`
+сразу после `TurnStarted`, до вызова workflow. Поэтому если workflow,
+provider, tool loop или процесс падает позже, принятый prompt не пропадает из
+resume/history. Workflow всё равно обязан вернуть этот user message на позиции
+`new_messages_start`; runtime сверяет его с уже сохранённым сообщением и
+дописывает только последующие assistant/tool сообщения, чтобы не дублировать
+prompt.
 
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
@@ -370,6 +386,10 @@ client-side slash-команды.
 даёт двум turns одной session одновременно читать и перезаписывать history.
 Разные sessions имеют разные `SessionState`, поэтому HTTP app-server может
 вести их turns параллельно без обхода runtime lock.
+Ключи live sessions и locks session store нормализуются через canonical
+session directory. Это убирает ситуации, где один и тот же `messages.jsonl`
+открыт через разные path spellings и два runtime handles параллельно пишут в
+одну историю без общего lock.
 
 При обычном построении runtime новая session directory создаётся заново, если
 session store подключён. Для восстановления нужно явно передать путь к старой

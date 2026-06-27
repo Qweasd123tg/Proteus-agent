@@ -15,7 +15,9 @@ use crate::components::{
     ApprovalCard, ContextRing, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
     ToastStack, UserInputCard, WorkingCard,
 };
-use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
+use crate::events::{
+    BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
+};
 use crate::messages::report_error;
 use crate::types::*;
 use crate::ui_utils::{compact_text, relative_time_from_now, set_timeout, short_id, short_path};
@@ -272,6 +274,7 @@ pub(crate) fn App() -> impl IntoView {
         next_message_id,
         set_next_message_id,
         set_transport_status,
+        active_session_dir,
         next_request_id,
         set_next_request_id,
         mode,
@@ -333,6 +336,7 @@ pub(crate) fn App() -> impl IntoView {
 
     let reset_chat_view_for_new_session = reset_chat_view;
     let start_new_session = move |_| {
+        close_event_stream(event_source);
         reset_chat_view_for_new_session();
         let expected_generation = transcript_generation.get_untracked();
         set_active_session_dir.set(None);
@@ -639,6 +643,7 @@ pub(crate) fn App() -> impl IntoView {
         if active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
             return;
         }
+        close_event_stream(event_source);
         // Захватываем поколение явно (а не update + get_untracked): хрупкий
         // паттерн мог оставлять expected рассинхронизированным и guard ниже
         // ложно срабатывал, бросая пользователя на старой сессии.
@@ -666,13 +671,22 @@ pub(crate) fn App() -> impl IntoView {
         set_pending_approvals.set(Vec::new());
         set_pending_user_inputs.set(Vec::new());
         let session_dir = session.session_dir.clone();
+        replace_transcript_for_session(
+            Some(session_dir.clone()),
+            set_messages,
+            transcript_generation,
+            expected_generation,
+            next_message_id,
+            set_next_message_id,
+            set_transport_status,
+        );
         set_sidebar_sessions_status.set("открываю сессию".to_owned());
         spawn_local(async move {
             match post_json(
                 "/resume",
                 &ResumeSessionRequest {
                     id: Some("sidebar-resume".to_owned()),
-                    session_dir,
+                    session_dir: session_dir.clone(),
                 },
             )
             .await
@@ -697,7 +711,8 @@ pub(crate) fn App() -> impl IntoView {
                         set_next_message_id,
                         set_transport_status,
                     );
-                    replace_transcript(
+                    replace_transcript_for_session(
+                        Some(session_dir.clone()),
                         set_messages,
                         transcript_generation,
                         expected_generation,

@@ -78,8 +78,17 @@ pub(crate) fn reconnect_event_stream(
     });
 }
 
+pub(crate) fn close_event_stream(event_source: StoredValue<Option<EventSource>, LocalStorage>) {
+    event_source.update_value(|slot| {
+        if let Some(source) = slot.take() {
+            source.close();
+        }
+    });
+}
+
 fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     let url = event_stream_url();
+    let stream_generation = bindings.transcript_generation.get_untracked();
     let source = match EventSource::new(&url) {
         Ok(source) => source,
         Err(error) => {
@@ -99,6 +108,9 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     };
 
     let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        if bindings.transcript_generation.get_untracked() != stream_generation {
+            return;
+        }
         let was_disconnected = matches!(
             bindings.transport_status.get_untracked(),
             TransportStatus::Error(_)
@@ -139,6 +151,9 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     let output_event_count = bindings.set_event_count;
     let on_output =
         Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
+            if bindings.transcript_generation.get_untracked() != stream_generation {
+                return;
+            }
             let Some(data) = event.data().as_string() else {
                 return;
             };
@@ -181,7 +196,11 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     on_output.forget();
 
     let set_transport_status = bindings.set_transport_status;
+    let transcript_generation = bindings.transcript_generation;
     let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
+        if transcript_generation.get_untracked() != stream_generation {
+            return;
+        }
         set_transport_status.set(TransportStatus::Error(
             "event stream disconnected".to_owned(),
         ));

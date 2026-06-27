@@ -447,30 +447,40 @@ pub(crate) enum AppServerEvent {
 pub(crate) struct SendRequest {
     pub(crate) id: Option<String>,
     pub(crate) text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) session_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetPermissionModeRequest {
     pub(crate) id: Option<String>,
     pub(crate) mode: PermissionMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) session_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetModelRequest {
     pub(crate) id: Option<String>,
     pub(crate) model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) session_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetReasoningEffortRequest {
     pub(crate) id: Option<String>,
     pub(crate) effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) session_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetReasoningEnabledRequest {
     pub(crate) id: Option<String>,
     pub(crate) enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) session_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -777,6 +787,7 @@ mod protocol_contract_tests {
             SendRequest {
                 id: Some("send-1".to_owned()),
                 text: "hello".to_owned(),
+                session_dir: None,
             },
             contract_protocol::StdioRequest::Send {
                 id: Some("send-1".to_owned()),
@@ -787,6 +798,7 @@ mod protocol_contract_tests {
             SetPermissionModeRequest {
                 id: Some("mode-1".to_owned()),
                 mode: PermissionMode::Auto,
+                session_dir: None,
             },
             contract_protocol::StdioRequest::SetPermissionMode {
                 id: Some("mode-1".to_owned()),
@@ -797,6 +809,7 @@ mod protocol_contract_tests {
             SetModelRequest {
                 id: Some("model-1".to_owned()),
                 model: "gpt-5".to_owned(),
+                session_dir: None,
             },
             contract_protocol::StdioRequest::SetModel {
                 id: Some("model-1".to_owned()),
@@ -807,6 +820,7 @@ mod protocol_contract_tests {
             SetReasoningEffortRequest {
                 id: Some("effort-1".to_owned()),
                 effort: Some("high".to_owned()),
+                session_dir: None,
             },
             contract_protocol::StdioRequest::SetReasoningEffort {
                 id: Some("effort-1".to_owned()),
@@ -817,6 +831,7 @@ mod protocol_contract_tests {
             SetReasoningEnabledRequest {
                 id: Some("reasoning-1".to_owned()),
                 enabled: true,
+                session_dir: None,
             },
             contract_protocol::StdioRequest::SetReasoningEnabled {
                 id: Some("reasoning-1".to_owned()),
