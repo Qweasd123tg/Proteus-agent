@@ -1145,13 +1145,42 @@ async fn route_new_session_replaces_active_session_dir() {
         .expect("sessions response");
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
-    let sessions: Vec<crate::core::SessionSummary> =
-        serde_json::from_slice(&bytes).expect("sessions JSON");
+    let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
     assert!(!PathBuf::from(next_session_dir).exists());
+    assert!(
+        sessions.iter().any(|session| {
+            session.get("session_dir").and_then(Value::as_str) == Some(next_session_dir)
+                && session.get("message_count").and_then(Value::as_u64) == Some(0)
+        }),
+        "active empty session should be listed before the first message"
+    );
+
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/resume",
+            json!({
+                "id": "resume-original",
+                "session_dir": original_session_dir,
+            }),
+        ),
+    )
+    .await
+    .expect("resume response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = route_request(state.clone(), authed_get_request("/sessions/current"))
+        .await
+        .expect("sessions response after resume");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response_bytes(response).await;
+    let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
     assert!(
         !sessions
             .iter()
-            .any(|session| session.session_dir.to_string_lossy().as_ref() == next_session_dir)
+            .any(|session| session.get("session_dir").and_then(Value::as_str)
+                == Some(next_session_dir)),
+        "background empty idle session should disappear after switching away"
     );
 
     server.shutdown().await;

@@ -924,7 +924,7 @@ pub(crate) fn App() -> impl IntoView {
                                         .collect::<Vec<_>>()
                                 })
                             }
-                            key=|session| session.session_dir.clone()
+                            key=|session| sidebar_session_render_key(session)
                             children=move |session| {
                                 let workspace = session
                                     .workspace_path

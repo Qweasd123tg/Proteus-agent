@@ -382,6 +382,7 @@ async fn session_summaries_json(
     let activity_by_dir = state.activity_by_session_dir().await;
     let mut seen = HashSet::new();
     let mut values = Vec::new();
+    let current_session_key = current.session_dir_path().map(session_dir_key);
 
     for summary in summaries {
         let session_dir = summary.session_dir.clone();
@@ -408,7 +409,10 @@ async fn session_summaries_json(
             continue;
         }
         let activity = state.activity_for_server(&server).await;
-        if let Some(value) = known_session_summary_value(&server, &session_dir, activity).await? {
+        let include_empty_idle = Some(&session_key) == current_session_key.as_ref();
+        if let Some(value) =
+            known_session_summary_value(&server, &session_dir, activity, include_empty_idle).await?
+        {
             seen.insert(session_key);
             values.push(value);
         }
@@ -426,10 +430,11 @@ async fn known_session_summary_value(
     server: &AppServerHandle,
     session_dir: &Path,
     activity: AppSessionActivity,
+    include_empty_idle: bool,
 ) -> Result<Option<Value>> {
     let transcript = server.transcript().await;
     let message_count = transcript.len();
-    if message_count == 0 && session_activity_is_idle(&activity) {
+    if message_count == 0 && session_activity_is_idle(&activity) && !include_empty_idle {
         return Ok(None);
     }
 

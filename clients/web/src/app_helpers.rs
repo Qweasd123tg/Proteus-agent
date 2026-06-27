@@ -239,6 +239,23 @@ pub(crate) fn sidebar_session_activity_dot_class(
     }
 }
 
+pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
+    let activity = session.activity.as_ref();
+    format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}",
+        session.session_dir,
+        session.message_count,
+        session.updated_at_ms.unwrap_or_default(),
+        session.preview.as_deref().unwrap_or_default(),
+        session.resumable,
+        activity.map(|activity| activity.status.as_str()).unwrap_or(""),
+        activity.map(|activity| activity.running_turns).unwrap_or(0),
+        activity
+            .map(|activity| activity.pending_approvals + activity.pending_user_inputs)
+            .unwrap_or(0),
+    )
+}
+
 pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
     transcript_generation: ReadSignal<u64>,
@@ -510,6 +527,21 @@ mod tests {
 
         assert_eq!(sidebar_session_title(&session), "Новый чат");
         assert_eq!(sidebar_session_preview(&session), None);
+    }
+
+    #[test]
+    fn sidebar_session_render_key_changes_when_activity_changes() {
+        let mut session = session_summary(Some("work"), 1);
+        let idle_key = sidebar_session_render_key(&session);
+
+        session.activity = Some(SessionActivityInfo {
+            status: "running".to_owned(),
+            running_turns: 1,
+            pending_approvals: 0,
+            pending_user_inputs: 0,
+        });
+
+        assert_ne!(sidebar_session_render_key(&session), idle_key);
     }
 
     #[test]
