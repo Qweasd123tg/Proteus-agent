@@ -20,6 +20,14 @@ impl Default for HttpServerConfig {
 }
 
 pub(super) fn new_session_token() -> String {
+    new_http_token()
+}
+
+pub(super) fn new_request_id() -> String {
+    new_http_token()
+}
+
+fn new_http_token() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 

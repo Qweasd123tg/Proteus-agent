@@ -17,9 +17,13 @@ use hyper::{
     service::service_fn,
 };
 use hyper_util::rt::TokioIo;
+use proteus_contracts::app_protocol::AppSessionActivityStatus;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::{
+    net::TcpListener,
+    sync::{broadcast, oneshot},
+};
 
 use crate::{
     contracts::CancellationToken,
@@ -42,7 +46,7 @@ mod security;
 mod state;
 
 pub use config::HttpServerConfig;
-use config::new_session_token;
+use config::new_request_id;
 use requests::{
     ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
     SendRequest, SetModelRequest, SetPermissionModeRequest, SetReasoningEffortRequest,
@@ -51,7 +55,7 @@ use requests::{
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
 };
-use state::{HttpAppState, RunningTurn};
+use state::{HttpAppState, RunningTurn, session_key as canonical_session_key};
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
@@ -382,11 +386,11 @@ async fn session_summaries_json(
     let activity_by_dir = state.activity_by_session_dir().await;
     let mut seen = HashSet::new();
     let mut values = Vec::new();
-    let current_session_key = current.session_dir_path().map(session_dir_key);
+    let current_session_key = current.session_dir_path().map(canonical_session_key);
 
     for summary in summaries {
         let session_dir = summary.session_dir.clone();
-        let session_key = session_dir_key(session_dir.clone());
+        let session_key = canonical_session_key(session_dir.clone());
         seen.insert(session_key.clone());
         let mut value = serde_json::to_value(&summary)?;
         if let Some(activity) = activity_by_dir.get(&session_key)
@@ -401,7 +405,7 @@ async fn session_summaries_json(
         let Some(session_dir) = server.session_dir_path() else {
             continue;
         };
-        let session_key = session_dir_key(session_dir.clone());
+        let session_key = canonical_session_key(session_dir.clone());
         if seen.contains(&session_key) {
             continue;
         }
@@ -451,7 +455,7 @@ async fn known_session_summary_value(
 }
 
 fn session_activity_is_idle(activity: &AppSessionActivity) -> bool {
-    activity.status == "idle"
+    activity.status == AppSessionActivityStatus::Idle
         && activity.running_turns == 0
         && activity.pending_approvals == 0
         && activity.pending_user_inputs == 0
@@ -590,10 +594,6 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn session_dir_key(session_dir: PathBuf) -> PathBuf {
-    canonicalize_session_dir_path(session_dir.clone()).unwrap_or(session_dir)
-}
-
 async fn read_json<T, B>(request: Request<B>) -> Result<T>
 where
     T: DeserializeOwned,
@@ -724,8 +724,21 @@ async fn execute_send(
 ) -> Result<AgentOutput> {
     let cancellation = CancellationToken::new();
     let server = server_for_optional_session(state, session_dir).await?;
+    let receiver = spawn_send_turn(state, server, id, text, cancellation).await?;
+    receiver
+        .await
+        .map_err(|_| anyhow!("send turn task dropped before completion"))?
+}
+
+async fn spawn_send_turn(
+    state: &HttpAppState,
+    server: AppServerHandle,
+    turn_id: Option<String>,
+    text: String,
+    cancellation: CancellationToken,
+) -> Result<oneshot::Receiver<Result<AgentOutput>>> {
     let session_dir = server.session_dir_path();
-    if let Some(turn_id) = id.as_deref() {
+    if let Some(turn_id) = turn_id.as_deref() {
         let mut running_turns = state.running_turns.lock().await;
         if running_turns.contains_key(turn_id) {
             return Err(anyhow!("turn id is already running: {turn_id}"));
@@ -737,15 +750,25 @@ async fn execute_send(
     }
     state.emit_session_activity_for_server(&server).await;
 
-    let result = server
-        .send_user_message_with_cancellation(text, cancellation)
-        .await;
-
-    if let Some(turn_id) = id.as_deref() {
-        state.running_turns.lock().await.remove(turn_id);
-    }
-    state.emit_session_activity_for_server(&server).await;
-    result
+    let (result_tx, result_rx) = oneshot::channel();
+    let state_for_activity = state.clone();
+    tokio::spawn(async move {
+        let result = server
+            .send_user_message_with_cancellation(text, cancellation)
+            .await;
+        if let Some(turn_id) = turn_id.as_deref() {
+            state_for_activity
+                .running_turns
+                .lock()
+                .await
+                .remove(turn_id);
+        }
+        state_for_activity
+            .emit_session_activity_for_server(&server)
+            .await;
+        let _ = result_tx.send(result);
+    });
+    Ok(result_rx)
 }
 
 async fn execute_send_async(
@@ -754,41 +777,17 @@ async fn execute_send_async(
     text: String,
     session_dir: Option<PathBuf>,
 ) -> StdioOutput {
-    let turn_id = id.unwrap_or_else(new_session_token);
+    let turn_id = id.unwrap_or_else(new_request_id);
     let cancellation = CancellationToken::new();
     let server = match server_for_optional_session(state, session_dir).await {
         Ok(server) => server,
         Err(error) => return command_response(Some(turn_id), Err(error)),
     };
-    let session_dir = server.session_dir_path();
+    if let Err(error) =
+        spawn_send_turn(state, server, Some(turn_id.clone()), text, cancellation).await
     {
-        let mut running_turns = state.running_turns.lock().await;
-        if running_turns.contains_key(&turn_id) {
-            return command_response(
-                Some(turn_id.clone()),
-                Err(anyhow!("turn id is already running: {turn_id}")),
-            );
-        }
-        running_turns.insert(
-            turn_id.clone(),
-            RunningTurn::new(cancellation.clone(), session_dir.clone()),
-        );
+        return command_response(Some(turn_id), Err(error));
     }
-    state.emit_session_activity_for_server(&server).await;
-
-    let running_turns = state.running_turns.clone();
-    let state_for_activity = state.clone();
-    let task_turn_id = turn_id.clone();
-    let task_server = server.clone();
-    tokio::spawn(async move {
-        let _ = task_server
-            .send_user_message_with_cancellation(text, cancellation)
-            .await;
-        running_turns.lock().await.remove(&task_turn_id);
-        state_for_activity
-            .emit_session_activity_for_server(&task_server)
-            .await;
-    });
 
     command_response(
         Some(turn_id.clone()),
@@ -941,7 +940,7 @@ async fn new_session(state: &HttpAppState) -> Result<Value> {
 }
 
 async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, note: &str) {
-    let session_dir = server.session_dir_path().map(session_dir_key);
+    let session_dir = server.session_dir_path().map(canonical_session_key);
     let active_turns = {
         let mut running_turns = state.running_turns.lock().await;
         let turn_ids = running_turns

@@ -363,6 +363,30 @@ Scope:
 - При дальнейшем развитии dynamic tools вынести общий lexical scoring/tokenize
   helper в shared contract/support слой либо сознательно оставить duplication
   между core selector и workflow meta-tools как ABI-boundary tradeoff.
+- Вынести concrete MCP stdio lifecycle из `crates/proteus-core/src/tools` в
+  отдельную module/plugin implementation. Core должен оставить registry,
+  policy/safety и узкий provider contract, а не JSON-RPC initialize/list/call
+  loop конкретного transport.
+- Явно закрепить contract текущего user message для `WorkflowOutput`.
+  Сейчас runtime сохраняет user prompt до workflow и сверяет, что workflow
+  вернул тот же user message на `new_messages_start`; следующий cleanup должен
+  либо документировать это как часть `proteus-contracts`, либо перевести
+  workflow на возврат только assistant/tool deltas текущего turn.
+- Перенести recovery пустого финального streaming response из generic
+  `ModelService` в provider adapter или оформить provider-neutral contract
+  “streamed deltas authoritative as fallback”. Нынешний fallback нужен для
+  OpenAI-compatible proxy behavior, но живёт слишком высоко.
+- Свести live session summary overlay к helper/API рядом с `SessionStore`.
+  HTTP transport сейчас синтезирует summary для live sessions, что допустимо
+  как временный transport слой, но preview/count/resumable semantics не должны
+  расходиться с persistent summaries.
+- Убрать provider-shaped prompt cache metadata из generic workflow. Workflow
+  может выставлять `CacheHints`, а key namespace/serialization должны идти из
+  canonical request contract или provider adapter/config.
+- Пересмотреть storage name для session directories: numeric 10-digit basename
+  удобен для UI, но это storage contract с возможными collisions. Metadata уже
+  хранит настоящий `SessionId`, поэтому будущий формат должен быть opaque
+  stable basename без cwd leakage, а тесты не должны закреплять “только цифры”.
 
 ## Не Делать Сейчас
 

@@ -250,6 +250,6 @@ fn app_event_affects_session_activity(event: &AppServerEvent) -> bool {
     )
 }
 
-fn session_key(session_dir: PathBuf) -> PathBuf {
+pub(super) fn session_key(session_dir: PathBuf) -> PathBuf {
     crate::core::canonicalize_session_dir_path(session_dir.clone()).unwrap_or(session_dir)
 }

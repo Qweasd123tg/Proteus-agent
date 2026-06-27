@@ -95,13 +95,37 @@ pub enum AppServerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AppSessionActivity {
-    pub status: String,
+    pub status: AppSessionActivityStatus,
     #[serde(default)]
     pub running_turns: usize,
     #[serde(default)]
     pub pending_approvals: usize,
     #[serde(default)]
     pub pending_user_inputs: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AppSessionActivityStatus {
+    Idle,
+    Running,
+    WaitingApproval,
+    WaitingInput,
+    #[serde(other)]
+    Unknown,
+}
+
+impl AppSessionActivityStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::WaitingApproval => "waiting_approval",
+            Self::WaitingInput => "waiting_input",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 impl AppSessionActivity {
@@ -111,16 +135,16 @@ impl AppSessionActivity {
         pending_user_inputs: usize,
     ) -> Self {
         let status = if pending_user_inputs > 0 {
-            "waiting_input"
+            AppSessionActivityStatus::WaitingInput
         } else if pending_approvals > 0 {
-            "waiting_approval"
+            AppSessionActivityStatus::WaitingApproval
         } else if running_turns > 0 {
-            "running"
+            AppSessionActivityStatus::Running
         } else {
-            "idle"
+            AppSessionActivityStatus::Idle
         };
         Self {
-            status: status.to_owned(),
+            status,
             running_turns,
             pending_approvals,
             pending_user_inputs,
@@ -432,19 +456,40 @@ mod tests {
     fn session_activity_uses_stable_status_order() {
         assert_eq!(
             AppSessionActivity::from_counts(0, 0, 0).status,
-            "idle".to_owned()
+            AppSessionActivityStatus::Idle
         );
         assert_eq!(
             AppSessionActivity::from_counts(1, 0, 0).status,
-            "running".to_owned()
+            AppSessionActivityStatus::Running
         );
         assert_eq!(
             AppSessionActivity::from_counts(1, 1, 0).status,
-            "waiting_approval".to_owned()
+            AppSessionActivityStatus::WaitingApproval
         );
         assert_eq!(
             AppSessionActivity::from_counts(1, 1, 1).status,
-            "waiting_input".to_owned()
+            AppSessionActivityStatus::WaitingInput
         );
+    }
+
+    #[test]
+    fn session_activity_status_stays_string_on_wire() {
+        let activity = AppSessionActivity::from_counts(1, 0, 0);
+        let value = serde_json::to_value(activity).expect("activity JSON");
+
+        assert_eq!(value["status"], "running");
+    }
+
+    #[test]
+    fn session_activity_status_tolerates_unknown_wire_value() {
+        let activity: AppSessionActivity = serde_json::from_value(serde_json::json!({
+            "status": "paused",
+            "running_turns": 0,
+            "pending_approvals": 0,
+            "pending_user_inputs": 0,
+        }))
+        .expect("activity JSON");
+
+        assert_eq!(activity.status, AppSessionActivityStatus::Unknown);
     }
 }

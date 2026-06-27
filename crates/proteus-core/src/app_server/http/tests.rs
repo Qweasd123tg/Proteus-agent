@@ -1591,6 +1591,56 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
 }
 
 #[tokio::test]
+async fn send_turn_cleanup_survives_dropped_waiter() {
+    let (state, server) = dogfood_loop_state().await;
+    let mut event_rx = server.subscribe();
+    let turn_id = "sync-send-drop".to_owned();
+    let receiver = spawn_send_turn(
+        &state,
+        server.clone(),
+        Some(turn_id.clone()),
+        "apply_patch".to_owned(),
+        CancellationToken::new(),
+    )
+    .await
+    .expect("spawn send turn");
+
+    let approval = wait_for_approval_request(&mut event_rx).await;
+    assert!(state.running_turns.lock().await.contains_key(&turn_id));
+    drop(receiver);
+
+    let approval_response = route_request(
+        state.clone(),
+        authed_json_request(
+            "/approval",
+            json!({
+                "id": "approval-after-dropped-waiter",
+                "approval_id": approval.approval_id,
+                "approved": true,
+                "note": "finish dropped waiter turn",
+                "cache": "none",
+            }),
+        ),
+    )
+    .await
+    .expect("approval response");
+    assert_eq!(approval_response.status(), StatusCode::OK);
+
+    for _ in 0..20 {
+        if !state.running_turns.lock().await.contains_key(&turn_id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        !state.running_turns.lock().await.contains_key(&turn_id),
+        "send turn should unregister itself even when the HTTP waiter is dropped"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn route_send_approval_loop_completes_after_http_approval() {
     let (state, server) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();

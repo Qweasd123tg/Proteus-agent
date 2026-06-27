@@ -270,6 +270,9 @@ HTTP `send` держит request до завершения turn'а и парал
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`, даже если
 пользователь уже переключился на другую session.
+`POST /request` сохраняет stdio-compatible поведение и работает с текущей
+выбранной session; для parallel-session UI нужно использовать короткие HTTP
+endpoint'ы с явным `session_dir`.
 Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
 delete или shutdown. Если SSE connection оборвался до доставки
 `ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
