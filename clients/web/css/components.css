@@ -989,6 +989,28 @@
     color: var(--text-faint);
 }
 
+.tool-preview .tk-patch-boundary {
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.tool-preview .tk-patch-op {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-patch-path {
+    color: var(--accent-yellow);
+}
+
+.tool-preview .tk-patch-context {
+    color: var(--text-muted);
+}
+
+.tool-preview .tk-patch-meta {
+    color: var(--text-faint);
+    font-style: italic;
+}
+
 .spinner-dot {
     display: inline-block;
     width: 8px;

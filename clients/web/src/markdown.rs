@@ -303,13 +303,19 @@ fn escape_html(text: &str) -> String {
 /// весь текст экранируется, цвет навешивается классами `tk-*`.
 pub(crate) fn highlight_preview(text: &str) -> String {
     let trimmed = text.trim_start();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+    if looks_like_apply_patch(trimmed) {
+        highlight_apply_patch(text)
+    } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
         highlight_json(text)
     } else if looks_like_diff(text) {
         highlight_diff(text)
     } else {
         escape_html(text)
     }
+}
+
+fn looks_like_apply_patch(text: &str) -> bool {
+    text.starts_with("*** Begin Patch")
 }
 
 fn looks_like_diff(text: &str) -> bool {
@@ -319,6 +325,53 @@ fn looks_like_diff(text: &str) -> bool {
             || line.starts_with("--- ")
             || line.starts_with("+++ ")
     })
+}
+
+fn highlight_apply_patch(text: &str) -> String {
+    let mut out = String::new();
+    for (index, line) in text.lines().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        highlight_apply_patch_line(line, &mut out);
+    }
+    out
+}
+
+fn highlight_apply_patch_line(line: &str, out: &mut String) {
+    for (prefix, class) in [
+        ("*** Add File: ", "tk-patch-op"),
+        ("*** Delete File: ", "tk-patch-op"),
+        ("*** Update File: ", "tk-patch-op"),
+        ("*** Move to: ", "tk-patch-op"),
+    ] {
+        if let Some(path) = line.strip_prefix(prefix) {
+            push_span(out, class, prefix);
+            push_span(out, "tk-patch-path", path);
+            return;
+        }
+    }
+
+    let class = if line == "*** Begin Patch" || line == "*** End Patch" {
+        Some("tk-patch-boundary")
+    } else if line == "*** End of File" {
+        Some("tk-patch-meta")
+    } else if line.starts_with("@@") {
+        Some("tk-hunk")
+    } else if line.starts_with('+') {
+        Some("tk-add")
+    } else if line.starts_with('-') {
+        Some("tk-del")
+    } else if line.starts_with(' ') {
+        Some("tk-patch-context")
+    } else {
+        None
+    };
+
+    match class {
+        Some(class) => push_span(out, class, line),
+        None => out.push_str(&escape_html(line)),
+    }
 }
 
 fn highlight_diff(text: &str) -> String {
@@ -354,6 +407,14 @@ fn highlight_diff(text: &str) -> String {
         }
     }
     out
+}
+
+fn push_span(out: &mut String, class: &str, text: &str) {
+    out.push_str("<span class=\"");
+    out.push_str(class);
+    out.push_str("\">");
+    out.push_str(&escape_html(text));
+    out.push_str("</span>");
 }
 
 fn highlight_json(text: &str) -> String {
@@ -466,9 +527,25 @@ mod tests {
     }
 
     #[test]
+    fn highlight_preview_colors_apply_patch_lines() {
+        let html = highlight_preview(
+            "*** Begin Patch\n*** Update File: src/lib.rs\n@@ old\n-old\n+new\n*** End Patch",
+        );
+
+        assert!(html.contains("<span class=\"tk-patch-boundary\">*** Begin Patch</span>"));
+        assert!(html.contains("<span class=\"tk-patch-op\">*** Update File: </span>"));
+        assert!(html.contains("<span class=\"tk-patch-path\">src/lib.rs</span>"));
+        assert!(html.contains("<span class=\"tk-hunk\">@@ old</span>"));
+        assert!(html.contains("<span class=\"tk-del\">-old</span>"));
+        assert!(html.contains("<span class=\"tk-add\">+new</span>"));
+    }
+
+    #[test]
     fn highlight_preview_escapes_markup_in_all_modes() {
         // JSON-режим: значение с тегами не должно протечь как разметка.
         assert!(highlight_preview("{\"x\": \"<img>\"}").contains("&lt;img&gt;"));
+        // Patch-режим: путь в заголовке тоже экранируется.
+        assert!(highlight_preview("*** Begin Patch\n*** Add File: <bad>").contains("&lt;bad&gt;"));
         // Generic-режим экранирует целиком.
         assert_eq!(highlight_preview("<script>"), "&lt;script&gt;");
     }

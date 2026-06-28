@@ -178,7 +178,7 @@ where
     let (cache, set_cache) = signal(ApprovalCacheScope::None);
     let approve_id = request.approval_id.clone();
     let deny_id = request.approval_id.clone();
-    let args_preview = format_json(&request.call.args);
+    let args_preview = tool_args_preview(&request.call.name, &request.call.args);
     let exact_scope = if approval_is_command(&request) {
         ApprovalCacheScope::ExactCommand
     } else {
@@ -723,7 +723,7 @@ fn ToolActivityCard(
     // превью, не пересоздавая внутренний компонент и его состояние раскрытия.
     let args_text = Memo::new(move |_| {
         current_tool(message)
-            .map(|tool| tool.args_preview)
+            .map(|tool| tool_activity_args_preview(&tool))
             .unwrap_or_default()
     });
     let result_text = Memo::new(move |_| {
@@ -932,10 +932,7 @@ fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -
     .into_any()
 }
 
-fn tool_message_view(
-    message: Memo<Option<Message>>,
-    activity_now_ms: ReadSignal<u64>,
-) -> AnyView {
+fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal<u64>) -> AnyView {
     view! {
         <article class=move || {
             current_tool(message)
@@ -1046,6 +1043,36 @@ fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
     message.get().and_then(|message| message.tool)
 }
 
+fn tool_activity_args_preview(tool: &ToolActivity) -> String {
+    if tool.name == "apply_patch" {
+        apply_patch_text_from_args_preview(&tool.args_preview)
+            .unwrap_or_else(|| tool.args_preview.clone())
+    } else {
+        tool.args_preview.clone()
+    }
+}
+
+fn tool_args_preview(tool_name: &str, args: &Value) -> String {
+    if tool_name == "apply_patch" {
+        apply_patch_text_from_args(args).unwrap_or_else(|| format_json(args))
+    } else {
+        format_json(args)
+    }
+}
+
+fn apply_patch_text_from_args_preview(args_preview: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(args_preview).ok()?;
+    apply_patch_text_from_args(&value)
+}
+
+fn apply_patch_text_from_args(args: &Value) -> Option<String> {
+    args.get("patch")
+        .and_then(Value::as_str)
+        .or_else(|| args.get("input").and_then(Value::as_str))
+        .filter(|patch| !patch.trim().is_empty())
+        .map(ToOwned::to_owned)
+}
+
 fn current_tool_status_label(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
@@ -1081,7 +1108,8 @@ fn current_tool_status_label(
 fn ToolPreview(
     #[prop(into)] text: Signal<String>,
     /// Подпись секции («запрос»/«ответ»). Пустая — секция без заголовка.
-    #[prop(optional)] caption: &'static str,
+    #[prop(optional)]
+    caption: &'static str,
 ) -> impl IntoView {
     // 0 — компактно (5 строк), 1 — расширенно (20 строк), 2 — полностью.
     let (level, set_level) = signal(0u8);
@@ -1288,6 +1316,23 @@ mod tests {
         assert_eq!(hidden_tool_lines_label(5), "ещё 5 строк");
         assert_eq!(hidden_tool_lines_label(11), "ещё 11 строк");
         assert_eq!(hidden_tool_lines_label(21), "ещё 21 строка");
+    }
+
+    #[test]
+    fn apply_patch_args_preview_extracts_patch_body() {
+        let patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch";
+        let args = serde_json::json!({ "patch": patch });
+
+        assert_eq!(tool_args_preview("apply_patch", &args), patch);
+        assert!(tool_args_preview("shell", &args).contains("\"patch\""));
+    }
+
+    #[test]
+    fn apply_patch_args_preview_extracts_freeform_input() {
+        let patch = "*** Begin Patch\n*** Update File: a.txt\n-old\n+new\n*** End Patch";
+        let args = serde_json::json!({ "input": patch });
+
+        assert_eq!(tool_args_preview("apply_patch", &args), patch);
     }
 
     #[test]
