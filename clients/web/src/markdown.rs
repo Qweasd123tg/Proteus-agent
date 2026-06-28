@@ -329,16 +329,17 @@ fn looks_like_diff(text: &str) -> bool {
 
 fn highlight_apply_patch(text: &str) -> String {
     let mut out = String::new();
-    for (index, line) in text.lines().enumerate() {
-        if index > 0 {
-            out.push('\n');
-        }
-        highlight_apply_patch_line(line, &mut out);
+    for line in text.lines() {
+        let mut inner = String::new();
+        let row = highlight_apply_patch_line(line, &mut inner);
+        push_diff_line(&mut out, row, &inner);
     }
     out
 }
 
-fn highlight_apply_patch_line(line: &str, out: &mut String) {
+/// Подсвечивает одну строку патча в `out` и возвращает класс-модификатор для
+/// фоновой заливки всей строки (добавление/удаление), либо `None`.
+fn highlight_apply_patch_line(line: &str, out: &mut String) -> Option<&'static str> {
     for (prefix, class) in [
         ("*** Add File: ", "tk-patch-op"),
         ("*** Delete File: ", "tk-patch-op"),
@@ -348,7 +349,7 @@ fn highlight_apply_patch_line(line: &str, out: &mut String) {
         if let Some(path) = line.strip_prefix(prefix) {
             push_span(out, class, prefix);
             push_span(out, "tk-patch-path", path);
-            return;
+            return None;
         }
     }
 
@@ -372,14 +373,12 @@ fn highlight_apply_patch_line(line: &str, out: &mut String) {
         Some(class) => push_span(out, class, line),
         None => out.push_str(&escape_html(line)),
     }
+    diff_row_class(class)
 }
 
 fn highlight_diff(text: &str) -> String {
     let mut out = String::new();
-    for (index, line) in text.lines().enumerate() {
-        if index > 0 {
-            out.push('\n');
-        }
+    for line in text.lines() {
         let class = if line.starts_with("@@") {
             Some("tk-hunk")
         } else if line.starts_with("+++")
@@ -395,18 +394,37 @@ fn highlight_diff(text: &str) -> String {
         } else {
             None
         };
+        let mut inner = String::new();
         match class {
-            Some(class) => {
-                out.push_str("<span class=\"");
-                out.push_str(class);
-                out.push_str("\">");
-                out.push_str(&escape_html(line));
-                out.push_str("</span>");
-            }
-            None => out.push_str(&escape_html(line)),
+            Some(class) => push_span(&mut inner, class, line),
+            None => inner.push_str(&escape_html(line)),
         }
+        push_diff_line(&mut out, diff_row_class(class), &inner);
     }
     out
+}
+
+/// Заливку всей строки даём только добавлениям и удалениям — остальные классы
+/// (контекст, заголовки ханков, метаданные) остаются без фона.
+fn diff_row_class(class: Option<&'static str>) -> Option<&'static str> {
+    match class {
+        Some("tk-add") => Some("tk-row-add"),
+        Some("tk-del") => Some("tk-row-del"),
+        _ => None,
+    }
+}
+
+/// Оборачивает строку диффа в блочный `tk-line`, чтобы фон добавления/удаления
+/// тянулся на всю ширину. Строки идут встык без литерального `\n`.
+fn push_diff_line(out: &mut String, row: Option<&'static str>, inner: &str) {
+    out.push_str("<span class=\"tk-line");
+    if let Some(row) = row {
+        out.push(' ');
+        out.push_str(row);
+    }
+    out.push_str("\">");
+    out.push_str(inner);
+    out.push_str("</span>");
 }
 
 fn push_span(out: &mut String, class: &str, text: &str) {

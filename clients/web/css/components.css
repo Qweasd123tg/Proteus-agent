@@ -848,12 +848,36 @@
     padding: 0 var(--space-3);
     text-align: left;
     font-size: 13px;
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        color 0.15s ease;
 }
 
 .tool-card-summary:hover {
     border-color: var(--border-strong);
     background: var(--bg-panel-hover);
     color: var(--text-main);
+}
+
+/* Каретка раскрытия: поворачивается, когда детали открыты. */
+.tool-card-caret {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    font-size: 10px;
+    line-height: 1;
+    transition:
+        transform 0.15s ease,
+        color 0.15s ease;
+}
+
+.tool-card-summary:hover .tool-card-caret {
+    color: var(--text-muted);
+}
+
+.tool-card.expanded .tool-card-caret {
+    transform: rotate(90deg);
+    color: var(--text-muted);
 }
 
 .tool-card-summary strong {
@@ -914,14 +938,10 @@
     text-transform: uppercase;
 }
 
-/* Разделитель между запросом и ответом: линия появляется только когда внутри
-   деталей есть второй блок (пустой ответ не рендерится — линии не будет). */
-.tool-card-details > .tool-preview + .tool-preview {
-    border-top: 1px solid var(--border-subtle);
-    padding-top: var(--space-3);
-    margin-top: var(--space-1);
-}
-
+/* Разделитель перед блоком ответа: линия появляется только когда выше есть
+   блок запроса (сырое превью, список аргументов или файлы). Пустой ответ не
+   рендерится — линии тогда тоже не будет. */
+.tool-card-details > .tool-preview + .tool-preview,
 .tool-card-details > .tool-arg-list + .tool-preview,
 .tool-card-details > .tool-file-list + .tool-preview {
     border-top: 1px solid var(--border-subtle);
@@ -952,7 +972,7 @@
 
 .tool-arg-key {
     overflow: hidden;
-    color: var(--text-faint);
+    color: var(--accent-blue);
     font-family: var(--font-mono);
     font-size: 11px;
     text-overflow: ellipsis;
@@ -1000,6 +1020,23 @@
 .tool-file-op {
     color: var(--text-faint);
     font-size: 11px;
+}
+
+/* Цвет метки по виду правки файла. */
+.tool-file-op.op-add {
+    color: var(--accent-green);
+}
+
+.tool-file-op.op-delete {
+    color: var(--accent-red);
+}
+
+.tool-file-op.op-update {
+    color: var(--accent-blue);
+}
+
+.tool-file-op.op-move {
+    color: var(--accent-yellow);
 }
 
 .tool-file-path {
@@ -1093,12 +1130,28 @@
     color: var(--text-faint);
 }
 
+/* Каждая строка диффа — блок, чтобы фон тянулся на всю ширину превью. */
+.tool-preview .tk-line {
+    display: block;
+}
+
 .tool-preview .tk-add {
     color: var(--accent-green);
 }
 
 .tool-preview .tk-del {
     color: var(--accent-red);
+}
+
+/* Заливка добавленных/удалённых строк целиком. */
+.tool-preview .tk-line.tk-row-add {
+    background: rgba(92, 199, 132, 0.13);
+    box-shadow: inset 2px 0 0 var(--accent-green);
+}
+
+.tool-preview .tk-line.tk-row-del {
+    background: rgba(239, 107, 107, 0.13);
+    box-shadow: inset 2px 0 0 var(--accent-red);
 }
 
 .tool-preview .tk-hunk {

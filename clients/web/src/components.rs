@@ -80,6 +80,16 @@ impl PatchOperation {
             Self::Move => "перемещён",
         }
     }
+
+    /// Класс для цветовой метки операции в строке файла.
+    fn class(self) -> &'static str {
+        match self {
+            Self::Add => "tool-file-op op-add",
+            Self::Delete => "tool-file-op op-delete",
+            Self::Update => "tool-file-op op-update",
+            Self::Move => "tool-file-op op-move",
+        }
+    }
 }
 
 #[component]
@@ -803,7 +813,12 @@ fn ToolActivityCard(
                     _ => ().into_any(),
                 }}
                 <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
+                // Сводку в строке показываем только пока карточка свёрнута —
+                // в раскрытом виде те же файлы/аргументы есть ниже, дубль не нужен.
                 {move || {
+                    if expanded.get() {
+                        return ().into_any();
+                    }
                     display
                         .get()
                         .and_then(|display| display.summary)
@@ -812,6 +827,7 @@ fn ToolActivityCard(
                         .unwrap_or_else(|| ().into_any())
                 }}
                 <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
+                <span class="tool-card-caret" aria-hidden="true">"▸"</span>
             </button>
             {move || {
                 if expanded.get() {
@@ -832,13 +848,13 @@ fn ToolActivityCard(
                             } else {
                                 ().into_any()
                             }}
-                            {if !arg_previews.is_empty() && !has_patch_files {
-                                view! { <ToolArgList args=arg_previews /> }.into_any()
-                            } else {
-                                ().into_any()
-                            }}
+                            // Аргументы показываем один раз: структурированным
+                            // списком, если он есть, иначе сырым превью. Раньше
+                            // оба блока рисовались вместе и дублировали args.
                             {if has_patch_files {
                                 ().into_any()
+                            } else if !arg_previews.is_empty() {
+                                view! { <ToolArgList args=arg_previews /> }.into_any()
                             } else {
                                 view! { <ToolPreview text=args_text caption="запрос" /> }.into_any()
                             }}
@@ -904,7 +920,7 @@ fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
                 title=move || if expanded.get() { "Скрыть patch файла" } else { "Показать patch файла" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                <span class="tool-file-op">{operation.label()}</span>
+                <span class=operation.class()>{operation.label()}</span>
                 <span class="tool-file-path">{path}</span>
                 <span class="tool-file-stats">
                     <span class="tool-file-add">{format!("+{additions}")}</span>
