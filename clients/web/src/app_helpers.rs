@@ -301,7 +301,9 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
         session.updated_at_ms.unwrap_or_default(),
         session.preview.as_deref().unwrap_or_default(),
         session.resumable,
-        activity.map(|activity| activity.status.as_str()).unwrap_or(""),
+        activity
+            .map(|activity| activity.status.as_str())
+            .unwrap_or(""),
         activity.map(|activity| activity.running_turns).unwrap_or(0),
         activity
             .map(|activity| activity.running_turn_ids.join(","))
@@ -419,6 +421,7 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
     ToolActivity {
         call_id: tool.call_id,
         name: tool.name,
+        args: tool.args.clone(),
         args_preview: format_json(&tool.args),
         started_at_ms,
         status,
@@ -438,12 +441,7 @@ fn tool_status_from_wire(status: &str) -> ToolActivityStatus {
 }
 
 fn next_message_id_after(messages: &[Message]) -> u64 {
-    messages
-        .iter()
-        .map(|message| message.id)
-        .max()
-        .unwrap_or(0)
-        + 1
+    messages.iter().map(|message| message.id).max().unwrap_or(0) + 1
 }
 
 pub(crate) fn current_path() -> String {

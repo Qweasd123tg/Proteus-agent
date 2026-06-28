@@ -866,6 +866,16 @@
     white-space: nowrap;
 }
 
+.tool-card-summary-meta {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .tool-card-summary code {
     margin-left: auto;
     color: var(--text-faint);
@@ -910,6 +920,116 @@
     border-top: 1px solid var(--border-subtle);
     padding-top: var(--space-3);
     margin-top: var(--space-1);
+}
+
+.tool-card-details > .tool-arg-list + .tool-preview,
+.tool-card-details > .tool-file-list + .tool-preview {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+    margin-top: var(--space-1);
+}
+
+.tool-arg-list,
+.tool-file-list {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+}
+
+.tool-arg-row {
+    display: grid;
+    grid-template-columns: minmax(72px, 0.3fr) minmax(0, 1fr);
+    min-width: 0;
+    gap: var(--space-2);
+    align-items: baseline;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 3px 0;
+}
+
+.tool-arg-row:last-child {
+    border-bottom: 0;
+}
+
+.tool-arg-key {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-arg-value {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-file-row {
+    min-width: 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.tool-file-row:last-child {
+    border-bottom: 0;
+}
+
+.tool-file-toggle {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 5px 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tool-file-toggle:hover {
+    color: var(--text-main);
+}
+
+.tool-file-op {
+    color: var(--text-faint);
+    font-size: 11px;
+}
+
+.tool-file-path {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-file-stats {
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tool-file-add {
+    color: var(--accent-green);
+}
+
+.tool-file-del {
+    color: var(--accent-red);
+}
+
+.tool-file-detail {
+    border-top: 1px solid var(--border-subtle);
+    padding: var(--space-2) 0 var(--space-3);
 }
 
 .control-card .tool-preview {

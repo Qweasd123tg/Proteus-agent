@@ -211,6 +211,7 @@ impl ContextUsage {
 pub(crate) struct ToolActivity {
     pub(crate) call_id: String,
     pub(crate) name: String,
+    pub(crate) args: Value,
     pub(crate) args_preview: String,
     pub(crate) started_at_ms: u64,
     pub(crate) status: ToolActivityStatus,

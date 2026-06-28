@@ -694,10 +694,12 @@ fn update_runtime_status_and_tools(
                 .and_then(Value::as_str)
                 .unwrap_or("tool")
                 .to_owned();
-            let args_preview = call.get("args").map(format_json).unwrap_or_default();
+            let args = call.get("args").cloned().unwrap_or(Value::Null);
+            let args_preview = format_json(&args);
             let tool = ToolActivity {
                 call_id: call_id.clone(),
                 name,
+                args,
                 args_preview,
                 started_at_ms: js_sys::Date::now().max(0.0) as u64,
                 status: ToolActivityStatus::Running,
