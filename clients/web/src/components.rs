@@ -684,7 +684,11 @@ where
 /// текстами; клик по пункту прокручивает к сообщению. Скрыта, пока сообщений
 /// меньше двух.
 #[component]
-pub(crate) fn MessageNav<J>(items: Memo<Vec<(u64, String)>>, on_jump: J) -> impl IntoView
+pub(crate) fn MessageNav<J>(
+    items: Memo<Vec<(u64, String)>>,
+    active: ReadSignal<Option<u64>>,
+    on_jump: J,
+) -> impl IntoView
 where
     J: Fn(u64) + Copy + Send + 'static,
 {
@@ -703,6 +707,7 @@ where
                                 <button
                                     type="button"
                                     class="msg-nav-tick"
+                                    class:active=move || active.get() == Some(id)
                                     aria-label="К сообщению"
                                     on:click=move |_| on_jump(id)
                                 ></button>
@@ -719,6 +724,7 @@ where
                                 <button
                                     type="button"
                                     class="msg-nav-item"
+                                    class:active=move || active.get() == Some(id)
                                     on:click=move |_| on_jump(id)
                                 >
                                     {text}

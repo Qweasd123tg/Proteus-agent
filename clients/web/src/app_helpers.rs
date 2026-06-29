@@ -450,6 +450,23 @@ pub(crate) fn current_path() -> String {
         .unwrap_or_else(|| "/".to_owned())
 }
 
+/// id активного пользовательского сообщения для подсветки в миникарте: последнее,
+/// чья верхняя граница уже выше верха ленты (т.е. чью секцию сейчас читаешь).
+pub(crate) fn active_user_message_id(ids: &[u64], container_top: f64) -> Option<u64> {
+    let document = window().and_then(|window| window.document())?;
+    let mut active = ids.first().copied();
+    for &id in ids {
+        if let Some(element) = document.get_element_by_id(&format!("msg-{id}")) {
+            if element.get_bounding_client_rect().top() <= container_top + 40.0 {
+                active = Some(id);
+            } else {
+                break;
+            }
+        }
+    }
+    active
+}
+
 pub(crate) fn load_i32_setting(key: &str, fallback: i32) -> i32 {
     window()
         .and_then(|window| window.local_storage().ok().flatten())

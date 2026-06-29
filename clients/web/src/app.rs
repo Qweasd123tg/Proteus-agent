@@ -105,6 +105,7 @@ pub(crate) fn App() -> impl IntoView {
         load_i32_setting("proteus.chatWidth", DEFAULT_CHAT_WIDTH_PX)
             .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
     );
+    let (active_user_message, set_active_user_message) = signal(None::<u64>);
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (dragging_chat, set_dragging_chat) = signal(false);
@@ -209,6 +210,15 @@ pub(crate) fn App() -> impl IntoView {
 
     Effect::new(move |_| {
         save_i32_setting("proteus.chatWidth", chat_width.get());
+    });
+
+    // Пока лента прилипла к низу, активным считаем последнее моё сообщение —
+    // скролл-обработчик мид-скролла переопределит это при подъёме вверх.
+    Effect::new(move |_| {
+        if stick_to_bottom.get() {
+            set_active_user_message
+                .set(user_messages.with(|items| items.last().map(|(id, _)| *id)));
+        }
     });
 
     Effect::new(move |_| match transport_status.get() {
@@ -1150,6 +1160,12 @@ pub(crate) fn App() -> impl IntoView {
                                             set_stick_to_bottom.set(false);
                                         }
                                         set_last_results_scroll_top.set(scroll_top);
+                                        let container_top =
+                                            results.get_bounding_client_rect().top();
+                                        set_active_user_message.set(active_user_message_id(
+                                            &user_messages.get_untracked(),
+                                            container_top,
+                                        ));
                                     }
                                 }
                             >
@@ -1496,7 +1512,11 @@ pub(crate) fn App() -> impl IntoView {
                                 on:mousedown=begin_chat_resize
                             ></div>
 
-                            <MessageNav items=user_messages on_jump=jump_to_message />
+                            <MessageNav
+                                items=user_messages
+                                active=active_user_message
+                                on_jump=jump_to_message
+                            />
                         }.into_any()
                     }}
                 </section>
