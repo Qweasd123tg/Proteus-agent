@@ -452,13 +452,13 @@ pub(crate) fn current_path() -> String {
 
 /// id активного пользовательского сообщения для подсветки в миникарте: последнее,
 /// чья верхняя граница уже выше верха ленты (т.е. чью секцию сейчас читаешь).
-pub(crate) fn active_user_message_id(ids: &[u64], container_top: f64) -> Option<u64> {
+pub(crate) fn active_user_message_id(items: &[(u64, String)], container_top: f64) -> Option<u64> {
     let document = window().and_then(|window| window.document())?;
-    let mut active = ids.first().copied();
-    for &id in ids {
+    let mut active = items.first().map(|(id, _)| *id);
+    for (id, _) in items {
         if let Some(element) = document.get_element_by_id(&format!("msg-{id}")) {
             if element.get_bounding_client_rect().top() <= container_top + 40.0 {
-                active = Some(id);
+                active = Some(*id);
             } else {
                 break;
             }
