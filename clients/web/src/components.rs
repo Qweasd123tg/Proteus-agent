@@ -791,26 +791,32 @@ fn ToolActivityCard(
                 title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                // Статус карточки несёт точка на рейке-цепочке; в заголовке
-                // показываем бейдж только пока тул в работе (спиннер + таймер).
-                {move || match current_tool(message) {
-                    Some(tool)
-                        if matches!(
-                            tool.status,
-                            ToolActivityStatus::Running
-                                | ToolActivityStatus::WaitingApproval
-                                | ToolActivityStatus::Approved
-                        ) =>
-                    {
-                        view! {
-                            <span class=tool.status.badge_class()>
-                                <span class="spinner-dot"></span>
-                                {move || current_tool_status_label(message, activity_now_ms)}
-                            </span>
-                        }
-                        .into_any()
+                // Статусный бейдж показываем всегда — он несёт цвет карточки
+                // (синий в работе со спиннером и таймером, зелёный «готово»,
+                // красный «ошибка»/«отклонено»). В терминальных статусах вместо
+                // спиннера статичная точка.
+                {move || {
+                    let Some(tool) = current_tool(message) else {
+                        return ().into_any();
+                    };
+                    let running = matches!(
+                        tool.status,
+                        ToolActivityStatus::Running
+                            | ToolActivityStatus::WaitingApproval
+                            | ToolActivityStatus::Approved
+                    );
+                    let indicator = if running {
+                        view! { <span class="spinner-dot"></span> }.into_any()
+                    } else {
+                        view! { <span class="dot"></span> }.into_any()
+                    };
+                    view! {
+                        <span class=tool.status.badge_class()>
+                            {indicator}
+                            {move || current_tool_status_label(message, activity_now_ms)}
+                        </span>
                     }
-                    _ => ().into_any(),
+                    .into_any()
                 }}
                 <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
                 // Сводку в строке показываем только пока карточка свёрнута —
@@ -873,6 +879,7 @@ fn ToolActivityCard(
 fn ToolArgList(args: Vec<ToolArgPreview>) -> impl IntoView {
     view! {
         <div class="tool-arg-list">
+            <div class="tool-preview-caption">"параметры"</div>
             <For
                 each=move || args.clone()
                 key=|arg| arg.key.clone()

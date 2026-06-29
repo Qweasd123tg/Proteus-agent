@@ -764,15 +764,24 @@
 
 .agent-turn-item {
     position: relative;
+    /* Вертикаль узла-точки на рейке. Подгоняется под центр первой строки
+       карточки; у тул-карточек строка-сводка выше (см. ниже). */
+    --rail-node-top: 7px;
     margin-bottom: var(--space-3);
     padding-left: var(--space-4);
+}
+
+/* Сводка тула — бокс min-height 36px с центрированным контентом, поэтому его
+   первая «строка» ниже, чем у текстовых карточек. */
+.agent-turn-item.tool-turn-item {
+    --rail-node-top: 14px;
 }
 
 /* Узел цепочки — кружок со статусным цветом и «дыркой» (border цвета фона),
    чтобы звено чисто проходило сквозь него. */
 .agent-turn-item::before {
     position: absolute;
-    top: 16px;
+    top: var(--rail-node-top);
     left: 2px;
     z-index: 1;
     width: 8px;
@@ -788,8 +797,10 @@
    Так узлы соседних карточек соединяются в непрерывную цепочку. */
 .agent-turn-item::after {
     position: absolute;
-    top: 20px;
-    bottom: calc((var(--space-3) + 20px) * -1);
+    /* Линия стартует из центра узла (top + половина 8px точки) и с запасом
+       уходит вниз до узла следующей карточки, независимо от её типа. */
+    top: calc(var(--rail-node-top) + 4px);
+    bottom: calc((var(--space-3) + 24px) * -1);
     left: 5px;
     width: 2px;
     border-radius: 1px;
@@ -798,11 +809,13 @@
     pointer-events: none;
 }
 
-/* Последний узел группы (за ним нет тул-карточки) звена вниз не рисует —
-   цепочка обрывается на нём. */
+/* Последний узел группы (за ним нет карточки-продолжения): звено не обрывается
+   у точки, а проходит вдоль всей карточки — важно для длинных сообщений — и
+   останавливается у нижней строки скруглённым торцом (border-radius из базового
+   правила). Так у хвоста цепочки есть аккуратное завершение. */
 .agent-turn-item:not(:has(+ .agent-turn-item))::after,
 .agent-turn-item:last-child::after {
-    display: none;
+    bottom: var(--space-2);
 }
 
 /* Цвет несёт только узел (точка); звено всегда нейтральное, чтобы не рябило. */
@@ -938,15 +951,16 @@
     text-transform: uppercase;
 }
 
-/* Разделитель перед блоком ответа: линия появляется только когда выше есть
-   блок запроса (сырое превью, список аргументов или файлы). Пустой ответ не
-   рендерится — линии тогда тоже не будет. */
+/* Одна заметная линия отделяет вход (параметры/запрос/файлы) от ответа.
+   Тянем блок ответа за горизонтальный паддинг деталей отрицательными полями и
+   компенсируем паддингом — линия идёт от края до края, не «висит». Появляется
+   только когда выше есть блок входа: у одиночного ответа её не будет. */
 .tool-card-details > .tool-preview + .tool-preview,
 .tool-card-details > .tool-arg-list + .tool-preview,
 .tool-card-details > .tool-file-list + .tool-preview {
-    border-top: 1px solid var(--border-subtle);
-    padding-top: var(--space-3);
-    margin-top: var(--space-1);
+    border-top: 1px solid var(--border-strong);
+    margin: var(--space-1) calc(-1 * var(--space-3)) 0;
+    padding: var(--space-3) var(--space-3) 0;
 }
 
 .tool-arg-list,
@@ -1182,6 +1196,32 @@
 .tool-preview .tk-patch-meta {
     color: var(--text-faint);
     font-style: italic;
+}
+
+/* Коды git status --short: ?? (untracked) — жёлтый, добавления зелёные,
+   удаления красные, остальные изменения синие; заголовок ветки приглушён. */
+.tool-preview .tk-git-branch {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-git-untracked {
+    color: var(--accent-yellow);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-add {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-del {
+    color: var(--accent-red);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-mod {
+    color: var(--accent-blue);
+    font-weight: 600;
 }
 
 .spinner-dot {

@@ -307,6 +307,8 @@ pub(crate) fn highlight_preview(text: &str) -> String {
         highlight_apply_patch(text)
     } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
         highlight_json(text)
+    } else if looks_like_git_status(text) {
+        highlight_git_status(text)
     } else if looks_like_diff(text) {
         highlight_diff(text)
     } else {
@@ -427,6 +429,79 @@ fn push_diff_line(out: &mut String, row: Option<&'static str>, inner: &str) {
     out.push_str("</span>");
 }
 
+/// Вывод `git status --short` (с `--branch` или без): первая строка может быть
+/// заголовком ветки `## ...`, остальные непустые — записи `XY путь`. Требуем,
+/// чтобы все непустые строки были валидными записями статуса — иначе обычный
+/// текст с `## ` в начале (markdown-заголовок) ошибочно не попадёт сюда.
+fn looks_like_git_status(text: &str) -> bool {
+    let mut header = false;
+    let mut entries = false;
+    for (index, line) in text.lines().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        if index == 0 && line.starts_with("## ") {
+            header = true;
+            continue;
+        }
+        if git_status_code_class(line).is_some() {
+            entries = true;
+        } else {
+            return false;
+        }
+    }
+    header || entries
+}
+
+fn highlight_git_status(text: &str) -> String {
+    let mut out = String::new();
+    for (index, line) in text.lines().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        if line.starts_with("## ") {
+            push_span(&mut out, "tk-git-branch", line);
+        } else if let Some(class) = git_status_code_class(line) {
+            let (code, rest) = line.split_at(2);
+            push_span(&mut out, class, code);
+            out.push_str(&escape_html(rest));
+        } else {
+            out.push_str(&escape_html(line));
+        }
+    }
+    out
+}
+
+/// Класс для двухсимвольного XY-кода статуса (`??` untracked, `A` added,
+/// `D` deleted, прочее — изменения), либо `None`, если строка не похожа на
+/// запись `git status --short`.
+fn git_status_code_class(line: &str) -> Option<&'static str> {
+    let bytes = line.as_bytes();
+    if bytes.len() < 3 || bytes[2] != b' ' {
+        return None;
+    }
+    let valid = |byte: u8| {
+        matches!(
+            byte,
+            b' ' | b'M' | b'A' | b'D' | b'R' | b'C' | b'U' | b'?' | b'!' | b'T'
+        )
+    };
+    let (x, y) = (bytes[0], bytes[1]);
+    if !valid(x) || !valid(y) || (x == b' ' && y == b' ') {
+        return None;
+    }
+    let class = if x == b'?' || y == b'?' || x == b'!' || y == b'!' {
+        "tk-git-untracked"
+    } else if x == b'D' || y == b'D' {
+        "tk-git-del"
+    } else if x == b'A' || y == b'A' {
+        "tk-git-add"
+    } else {
+        "tk-git-mod"
+    };
+    Some(class)
+}
+
 fn push_span(out: &mut String, class: &str, text: &str) {
     out.push_str("<span class=\"");
     out.push_str(class);
@@ -542,6 +617,24 @@ mod tests {
         assert!(html.contains("<span class=\"tk-hunk\">@@ -1 +1 @@</span>"));
         assert!(html.contains("<span class=\"tk-del\">-old</span>"));
         assert!(html.contains("<span class=\"tk-add\">+new</span>"));
+    }
+
+    #[test]
+    fn highlight_preview_colors_git_status_codes() {
+        let html = highlight_preview("## main...origin/main\n M src/lib.rs\n?? new.rs\nA  staged.rs");
+
+        assert!(html.contains("<span class=\"tk-git-branch\">## main...origin/main</span>"));
+        assert!(html.contains("<span class=\"tk-git-untracked\">??</span>"));
+        assert!(html.contains("<span class=\"tk-git-add\">A </span>"));
+        assert!(html.contains("<span class=\"tk-git-mod\"> M</span>"));
+    }
+
+    #[test]
+    fn highlight_preview_leaves_markdown_heading_alone() {
+        // `## ` в начале не должен превращать обычный текст в git-status.
+        let html = highlight_preview("## Заголовок\nобычный текст");
+
+        assert!(!html.contains("tk-git"));
     }
 
     #[test]
