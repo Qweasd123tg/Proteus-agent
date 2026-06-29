@@ -432,10 +432,6 @@ button.session-item.active {
     margin-left: auto;
 }
 
-.session-workspace .results-panel > .user-turn {
-    max-width: none;
-}
-
 /* Плавающий композер: вынут из потока и лежит над лентой по центру снизу.
    Сам враппер прозрачный и кликов не ловит (pointer-events: none) — кликабельны
    только shell и кнопка «вниз», поэтому лента под краями враппера остаётся

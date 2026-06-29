@@ -107,10 +107,13 @@
     padding-left: var(--space-3);
 }
 
+/* width: max-content + max-width: 100% — таблица по содержимому, но не шире
+   колонки; если шире — overflow-x даёт горизонтальный скролл вместо переноса. */
 .message table {
     display: block;
     overflow-x: auto;
-    width: 100%;
+    width: max-content;
+    max-width: 100%;
     border-collapse: collapse;
     font-size: 12px;
 }
@@ -121,6 +124,8 @@
     padding: var(--space-2) var(--space-3);
     text-align: left;
     vertical-align: top;
+    /* Не ужимаем ячейки переносом — пусть таблица листается по горизонтали. */
+    white-space: nowrap;
 }
 
 .message th {
