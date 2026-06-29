@@ -1254,17 +1254,17 @@
     max-height: 70vh;
     flex-direction: column;
     align-items: flex-end;
-    gap: 4px;
+    gap: 5px;
     overflow: hidden;
-    padding: var(--space-2) var(--space-1);
+    padding: var(--space-1);
 }
 
-/* Тонкий штрих-«дефис», по одному на сообщение; зазор держит их раздельными. */
+/* Тонкая линия (1px), по одной на сообщение — не «кирпич». */
 .msg-nav-tick {
     width: 14px;
-    height: 2px;
+    height: 1px;
     border: 0;
-    border-radius: 1px;
+    border-radius: 0;
     background: var(--text-faint);
     padding: 0;
     cursor: pointer;
