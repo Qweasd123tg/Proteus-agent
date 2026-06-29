@@ -1,0 +1,15 @@
+active_provider = "anthropic"
+
+[providers.anthropic]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+stream = true
+api_key_env = "ANTHROPIC_API_KEY"
+base_url = "https://api.anthropic.com"
+auth = "x-api-key"
+api_version = "2023-06-01"
+
+[providers.anthropic.reasoning]
+effort = "high"
+summary = true
+budget_tokens = 8192
