@@ -679,6 +679,60 @@ where
     }
 }
 
+/// Миникарта пользовательских сообщений у правого края ленты: тонкие штрихи
+/// (по одному на сообщение), при наведении раскрывается список с короткими
+/// текстами; клик по пункту прокручивает к сообщению. Скрыта, пока сообщений
+/// меньше двух.
+#[component]
+pub(crate) fn MessageNav<J>(items: Memo<Vec<(u64, String)>>, on_jump: J) -> impl IntoView
+where
+    J: Fn(u64) + Copy + Send + 'static,
+{
+    move || {
+        if items.with(|items| items.len() < 2) {
+            return ().into_any();
+        }
+        view! {
+            <nav class="msg-nav" aria-label="Переход к моим сообщениям">
+                <div class="msg-nav-ticks">
+                    <For
+                        each=move || items.get()
+                        key=|(id, _)| *id
+                        children=move |(id, _)| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="msg-nav-tick"
+                                    aria-label="К сообщению"
+                                    on:click=move |_| on_jump(id)
+                                ></button>
+                            }
+                        }
+                    />
+                </div>
+                <div class="msg-nav-list">
+                    <For
+                        each=move || items.get()
+                        key=|(id, _)| *id
+                        children=move |(id, text)| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="msg-nav-item"
+                                    on:click=move |_| on_jump(id)
+                                >
+                                    {text}
+                                </button>
+                            }
+                        }
+                    />
+                </div>
+            </nav>
+        }
+        .into_any()
+    }
+}
+
 #[component]
 pub(crate) fn QueuedPromptCard<S, C>(
     text: String,
@@ -1122,7 +1176,11 @@ fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal
 fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
     let rendered_html = cached_message_html(message);
     view! {
-        <article class="user-turn">
+        // id="msg-{id}" — якорь для быстрого перехода из MessageNav.
+        <article
+            class="user-turn"
+            id=move || message.get().map(|message| format!("msg-{}", message.id)).unwrap_or_default()
+        >
             <div class="user-bubble">
                 <CopyButton
                     text=move || current_message_text(message)

@@ -12,8 +12,8 @@ use crate::actions::{
 use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::components::{
-    ApprovalCard, ContextRing, MessageView, PlanActionsCard, QueuedPromptCard, ResumeView,
-    ToastStack, UserInputCard, WorkingCard,
+    ApprovalCard, ContextRing, MessageNav, MessageView, PlanActionsCard, QueuedPromptCard,
+    ResumeView, ToastStack, UserInputCard, WorkingCard,
 };
 use crate::events::{
     BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
@@ -124,6 +124,16 @@ pub(crate) fn App() -> impl IntoView {
                 .cloned()
                 .map(|message| (message.id, message))
                 .collect::<HashMap<_, _>>()
+        })
+    });
+    // Список моих сообщений (id + короткий текст) для миникарты MessageNav.
+    let user_messages = Memo::new(move |_| {
+        messages.with(|items| {
+            items
+                .iter()
+                .filter(|message| message.role == MessageRole::User)
+                .map(|message| (message.id, compact_text(message.text.trim(), 80)))
+                .collect::<Vec<_>>()
         })
     });
 
@@ -654,6 +664,16 @@ pub(crate) fn App() -> impl IntoView {
     };
     let is_resizing =
         move || dragging_sidebar.get() || dragging_composer.get() || dragging_chat.get();
+    let jump_to_message = move |id: u64| {
+        if let Some(element) = window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.get_element_by_id(&format!("msg-{id}")))
+        {
+            // Останавливаем автоприлипание, иначе лента дёрнет обратно вниз.
+            set_stick_to_bottom.set(false);
+            element.scroll_into_view();
+        }
+    };
     let latest_message_is_assistant = move || {
         messages
             .get()
@@ -1475,6 +1495,8 @@ pub(crate) fn App() -> impl IntoView {
                                 title="Ширина чата"
                                 on:mousedown=begin_chat_resize
                             ></div>
+
+                            <MessageNav items=user_messages on_jump=jump_to_message />
                         }.into_any()
                     }}
                 </section>
