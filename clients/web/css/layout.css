@@ -422,14 +422,17 @@ button.session-item.active {
 
 /* Центрирующая колонка: на все прямые дети results-panel наводим max-width.
    Это держит DOM без обёрток, но даёт ChatGPT-подобную чат-rail. */
-.results-panel > * {
+/* Specificity (0,2,0): должно бить .task-card { max-width: 100% } из
+   components.css (0,1,0, грузится позже) — иначе сообщения игнорируют
+   --chat-max-width и тянутся во всю ширину, центрируется только композер. */
+.session-workspace .results-panel > * {
     width: 100%;
     max-width: var(--chat-max-width);
     margin-right: auto;
     margin-left: auto;
 }
 
-.results-panel > .user-turn {
+.session-workspace .results-panel > .user-turn {
     max-width: none;
 }
 
