@@ -132,6 +132,16 @@
     overflow-wrap: normal;
 }
 
+/* Инлайн-код внутри ячеек тоже не переносим: у .message code свои
+   white-space: break-spaces / overflow-wrap: anywhere, которые рвут чипы
+   кода (localStorag-e, 1/.e-nv.example) поверх nowrap ячейки. */
+.message th code,
+.message td code {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
 .message th {
     background: var(--bg-panel-soft);
     color: var(--text-main);
