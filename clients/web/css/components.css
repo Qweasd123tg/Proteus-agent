@@ -1296,6 +1296,7 @@
     max-height: 60vh;
     flex-direction: column;
     gap: 2px;
+    overflow-x: hidden;
     overflow-y: auto;
     border: 1px solid var(--border-subtle);
     border-radius: 10px;
@@ -1315,6 +1316,12 @@
 }
 
 .msg-nav-item {
+    display: block;
+    width: 100%;
+    /* min-width: 0 — иначе flex-пункт не сжимается ниже nowrap-контента и текст
+       вылезает за панель; display:block + width:100% + text-align:left дают
+       левое выравнивание и обрезание с многоточием справа. */
+    min-width: 0;
     overflow: hidden;
     border: 0;
     border-radius: 8px;
