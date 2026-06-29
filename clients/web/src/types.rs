@@ -252,6 +252,8 @@ pub(crate) struct ContextUsageSnapshot {
 pub(crate) struct ContextUsageCategory {
     pub(crate) name: String,
     pub(crate) tokens: u32,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]

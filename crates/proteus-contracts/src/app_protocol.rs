@@ -285,7 +285,8 @@ impl AppPendingRequests {
 
 /// Диагностический snapshot того, что известно app-server'у о контексте
 /// выбранной session. Это UI/debug surface: provider `TokenUsage` остаётся
-/// source of truth для totals, а category breakdown является локальной оценкой.
+/// source of truth для totals, а category breakdown смешивает локальную оценку
+/// prompt parts с явно помеченной provider telemetry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct AppContextMapSnapshot {
@@ -394,6 +395,8 @@ impl AppContextUsageSnapshot {
 pub struct AppContextUsageCategory {
     pub name: String,
     pub tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl AppContextUsageCategory {
@@ -401,7 +404,13 @@ impl AppContextUsageCategory {
         Self {
             name: name.into(),
             tokens,
+            source: None,
         }
+    }
+
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
     }
 }
 

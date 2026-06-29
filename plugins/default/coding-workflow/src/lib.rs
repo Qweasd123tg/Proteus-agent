@@ -1227,8 +1227,11 @@ fn request_token_usage_snapshot(
     actual: Option<TokenUsage>,
     phase: &str,
 ) -> TokenUsageSnapshot {
-    let categories = estimate_request_categories(request);
+    let mut categories = estimate_request_categories(request);
     let estimated_input_tokens = categories.iter().map(|category| category.tokens).sum();
+    if let Some(actual_usage) = actual.as_ref() {
+        append_provider_cache_categories(&mut categories, actual_usage);
+    }
     let source = if actual.is_some() {
         TokenUsageSource::Mixed
     } else {
@@ -1250,30 +1253,27 @@ fn request_token_usage_snapshot(
 }
 
 fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsageCategory> {
-    let mut instructions_bytes = request
+    let mut bytes = RequestCategoryBytes::default();
+    bytes.instructions = request
         .instructions
         .iter()
         .map(|instruction| instruction.text.len())
         .sum::<usize>();
     if !request.instructions.is_empty() {
-        instructions_bytes += request.instructions.len() * 8;
+        bytes.instructions += request.instructions.len() * 8;
     }
 
-    let mut message_bytes = 0usize;
-    let mut context_bytes = 0usize;
-    let mut tool_result_bytes = 0usize;
-    let mut file_bytes = 0usize;
     for message in &request.messages {
-        message_bytes += 4;
+        bytes.messages += message_envelope_bytes(message);
         for part in &message.parts {
             match part {
                 ContentPart::Text { text }
                 | ContentPart::ReasoningSummary { text }
                 | ContentPart::Reasoning { text, .. } => {
-                    message_bytes += text.len();
+                    bytes.messages += text.len();
                 }
                 ContentPart::Context { chunk } => {
-                    context_bytes += chunk.source.len()
+                    bytes.context += chunk.source.len()
                         + chunk
                             .path
                             .as_ref()
@@ -1283,14 +1283,16 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
                         + chunk.metadata.to_string().len();
                 }
                 ContentPart::FileRef { path, content } => {
-                    file_bytes += path.display().to_string().len()
+                    bytes.files += path.display().to_string().len()
                         + content.as_deref().unwrap_or_default().len();
                 }
                 ContentPart::ToolCall { call } => {
-                    message_bytes += call.name.len() + call.args.to_string().len();
+                    bytes.tool_calls +=
+                        call.id.as_str().len() + call.name.len() + call.args.to_string().len();
                 }
                 ContentPart::ToolResult { result } => {
-                    tool_result_bytes += result.output.len()
+                    bytes.tool_results += result.call_id.as_str().len()
+                        + result.output.len()
                         + result.error.as_deref().unwrap_or_default().len()
                         + result.metadata.to_string().len()
                         + result
@@ -1300,14 +1302,14 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
                             .sum::<usize>();
                 }
                 ContentPart::Patch { patch } => {
-                    message_bytes += patch.content.len();
+                    bytes.patches += patch.content.len();
                 }
                 _ => {}
             }
         }
     }
 
-    let tool_schema_bytes = request
+    bytes.tool_schemas = request
         .tools
         .iter()
         .map(|tool| {
@@ -1318,19 +1320,71 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
         .sum::<usize>();
 
     [
-        ("instructions", instructions_bytes),
-        ("messages", message_bytes),
-        ("context", context_bytes),
-        ("tool_results", tool_result_bytes),
-        ("files", file_bytes),
-        ("tool_schemas", tool_schema_bytes),
+        ("instructions", bytes.instructions),
+        ("messages", bytes.messages),
+        ("context", bytes.context),
+        ("tool_calls", bytes.tool_calls),
+        ("tool_results", bytes.tool_results),
+        ("files", bytes.files),
+        ("patches", bytes.patches),
+        ("tool_schemas", bytes.tool_schemas),
     ]
     .into_iter()
     .filter_map(|(name, bytes)| {
         let tokens = estimate_tokens_from_bytes(bytes);
-        (tokens > 0).then(|| TokenUsageCategory::new(name, tokens))
+        (tokens > 0)
+            .then(|| TokenUsageCategory::new(name, tokens).with_source(TokenUsageSource::Estimated))
     })
     .collect()
+}
+
+#[derive(Default)]
+struct RequestCategoryBytes {
+    instructions: usize,
+    messages: usize,
+    context: usize,
+    tool_calls: usize,
+    tool_results: usize,
+    files: usize,
+    patches: usize,
+    tool_schemas: usize,
+}
+
+fn append_provider_cache_categories(categories: &mut Vec<TokenUsageCategory>, usage: &TokenUsage) {
+    [
+        ("provider_cache_read", usage.cached_input_tokens),
+        ("provider_cache_write", usage.cache_creation_input_tokens),
+    ]
+    .into_iter()
+    .filter_map(|(name, tokens)| {
+        tokens
+            .filter(|tokens| *tokens > 0)
+            .map(|tokens| (name, tokens))
+    })
+    .for_each(|(name, tokens)| {
+        categories
+            .push(TokenUsageCategory::new(name, tokens).with_source(TokenUsageSource::Provider));
+    });
+}
+
+fn message_envelope_bytes(message: &CanonicalMessage) -> usize {
+    let role_bytes = match message.role {
+        MessageRole::System => "system".len(),
+        MessageRole::Developer => "developer".len(),
+        MessageRole::User => "user".len(),
+        MessageRole::Assistant => "assistant".len(),
+        MessageRole::Tool => "tool".len(),
+        _ => 0,
+    };
+    role_bytes
+        + message.name.as_deref().map(str::len).unwrap_or_default()
+        + message
+            .tool_call_id
+            .as_ref()
+            .map(|id| id.as_str().len())
+            .unwrap_or_default()
+        + message.metadata.to_string().len()
+        + 4
 }
 
 fn estimate_tokens_from_bytes(bytes: usize) -> u32 {

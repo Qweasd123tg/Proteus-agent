@@ -48,6 +48,123 @@ fn token_usage_snapshot_reads_compaction_trigger_metadata() {
 }
 
 #[test]
+fn token_usage_snapshot_splits_prompt_accounting_categories() {
+    let tool_call = ToolCall::new("call-1", "read_file", json!({ "path": "src/lib.rs" }));
+    let tool_result = ToolResult::ok("call-1".to_owned(), "file content");
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("fake", "model"),
+        vec![
+            CanonicalMessage::text(MessageRole::User, "open the file"),
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![
+                    ContentPart::ToolCall { call: tool_call },
+                    ContentPart::Patch {
+                        patch: proteus_contracts::domain::Patch::new("*** Begin Patch\n"),
+                    },
+                ],
+            ),
+            CanonicalMessage::new(
+                MessageRole::Tool,
+                vec![ContentPart::ToolResult {
+                    result: tool_result,
+                }],
+            ),
+            CanonicalMessage::new(
+                MessageRole::User,
+                vec![ContentPart::FileRef {
+                    path: std::path::PathBuf::from("src/lib.rs"),
+                    content: Some("fn main() {}".to_owned()),
+                }],
+            ),
+        ],
+    )
+    .with_instructions(vec![InstructionBlock::new(
+        InstructionKind::System,
+        "follow the project rules",
+        0,
+    )])
+    .with_tools(vec![ToolSpec::new(
+        "read_file",
+        "Read a file",
+        json!({ "type": "object" }),
+        ToolSafety::ReadOnly,
+    )]);
+
+    let usage = request_token_usage_snapshot(&request, None, "execute");
+
+    for name in [
+        "instructions",
+        "messages",
+        "tool_calls",
+        "tool_results",
+        "files",
+        "patches",
+        "tool_schemas",
+    ] {
+        assert!(category_tokens(&usage, name).is_some(), "missing {name}");
+        assert_eq!(
+            category_source(&usage, name),
+            Some(TokenUsageSource::Estimated)
+        );
+    }
+    assert_eq!(category_tokens(&usage, "provider_cache_read"), None);
+    assert_eq!(
+        usage.estimated_input_tokens,
+        usage
+            .categories
+            .iter()
+            .map(|category| category.tokens)
+            .sum::<u32>()
+    );
+}
+
+#[test]
+fn token_usage_snapshot_adds_provider_cache_categories_without_changing_estimate() {
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("fake", "model"),
+        vec![CanonicalMessage::text(MessageRole::User, "hello")],
+    );
+    let estimated = request_token_usage_snapshot(&request, None, "execute");
+    let actual = TokenUsage::new(100, 7)
+        .with_cached_input_tokens(Some(40))
+        .with_cache_creation_input_tokens(Some(9));
+
+    let usage = request_token_usage_snapshot(&request, Some(actual), "execute");
+
+    assert_eq!(
+        usage.estimated_input_tokens,
+        estimated.estimated_input_tokens
+    );
+    assert_eq!(category_tokens(&usage, "provider_cache_read"), Some(40));
+    assert_eq!(category_tokens(&usage, "provider_cache_write"), Some(9));
+    assert_eq!(
+        category_source(&usage, "provider_cache_read"),
+        Some(TokenUsageSource::Provider)
+    );
+    assert_eq!(
+        category_source(&usage, "provider_cache_write"),
+        Some(TokenUsageSource::Provider)
+    );
+}
+
+fn category_tokens(usage: &TokenUsageSnapshot, name: &str) -> Option<u32> {
+    usage
+        .categories
+        .iter()
+        .find(|category| category.name == name)
+        .map(|category| category.tokens)
+}
+
+fn category_source(usage: &TokenUsageSnapshot, name: &str) -> Option<TokenUsageSource> {
+    usage
+        .categories
+        .iter()
+        .find(|category| category.name == name)
+        .and_then(|category| category.source)
+}
+
+#[test]
 fn empty_text_response_gets_placeholder() {
     let message = CanonicalMessage::new(MessageRole::Assistant, Vec::new());
 

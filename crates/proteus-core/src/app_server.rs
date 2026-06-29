@@ -601,7 +601,13 @@ fn apply_context_events(snapshot: &mut AppContextMapSnapshot, events: &[EventEnv
                     .categories
                     .iter()
                     .map(|category| {
-                        AppContextUsageCategory::new(category.name.clone(), category.tokens)
+                        let mut category_snapshot =
+                            AppContextUsageCategory::new(category.name.clone(), category.tokens);
+                        if let Some(source) = category.source {
+                            category_snapshot =
+                                category_snapshot.with_source(token_usage_source_label(source));
+                        }
+                        category_snapshot
                     })
                     .collect();
                 usage_snapshot.actual = usage.actual.clone();

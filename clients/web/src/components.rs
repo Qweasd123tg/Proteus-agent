@@ -469,11 +469,19 @@ fn context_snapshot_view(snapshot: ContextMapSnapshot) -> impl IntoView {
                                         let percent = ((f64::from(category.tokens) / f64::from(category_total)) * 100.0)
                                             .round()
                                             .clamp(0.0, 100.0);
+                                        let token_label = match category.source.as_deref() {
+                                            Some(source) => format!(
+                                                "{} · {}",
+                                                format_token_count(category.tokens),
+                                                context_category_source_label(source)
+                                            ),
+                                            None => format_token_count(category.tokens),
+                                        };
                                         view! {
                                             <div class="context-category-row">
                                                 <div class="context-category-head">
                                                     <span>{context_category_label(&category.name)}</span>
-                                                    <code>{format_token_count(category.tokens)}</code>
+                                                    <code>{token_label}</code>
                                                 </div>
                                                 <div class="context-category-bar">
                                                     <span style=format!("width: {percent:.0}%")></span>
@@ -592,9 +600,22 @@ fn context_category_label(name: &str) -> String {
         "instructions" => "instructions".to_owned(),
         "messages" => "messages/history".to_owned(),
         "context" => "ephemeral context".to_owned(),
+        "tool_calls" => "tool calls".to_owned(),
         "tool_results" => "tool results".to_owned(),
         "files" => "files".to_owned(),
+        "patches" => "patches".to_owned(),
         "tool_schemas" => "tool schemas".to_owned(),
+        "provider_cache_read" => "provider cache read".to_owned(),
+        "provider_cache_write" => "provider cache write".to_owned(),
+        other => other.replace('_', " "),
+    }
+}
+
+fn context_category_source_label(source: &str) -> String {
+    match source {
+        "estimated" => "estimate".to_owned(),
+        "provider" => "provider".to_owned(),
+        "mixed" => "mixed".to_owned(),
         other => other.replace('_', " "),
     }
 }

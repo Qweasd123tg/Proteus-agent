@@ -54,22 +54,6 @@ impl EventEnvelope {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct TokenUsageCategory {
-    pub name: String,
-    pub tokens: u32,
-}
-
-impl TokenUsageCategory {
-    pub fn new(name: impl Into<String>, tokens: u32) -> Self {
-        Self {
-            name: name.into(),
-            tokens,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -80,6 +64,30 @@ pub enum TokenUsageSource {
     Provider,
     /// Provider totals plus local category estimates.
     Mixed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TokenUsageCategory {
+    pub name: String,
+    pub tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<TokenUsageSource>,
+}
+
+impl TokenUsageCategory {
+    pub fn new(name: impl Into<String>, tokens: u32) -> Self {
+        Self {
+            name: name.into(),
+            tokens,
+            source: None,
+        }
+    }
+
+    pub fn with_source(mut self, source: TokenUsageSource) -> Self {
+        self.source = Some(source);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -325,5 +333,16 @@ mod tests {
         let provider = TokenUsageSnapshot::new(ModelRef::new("test", "model"), 0, Vec::new())
             .with_actual(Some(TokenUsage::new(11, 2)));
         assert_eq!(provider.usage_source(), TokenUsageSource::Provider);
+    }
+
+    #[test]
+    fn token_usage_category_accepts_legacy_json_without_source() {
+        let category: TokenUsageCategory =
+            serde_json::from_value(serde_json::json!({ "name": "messages", "tokens": 10 }))
+                .expect("legacy category");
+
+        assert_eq!(category.name, "messages");
+        assert_eq!(category.tokens, 10);
+        assert_eq!(category.source, None);
     }
 }

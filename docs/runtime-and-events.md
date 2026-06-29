@@ -152,15 +152,19 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 `MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
 
 `TokenUsageUpdated` испускается workflow-плагином после каждого model request.
-Событие содержит грубую оценку input tokens по категориям (`instructions`,
-`messages`, `context`, `tool_results`, `files`, `tool_schemas`) и фактический
-`TokenUsage`, если provider adapter вернул usage. `TokenUsageSnapshot.source`
-явно различает `estimated`, `provider` и `mixed`; в штатном workflow это
-обычно `mixed`, то есть provider totals плюс локальная оценка категорий.
-Provider usage является source of truth для фактических input/output tokens и
-может включать детали вроде cache read/write и reasoning tokens. Category
-breakdown остаётся оценкой для UI и исследования context budget; он не является
-provider billing source of truth.
+Событие содержит оценку input tokens по категориям (`instructions`, `messages`,
+`context`, `tool_calls`, `tool_results`, `files`, `patches`, `tool_schemas`) и
+фактический `TokenUsage`, если provider adapter вернул usage.
+`TokenUsageSnapshot.source` явно различает `estimated`, `provider` и `mixed`; в
+штатном workflow это обычно `mixed`, то есть provider totals плюс локальная
+оценка категорий. Каждая `TokenUsageCategory` может иметь optional `source`.
+Категории с `source = "estimated"` входят в `estimated_input_tokens`;
+provider-only строки вроде `provider_cache_read` и `provider_cache_write`
+показывают usage telemetry провайдера и не увеличивают локальную оценку prompt
+input. Provider usage является source of truth для фактических input/output
+tokens и может включать детали вроде cache read/write и reasoning tokens.
+Category breakdown остаётся оценкой для UI и исследования context budget; он не
+является provider billing source of truth.
 
 Provider prompt cache не является локальным response-cache. Workflow выставляет
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
@@ -182,9 +186,10 @@ durable event log при resume. При смене `turn_id` в `EventEnvelope` 
 выбранной session. Это debug/observability surface, а не отдельный источник
 runtime truth: фактические totals берутся из `TokenUsage` provider-а, если они
 есть, а локальные категории (`instructions`, `messages`, `context`,
-`tool_results`, `files`, `tool_schemas`) остаются оценкой состава prompt.
-Provider prompt cache telemetry в этой карте означает provider-side reuse или
-creation prompt-prefix/cache entries, а не локальное переиспользование ответа.
+`tool_calls`, `tool_results`, `files`, `patches`, `tool_schemas`) остаются
+оценкой состава prompt. Provider prompt cache telemetry в этой карте означает
+provider-side reuse или creation prompt-prefix/cache entries, а не локальное
+переиспользование ответа; такие строки помечаются `source = "provider"`.
 Для live session карта использует последний runtime snapshot; после resume или
 для cold session она восстанавливается из durable event log, а если usage events
 нет - деградирует до оценки по history/event log без provider-only полей.
