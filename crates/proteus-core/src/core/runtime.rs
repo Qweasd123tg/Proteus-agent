@@ -469,6 +469,10 @@ impl AgentRuntime {
         self.session.history.lock().await.clone()
     }
 
+    pub fn session_id(&self) -> crate::domain::SessionId {
+        self.session.session_id
+    }
+
     pub fn session_dir(&self) -> Option<&std::path::Path> {
         self.session
             .session_store

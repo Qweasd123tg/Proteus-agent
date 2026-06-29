@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, RwLock, broadcast};
 use uuid::Uuid;
@@ -19,11 +19,15 @@ use crate::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
         ModuleCatalogEntrySummary, PendingApproval, PendingUserInput, RuntimeReloadReport,
-        TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
-        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
-        normalize_session_dir_path, session_id_from_session_dir,
+        SessionStore, TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
+        config_store_root, delete_workspace_session, list_session_summaries,
+        list_workspace_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
+        session_workspace_from_session_dir,
     },
-    domain::{AgentOutput, PermissionMode, ToolCall, new_thread_id},
+    domain::{
+        AgentOutput, Event, EventEnvelope, HistoryCompactionReport, PermissionMode, SessionId,
+        TokenUsageSource, ToolCall, new_thread_id,
+    },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -35,8 +39,10 @@ pub mod stdio;
 // без зависимости на ядро. Здесь просто re-export для обратной
 // совместимости внутри proteus-core.
 pub use proteus_contracts::app_protocol::{
-    AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppPendingRequests, AppServerEvent,
-    AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
+    AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
+    AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
+    AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppPendingRequests,
+    AppServerEvent, AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
 const APPROVAL_PREVIEW_BODY_LIMIT: usize = 20_000;
@@ -303,6 +309,69 @@ impl AppServerHandle {
         AppPendingRequests::new(approvals, user_inputs)
     }
 
+    pub async fn context_map_snapshot(
+        &self,
+        activity: Option<AppSessionActivity>,
+    ) -> Result<AppContextMapSnapshot> {
+        let session_dir = self.session_dir_path();
+        let session_id = Some(self.runtime.session_id());
+        let history = self.runtime.history().await;
+        let event_log_path = self.context_event_log_path(&self.cwd).await;
+        build_context_map_snapshot(ContextMapInput {
+            session_dir,
+            session_id,
+            workspace_path: Some(self.cwd.clone()),
+            activity,
+            history,
+            event_log_path,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    pub async fn context_map_snapshot_for_session_dir(
+        &self,
+        session_dir: PathBuf,
+        activity: Option<AppSessionActivity>,
+    ) -> Result<AppContextMapSnapshot> {
+        let session_dir = crate::core::canonicalize_session_dir_path(session_dir)?;
+        let history = SessionStore::from_session_dir(session_dir.clone()).load_messages()?;
+        let mut diagnostics = Vec::new();
+        let session_id = match session_id_from_session_dir(&session_dir) {
+            Ok(session_id) => Some(session_id),
+            Err(error) => {
+                diagnostics.push(format!("session metadata unavailable: {error}"));
+                None
+            }
+        };
+        let workspace_path = match session_workspace_from_session_dir(&session_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                diagnostics.push(format!("workspace metadata unavailable: {error}"));
+                None
+            }
+        };
+        let event_log_cwd = workspace_path.as_deref().unwrap_or(&self.cwd);
+        let event_log_path = self.context_event_log_path(event_log_cwd).await;
+        build_context_map_snapshot(ContextMapInput {
+            session_dir: Some(session_dir),
+            session_id,
+            workspace_path,
+            activity,
+            history,
+            event_log_path,
+            diagnostics,
+        })
+    }
+
+    async fn context_event_log_path(&self, cwd: &Path) -> PathBuf {
+        let config = self.config.read().await;
+        crate::core::runtime::event_log_path(
+            &config.event_log.path,
+            self.config_path.as_deref(),
+            cwd,
+        )
+    }
+
     pub async fn has_pending_approval(&self, approval_id: &str) -> bool {
         self.pending_approvals
             .lock()
@@ -410,6 +479,271 @@ impl AppServerHandle {
             tool_names: report.tool_names.clone(),
         });
         Ok(report)
+    }
+}
+
+struct ContextMapInput {
+    session_dir: Option<PathBuf>,
+    session_id: Option<SessionId>,
+    workspace_path: Option<PathBuf>,
+    activity: Option<AppSessionActivity>,
+    history: Vec<CanonicalMessage>,
+    event_log_path: PathBuf,
+    diagnostics: Vec<String>,
+}
+
+fn build_context_map_snapshot(input: ContextMapInput) -> Result<AppContextMapSnapshot> {
+    let mut diagnostics = input.diagnostics;
+    let events = read_context_events(
+        &input.event_log_path,
+        input.session_id,
+        input.session_dir.as_deref(),
+        &mut diagnostics,
+    )?;
+    let history = summarize_context_history(&input.history);
+    let tools = summarize_context_tools(&events);
+    let mut snapshot = AppContextMapSnapshot::new(
+        input.session_dir,
+        input.session_id,
+        input.workspace_path,
+        history,
+        tools,
+    );
+    snapshot.activity = input.activity;
+    apply_context_events(&mut snapshot, &events);
+    if snapshot.latest_usage.is_none() {
+        diagnostics
+            .push("token usage telemetry unavailable; showing history-only fallback".to_owned());
+    }
+    snapshot.diagnostics = diagnostics;
+    Ok(snapshot)
+}
+
+fn read_context_events(
+    event_log_path: &Path,
+    session_id: Option<SessionId>,
+    session_dir: Option<&Path>,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<EventEnvelope>> {
+    let content = match std::fs::read_to_string(event_log_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            diagnostics.push("event log not found; using session history only".to_owned());
+            return Ok(Vec::new());
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", event_log_path.display()));
+        }
+    };
+
+    let mut skipped = 0usize;
+    let mut events = Vec::new();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        match serde_json::from_str::<EventEnvelope>(line) {
+            Ok(envelope) if context_event_matches(&envelope, session_id, session_dir) => {
+                events.push(envelope);
+            }
+            Ok(_) => {}
+            Err(_) => skipped += 1,
+        }
+    }
+    if skipped > 0 {
+        diagnostics.push(format!("skipped {skipped} malformed event log lines"));
+    }
+    Ok(events)
+}
+
+fn context_event_matches(
+    envelope: &EventEnvelope,
+    session_id: Option<SessionId>,
+    session_dir: Option<&Path>,
+) -> bool {
+    if let Some(session_id) = session_id {
+        return envelope.session_id == session_id;
+    }
+    let Some(session_dir) = session_dir else {
+        return false;
+    };
+    match &envelope.event {
+        Event::SessionStarted {
+            session_dir: Some(started_dir),
+            ..
+        } => paths_equal(started_dir, session_dir),
+        _ => false,
+    }
+}
+
+fn apply_context_events(snapshot: &mut AppContextMapSnapshot, events: &[EventEnvelope]) {
+    for envelope in events {
+        match &envelope.event {
+            Event::ContextBuilt {
+                chunks,
+                token_estimate,
+            } => {
+                let mut context = AppContextBuildSnapshot::new(*chunks);
+                context.token_estimate = *token_estimate;
+                context.turn_id = envelope.turn_id;
+                context.timestamp_ms = Some(envelope.timestamp_ms);
+                snapshot.latest_context = Some(context);
+            }
+            Event::TokenUsageUpdated { usage } => {
+                let mut usage_snapshot = AppContextUsageSnapshot::new(
+                    usage.model.provider.clone(),
+                    usage.model.model.clone(),
+                    usage.estimated_input_tokens,
+                    token_usage_source_label(usage.usage_source()),
+                );
+                usage_snapshot.phase = usage.phase.clone();
+                usage_snapshot.max_input_tokens = usage.max_input_tokens;
+                usage_snapshot.compaction_trigger_tokens = usage.compaction_trigger_tokens;
+                usage_snapshot.categories = usage
+                    .categories
+                    .iter()
+                    .map(|category| {
+                        AppContextUsageCategory::new(category.name.clone(), category.tokens)
+                    })
+                    .collect();
+                usage_snapshot.actual = usage.actual.clone();
+                usage_snapshot.turn_id = envelope.turn_id;
+                usage_snapshot.timestamp_ms = Some(envelope.timestamp_ms);
+                snapshot.latest_usage = Some(usage_snapshot);
+            }
+            Event::HistoryCompactionStarted { .. } => {
+                let mut compaction = AppContextCompactionSnapshot::new("started");
+                compaction.turn_id = envelope.turn_id;
+                compaction.timestamp_ms = Some(envelope.timestamp_ms);
+                snapshot.latest_compaction = Some(compaction);
+            }
+            Event::HistoryCompactionCompleted { report } => {
+                let (report, summary_present) = sanitized_compaction_report(report);
+                let mut compaction = AppContextCompactionSnapshot::new("completed");
+                compaction.report = Some(report);
+                compaction.summary_present = summary_present;
+                compaction.turn_id = envelope.turn_id;
+                compaction.timestamp_ms = Some(envelope.timestamp_ms);
+                snapshot.latest_compaction = Some(compaction);
+            }
+            Event::HistoryCompactionFailed { .. } => {
+                let mut compaction = AppContextCompactionSnapshot::new("failed");
+                compaction.turn_id = envelope.turn_id;
+                compaction.timestamp_ms = Some(envelope.timestamp_ms);
+                snapshot.latest_compaction = Some(compaction);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn token_usage_source_label(source: TokenUsageSource) -> &'static str {
+    match source {
+        TokenUsageSource::Estimated => "estimated",
+        TokenUsageSource::Provider => "provider",
+        TokenUsageSource::Mixed => "mixed",
+        _ => "unknown",
+    }
+}
+
+fn sanitized_compaction_report(
+    report: &HistoryCompactionReport,
+) -> (HistoryCompactionReport, bool) {
+    let mut report = report.clone();
+    let summary_present = report.summary.is_some();
+    report.summary = None;
+    report.metadata = Value::Null;
+    (report, summary_present)
+}
+
+fn summarize_context_tools(events: &[EventEnvelope]) -> AppContextToolSummary {
+    let mut names = BTreeSet::new();
+    let mut summary = AppContextToolSummary::default();
+    for envelope in events {
+        match &envelope.event {
+            Event::ToolCallRequested { call } => {
+                summary.requested += 1;
+                names.insert(call.name.clone());
+            }
+            Event::ToolFinished { result } => {
+                summary.finished += 1;
+                if !result.ok {
+                    summary.failed += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    summary.names = names.into_iter().collect();
+    summary
+}
+
+fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistorySummary {
+    let mut summary = AppContextHistorySummary::default();
+    summary.messages = messages.len();
+    let mut bytes = 0usize;
+    for message in messages {
+        bytes += message.metadata.to_string().len() + 4;
+        match message.role {
+            MessageRole::User => summary.user_messages += 1,
+            MessageRole::Assistant => summary.assistant_messages += 1,
+            MessageRole::System | MessageRole::Developer => summary.system_messages += 1,
+            MessageRole::Tool => {}
+            _ => {}
+        }
+        for part in &message.parts {
+            match part {
+                ContentPart::Text { text }
+                | ContentPart::ReasoningSummary { text }
+                | ContentPart::Reasoning { text, .. } => {
+                    bytes += text.len();
+                }
+                ContentPart::Context { chunk } => {
+                    bytes += chunk.source.len()
+                        + chunk
+                            .path
+                            .as_ref()
+                            .map(|path| path.display().to_string().len())
+                            .unwrap_or_default()
+                        + chunk.content.len()
+                        + chunk.metadata.to_string().len();
+                }
+                ContentPart::FileRef { path, content } => {
+                    bytes += path.display().to_string().len()
+                        + content.as_deref().unwrap_or_default().len();
+                }
+                ContentPart::ToolCall { call } => {
+                    bytes += call.name.len() + call.args.to_string().len();
+                }
+                ContentPart::ToolResult { result } => {
+                    summary.tool_results += 1;
+                    bytes += result.output.len()
+                        + result.error.as_deref().unwrap_or_default().len()
+                        + result.metadata.to_string().len()
+                        + result
+                            .content
+                            .iter()
+                            .map(|content| {
+                                serde_json::to_string(content)
+                                    .map(|text| text.len())
+                                    .unwrap_or(0)
+                            })
+                            .sum::<usize>();
+                }
+                ContentPart::Patch { patch } => {
+                    bytes += patch.content.len();
+                }
+                _ => {}
+            }
+        }
+    }
+    summary.estimated_tokens = estimate_tokens_from_bytes(bytes);
+    summary
+}
+
+fn estimate_tokens_from_bytes(bytes: usize) -> u32 {
+    if bytes == 0 {
+        0
+    } else {
+        u32::try_from((bytes / 4).max(1)).unwrap_or(u32::MAX)
     }
 }
 

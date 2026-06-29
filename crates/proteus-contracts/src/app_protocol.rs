@@ -30,7 +30,11 @@ use serde_json::Value;
 
 use crate::{
     contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse},
-    domain::{AgentOutput, EventEnvelope, PermissionMode, ToolCall, ToolSpec},
+    domain::{
+        AgentOutput, EventEnvelope, HistoryCompactionReport, PermissionMode, SessionId, ToolCall,
+        ToolSpec, TurnId,
+    },
+    model_standard::TokenUsage,
 };
 
 /// ID approval'а — произвольная строка, уникальная для session агента.
@@ -277,6 +281,186 @@ impl AppPendingRequests {
             user_inputs,
         }
     }
+}
+
+/// Диагностический snapshot того, что известно app-server'у о контексте
+/// выбранной session. Это UI/debug surface: provider `TokenUsage` остаётся
+/// source of truth для totals, а category breakdown является локальной оценкой.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct AppContextMapSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_dir: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<AppSessionActivity>,
+    pub history: AppContextHistorySummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_usage: Option<AppContextUsageSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_context: Option<AppContextBuildSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_compaction: Option<AppContextCompactionSnapshot>,
+    pub tools: AppContextToolSummary,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
+impl AppContextMapSnapshot {
+    pub fn new(
+        session_dir: Option<PathBuf>,
+        session_id: Option<SessionId>,
+        workspace_path: Option<PathBuf>,
+        history: AppContextHistorySummary,
+        tools: AppContextToolSummary,
+    ) -> Self {
+        Self {
+            session_dir,
+            session_id,
+            workspace_path,
+            activity: None,
+            history,
+            latest_usage: None,
+            latest_context: None,
+            latest_compaction: None,
+            tools,
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppContextHistorySummary {
+    pub messages: usize,
+    pub user_messages: usize,
+    pub assistant_messages: usize,
+    pub system_messages: usize,
+    pub tool_results: usize,
+    pub estimated_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppContextUsageSnapshot {
+    pub model_provider: String,
+    pub model_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    pub estimated_input_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_input_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_trigger_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<AppContextUsageCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual: Option<TokenUsage>,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<i64>,
+}
+
+impl AppContextUsageSnapshot {
+    pub fn new(
+        model_provider: impl Into<String>,
+        model_name: impl Into<String>,
+        estimated_input_tokens: u32,
+        source: impl Into<String>,
+    ) -> Self {
+        Self {
+            model_provider: model_provider.into(),
+            model_name: model_name.into(),
+            phase: None,
+            estimated_input_tokens,
+            max_input_tokens: None,
+            compaction_trigger_tokens: None,
+            categories: Vec::new(),
+            actual: None,
+            source: source.into(),
+            turn_id: None,
+            timestamp_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppContextUsageCategory {
+    pub name: String,
+    pub tokens: u32,
+}
+
+impl AppContextUsageCategory {
+    pub fn new(name: impl Into<String>, tokens: u32) -> Self {
+        Self {
+            name: name.into(),
+            tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppContextBuildSnapshot {
+    pub chunks: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_estimate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<i64>,
+}
+
+impl AppContextBuildSnapshot {
+    pub fn new(chunks: usize) -> Self {
+        Self {
+            chunks,
+            token_estimate: None,
+            turn_id: None,
+            timestamp_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct AppContextCompactionSnapshot {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<HistoryCompactionReport>,
+    pub summary_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<i64>,
+}
+
+impl AppContextCompactionSnapshot {
+    pub fn new(status: impl Into<String>) -> Self {
+        Self {
+            status: status.into(),
+            report: None,
+            summary_present: false,
+            turn_id: None,
+            timestamp_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AppContextToolSummary {
+    pub requested: usize,
+    pub finished: usize,
+    pub failed: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub names: Vec<String>,
 }
 
 /// Команды от клиента к ядру через stdin.

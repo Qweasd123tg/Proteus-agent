@@ -32,6 +32,22 @@
     .composer-buttons {
         justify-content: flex-end;
     }
+
+    .context-overview,
+    .context-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .context-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .context-toolbar-actions,
+    .context-session-select {
+        width: 100%;
+        max-width: none;
+    }
 }
 
 @media (max-width: 620px) {
@@ -68,12 +84,14 @@
     }
 
     .resume-list,
+    .context-map-scroll,
     .configs-scroll,
     .results-panel {
         padding: var(--space-4);
     }
 
-    .config-overview {
+    .config-overview,
+    .context-overview {
         grid-template-columns: 1fr;
     }
 

@@ -187,6 +187,10 @@ where
             Ok(transcript) => json_response(StatusCode::OK, &transcript),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
+        (Method::GET, "/context") => match context_map_json(&state, query.as_deref()).await {
+            Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
+        },
         (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => {
                 json_response(StatusCode::OK, &execute_app_request(&state, command).await)
@@ -519,6 +523,28 @@ async fn history_json(
 
     let messages = SessionStore::from_session_dir(session_dir).load_messages()?;
     Ok(transcript_messages(&messages))
+}
+
+async fn context_map_json(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<super::AppContextMapSnapshot> {
+    let Some(session_dir) = query_path_param(query, "session_dir")? else {
+        let server = state.current_server().await;
+        let activity = state.activity_for_server(&server).await;
+        return server.context_map_snapshot(Some(activity)).await;
+    };
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    if let Some(server) = state.server_for_session_dir(&session_dir).await {
+        let activity = state.activity_for_server(&server).await;
+        return server.context_map_snapshot(Some(activity)).await;
+    }
+
+    state
+        .current_server()
+        .await
+        .context_map_snapshot_for_session_dir(session_dir, None)
+        .await
 }
 
 async fn server_for_optional_session(
