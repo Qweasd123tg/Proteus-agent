@@ -1254,9 +1254,9 @@
     max-height: 70vh;
     flex-direction: column;
     align-items: flex-end;
-    gap: 5px;
+    gap: 7px;
     overflow: hidden;
-    padding: var(--space-1);
+    padding: var(--space-2);
 }
 
 /* Тонкая линия (1px), по одной на сообщение — не «кирпич».
@@ -1264,7 +1264,7 @@
    даёт сжаться ниже min-content высоты <button> (UA-стиль), и height: 1px
    игнорируется. appearance: none убирает нативный вид кнопки. */
 .msg-nav-tick {
-    width: 14px;
+    width: 22px;
     height: 1px;
     min-height: 0;
     flex: 0 0 auto;
@@ -1280,13 +1280,13 @@
 }
 
 .msg-nav-tick:hover {
-    width: 20px;
+    width: 26px;
     background: var(--text-muted);
 }
 
-/* Активное (читаемое сейчас) сообщение — белый штрих, длиннее остальных. */
+/* Активное (читаемое сейчас) сообщение — белый и чуть короче остальных. */
 .msg-nav-tick.active {
-    width: 24px;
+    width: 14px;
     background: var(--text-main);
 }
 
