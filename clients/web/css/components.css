@@ -811,11 +811,16 @@
 
 /* Последний узел группы (за ним нет карточки-продолжения): звено не обрывается
    у точки, а проходит вдоль всей карточки — важно для длинных сообщений — и
-   останавливается у нижней строки скруглённым торцом (border-radius из базового
-   правила). Так у хвоста цепочки есть аккуратное завершение. */
+   завершается загибом вправо «╰». Вертикаль рисует border-left, низ —
+   border-bottom, угол скруглён. Заливку базовой линии гасим. */
 .agent-turn-item:not(:has(+ .agent-turn-item))::after,
 .agent-turn-item:last-child::after {
     bottom: var(--space-2);
+    width: 12px;
+    background: none;
+    border-left: 2px solid var(--border-subtle);
+    border-bottom: 2px solid var(--border-subtle);
+    border-radius: 0 0 0 8px;
 }
 
 /* Цвет несёт только узел (точка); звено всегда нейтральное, чтобы не рябило. */
