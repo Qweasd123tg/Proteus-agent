@@ -13,7 +13,7 @@ use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::components::{
     ApprovalCard, ContextMapView, ContextRing, MessageNav, MessageView, PlanActionsCard,
-    QueuedPromptCard, ResumeView, ToastStack, UserInputCard, WorkingCard,
+    QueuedPromptCard, ResumeView, ToastStack, ToolCardsCollapsed, UserInputCard, WorkingCard,
 };
 use crate::events::{
     BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
@@ -107,6 +107,11 @@ pub(crate) fn App() -> impl IntoView {
             .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
     );
     let (active_user_message, set_active_user_message) = signal(None::<u64>);
+    // Дефолт раскрытия карточек тулов из [web].tool_cards_collapsed (/config);
+    // отдаём вниз контекстом, ToolActivityCard читает его при монтировании.
+    let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
+    provide_context(ToolCardsCollapsed(tool_cards_collapsed));
+    load_web_settings(set_tool_cards_collapsed);
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
     let (dragging_chat, set_dragging_chat) = signal(false);

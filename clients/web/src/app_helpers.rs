@@ -54,6 +54,21 @@ fn utf16_offset_to_byte_index(text: &str, offset: u32) -> usize {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Разовая загрузка веб-настроек из секции [web] конфига (config_summary.web).
+/// Отдельно от load_runtime_settings, чтобы не тащить параметр через её 4
+/// вызова (они делят хвостовые аргументы с другими функциями).
+pub(crate) fn load_web_settings(set_tool_cards_collapsed: WriteSignal<bool>) {
+    spawn_local(async move {
+        if let Ok(config) = get_json::<Value>("/config").await
+            && let Some(collapsed) = config
+                .pointer("/web/tool_cards_collapsed")
+                .and_then(Value::as_bool)
+        {
+            set_tool_cards_collapsed.set(collapsed);
+        }
+    });
+}
+
 pub(crate) fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,

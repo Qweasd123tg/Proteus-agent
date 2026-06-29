@@ -42,6 +42,10 @@ enum MessageViewKind {
     System,
 }
 
+/// Контекст с дефолтом сворачивания карточек тулов ([web].tool_cards_collapsed).
+#[derive(Clone, Copy)]
+pub(crate) struct ToolCardsCollapsed(pub(crate) ReadSignal<bool>);
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ToolDisplay {
     summary: Option<String>,
@@ -1447,7 +1451,10 @@ fn ToolActivityCard(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    let (expanded, set_expanded) = signal(true);
+    // Стартовое состояние из [web].tool_cards_collapsed; дальше — локально.
+    let collapsed_default = use_context::<ToolCardsCollapsed>()
+        .is_some_and(|cards| cards.0.get_untracked());
+    let (expanded, set_expanded) = signal(!collapsed_default);
     // Тексты держим в Memo поверх карточки, чтобы стриминг результата обновлял
     // превью, не пересоздавая внутренний компонент и его состояние раскрытия.
     let args_text = Memo::new(move |_| {

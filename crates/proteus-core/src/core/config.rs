@@ -40,6 +40,8 @@ pub struct AppConfig {
     pub runtime: RuntimeConfig,
     #[serde(default)]
     pub event_log: EventLogConfig,
+    #[serde(default)]
+    pub web: WebConfig,
 }
 
 impl AppConfig {
@@ -514,6 +516,15 @@ pub struct EventLogConfig {
 pub struct AppServerConfig {
     #[serde(default = "default_approval_timeout_ms")]
     pub approval_timeout_ms: u64,
+}
+
+/// Конфиг веб-клиента (`[web]`). Доставляется фронту через `/config`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WebConfig {
+    /// Стартовое состояние карточек тулов: `true` — свёрнуты по умолчанию,
+    /// `false` (дефолт) — раскрыты, как сейчас.
+    #[serde(default)]
+    pub tool_cards_collapsed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

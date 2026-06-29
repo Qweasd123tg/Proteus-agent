@@ -60,3 +60,8 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+# Настройки веб-клиента (clients/web). Доставляются фронту через /config.
+[web]
+# Сворачивать карточки тулов по умолчанию (false — раскрыты, как сейчас).
+tool_cards_collapsed = false

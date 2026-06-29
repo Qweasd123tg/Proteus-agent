@@ -218,6 +218,9 @@ impl AppServerHandle {
                 "budget_tokens": reasoning.budget_tokens,
             },
             "permission_mode": format!("{mode:?}"),
+            "web": {
+                "tool_cards_collapsed": config.web.tool_cards_collapsed,
+            },
             "module_epoch": module_epoch.as_u64(),
             "modules": module_summary(&config),
             "tools_enabled": config.tools.enabled,
