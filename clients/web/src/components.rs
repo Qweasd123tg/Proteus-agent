@@ -1469,28 +1469,24 @@ fn ToolActivityCard(
                 title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
-                // Статусный бейдж показываем всегда — он несёт цвет карточки
-                // (синий в работе со спиннером и таймером, зелёный «готово»,
-                // красный «ошибка»/«отклонено»). В терминальных статусах вместо
-                // спиннера статичная точка.
+                // Бейдж показываем только пока тул в работе (спиннер + таймер).
+                // Терминальный статус (готово/ошибка/отклонено) несёт цветная
+                // точка на рейке — дублировать его текстом на карточке незачем.
                 {move || {
                     let Some(tool) = current_tool(message) else {
                         return ().into_any();
                     };
-                    let running = matches!(
+                    if !matches!(
                         tool.status,
                         ToolActivityStatus::Running
                             | ToolActivityStatus::WaitingApproval
                             | ToolActivityStatus::Approved
-                    );
-                    let indicator = if running {
-                        view! { <span class="spinner-dot"></span> }.into_any()
-                    } else {
-                        view! { <span class="dot"></span> }.into_any()
-                    };
+                    ) {
+                        return ().into_any();
+                    }
                     view! {
                         <span class=tool.status.badge_class()>
-                            {indicator}
+                            <span class="spinner-dot"></span>
                             {move || current_tool_status_label(message, activity_now_ms)}
                         </span>
                     }
