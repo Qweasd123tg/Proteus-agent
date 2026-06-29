@@ -3,6 +3,10 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!-- Документ не кэшируем: иначе браузер держит старый index.html со
+             ссылками на прежние хеши ассетов, и новая сборка не подхватывается
+             без жёсткого refresh. Сами ассеты хешированы и кэшируются нормально. -->
+        <meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
         <title>Proteus</title>
         <script>
             window.MathJax = {
