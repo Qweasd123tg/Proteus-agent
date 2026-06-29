@@ -1259,13 +1259,14 @@
     padding: var(--space-2);
 }
 
-/* Тонкая линия (1px), по одной на сообщение — не «кирпич».
+/* Тонкая линия (2px — ровно рисуется на любом зуме, 1px браузер округлял
+   неравномерно), по одной на сообщение.
    min-height: 0 обязателен: в колоночном flex у элемента min-height: auto не
    даёт сжаться ниже min-content высоты <button> (UA-стиль), и height: 1px
    игнорируется. appearance: none убирает нативный вид кнопки. */
 .msg-nav-tick {
     width: 22px;
-    height: 1px;
+    height: 2px;
     min-height: 0;
     flex: 0 0 auto;
     appearance: none;
