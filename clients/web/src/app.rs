@@ -26,9 +26,9 @@ const TOAST_DISMISS_MS: i32 = 6000;
 const MIN_COMPOSER_HEIGHT_PX: i32 = 56;
 const DEFAULT_COMPOSER_HEIGHT_PX: i32 = 88;
 const MAX_COMPOSER_HEIGHT_PX: i32 = 240;
-const MIN_CHAT_WIDTH_PX: i32 = 560;
+const MIN_CHAT_WIDTH_PX: i32 = 420;
 const DEFAULT_CHAT_WIDTH_PX: i32 = 768;
-const MAX_CHAT_WIDTH_PX: i32 = 1400;
+const MAX_CHAT_WIDTH_PX: i32 = 1600;
 
 #[wasm_bindgen]
 unsafe extern "C" {
