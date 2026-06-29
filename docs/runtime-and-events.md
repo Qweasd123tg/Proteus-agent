@@ -190,6 +190,9 @@ runtime truth: фактические totals берутся из `TokenUsage` pr
 оценкой состава prompt. Provider prompt cache telemetry в этой карте означает
 provider-side reuse или creation prompt-prefix/cache entries, а не локальное
 переиспользование ответа; такие строки помечаются `source = "provider"`.
+Web `/context` дополнительно считает cache hit rate как
+`cached_input_tokens / input_tokens` и показывает состояние provider input
+cache как `cold`, `warming` или `hot`.
 Для live session карта использует последний runtime snapshot; после resume или
 для cold session она восстанавливается из durable event log, а если usage events
 нет - деградирует до оценки по history/event log без provider-only полей.

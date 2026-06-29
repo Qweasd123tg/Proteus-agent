@@ -995,6 +995,21 @@ button.session-item.active {
     background: var(--accent-blue);
 }
 
+.context-cache-bar {
+    height: 8px;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--bg-panel-soft);
+}
+
+.context-cache-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent-green);
+}
+
 .context-kv {
     display: grid;
     gap: var(--space-2);
