@@ -1,0 +1,89 @@
+active_provider = "openai"
+
+[providers.openai]
+provider = "openai"
+model = "gpt-5.5"
+stream = true
+api_key_file = "/home/qweasd123tg/.config/Proteus-agent/secrets/openai.json"
+api_key_json_key = "openai_api_key"
+base_url = "https://__REMOVED_PRIVATE_HOST__/v1"
+max_input_tokens = 400000
+
+[providers.openai.reasoning]
+effort = "high"
+summary = true
+
+[profile]
+name = "codex-experimental"
+
+[modules]
+# Experimental Codex-shaped profile. Keep this profile explicit so baseline
+# coding profiles do not inherit Codex parity experiments by accident.
+workflow = "coding.codex_loop"
+search = "rg"
+memory = "none"
+memory_policy = "none"
+context = "codex_context"
+policy = "codex_policy"
+patch = "direct"
+compactor = "codex"
+tool_exposure = "codex_dynamic"
+renderer = "statusline"
+
+[tools]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.codex_policy]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
+ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+deny = []
+
+[module_config.compactor.codex]
+trigger_fraction = 0.8
+
+[module_config.tool_exposure.codex_dynamic]
+max_hot_tools = 10
+always_include = ["request_user_input"]
+
+[module_config.context.codex_context]
+providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
+max_context_bytes = 60000
+max_bytes_per_file = 12000
+max_search_results = 40
+repo_tree_max_entries = 300
+repo_tree_max_depth = 4
+git_diff_max_bytes = 16000
+repo_tree_skip_entries = [
+  ".git",
+  "target",
+  "node_modules",
+  ".proteus",
+  "sessions",
+  "dist",
+  "build",
+  "examples/source",
+  "examples/research",
+  ".env",
+  "secrets.json",
+  "config.local.json",
+]
+project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
+manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "README.md"]
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"
+
+# Веб-клиент: карточки тулов свёрнуты по умолчанию.
+[web]
+tool_cards_collapsed = false
