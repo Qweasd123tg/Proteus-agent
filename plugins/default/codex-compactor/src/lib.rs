@@ -36,6 +36,7 @@ const MODULE_ID: &str = "codex";
 const DEFAULT_TRIGGER_TOKENS: u32 = 32_000;
 const DEFAULT_USER_MESSAGE_BUDGET_TOKENS: usize = 20_000;
 const DEFAULT_SUMMARY_BUDGET_TOKENS: usize = 4_000;
+const SUMMARY_SYSTEM_INSTRUCTIONS: &str = "You are compressing earlier conversation history for a coding agent handoff. Summarize only; do not solve the user's task.";
 const SUMMARY_PREFIX: &str = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
 
 #[derive(Default)]
@@ -266,7 +267,7 @@ fn model_summary_request(
     CanonicalModelRequest::new(input.model_ref.clone(), messages)
         .with_instructions(vec![InstructionBlock::new(
             InstructionKind::System,
-            "You are compressing earlier conversation history for a coding agent handoff. Summarize only; do not solve the user's task.",
+            SUMMARY_SYSTEM_INSTRUCTIONS,
             100,
         )])
         .with_tool_choice(ToolChoice::None)
@@ -280,9 +281,11 @@ fn model_summary_request(
 }
 
 fn prompt_cache_key(input: &CompactionInput) -> String {
+    let provider = sanitize_cache_key_component(&input.model_ref.provider);
     let model = sanitize_cache_key_component(&input.model_ref.model);
     let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
-    format!("proteus:{model}:{workspace_hash:016x}:compact")
+    let prefix_hash = stable_hash64(SUMMARY_SYSTEM_INSTRUCTIONS.as_bytes());
+    format!("proteus:{provider}:{model}:{workspace_hash:016x}:{prefix_hash:016x}:compact")
 }
 
 fn sanitize_cache_key_component(value: &str) -> String {
@@ -595,6 +598,20 @@ mod tests {
         let mut host_to: PluginCompactorHostMut<'_> =
             PluginCompactorHost_TO::from_ptr(host, TD_Opaque);
         compact(input, &mut host_to)
+    }
+
+    #[test]
+    fn prompt_cache_key_includes_model_workspace_and_summary_prefix_hash() {
+        let input = input(
+            vec![CanonicalMessage::text(MessageRole::User, "old request")],
+            DEFAULT_TRIGGER_TOKENS + 1,
+        );
+
+        let key = prompt_cache_key(&input);
+
+        assert!(key.starts_with("proteus:fake:fake:"));
+        assert!(key.ends_with(":compact"));
+        assert_eq!(key.split(':').count(), 6);
     }
 
     #[test]

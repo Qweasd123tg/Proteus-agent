@@ -222,8 +222,14 @@ Provider prompt cache включается через `CanonicalModelRequest.cac
 metadata запроса или явного `providers.*.prompt_cache_key`; если в profile
 задан `prompt_cache_retention`, adapter прокидывает его как
 `prompt_cache_retention`. Значение retention не выставляется по умолчанию:
-для `24h`/`in_memory` это provider policy, а не поведение workflow. Anthropic
-Messages получает `cache_control = { type = "ephemeral" }`; если указан
+для `24h`/`in_memory` это provider policy, а не поведение workflow. Стандартные
+coding workflows строят key из модели, workspace и hash стабильного prompt
+prefix (`instructions` + exposed tool schemas), но не из текущего user message,
+history или tool results. Anthropic Messages получает
+`cache_control = { type = "ephemeral" }` как explicit breakpoint на system
+block; если system block отсутствует, adapter ставит breakpoint на последний
+tool. Top-level automatic `cache_control` остаётся fallback-ом только когда
+стабильного system/tool prefix нет. Если указан
 `providers.*.prompt_cache_ttl = "1h"`, adapter добавляет TTL. `prompt_cache =
 false` в provider profile отключает дополнительные cache hints adapter-а, но
 не может запретить provider-side automatic caching, если сам provider всегда

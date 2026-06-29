@@ -382,9 +382,10 @@ Scope:
   HTTP transport сейчас синтезирует summary для live sessions, что допустимо
   как временный transport слой, но preview/count/resumable semantics не должны
   расходиться с persistent summaries.
-- Убрать provider-shaped prompt cache metadata из generic workflow. Workflow
-  может выставлять `CacheHints`, а key namespace/serialization должны идти из
-  canonical request contract или provider adapter/config.
+- Убрать provider-shaped prompt cache metadata из generic workflow. Базовый
+  stable-prefix-aware key уже есть в стандартных workflows, но namespace и
+  serialization всё ещё идут через metadata `prompt_cache_key`; в будущем это
+  должно переехать в canonical request contract или provider adapter/config.
 - Пересмотреть storage name для session directories: numeric 10-digit basename
   удобен для UI, но это storage contract с возможными collisions. Metadata уже
   хранит настоящий `SessionId`, поэтому будущий формат должен быть opaque

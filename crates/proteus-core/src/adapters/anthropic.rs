@@ -538,21 +538,34 @@ fn to_anthropic_request_with_cache(
     });
 
     let cache_control = anthropic_cache_control(request, prompt_cache);
-    if let Some(system) = joined_instructions(request) {
-        body["system"] = anthropic_system_value(system, cache_control.as_ref());
-    }
-    if request.cache.cache_context
-        && let Some(cache_control) = cache_control.as_ref()
-    {
-        body["cache_control"] = cache_control.clone();
+    let system = joined_instructions(request);
+    let system_cache_control = cache_control
+        .as_ref()
+        .filter(|_| request.cache.cache_instructions && system.is_some());
+    let mut has_stable_cache_breakpoint = system_cache_control.is_some();
+    if let Some(system) = system {
+        body["system"] = anthropic_system_value(system, system_cache_control);
     }
 
     if !request.tools.is_empty() {
+        let tool_cache_index = if request.cache.cache_instructions && system_cache_control.is_none()
+        {
+            Some(request.tools.len().saturating_sub(1))
+        } else {
+            None
+        };
+        has_stable_cache_breakpoint |= tool_cache_index.is_some();
         body["tools"] = Value::Array(
             request
                 .tools
                 .iter()
-                .map(to_anthropic_tool)
+                .enumerate()
+                .map(|(index, tool)| {
+                    let tool_cache_control = cache_control
+                        .as_ref()
+                        .filter(|_| tool_cache_index == Some(index));
+                    to_anthropic_tool(tool, tool_cache_control)
+                })
                 .collect::<Result<Vec<_>>>()?,
         );
         body["tool_choice"] = match &request.tool_choice {
@@ -562,6 +575,12 @@ fn to_anthropic_request_with_cache(
             ToolChoice::Tool(name) => json!({ "type": "tool", "name": name }),
             _ => json!({ "type": "auto" }),
         };
+    }
+    if request.cache.cache_context
+        && !has_stable_cache_breakpoint
+        && let Some(cache_control) = cache_control.as_ref()
+    {
+        body["cache_control"] = cache_control.clone();
     }
 
     let thinking_requested = request.reasoning.budget_tokens.is_some() || request.reasoning.summary;
@@ -633,13 +652,19 @@ fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn to_anthropic_tool(tool: &ToolSpec) -> Result<Value> {
+fn to_anthropic_tool(tool: &ToolSpec, cache_control: Option<&Value>) -> Result<Value> {
     match &tool.surface {
-        ToolSurface::Function { .. } => Ok(json!({
-            "name": tool.name,
-            "description": tool.description,
-            "input_schema": tool.input_schema,
-        })),
+        ToolSurface::Function { .. } => {
+            let mut value = json!({
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+            });
+            if let Some(cache_control) = cache_control {
+                value["cache_control"] = cache_control.clone();
+            }
+            Ok(value)
+        }
         ToolSurface::Freeform { .. } => Err(anyhow!(
             "tool '{}' uses freeform surface, which anthropic.messages does not support",
             tool.name
@@ -1116,16 +1141,74 @@ mod tests {
 
         let body = to_anthropic_request_with_cache(&request, &cache).unwrap();
 
-        assert_eq!(
-            body["cache_control"],
-            json!({ "type": "ephemeral", "ttl": "1h" })
-        );
+        assert!(body.get("cache_control").is_none());
         assert_eq!(body["system"][0]["type"], "text");
         assert_eq!(body["system"][0]["text"], "stable system prompt");
         assert_eq!(
             body["system"][0]["cache_control"],
             json!({ "type": "ephemeral", "ttl": "1h" })
         );
+    }
+
+    #[test]
+    fn request_puts_prompt_cache_control_on_last_tool_without_system_prefix() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_tools(vec![
+            crate::domain::ToolSpec::new(
+                "read_file",
+                "Read file",
+                json!({ "type": "object" }),
+                crate::domain::ToolSafety::ReadOnly,
+            ),
+            crate::domain::ToolSpec::new(
+                "write_file",
+                "Write file",
+                json!({ "type": "object" }),
+                crate::domain::ToolSafety::WritesFiles,
+            ),
+        ])
+        .with_cache(CacheHints::new(true, true));
+        let cache = AnthropicPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_ttl": "1h"
+        }));
+
+        let body = to_anthropic_request_with_cache(&request, &cache).unwrap();
+
+        assert!(body.get("cache_control").is_none());
+        assert!(body["tools"][0].get("cache_control").is_none());
+        assert_eq!(
+            body["tools"][1]["cache_control"],
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        );
+    }
+
+    #[test]
+    fn request_keeps_top_level_cache_control_when_only_context_cache_is_requested() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("anthropic", "claude-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+        )
+        .with_tools(vec![crate::domain::ToolSpec::new(
+            "read_file",
+            "Read file",
+            json!({ "type": "object" }),
+            crate::domain::ToolSafety::ReadOnly,
+        )])
+        .with_cache(CacheHints::new(false, true));
+        let cache = AnthropicPromptCacheConfig::from_provider_config(&json!({
+            "prompt_cache_ttl": "1h"
+        }));
+
+        let body = to_anthropic_request_with_cache(&request, &cache).unwrap();
+
+        assert_eq!(
+            body["cache_control"],
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        );
+        assert!(body["tools"][0].get("cache_control").is_none());
     }
 
     #[test]

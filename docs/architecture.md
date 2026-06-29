@@ -237,8 +237,10 @@ Model contract имеет stream-first форму: provider реализует `
 возможностями модели.
 Prompt caching остаётся provider-owned оптимизацией поверх этого contract:
 workflow выставляет generic `CacheHints`, shaper проверяет capability, а
-OpenAI/Anthropic adapters сериализуют только свои cache параметры. Workflow,
-context, tools и policy не зависят от provider-specific cache schema.
+OpenAI/Anthropic adapters сериализуют только свои cache параметры. Стандартные
+coding workflows задают stable-prefix-aware cache key, основанный на модели,
+workspace, instructions и exposed tool schemas, но не на volatile history tail.
+Workflow, context, tools и policy не зависят от provider-specific cache schema.
 
 Base instructions являются частью runtime/model contract: `AppConfig.instructions`
 попадает в `RuntimeContext.instructions`, затем в

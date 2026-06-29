@@ -836,11 +836,8 @@ fn request_from_state_with_instruction_blocks_and_options(
     {
         insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", trigger);
     }
-    insert_request_metadata_value(
-        &mut request,
-        "prompt_cache_key",
-        json!(prompt_cache_key(input)),
-    );
+    let prompt_cache_key = prompt_cache_key(input, &request);
+    insert_request_metadata_value(&mut request, "prompt_cache_key", json!(prompt_cache_key));
     Ok(PreparedRequest {
         request,
         compaction: compacted.report,
@@ -1458,10 +1455,48 @@ fn insert_request_metadata_value(request: &mut CanonicalModelRequest, key: &str,
     }
 }
 
-fn prompt_cache_key(input: &PluginWorkflowInput) -> String {
+fn prompt_cache_key(input: &PluginWorkflowInput, request: &CanonicalModelRequest) -> String {
+    let provider = sanitize_cache_key_component(&input.runtime.model_ref.provider);
     let model = sanitize_cache_key_component(&input.runtime.model_ref.model);
     let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
-    format!("proteus:{model}:{workspace_hash:016x}")
+    let prefix_hash = stable_prompt_prefix_hash(request);
+    format!("proteus:{provider}:{model}:{workspace_hash:016x}:{prefix_hash:016x}")
+}
+
+fn stable_prompt_prefix_hash(request: &CanonicalModelRequest) -> u64 {
+    let mut text = String::new();
+    text.push_str("instructions\n");
+    let mut instructions = request.instructions.clone();
+    instructions.sort_by(|left, right| {
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| format!("{:?}", left.kind).cmp(&format!("{:?}", right.kind)))
+            .then_with(|| left.text.cmp(&right.text))
+    });
+    for instruction in instructions {
+        text.push_str(&format!(
+            "{:?}\t{}\t{}\n",
+            instruction.kind, instruction.priority, instruction.text
+        ));
+    }
+
+    text.push_str("tools\n");
+    let mut tools = request.tools.clone();
+    tools.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.description.cmp(&right.description))
+    });
+    for tool in tools {
+        text.push_str(
+            &serde_json::to_string(&tool)
+                .unwrap_or_else(|_| format!("{}\t{}", tool.name, tool.description)),
+        );
+        text.push('\n');
+    }
+
+    stable_hash64(text.as_bytes())
 }
 
 fn sanitize_cache_key_component(value: &str) -> String {

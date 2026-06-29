@@ -170,8 +170,12 @@ Provider prompt cache не является локальным response-cache. W
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
 активный adapter заявил `supports_cache_hints`, а provider adapter переводит их
 в свой API. OpenAI получает request-level `prompt_cache_key` и optional
-`prompt_cache_retention`; Anthropic получает `cache_control` для prompt-prefix
-cache. Runtime никогда не возвращает старый model response из локального cache:
+`prompt_cache_retention`; стандартный workflow строит key из модели, workspace
+и стабильного prompt prefix (`instructions` + tool schemas), не из volatile
+history/current user message. Anthropic получает explicit `cache_control` на
+system/tools prefix; top-level automatic cache-control используется только как
+fallback, если стабильного prefix breakpoint нет. Runtime никогда не возвращает
+старый model response из локального cache:
 кэш влияет только на provider-side стоимость/latency и отражается в usage
 полях вроде `cached_input_tokens` / `cache_creation_input_tokens`.
 
