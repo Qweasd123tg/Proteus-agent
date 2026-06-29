@@ -124,8 +124,12 @@
     padding: var(--space-2) var(--space-3);
     text-align: left;
     vertical-align: top;
-    /* Не ужимаем ячейки переносом — пусть таблица листается по горизонтали. */
+    /* Не ужимаем ячейки переносом — пусть таблица листается по горизонтали.
+       word-break/overflow-wrap гасим явно: .message наследует break-word /
+       anywhere, и они рвут текст по символам даже при nowrap. */
     white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
 }
 
 .message th {
