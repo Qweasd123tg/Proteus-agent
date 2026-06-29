@@ -1265,7 +1265,7 @@
     height: 2px;
     border: 0;
     border-radius: 1px;
-    background: var(--border-subtle);
+    background: var(--text-faint);
     padding: 0;
     cursor: pointer;
     transition:
@@ -1278,9 +1278,9 @@
     background: var(--text-muted);
 }
 
-/* Активное (читаемое сейчас) сообщение — ярче и длиннее. */
+/* Активное (читаемое сейчас) сообщение — белый штрих, длиннее остальных. */
 .msg-nav-tick.active {
-    width: 22px;
+    width: 24px;
     background: var(--text-main);
 }
 
@@ -1317,12 +1317,12 @@
 .msg-nav-item {
     overflow: hidden;
     border: 0;
-    border-radius: 6px;
+    border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
-    padding: 6px 8px;
+    padding: 8px 12px;
     text-align: left;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.4;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1332,12 +1332,9 @@
         color 0.12s ease;
 }
 
-.msg-nav-item:hover {
+/* Выделение — скруглённая плашка на всю строку (и hover, и активное). */
+.msg-nav-item:hover,
+.msg-nav-item.active {
     background: var(--bg-panel-hover);
     color: var(--text-main);
-}
-
-.msg-nav-item.active {
-    color: var(--text-main);
-    box-shadow: inset 2px 0 0 var(--text-main);
 }
