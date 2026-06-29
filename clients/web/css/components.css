@@ -1352,3 +1352,74 @@
     background: var(--bg-panel-hover);
     color: var(--text-main);
 }
+
+/* Страница настроек веба (/settings). */
+.settings-page {
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-4);
+    overflow-y: auto;
+}
+
+.settings-toolbar {
+    margin-bottom: var(--space-5);
+}
+
+.settings-toolbar h2 {
+    color: var(--text-main);
+    font-size: 18px;
+}
+
+.settings-toolbar p {
+    color: var(--text-faint);
+    font-size: 12px;
+    margin-top: 4px;
+    min-height: 14px;
+}
+
+.settings-list {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: var(--bg-panel-soft);
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+}
+
+.settings-row:hover {
+    border-color: var(--border-strong);
+}
+
+.settings-label {
+    display: grid;
+    gap: 2px;
+}
+
+.settings-label strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.settings-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.settings-toggle {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    accent-color: var(--accent-blue);
+    cursor: pointer;
+}

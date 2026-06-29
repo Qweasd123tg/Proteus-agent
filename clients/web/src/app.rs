@@ -13,7 +13,8 @@ use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::components::{
     ApprovalCard, ContextMapView, ContextRing, MessageNav, MessageView, PlanActionsCard,
-    QueuedPromptCard, ResumeView, ToastStack, ToolCardsCollapsed, UserInputCard, WorkingCard,
+    QueuedPromptCard, ResumeView, SettingsView, ToastStack, ToolCardsCollapsed, UserInputCard,
+    WorkingCard,
 };
 use crate::events::{
     BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
@@ -41,7 +42,8 @@ pub(crate) fn App() -> impl IntoView {
     let route = current_path();
     let is_resume_route = route == "/resume";
     let is_context_route = route == "/context";
-    let is_chat_route = !(is_resume_route || is_context_route);
+    let is_settings_route = route == "/settings";
+    let is_chat_route = !(is_resume_route || is_context_route || is_settings_route);
     let (messages, set_messages) = signal(seed_messages());
     let _session_token = match load_session_token() {
         Ok(token) => token,
@@ -252,7 +254,7 @@ pub(crate) fn App() -> impl IntoView {
         TransportStatus::Connecting | TransportStatus::Shutdown => {}
     });
 
-    if is_chat_route || is_context_route {
+    if is_chat_route || is_context_route || is_settings_route {
         load_runtime_settings(
             set_mode,
             set_model_name,
@@ -1126,6 +1128,7 @@ pub(crate) fn App() -> impl IntoView {
                         <a class="topnav-link" href="/">"Чат"</a>
                         <a class="topnav-link" href="/context">"Контекст"</a>
                         <a class="topnav-link" href="/resume">"Сессии"</a>
+                        <a class="topnav-link" href="/settings">"Настройки"</a>
                         <a class="topnav-link" href="http://127.0.0.1:1421/">"Inspector"</a>
                         <button
                             type="button"
@@ -1151,6 +1154,8 @@ pub(crate) fn App() -> impl IntoView {
                                 active_session_dir=active_session_dir
                             />
                         }.into_any()
+                    } else if is_settings_route {
+                        view! { <SettingsView /> }.into_any()
                     } else {
                         view! {
                             <section

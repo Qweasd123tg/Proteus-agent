@@ -50,7 +50,7 @@ use config::new_request_id;
 use requests::{
     ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
     SendRequest, SetModelRequest, SetPermissionModeRequest, SetReasoningEffortRequest,
-    SetReasoningEnabledRequest, UserInputRequest,
+    SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
 };
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
@@ -318,6 +318,14 @@ where
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }
+        (Method::POST, "/config/web") => match read_json::<SetWebConfigRequest, _>(request).await {
+            Ok(command) => {
+                let output =
+                    execute_set_web_config(&state, command.id, command.tool_cards_collapsed).await;
+                json_response(StatusCode::OK, &output)
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
         (Method::POST, "/resume") => match read_json::<ResumeSessionRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_resume(&state, command.id, command.session_dir).await;
@@ -859,6 +867,22 @@ async fn execute_set_model(
         let server = server_for_optional_session(state, session_dir).await?;
         server.set_model_name(model.clone()).await;
         Ok(Some(json!({ "model": model })))
+    }
+    .await;
+    command_response(id, result)
+}
+
+async fn execute_set_web_config(
+    state: &HttpAppState,
+    id: Option<String>,
+    tool_cards_collapsed: Option<bool>,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_optional_session(state, None).await?;
+        server.set_web_config(tool_cards_collapsed).await?;
+        Ok(Some(json!({
+            "web": { "tool_cards_collapsed": tool_cards_collapsed },
+        })))
     }
     .await;
     command_response(id, result)

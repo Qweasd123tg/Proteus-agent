@@ -69,6 +69,13 @@ pub(super) struct SetReasoningEnabledRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct SetWebConfigRequest {
+    pub(super) id: Option<String>,
+    #[serde(default)]
+    pub(super) tool_cards_collapsed: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct ResumeSessionRequest {
     pub(super) id: Option<String>,
     pub(super) session_dir: PathBuf,

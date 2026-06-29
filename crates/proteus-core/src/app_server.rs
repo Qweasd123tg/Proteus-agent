@@ -162,6 +162,44 @@ impl AppServerHandle {
         self.runtime.set_reasoning_effort(effort).await;
     }
 
+    /// Обновляет секцию [web] конфига (in-memory + запись в файл). Переданные
+    /// `None`-поля не трогаем — патчим только то, что прислали.
+    pub async fn set_web_config(&self, tool_cards_collapsed: Option<bool>) -> Result<()> {
+        {
+            let mut config = self.config.write().await;
+            if let Some(value) = tool_cards_collapsed {
+                config.web.tool_cards_collapsed = value;
+            }
+        }
+        self.persist_web_config().await
+    }
+
+    /// Пишет [web] обратно в файл конфига, сохраняя комментарии и форматирование
+    /// (toml_edit). Если config_path не задан или это директория — только память.
+    async fn persist_web_config(&self) -> Result<()> {
+        let Some(path) = self.config_path.clone() else {
+            return Ok(());
+        };
+        if tokio::fs::metadata(&path)
+            .await
+            .map(|meta| meta.is_dir())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        let web = self.config.read().await.web.clone();
+        let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+        let mut doc = existing.parse::<toml_edit::DocumentMut>().map_err(|err| {
+            anyhow::anyhow!("failed to parse config TOML at {}: {err}", path.display())
+        })?;
+        if !doc.contains_key("web") {
+            doc["web"] = toml_edit::table();
+        }
+        doc["web"]["tool_cards_collapsed"] = toml_edit::value(web.tool_cards_collapsed);
+        tokio::fs::write(&path, doc.to_string()).await?;
+        Ok(())
+    }
+
     pub async fn config_summary(&self) -> Value {
         let mode = self.permission_mode().await;
         let model_ref = self.runtime.model_ref().await;

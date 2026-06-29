@@ -26,6 +26,7 @@ eventsource-stream = "0.2"
 async-stream = "0.3"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
+toml_edit = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
