@@ -266,9 +266,11 @@ Scope:
 
 ### Token / Context Discipline
 
-- Довести `/context` до полноценного budget/debug инструмента: provider totals
-  как source of truth, локальный breakdown как estimate, restore token snapshots
-  после resume и визуальная карта context window.
+- `[частично реализовано]` `/context` теперь оформлен как diagnostic context
+  map: provider totals являются source of truth, локальный breakdown остаётся
+  estimate, snapshot можно восстановить после resume/cold history load с
+  fallback из event log/history. Дальше: довести визуальную карту context window,
+  сравнение turns и явный budget/debug workflow для compaction decisions.
 - Cursor-like dynamic context discovery держать как research/plugin pack:
   context/tool descriptions/history/artifacts находятся на диске и читаются по
   необходимости, а не всегда попадают в prompt.

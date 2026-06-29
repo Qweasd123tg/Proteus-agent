@@ -178,6 +178,17 @@ durable event log при resume. При смене `turn_id` в `EventEnvelope` 
 недоступен, клиент может показать fallback-оценку по загруженной
 `messages.jsonl` истории.
 
+`GET /context?session_dir=<path>` возвращает diagnostic context map для
+выбранной session. Это debug/observability surface, а не отдельный источник
+runtime truth: фактические totals берутся из `TokenUsage` provider-а, если они
+есть, а локальные категории (`instructions`, `messages`, `context`,
+`tool_results`, `files`, `tool_schemas`) остаются оценкой состава prompt.
+Provider prompt cache telemetry в этой карте означает provider-side reuse или
+creation prompt-prefix/cache entries, а не локальное переиспользование ответа.
+Для live session карта использует последний runtime snapshot; после resume или
+для cold session она восстанавливается из durable event log, а если usage events
+нет - деградирует до оценки по history/event log без provider-only полей.
+
 `HistoryCompactionStarted`, `HistoryCompactionCompleted` и
 `HistoryCompactionFailed` испускаются вокруг host capability
 `compact_history_json`. Completed содержит `HistoryCompactionReport`: было ли
@@ -255,6 +266,9 @@ HTTP/SSE transport:
 - `GET /history` - transcript текущей live session; `GET
   /history?session_dir=<path>` читает transcript указанной session, не меняя
   текущую выбранную session и без обязательного cold resume;
+- `GET /context` - diagnostic context map текущей live session; `GET
+  /context?session_dir=<path>` читает карту указанной session с fallback из
+  event log/history и без обязательного cold resume;
 - `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/model`,
   `/reasoning`, `/effort` - короткие endpoint'ы над соответствующими
   `StdioRequest` вариантами; mutating request bodies могут передать
