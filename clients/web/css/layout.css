@@ -485,6 +485,36 @@ button.session-item.active {
     opacity: 1;
 }
 
+/* Регулировка ширины чат-колонки: тонкая зона у правого края отцентрованной
+   ленты (50% + половина ширины). Тянем — меняется --chat-max-width, его делят
+   и лента, и композер. */
+.chat-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% + var(--chat-max-width) / 2);
+    z-index: 4;
+    width: 12px;
+    cursor: ew-resize;
+}
+
+.chat-resize-handle::before {
+    position: absolute;
+    top: var(--space-5);
+    bottom: var(--space-5);
+    left: 4px;
+    width: 1px;
+    background: var(--border-strong);
+    content: "";
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.chat-resize-handle:hover::before,
+.app-layout.resizing .chat-resize-handle::before {
+    opacity: 1;
+}
+
 .composer-shell {
     position: relative;
     display: flex;

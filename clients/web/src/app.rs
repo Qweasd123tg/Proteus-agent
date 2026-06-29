@@ -26,6 +26,9 @@ const TOAST_DISMISS_MS: i32 = 6000;
 const MIN_COMPOSER_HEIGHT_PX: i32 = 56;
 const DEFAULT_COMPOSER_HEIGHT_PX: i32 = 88;
 const MAX_COMPOSER_HEIGHT_PX: i32 = 240;
+const MIN_CHAT_WIDTH_PX: i32 = 560;
+const DEFAULT_CHAT_WIDTH_PX: i32 = 768;
+const MAX_CHAT_WIDTH_PX: i32 = 1400;
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -98,12 +101,18 @@ pub(crate) fn App() -> impl IntoView {
         load_i32_setting("proteus.composerHeight", DEFAULT_COMPOSER_HEIGHT_PX)
             .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
     );
+    let (chat_width, set_chat_width) = signal(
+        load_i32_setting("proteus.chatWidth", DEFAULT_CHAT_WIDTH_PX)
+            .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
+    );
     let (dragging_sidebar, set_dragging_sidebar) = signal(false);
     let (dragging_composer, set_dragging_composer) = signal(false);
+    let (dragging_chat, set_dragging_chat) = signal(false);
     let (resize_start_x, set_resize_start_x) = signal(0_i32);
     let (resize_start_y, set_resize_start_y) = signal(0_i32);
     let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
     let (resize_start_composer, set_resize_start_composer) = signal(DEFAULT_COMPOSER_HEIGHT_PX);
+    let (resize_start_chat, set_resize_start_chat) = signal(DEFAULT_CHAT_WIDTH_PX);
     let stream_delta_buffer = StoredValue::new_local(BufferedStreamDeltas::default());
     let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
     let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
@@ -186,6 +195,10 @@ pub(crate) fn App() -> impl IntoView {
 
     Effect::new(move |_| {
         save_i32_setting("proteus.composerHeight", composer_height.get());
+    });
+
+    Effect::new(move |_| {
+        save_i32_setting("proteus.chatWidth", chat_width.get());
     });
 
     Effect::new(move |_| match transport_status.get() {
@@ -608,6 +621,12 @@ pub(crate) fn App() -> impl IntoView {
         set_resize_start_y.set(ev.client_y());
         set_resize_start_composer.set(composer_height.get());
     };
+    let begin_chat_resize = move |ev: MouseEvent| {
+        ev.prevent_default();
+        set_dragging_chat.set(true);
+        set_resize_start_x.set(ev.client_x());
+        set_resize_start_chat.set(chat_width.get());
+    };
     let resize_drag = move |ev: MouseEvent| {
         if dragging_sidebar.get() {
             let delta = ev.client_x() - resize_start_x.get();
@@ -620,12 +639,21 @@ pub(crate) fn App() -> impl IntoView {
                     .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
             );
         }
+        if dragging_chat.get() {
+            // Колонка отцентрована, поэтому правый край движется на половину
+            // изменения ширины — берём 2× дельты, чтобы ручка шла за курсором.
+            let delta = ev.client_x() - resize_start_x.get();
+            set_chat_width
+                .set((resize_start_chat.get() + delta * 2).clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX));
+        }
     };
     let stop_resize = move |_| {
         set_dragging_sidebar.set(false);
         set_dragging_composer.set(false);
+        set_dragging_chat.set(false);
     };
-    let is_resizing = move || dragging_sidebar.get() || dragging_composer.get();
+    let is_resizing =
+        move || dragging_sidebar.get() || dragging_composer.get() || dragging_chat.get();
     let latest_message_is_assistant = move || {
         messages
             .get()
@@ -1071,7 +1099,10 @@ pub(crate) fn App() -> impl IntoView {
                     </nav>
                 </header>
 
-                <section class="session-workspace">
+                <section
+                    class="session-workspace"
+                    style=move || format!("--chat-max-width: {}px", chat_width.get())
+                >
                     {if is_resume_route {
                         view! { <ResumeView /> }.into_any()
                     } else {
@@ -1437,6 +1468,13 @@ pub(crate) fn App() -> impl IntoView {
                                     </div>
                                 </div>
                             </form>
+
+                            <div
+                                class="chat-resize-handle"
+                                aria-hidden="true"
+                                title="Ширина чата"
+                                on:mousedown=begin_chat_resize
+                            ></div>
                         }.into_any()
                     }}
                 </section>
