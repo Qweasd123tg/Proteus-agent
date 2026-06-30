@@ -8,11 +8,11 @@ use std::{
 use anyhow::{Result, anyhow};
 use async_stream::stream;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, Limited, StreamBody, combinators::UnsyncBoxBody};
+use http_body_util::{BodyExt, Limited, StreamBody, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Body, Frame},
-    header::{CACHE_CONTROL, CONNECTION, CONTENT_TYPE, HeaderValue},
+    header::{CACHE_CONTROL, CONNECTION, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
 };
@@ -42,6 +42,7 @@ use super::{
 
 mod config;
 mod requests;
+mod responses;
 mod security;
 mod state;
 
@@ -52,10 +53,14 @@ use requests::{
     SendRequest, SetConfigBuilderRequest, SetModelRequest, SetPermissionModeRequest,
     SetReasoningEffortRequest, SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
 };
+use responses::{add_cors_headers, error_response, json_response, options_response, text_response};
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
 };
 use state::{HttpAppState, RunningTurn, session_key as canonical_session_key};
+
+#[cfg(test)]
+use http_body_util::Full;
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
@@ -386,21 +391,6 @@ where
     let mut response = response;
     add_cors_headers(&mut response, cors_origin.as_ref());
     Ok(response)
-}
-
-fn options_response<B>(request: &Request<B>, cors_origin: Option<HeaderValue>) -> HttpResponse {
-    let mut response = if request
-        .headers()
-        .get("access-control-request-method")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|method| !matches!(method, "GET" | "POST" | "OPTIONS"))
-    {
-        error_response(StatusCode::METHOD_NOT_ALLOWED, "HTTP method is not allowed")
-    } else {
-        empty_response(StatusCode::NO_CONTENT)
-    };
-    add_cors_headers(&mut response, cors_origin.as_ref());
-    response
 }
 
 async fn session_summaries_json(
@@ -1208,67 +1198,6 @@ fn encode_sse_output(output: &StdioOutput) -> Bytes {
         .expect("fallback response serializes")
     });
     Bytes::from(format!("event: output\ndata: {data}\n\n"))
-}
-
-fn json_response<T: serde::Serialize>(status: StatusCode, body: &T) -> HttpResponse {
-    match serde_json::to_vec(body) {
-        Ok(body) => response_with_body(status, "application/json", Bytes::from(body)),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
-    }
-}
-
-fn error_response(status: StatusCode, message: &str) -> HttpResponse {
-    response_with_body(
-        status,
-        "application/json",
-        Bytes::from(
-            serde_json::to_vec(&json!({
-                "ok": false,
-                "error": message,
-            }))
-            .expect("error response serializes"),
-        ),
-    )
-}
-
-fn empty_response(status: StatusCode) -> HttpResponse {
-    response_with_body(status, "text/plain; charset=utf-8", Bytes::new())
-}
-
-fn text_response(status: StatusCode, body: String) -> HttpResponse {
-    response_with_body(status, "text/plain; charset=utf-8", Bytes::from(body))
-}
-
-fn response_with_body(status: StatusCode, content_type: &'static str, body: Bytes) -> HttpResponse {
-    let body = Full::new(body).boxed_unsync();
-    Response::builder()
-        .status(status)
-        .header(CONTENT_TYPE, content_type)
-        .body(body)
-        .expect("HTTP response is valid")
-}
-
-fn add_cors_headers(response: &mut HttpResponse, origin: Option<&HeaderValue>) {
-    let Some(origin) = origin else {
-        return;
-    };
-    let headers = response.headers_mut();
-    headers.insert("access-control-allow-origin", origin.clone());
-    headers.insert(
-        "access-control-allow-methods",
-        "GET, POST, OPTIONS".parse().expect("valid header"),
-    );
-    headers.insert(
-        "access-control-allow-headers",
-        "authorization, content-type, x-proteus-session, x-proteus-session-token"
-            .parse()
-            .expect("valid header"),
-    );
-    headers.insert(
-        "access-control-allow-credentials",
-        "true".parse().expect("valid header"),
-    );
-    headers.insert("vary", "origin".parse().expect("valid header"));
 }
 
 #[cfg(test)]
