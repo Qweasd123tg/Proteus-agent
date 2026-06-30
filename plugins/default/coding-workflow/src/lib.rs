@@ -9,6 +9,7 @@
 #![allow(improper_ctypes_definitions)]
 
 mod dynamic_tools;
+mod history;
 mod metadata;
 mod output_text;
 mod token_accounting;
@@ -36,11 +37,14 @@ use proteus_contracts::{
         PluginWorkflowOutput, WorkflowObject,
     },
 };
-use serde_json::{Value, json};
+use serde_json::json;
 
 #[cfg(test)]
 use proteus_contracts::domain::{TokenUsageSnapshot, TokenUsageSource};
 
+use history::{
+    current_turn_start, persistent_messages_from_model_messages, replace_after_compaction,
+};
 use metadata::{
     insert_request_metadata_u32, insert_request_metadata_value, output_metadata,
     output_metadata_with_extra, prompt_cache_key, with_workflow_phase,
@@ -1000,78 +1004,6 @@ fn model_auto_compact_limit(max_input_tokens: Option<u32>) -> Option<u32> {
         let limit = (u64::from(tokens) * 8 / 10).max(1);
         u32::try_from(limit).unwrap_or(u32::MAX)
     })
-}
-
-fn current_turn_start(
-    messages: &[CanonicalMessage],
-    current_user_message_id: proteus_contracts::domain::MessageId,
-) -> usize {
-    maybe_current_turn_start(messages, current_user_message_id).unwrap_or(messages.len())
-}
-
-fn maybe_current_turn_start(
-    messages: &[CanonicalMessage],
-    current_user_message_id: proteus_contracts::domain::MessageId,
-) -> Option<usize> {
-    messages
-        .iter()
-        .position(|message| message.id == current_user_message_id)
-}
-
-fn persistent_messages_from_model_messages(messages: &[CanonicalMessage]) -> Vec<CanonicalMessage> {
-    persistent_messages_from_model_messages_excluding_phases(messages, &[])
-}
-
-fn persistent_messages_from_model_messages_excluding_phases(
-    messages: &[CanonicalMessage],
-    excluded_phases: &[&str],
-) -> Vec<CanonicalMessage> {
-    messages
-        .iter()
-        .filter(|message| !is_ephemeral_context_message(message))
-        .filter(|message| {
-            !message
-                .metadata
-                .get("workflow_phase")
-                .and_then(Value::as_str)
-                .is_some_and(|phase| excluded_phases.contains(&phase))
-        })
-        .cloned()
-        .collect()
-}
-
-fn replace_after_compaction(
-    compacted_messages: &[CanonicalMessage],
-    model_messages: &mut Vec<CanonicalMessage>,
-    persistent_messages: &mut Vec<CanonicalMessage>,
-    current_user_message_id: proteus_contracts::domain::MessageId,
-    excluded_persistent_phases: &[&str],
-) -> Result<usize, PluginWorkflowError> {
-    let current_turn_messages_start =
-        maybe_current_turn_start(compacted_messages, current_user_message_id).ok_or_else(|| {
-            PluginWorkflowError::new(
-                "compaction changed history but dropped the current user message",
-            )
-        })?;
-    *model_messages = compacted_messages.to_vec();
-    *persistent_messages = persistent_messages_from_model_messages_excluding_phases(
-        model_messages,
-        excluded_persistent_phases,
-    );
-    if maybe_current_turn_start(persistent_messages, current_user_message_id).is_none() {
-        return Err(PluginWorkflowError::new(
-            "compaction changed persistent history but dropped the current user message",
-        ));
-    }
-    Ok(current_turn_messages_start)
-}
-
-fn is_ephemeral_context_message(message: &CanonicalMessage) -> bool {
-    message.name.as_deref() == Some("context")
-        || message
-            .parts
-            .iter()
-            .all(|part| matches!(part, ContentPart::Context { .. }))
 }
 
 fn emit_token_usage(

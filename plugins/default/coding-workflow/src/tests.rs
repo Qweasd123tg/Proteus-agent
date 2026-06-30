@@ -1,6 +1,8 @@
 use super::*;
 use std::{collections::VecDeque, sync::Mutex};
 
+use serde_json::Value;
+
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
     domain::{
