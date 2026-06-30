@@ -632,3 +632,70 @@ fn context_compaction_tokens(report: &ContextCompactionReport) -> String {
         _ => "n/a".to_owned(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_cache_status_tracks_cold_warming_and_hot_states() {
+        assert_eq!(
+            context_cache_status(100, 0, 0, Some(0)),
+            ContextCacheStatus::Cold
+        );
+        assert_eq!(
+            context_cache_status(100, 0, 80, Some(0)),
+            ContextCacheStatus::Warming
+        );
+        assert_eq!(
+            context_cache_status(100, 20, 0, Some(20)),
+            ContextCacheStatus::Warming
+        );
+        assert_eq!(
+            context_cache_status(100, 75, 0, Some(75)),
+            ContextCacheStatus::Hot
+        );
+    }
+
+    #[test]
+    fn context_cache_view_model_handles_missing_usage() {
+        let cache = context_cache_view_model(None);
+
+        assert_eq!(cache.status, "n/a");
+        assert_eq!(cache.input_tokens, "n/a");
+        assert_eq!(cache.hit_rate, "n/a");
+        assert_eq!(cache.hit_percent, 0);
+    }
+
+    #[test]
+    fn context_cache_view_model_formats_provider_usage() {
+        let usage = ContextUsageSnapshot {
+            model_provider: "openai".to_owned(),
+            model_name: "gpt-test".to_owned(),
+            phase: Some("execute".to_owned()),
+            estimated_input_tokens: 100,
+            max_input_tokens: Some(1000),
+            compaction_trigger_tokens: None,
+            categories: Vec::new(),
+            actual: Some(ContextActualUsage {
+                input_tokens: 2000,
+                output_tokens: 10,
+                cached_input_tokens: Some(1500),
+                cache_creation_input_tokens: Some(0),
+                reasoning_output_tokens: None,
+            }),
+            source: "mixed".to_owned(),
+            turn_id: None,
+            timestamp_ms: None,
+        };
+
+        let cache = context_cache_view_model(Some(&usage));
+
+        assert_eq!(cache.status, "hot");
+        assert_eq!(cache.input_tokens, "2k");
+        assert_eq!(cache.cached_input_tokens, "1.5k");
+        assert_eq!(cache.cache_creation_input_tokens, "0");
+        assert_eq!(cache.hit_rate, "75%");
+        assert_eq!(cache.hit_percent, 75);
+    }
+}
