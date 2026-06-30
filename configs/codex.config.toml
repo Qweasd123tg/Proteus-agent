@@ -4,9 +4,9 @@ active_provider = "openai"
 provider = "openai"
 model = "gpt-5.5"
 stream = true
-api_key_file = "/home/qweasd123tg/.config/Proteus-agent/secrets/openai.json"
+api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 api_key_json_key = "openai_api_key"
-base_url_file = "/home/qweasd123tg/.config/Proteus-agent/secrets/openai.json"
+base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 max_input_tokens = 400000
 

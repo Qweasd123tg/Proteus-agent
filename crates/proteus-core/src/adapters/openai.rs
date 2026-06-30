@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -72,6 +72,12 @@ impl OpenAiResponsesClient {
             prompt_cache,
         })
     }
+}
+
+pub fn build_openai_responses_adapter(config: Value) -> Result<Arc<dyn ModelAdapter>> {
+    Ok(Arc::new(OpenAiResponsesClient::from_provider_config(
+        config,
+    )?))
 }
 
 impl OpenAiPromptCacheConfig {

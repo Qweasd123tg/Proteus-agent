@@ -342,7 +342,7 @@ sessions.
 Пример:
 
 ```text
-/home/qweasd123tg/.config/Proteus-agent/sessions/home|game/1234567890/messages.jsonl
+/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:

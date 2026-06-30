@@ -22,7 +22,7 @@ use proteus_core::{
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig,
         ModuleBuildContext, ModuleEpoch, TopologyBuildInput, TopologyWarning,
-        build_topology_snapshot, normalize_session_dir_path, render_topology_map,
+        build_topology_snapshot, expand_user_path, normalize_session_dir_path, render_topology_map,
         render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
         render_topology_runtime_path, render_topology_table, session_id_from_session_dir,
     },
@@ -630,7 +630,7 @@ fn check_model_secret(findings: &mut DoctorFindings, model: &proteus_core::core:
     {
         findings.warn("model secret: inline api_key configured; env/file is safer");
     } else if let Some(path) = provider_config.get("api_key_file").and_then(Value::as_str) {
-        let path = Path::new(path);
+        let path = expand_user_path(path);
         let key = provider_config
             .get("api_key_json_key")
             .and_then(Value::as_str)
@@ -661,7 +661,7 @@ fn check_model_base_url(
     provider_config: &serde_json::Map<String, Value>,
 ) {
     if let Some(path) = provider_config.get("base_url_file").and_then(Value::as_str) {
-        let path = Path::new(path);
+        let path = expand_user_path(path);
         let key = provider_config
             .get("base_url_json_key")
             .and_then(Value::as_str)

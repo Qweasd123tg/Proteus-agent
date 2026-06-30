@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use crate::{
-    adapters::{AnthropicMessagesClient, OpenAiResponsesClient},
+    adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
         PatchApplier, Renderer, SearchBackend, Tool, ToolExposure, ToolRegistry, Workflow,
@@ -1262,15 +1262,11 @@ fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter
 }
 
 fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
-    Ok(Arc::new(OpenAiResponsesClient::from_provider_config(
-        provider_config_with_stream(config),
-    )?))
+    build_openai_responses_adapter(provider_config_with_stream(config))
 }
 
 fn build_anthropic_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
-    Ok(Arc::new(AnthropicMessagesClient::from_provider_config(
-        provider_config_with_stream(config),
-    )?))
+    build_anthropic_messages_adapter(provider_config_with_stream(config))
 }
 
 fn provider_config_with_stream(config: &ModelConfig) -> serde_json::Value {

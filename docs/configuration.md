@@ -281,7 +281,9 @@ Default env vars:
 - OpenAI: `OPENAI_API_KEY`;
 - Anthropic: `ANTHROPIC_API_KEY`.
 
-Для `api_key_file` можно указать JSON key:
+Для `api_key_file` можно указать JSON key. Пути в `api_key_file` и
+`base_url_file` поддерживают `~`, `$HOME` и `${HOME}`; это позволяет держать
+tracked config одинаковым на разных ПК.
 
 ```json
 {
@@ -295,9 +297,9 @@ Custom provider endpoint тоже можно вынести из tracked config,
 
 ```toml
 [providers.anthropic]
-api_key_file = "/home/me/.config/Proteus-agent/secrets/anthropic.json"
+api_key_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
 api_key_json_key = "anthropic_api_key"
-base_url_file = "/home/me/.config/Proteus-agent/secrets/anthropic.json"
+base_url_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
 base_url_json_key = "base_url"
 ```
 

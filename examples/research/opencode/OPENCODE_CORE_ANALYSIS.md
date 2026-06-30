@@ -42,7 +42,7 @@ That decision explains most of the architecture.
 
 ## Why This Is Server Core, Not a CLI
 
-The CLI entrypoint in [packages/opencode/src/index.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/index.ts) mainly does bootstrap work:
+The CLI entrypoint in [packages/opencode/src/index.ts](source/opencode/packages/opencode/src/index.ts) mainly does bootstrap work:
 
 - parses commands with `yargs`
 - initializes logs
@@ -53,18 +53,18 @@ That file is the shell around the runtime, not the runtime itself.
 
 The actual backend starts appearing in these files:
 
-- [packages/opencode/src/effect/app-runtime.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/effect/app-runtime.ts)
-- [packages/opencode/src/server/server.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/server.ts)
-- [packages/opencode/src/session/prompt.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/prompt.ts)
-- [packages/opencode/src/session/processor.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/processor.ts)
-- [packages/opencode/src/tool/registry.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/tool/registry.ts)
-- [packages/opencode/src/permission/permission.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/permission/permission.ts)
+- [packages/opencode/src/effect/app-runtime.ts](source/opencode/packages/opencode/src/effect/app-runtime.ts)
+- [packages/opencode/src/server/server.ts](source/opencode/packages/opencode/src/server/server.ts)
+- [packages/opencode/src/session/prompt.ts](source/opencode/packages/opencode/src/session/prompt.ts)
+- [packages/opencode/src/session/processor.ts](source/opencode/packages/opencode/src/session/processor.ts)
+- [packages/opencode/src/tool/registry.ts](source/opencode/packages/opencode/src/tool/registry.ts)
+- [packages/opencode/src/permission/permission.ts](source/opencode/packages/opencode/src/permission/permission.ts)
 
 The CLI is just one client of this core.
 
 ## Runtime Shape: Effect Service Graph
 
-The best “system diagram in code” is [packages/opencode/src/effect/app-runtime.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/effect/app-runtime.ts).
+The best “system diagram in code” is [packages/opencode/src/effect/app-runtime.ts](source/opencode/packages/opencode/src/effect/app-runtime.ts).
 
 `AppLayer` merges the services that make the system work:
 
@@ -106,9 +106,9 @@ OpenCode’s runtime is instance-scoped, not process-global.
 
 The key files are:
 
-- [packages/opencode/src/project/instance.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/project/instance.ts)
-- [packages/opencode/src/effect/instance-state.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/effect/instance-state.ts)
-- [packages/opencode/src/project/bootstrap.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/project/bootstrap.ts)
+- [packages/opencode/src/project/instance.ts](source/opencode/packages/opencode/src/project/instance.ts)
+- [packages/opencode/src/effect/instance-state.ts](source/opencode/packages/opencode/src/effect/instance-state.ts)
+- [packages/opencode/src/project/bootstrap.ts](source/opencode/packages/opencode/src/project/bootstrap.ts)
 
 What this means in practice:
 
@@ -132,7 +132,7 @@ This is backend bootstrapping, not UI bootstrapping.
 
 ## HTTP/API Layer
 
-The server is assembled in [packages/opencode/src/server/server.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/server.ts).
+The server is assembled in [packages/opencode/src/server/server.ts](source/opencode/packages/opencode/src/server/server.ts).
 
 It mounts three main surfaces:
 
@@ -140,7 +140,7 @@ It mounts three main surfaces:
 - instance routes
 - UI routes
 
-The instance API is defined in [packages/opencode/src/server/instance/index.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/instance/index.ts).
+The instance API is defined in [packages/opencode/src/server/instance/index.ts](source/opencode/packages/opencode/src/server/instance/index.ts).
 
 That API includes:
 
@@ -164,7 +164,7 @@ It is the transport layer for the actual backend model.
 
 OpenCode can route requests locally or forward them to another workspace.
 
-The key file is [packages/opencode/src/server/instance/middleware.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/instance/middleware.ts).
+The key file is [packages/opencode/src/server/instance/middleware.ts](source/opencode/packages/opencode/src/server/instance/middleware.ts).
 
 That middleware does three jobs:
 
@@ -172,7 +172,7 @@ That middleware does three jobs:
 - decides whether the request should stay local or be forwarded
 - proxies HTTP and WebSocket traffic to remote workspace targets when necessary
 
-The remote sync/replay side lives in [packages/opencode/src/control-plane/workspace.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/control-plane/workspace.ts) and [packages/opencode/src/server/proxy.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/proxy.ts).
+The remote sync/replay side lives in [packages/opencode/src/control-plane/workspace.ts](source/opencode/packages/opencode/src/control-plane/workspace.ts) and [packages/opencode/src/server/proxy.ts](source/opencode/packages/opencode/src/server/proxy.ts).
 
 This is another strong signal that `packages/opencode` is backend infrastructure. A pure CLI package would not need request routing, remote replay, or workspace proxies.
 
@@ -186,8 +186,8 @@ The most important conceptual model in OpenCode is:
 
 The schema is split across:
 
-- [packages/opencode/src/session/session.sql.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/session.sql.ts)
-- [packages/opencode/src/session/message-v2.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/message-v2.ts)
+- [packages/opencode/src/session/session.sql.ts](source/opencode/packages/opencode/src/session/session.sql.ts)
+- [packages/opencode/src/session/message-v2.ts](source/opencode/packages/opencode/src/session/message-v2.ts)
 
 The DB tables are:
 
@@ -236,9 +236,9 @@ OpenCode does not update session state only through ad hoc SQL writes.
 
 The backbone is:
 
-- [packages/opencode/src/sync/sync-event.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/sync/sync-event.ts)
-- [packages/opencode/src/session/projectors.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/projectors.ts)
-- [packages/opencode/src/server/projectors.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/projectors.ts)
+- [packages/opencode/src/sync/sync-event.ts](source/opencode/packages/opencode/src/sync/sync-event.ts)
+- [packages/opencode/src/session/projectors.ts](source/opencode/packages/opencode/src/session/projectors.ts)
+- [packages/opencode/src/server/projectors.ts](source/opencode/packages/opencode/src/server/projectors.ts)
 
 The model is:
 
@@ -261,7 +261,7 @@ This is a backend pattern, not a command-line scripting pattern.
 
 ## SQLite Layer
 
-The DB core is in [packages/opencode/src/storage/db.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/storage/db.ts).
+The DB core is in [packages/opencode/src/storage/db.ts](source/opencode/packages/opencode/src/storage/db.ts).
 
 Important details:
 
@@ -271,13 +271,13 @@ Important details:
 - transactions are bound to instance context
 - sync events use immediate transactions to keep sequence handling safe
 
-There is also an older file-based storage service in [packages/opencode/src/storage/storage.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/storage/storage.ts), mainly for legacy/migration-compatible resources such as diff/session artifacts.
+There is also an older file-based storage service in [packages/opencode/src/storage/storage.ts](source/opencode/packages/opencode/src/storage/storage.ts), mainly for legacy/migration-compatible resources such as diff/session artifacts.
 
 The current center of gravity is SQLite plus sync-event projection.
 
 ## Session Service: The Canonical State API
 
-The session service is in [packages/opencode/src/session/session.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/session.ts).
+The session service is in [packages/opencode/src/session/session.ts](source/opencode/packages/opencode/src/session/session.ts).
 
 It provides the canonical API for:
 
@@ -309,7 +309,7 @@ That means branching conversations are a real data model feature, not a UI illus
 
 ## SessionRunState: Concurrency Control
 
-[packages/opencode/src/session/run-state.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/run-state.ts) enforces a very important invariant:
+[packages/opencode/src/session/run-state.ts](source/opencode/packages/opencode/src/session/run-state.ts) enforces a very important invariant:
 
 - one active runner per session
 
@@ -327,7 +327,7 @@ Without this layer, the backend would become race-prone very quickly.
 
 ## SessionPrompt: The Real Orchestration Layer
 
-If you only read one file, read [packages/opencode/src/session/prompt.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/prompt.ts).
+If you only read one file, read [packages/opencode/src/session/prompt.ts](source/opencode/packages/opencode/src/session/prompt.ts).
 
 This is the file that turns a user-facing prompt into the running agent loop.
 
@@ -422,7 +422,7 @@ This is not a thin AI call wrapper. It is a loop controller for an agent runtime
 
 ## SessionProcessor: Stream-to-State Machine
 
-[packages/opencode/src/session/processor.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/processor.ts) is the second most important file.
+[packages/opencode/src/session/processor.ts](source/opencode/packages/opencode/src/session/processor.ts) is the second most important file.
 
 Its job is to turn an AI SDK event stream into persistent session state.
 
@@ -505,7 +505,7 @@ That return value feeds back into `SessionPrompt.runLoop`.
 
 ## Tools: OpenCode’s Real Capability Surface
 
-The tool system is built in [packages/opencode/src/tool/registry.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/tool/registry.ts).
+The tool system is built in [packages/opencode/src/tool/registry.ts](source/opencode/packages/opencode/src/tool/registry.ts).
 
 It combines:
 
@@ -545,7 +545,7 @@ So “tool availability” is not static. It is runtime-computed.
 
 ## TaskTool: Subagents Are Child Sessions
 
-[packages/opencode/src/tool/task.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/tool/task.ts) is critical if you want to build your own agent runtime.
+[packages/opencode/src/tool/task.ts](source/opencode/packages/opencode/src/tool/task.ts) is critical if you want to build your own agent runtime.
 
 OpenCode’s subagent model is not fake.
 
@@ -565,8 +565,8 @@ It means subagents are real branches in session state.
 
 The permission core is in:
 
-- [packages/opencode/src/permission/permission.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/permission/permission.ts)
-- [packages/opencode/src/permission/evaluate.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/permission/evaluate.ts)
+- [packages/opencode/src/permission/permission.ts](source/opencode/packages/opencode/src/permission/permission.ts)
+- [packages/opencode/src/permission/evaluate.ts](source/opencode/packages/opencode/src/permission/evaluate.ts)
 
 Rules are simple:
 
@@ -591,7 +591,7 @@ It is a runtime control plane for side effects.
 
 ## Question System
 
-OpenCode has a parallel interaction primitive for structured user clarification in [packages/opencode/src/question/index.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/question/index.ts).
+OpenCode has a parallel interaction primitive for structured user clarification in [packages/opencode/src/question/index.ts](source/opencode/packages/opencode/src/question/index.ts).
 
 It supports:
 
@@ -611,7 +611,7 @@ This is part of the backend interaction model, not only UI logic.
 
 ## Agents: Prompt + Permissions + Role
 
-The agent core is in [packages/opencode/src/agent/agent.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/agent/agent.ts).
+The agent core is in [packages/opencode/src/agent/agent.ts](source/opencode/packages/opencode/src/agent/agent.ts).
 
 This file shows that an OpenCode agent is defined by:
 
@@ -652,7 +652,7 @@ So “mode” in OpenCode is implemented by runtime policy plus orchestration, n
 
 ## Providers and Models
 
-The provider abstraction is in [packages/opencode/src/provider/provider.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/provider/provider.ts).
+The provider abstraction is in [packages/opencode/src/provider/provider.ts](source/opencode/packages/opencode/src/provider/provider.ts).
 
 This service does several jobs at once:
 
@@ -676,7 +676,7 @@ This is backend-grade model routing, not a hardcoded “call OpenAI” integrati
 
 ## LLM Layer: The Provider Adapter
 
-[packages/opencode/src/session/llm.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/llm.ts) is where the session engine meets the AI SDK.
+[packages/opencode/src/session/llm.ts](source/opencode/packages/opencode/src/session/llm.ts) is where the session engine meets the AI SDK.
 
 It is responsible for:
 
@@ -697,7 +697,7 @@ That file is the transport adapter from OpenCode’s internal state model into p
 
 ## Plugins: Deep Runtime Hooks
 
-The plugin core is in [packages/opencode/src/plugin/plugin.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/plugin/plugin.ts) and [packages/opencode/src/plugin/loader.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/plugin/loader.ts).
+The plugin core is in [packages/opencode/src/plugin/plugin.ts](source/opencode/packages/opencode/src/plugin/plugin.ts) and [packages/opencode/src/plugin/loader.ts](source/opencode/packages/opencode/src/plugin/loader.ts).
 
 Plugins are not an afterthought.
 
@@ -719,7 +719,7 @@ That is one of the strongest reasons to treat `packages/opencode` as a platform 
 
 ## MCP: External Tools and Resources as First-Class Inputs
 
-The MCP integration in [packages/opencode/src/mcp/mcp.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/mcp/mcp.ts) is also backend-native.
+The MCP integration in [packages/opencode/src/mcp/mcp.ts](source/opencode/packages/opencode/src/mcp/mcp.ts) is also backend-native.
 
 It manages:
 
@@ -740,7 +740,7 @@ So MCP is integrated both as:
 
 ## Snapshotting, Patch Generation, Revert
 
-The snapshot engine is in [packages/opencode/src/snapshot/snapshot.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/snapshot/snapshot.ts).
+The snapshot engine is in [packages/opencode/src/snapshot/snapshot.ts](source/opencode/packages/opencode/src/snapshot/snapshot.ts).
 
 This subsystem quietly does a lot:
 
@@ -762,9 +762,9 @@ Again: this is backend state management.
 
 ## Bus and Event Streaming
 
-The local bus is in [packages/opencode/src/bus/bus.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/bus/bus.ts).
+The local bus is in [packages/opencode/src/bus/bus.ts](source/opencode/packages/opencode/src/bus/bus.ts).
 
-The SSE route is in [packages/opencode/src/server/instance/event.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/instance/event.ts).
+The SSE route is in [packages/opencode/src/server/instance/event.ts](source/opencode/packages/opencode/src/server/instance/event.ts).
 
 This is how the rest of the system sees state changes:
 
@@ -779,7 +779,7 @@ The backend already emits a rich event model.
 
 ## ACP Exists Because This Is Already a Backend
 
-The ACP implementation in [packages/opencode/src/acp/README.md](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/acp/README.md) is not a random add-on.
+The ACP implementation in [packages/opencode/src/acp/README.md](source/opencode/packages/opencode/src/acp/README.md) is not a random add-on.
 
 It works because `packages/opencode` already provides:
 
@@ -829,21 +829,21 @@ So the architecture is strong, but the learning curve is real.
 
 If you want only the minimum set that explains the backend, read these:
 
-1. [packages/opencode/src/effect/app-runtime.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/effect/app-runtime.ts)
-2. [packages/opencode/src/server/server.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/server.ts)
-3. [packages/opencode/src/server/instance/index.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/server/instance/index.ts)
-4. [packages/opencode/src/project/instance.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/project/instance.ts)
-5. [packages/opencode/src/session/session.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/session.ts)
-6. [packages/opencode/src/session/message-v2.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/message-v2.ts)
-7. [packages/opencode/src/session/prompt.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/prompt.ts)
-8. [packages/opencode/src/session/processor.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/session/processor.ts)
-9. [packages/opencode/src/tool/registry.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/tool/registry.ts)
-10. [packages/opencode/src/tool/task.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/tool/task.ts)
-11. [packages/opencode/src/permission/permission.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/permission/permission.ts)
-12. [packages/opencode/src/provider/provider.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/provider/provider.ts)
-13. [packages/opencode/src/plugin/plugin.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/plugin/plugin.ts)
-14. [packages/opencode/src/sync/sync-event.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/sync/sync-event.ts)
-15. [packages/opencode/src/snapshot/snapshot.ts](/home/qweasd123tg/Code%20/Agent%20/Analys/opencode/source/opencode/packages/opencode/src/snapshot/snapshot.ts)
+1. [packages/opencode/src/effect/app-runtime.ts](source/opencode/packages/opencode/src/effect/app-runtime.ts)
+2. [packages/opencode/src/server/server.ts](source/opencode/packages/opencode/src/server/server.ts)
+3. [packages/opencode/src/server/instance/index.ts](source/opencode/packages/opencode/src/server/instance/index.ts)
+4. [packages/opencode/src/project/instance.ts](source/opencode/packages/opencode/src/project/instance.ts)
+5. [packages/opencode/src/session/session.ts](source/opencode/packages/opencode/src/session/session.ts)
+6. [packages/opencode/src/session/message-v2.ts](source/opencode/packages/opencode/src/session/message-v2.ts)
+7. [packages/opencode/src/session/prompt.ts](source/opencode/packages/opencode/src/session/prompt.ts)
+8. [packages/opencode/src/session/processor.ts](source/opencode/packages/opencode/src/session/processor.ts)
+9. [packages/opencode/src/tool/registry.ts](source/opencode/packages/opencode/src/tool/registry.ts)
+10. [packages/opencode/src/tool/task.ts](source/opencode/packages/opencode/src/tool/task.ts)
+11. [packages/opencode/src/permission/permission.ts](source/opencode/packages/opencode/src/permission/permission.ts)
+12. [packages/opencode/src/provider/provider.ts](source/opencode/packages/opencode/src/provider/provider.ts)
+13. [packages/opencode/src/plugin/plugin.ts](source/opencode/packages/opencode/src/plugin/plugin.ts)
+14. [packages/opencode/src/sync/sync-event.ts](source/opencode/packages/opencode/src/sync/sync-event.ts)
+15. [packages/opencode/src/snapshot/snapshot.ts](source/opencode/packages/opencode/src/snapshot/snapshot.ts)
 
 ## Practical Design Lessons If You Build Your Own Agent
 

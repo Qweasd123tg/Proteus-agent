@@ -73,6 +73,12 @@ impl AnthropicMessagesClient {
     }
 }
 
+pub fn build_anthropic_messages_adapter(config: Value) -> Result<Arc<dyn ModelAdapter>> {
+    Ok(Arc::new(AnthropicMessagesClient::from_provider_config(
+        config,
+    )?))
+}
+
 #[derive(Debug, Clone, Default)]
 struct AnthropicPromptCacheConfig {
     enabled: bool,

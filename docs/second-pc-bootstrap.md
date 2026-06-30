@@ -18,9 +18,10 @@ proteus init coding
 ```
 
 `config.toml` хранит `active_provider`, `providers.*`, рабочий coding profile,
-modules, tools, policy и event log. На новом ПК проверь `api_key_file` и
-`base_url_file` в provider config и создай локальные secret JSON рядом с
-config root, например:
+modules, tools, policy и event log. В синхронизируемых configs пути к секретам
+должны быть переносимыми, например
+`$HOME/.config/Proteus-agent/secrets/anthropic.json`. На новом ПК создай
+локальные secret JSON по тем же относительным к home путям, например:
 
 ```json
 {

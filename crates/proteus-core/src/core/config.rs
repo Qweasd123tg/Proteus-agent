@@ -162,7 +162,7 @@ impl AppConfig {
 
     fn tools_path(&self, config_path: Option<&Path>) -> Option<PathBuf> {
         if let Some(path) = self.tools.path.clone() {
-            let path = expand_home(path);
+            let path = expand_user_path(path);
             if path.is_absolute() {
                 return Some(path);
             }
@@ -262,7 +262,7 @@ fn take_config_includes(value: &mut Value) -> Result<Vec<PathBuf>> {
 }
 
 fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
-    let include = expand_home(include.to_path_buf());
+    let include = expand_user_path(include);
     if include.is_absolute() {
         include
     } else {
@@ -687,7 +687,7 @@ fn default_config_dir() -> Option<PathBuf> {
 }
 
 async fn resolve_explicit_config_path(path: &Path) -> Result<PathBuf> {
-    let path = expand_home(path.to_path_buf());
+    let path = expand_user_path(path);
     let Some(name) = config_name_ref(&path) else {
         return Ok(path);
     };
@@ -837,16 +837,30 @@ fn merge_config_value(base: &mut Value, overlay: Value) {
     }
 }
 
-fn expand_home(path: PathBuf) -> PathBuf {
+pub fn expand_user_path(path: impl AsRef<Path>) -> PathBuf {
+    expand_user_path_with_home(path.as_ref(), env::var_os("HOME").as_deref())
+}
+
+fn expand_user_path_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> PathBuf {
     let Some(path_str) = path.to_str() else {
-        return path;
+        return path.to_path_buf();
     };
-    if let Some(stripped) = path_str.strip_prefix("~/")
-        && let Some(home) = env::var_os("HOME")
-    {
+    let Some(home) = home else {
+        return path.to_path_buf();
+    };
+    if path_str == "~" || path_str == "$HOME" || path_str == "${HOME}" {
+        return PathBuf::from(home);
+    }
+    if let Some(stripped) = path_str.strip_prefix("~/") {
         return PathBuf::from(home).join(stripped);
     }
-    path
+    if let Some(stripped) = path_str.strip_prefix("$HOME/") {
+        return PathBuf::from(home).join(stripped);
+    }
+    if let Some(stripped) = path_str.strip_prefix("${HOME}/") {
+        return PathBuf::from(home).join(stripped);
+    }
+    path.to_path_buf()
 }
 
 #[cfg(test)]
@@ -921,6 +935,27 @@ mod tests {
         assert_eq!(
             AppConfig::named_config_destination_path(Path::new("dev-slim")),
             Some(expected_dev_slim)
+        );
+    }
+
+    #[test]
+    fn expand_user_path_supports_home_shorthands() {
+        let home = std::ffi::OsStr::new("/home/tester");
+        assert_eq!(
+            expand_user_path_with_home(Path::new("~/secrets/openai.json"), Some(home)),
+            PathBuf::from("/home/tester/secrets/openai.json")
+        );
+        assert_eq!(
+            expand_user_path_with_home(Path::new("$HOME/secrets/openai.json"), Some(home)),
+            PathBuf::from("/home/tester/secrets/openai.json")
+        );
+        assert_eq!(
+            expand_user_path_with_home(Path::new("${HOME}/secrets/openai.json"), Some(home)),
+            PathBuf::from("/home/tester/secrets/openai.json")
+        );
+        assert_eq!(
+            expand_user_path_with_home(Path::new("/opt/static"), Some(home)),
+            PathBuf::from("/opt/static")
         );
     }
 

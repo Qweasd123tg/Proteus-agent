@@ -3424,10 +3424,10 @@ fn workspace_path_is_encoded_as_folder_name() {
 #[test]
 fn workspace_path_keeps_cyrillic_folder_names() {
     let encoded = proteus_core::core::encode_workspace_path(std::path::Path::new(
-        "/home/qweasd123tg/Проекты/моя игра",
+        "/home/alice/Проекты/моя игра",
     ));
 
-    assert_eq!(encoded, "home|qweasd123tg|Проекты|моя_игра");
+    assert_eq!(encoded, "home|alice|Проекты|моя_игра");
 }
 
 #[test]

@@ -1,7 +1,7 @@
-use std::path::Path;
-
 use anyhow::{Context, Result};
 use serde_json::Value;
+
+use crate::core::expand_user_path;
 
 pub fn read_secret_from_config(
     config: &Value,
@@ -57,9 +57,9 @@ pub fn read_config_string_or_default(
     Ok(default_value.to_owned())
 }
 
-fn read_secret_from_json_file(path: impl AsRef<Path>, key: &str) -> Result<String> {
-    let path = path.as_ref();
-    let content = std::fs::read_to_string(path)
+fn read_secret_from_json_file(path: &str, key: &str) -> Result<String> {
+    let path = expand_user_path(path);
+    let content = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to read secret file {}", path.display()))?;
     let json: Value = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse secret file {}", path.display()))?;
