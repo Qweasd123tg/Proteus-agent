@@ -1262,20 +1262,24 @@ fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter
 }
 
 fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
-    build_openai_responses_adapter(provider_config_with_stream(config))
+    build_openai_responses_adapter(provider_config_with_stream(config)?)
 }
 
 fn build_anthropic_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
-    build_anthropic_messages_adapter(provider_config_with_stream(config))
+    build_anthropic_messages_adapter(provider_config_with_stream(config)?)
 }
 
-fn provider_config_with_stream(config: &ModelConfig) -> serde_json::Value {
+fn provider_config_with_stream(config: &ModelConfig) -> Result<serde_json::Value> {
     let mut provider_config = match &config.provider_config {
+        serde_json::Value::Null => serde_json::Map::new(),
         serde_json::Value::Object(map) => map.clone(),
-        _ => serde_json::Map::new(),
+        other => bail!(
+            "provider_config for provider '{}' must be a JSON object, got {other}",
+            config.provider
+        ),
     };
     provider_config.insert("stream".to_owned(), serde_json::Value::Bool(config.stream));
-    serde_json::Value::Object(provider_config)
+    Ok(serde_json::Value::Object(provider_config))
 }
 
 fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
@@ -1479,5 +1483,28 @@ mod tests {
         assert_eq!(contributions.tools.len(), 1);
         assert_eq!(contributions.tools[0].name, "inspect_me");
         assert_eq!(contributions.tools[0].safety, "ReadOnly");
+    }
+
+    #[test]
+    fn real_provider_adapters_reject_non_object_provider_config() {
+        let catalog = BuiltinModuleCatalog::new();
+        for provider in ["openai", "openai_compatible", "anthropic"] {
+            let config = ModelConfig {
+                provider: provider.to_owned(),
+                model: "test-model".to_owned(),
+                stream: true,
+                reasoning: Default::default(),
+                provider_config: serde_json::json!("not an object"),
+            };
+
+            let error = match catalog.build_model_adapter(&config) {
+                Ok(_) => panic!("expected provider_config validation error for {provider}"),
+                Err(error) => error,
+            };
+            assert!(
+                error.to_string().contains("provider_config for provider"),
+                "{error:#}"
+            );
+        }
     }
 }
