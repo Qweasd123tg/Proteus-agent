@@ -61,7 +61,10 @@ impl PluginApprovalPolicy for AskWritePolicyPlugin {
             Ok(ctx) => ctx,
             Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
         };
-        let config = AskWriteConfig::from_value(&ctx.config);
+        let config = match AskWriteConfig::from_value(&ctx.config) {
+            Ok(config) => config,
+            Err(error) => return policy_error(error),
+        };
         decision(evaluate_call(&config, &call.name, ctx.tool_spec.as_ref()))
     }
 
@@ -72,7 +75,10 @@ impl PluginApprovalPolicy for AskWritePolicyPlugin {
                 return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));
             }
         };
-        let config = AskWriteConfig::from_value(&ctx.config);
+        let config = match AskWriteConfig::from_value(&ctx.config) {
+            Ok(config) => config,
+            Err(error) => return policy_error(error),
+        };
         decision(evaluate_tool_spec(&config, &ctx.tool_spec))
     }
 }
@@ -94,7 +100,10 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
             Ok(ctx) => ctx,
             Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
         };
-        let config = CodexPolicyConfig::from_value(&ctx.config);
+        let config = match CodexPolicyConfig::from_value(&ctx.config) {
+            Ok(config) => config,
+            Err(error) => return policy_error(error),
+        };
         decision(evaluate_codex_call(
             &config,
             &call.name,
@@ -109,7 +118,10 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
                 return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));
             }
         };
-        let config = CodexPolicyConfig::from_value(&ctx.config);
+        let config = match CodexPolicyConfig::from_value(&ctx.config) {
+            Ok(config) => config,
+            Err(error) => return policy_error(error),
+        };
         decision(evaluate_codex_tool_spec(&config, &ctx.tool_spec))
     }
 }
@@ -141,8 +153,9 @@ struct AskWriteConfig {
 }
 
 impl AskWriteConfig {
-    fn from_value(value: &Value) -> Self {
-        serde_json::from_value(value.clone()).unwrap_or_default()
+    fn from_value(value: &Value) -> Result<Self, String> {
+        serde_json::from_value(value.clone())
+            .map_err(|error| format!("invalid ask_write policy config: {error}"))
     }
 
     fn allow_set(&self) -> HashSet<&str> {
@@ -165,8 +178,9 @@ struct CodexPolicyConfig {
 }
 
 impl CodexPolicyConfig {
-    fn from_value(value: &Value) -> Self {
-        serde_json::from_value(value.clone()).unwrap_or_default()
+    fn from_value(value: &Value) -> Result<Self, String> {
+        serde_json::from_value(value.clone())
+            .map_err(|error| format!("invalid codex_policy config: {error}"))
     }
 
     fn allow_set(&self) -> HashSet<&str> {
@@ -353,6 +367,25 @@ mod tests {
         serde_json::from_str(body.as_str()).unwrap()
     }
 
+    fn evaluate_plugin_result<P: PluginApprovalPolicy>(
+        plugin: &P,
+        tool_name: &str,
+        safety: ToolSafety,
+        config: Value,
+    ) -> RResult<RString, PluginPolicyError> {
+        let call = ToolCall::new(new_call_id(), tool_name.to_owned(), json!({}));
+        let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
+        let ctx = json!({
+            "cwd": "/tmp/proteus-policy-test",
+            "tool_spec": spec,
+            "config": config,
+        });
+        plugin.evaluate_json(
+            serde_json::to_string(&call).unwrap().into(),
+            serde_json::to_string(&ctx).unwrap().into(),
+        )
+    }
+
     #[test]
     fn codex_policy_allows_read_only_tools_by_default() {
         assert_eq!(
@@ -411,5 +444,49 @@ mod tests {
             ),
             PolicyDecision::Deny { reason } if reason.contains("explicitly denied")
         ));
+    }
+
+    #[test]
+    fn ask_write_policy_rejects_invalid_config_shape() {
+        let result = evaluate_plugin_result(
+            &AskWritePolicyPlugin,
+            "read_file",
+            ToolSafety::ReadOnly,
+            json!({ "allow": "read_file" }),
+        );
+
+        match result {
+            RResult::RErr(error) => {
+                assert!(
+                    error
+                        .message
+                        .as_str()
+                        .contains("invalid ask_write policy config")
+                );
+            }
+            RResult::ROk(body) => panic!("expected policy config error, got {body}"),
+        }
+    }
+
+    #[test]
+    fn codex_policy_rejects_invalid_config_shape() {
+        let result = evaluate_plugin_result(
+            &CodexPolicyPlugin,
+            "shell",
+            ToolSafety::RunsCommands,
+            json!({ "allow": "shell" }),
+        );
+
+        match result {
+            RResult::RErr(error) => {
+                assert!(
+                    error
+                        .message
+                        .as_str()
+                        .contains("invalid codex_policy config")
+                );
+            }
+            RResult::ROk(body) => panic!("expected policy config error, got {body}"),
+        }
     }
 }
