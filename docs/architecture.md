@@ -75,6 +75,18 @@ domain/model DTO и runtime/session/event lifecycle. Core не должен зн
 provider wire formats, конкретный search/memory/patch algorithm, prompt style
 конкретного workflow или UI-specific approval/rendering details.
 
+Та же граница применяется к физической структуре кода. Модульная архитектура не
+должна превращаться в несколько больших файлов с разными ответственностями.
+Когда production-файл начинает совмещать wiring, lifecycle, parsing, state,
+rendering, provider-specific shaping или test-only helpers, его нужно дробить на
+связные подмодули рядом с исходным файлом. Ориентир для нового кода - держать
+обычные файлы обозримыми; при приближении к 500-700 строкам дальнейшее
+расширение требует причины, а при работе с уже большим файлом сначала
+рассматривается безопасное выделение `builder`, `types`, `state`, `helpers`,
+`render`, adapter или feature-specific блока. Разрез не должен быть
+механическим: новый модуль обязан сохранять понятную ответственность и не
+нарушать `Core -> Contract -> Module Implementation`.
+
 Hot path файлы, требующие focused tests при изменениях:
 
 - `crates/proteus-core/src/core/runtime.rs` - runtime services, session/thread/turn lifecycle,
