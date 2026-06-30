@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
@@ -36,6 +36,49 @@ pub(crate) fn load_session_token() -> Result<SessionToken, String> {
 
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {
     let text = get_text(path).await?;
+    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+pub(crate) async fn post_json<T, R>(path: &str, body: &T) -> Result<R, String>
+where
+    T: Serialize,
+    R: for<'de> Deserialize<'de>,
+{
+    let token = current_session_token();
+    let request_body = serde_json::to_string(body).map_err(|error| error.to_string())?;
+    let init = RequestInit::new();
+    init.set_method("POST");
+    init.set_mode(RequestMode::Cors);
+    init.set_body(&JsValue::from_str(&request_body));
+
+    let headers = Headers::new().map_err(js_error)?;
+    headers
+        .set("content-type", "application/json")
+        .map_err(js_error)?;
+    set_session_header(&headers, &token)?;
+    init.set_headers(headers.as_ref());
+
+    let request = Request::new_with_str_and_init(&format!("{APP_SERVER_ORIGIN}{path}"), &init)
+        .map_err(js_error)?;
+    let response_value = JsFuture::from(
+        window()
+            .ok_or_else(|| "window is unavailable".to_owned())?
+            .fetch_with_request(&request),
+    )
+    .await
+    .map_err(js_error)?;
+    let response = response_value.dyn_into::<Response>().map_err(js_error)?;
+    let status = response.status();
+    let text_value = JsFuture::from(response.text().map_err(js_error)?)
+        .await
+        .map_err(js_error)?;
+    let text = text_value
+        .as_string()
+        .ok_or_else(|| "response body is not text".to_owned())?;
+
+    if !response.ok() {
+        return Err(http_error(status, &text));
+    }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
 }
 

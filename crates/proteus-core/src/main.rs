@@ -629,10 +629,7 @@ fn check_model_secret(findings: &mut DoctorFindings, model: &proteus_core::core:
         .is_some_and(|value| !value.trim().is_empty())
     {
         findings.warn("model secret: inline api_key configured; env/file is safer");
-        return;
-    }
-
-    if let Some(path) = provider_config.get("api_key_file").and_then(Value::as_str) {
+    } else if let Some(path) = provider_config.get("api_key_file").and_then(Value::as_str) {
         let path = Path::new(path);
         let key = provider_config
             .get("api_key_json_key")
@@ -647,14 +644,70 @@ fn check_model_secret(findings: &mut DoctorFindings, model: &proteus_core::core:
         } else {
             findings.error(format!("model secret file is missing: {}", path.display()));
         }
+    } else {
+        let env_name = provider_config
+            .get("api_key_env")
+            .and_then(Value::as_str)
+            .unwrap_or(default_env);
+        check_env_secret(findings, env_name);
+    }
+
+    check_model_base_url(findings, &model.provider, provider_config);
+}
+
+fn check_model_base_url(
+    findings: &mut DoctorFindings,
+    provider: &str,
+    provider_config: &serde_json::Map<String, Value>,
+) {
+    if let Some(path) = provider_config.get("base_url_file").and_then(Value::as_str) {
+        let path = Path::new(path);
+        let key = provider_config
+            .get("base_url_json_key")
+            .and_then(Value::as_str)
+            .unwrap_or("base_url");
+        if path.exists() {
+            findings.ok(format!(
+                "model endpoint: base_url_file {} key '{}'",
+                path.display(),
+                key
+            ));
+        } else {
+            findings.error(format!(
+                "model endpoint secret file is missing: {}",
+                path.display()
+            ));
+        }
         return;
     }
 
-    let env_name = provider_config
-        .get("api_key_env")
-        .and_then(Value::as_str)
-        .unwrap_or(default_env);
-    check_env_secret(findings, env_name);
+    if let Some(env_name) = provider_config.get("base_url_env").and_then(Value::as_str) {
+        match std::env::var(env_name) {
+            Ok(value) if !value.trim().is_empty() => {
+                findings.ok(format!("model endpoint: env {env_name} is set"));
+            }
+            _ => findings.error(format!(
+                "model endpoint env var is missing or empty: {env_name}"
+            )),
+        }
+        return;
+    }
+
+    if let Some(value) = provider_config.get("base_url").and_then(Value::as_str)
+        && !is_public_default_base_url(provider, value)
+    {
+        findings.warn("model endpoint: inline custom base_url configured; file/env is safer if this URL is private");
+    }
+}
+
+fn is_public_default_base_url(provider: &str, value: &str) -> bool {
+    let value = value.trim_end_matches('/');
+    matches!(
+        (provider, value),
+        ("anthropic", "https://api.anthropic.com")
+            | ("openai", "https://api.openai.com/v1")
+            | ("openai_compatible", "https://api.openai.com/v1")
+    )
 }
 
 fn provider_secret_defaults(provider: &str) -> Option<(&'static str, &'static str)> {

@@ -10,8 +10,10 @@ runtime-control state.
 - `/architecture` читает `/inspect/topology` и `/inspect/topology.mmd`,
   показывает topology map, runtime pipeline, slots, tools, plugin
   contributions и warnings;
-- `/configs` читает `/config` и показывает active modules, tools, plugins,
-  model/reasoning и config files.
+- `/configs` читает `/config` и `/config/builder`, показывает active modules,
+  tools, plugins, model/reasoning и config files, а также даёт Config builder
+  для выбора реализации каждого `[modules]` slot-а и редактирования
+  `module_config.<slot>.<module_id>` JSON payload.
 
 ## Запуск
 
@@ -50,6 +52,9 @@ http://127.0.0.1:1421/?session=<PROTEUS_SESSION_TOKEN>
 - `clients/web` остаётся чатовым клиентом;
 - оба клиента используют HTTP app-server boundary и локальные serde DTO, не
   импортируя runtime internals из `proteus-core`;
+- Config builder пишет только `[modules]` и `[module_config]` через
+  `POST /config/builder`; provider profiles, secrets и `tools.enabled` остаются
+  отдельными config surfaces;
 - Mermaid грузится только здесь, чтобы chat bundle не тянул architecture
   dependencies.
 

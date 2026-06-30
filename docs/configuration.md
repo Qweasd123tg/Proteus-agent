@@ -290,6 +290,30 @@ Default env vars:
 }
 ```
 
+Custom provider endpoint тоже можно вынести из tracked config, если сам URL
+не должен попадать в репозиторий:
+
+```toml
+[providers.anthropic]
+api_key_file = "/home/me/.config/Proteus-agent/secrets/anthropic.json"
+api_key_json_key = "anthropic_api_key"
+base_url_file = "/home/me/.config/Proteus-agent/secrets/anthropic.json"
+base_url_json_key = "base_url"
+```
+
+```json
+{
+  "anthropic_api_key": "...",
+  "base_url": "https://private-provider.example/v1"
+}
+```
+
+Adapters читают endpoint в таком порядке: inline `base_url`,
+`base_url_file` + `base_url_json_key`, `base_url_env`, затем публичный default
+adapter-а (`https://api.openai.com/v1` или `https://api.anthropic.com`).
+Для синхронизируемых профилей используйте `base_url_file`, а не inline
+custom URL.
+
 ## Modules
 
 ```json
@@ -359,6 +383,33 @@ Core не читает отдельные typed sections конкретных п
 `[context.codex_context]`.
 Plugin-specific настройки живут только в `module_config`, чтобы core не
 расширял `AppConfig` под каждую реализацию.
+
+## Config Builder
+
+Inspector route `/configs` содержит Config builder для редактирования
+модульного слоя активного config-а. Backend отдаёт `GET /config/builder`:
+
+- editable slots из `[modules]`: `workflow`, `context`, `tool_exposure`,
+  `policy`, `search`, `patch`, `memory`, `memory_policy`, `compactor`,
+  `renderer`;
+- список зарегистрированных реализаций каждого slot-а из текущего
+  `BuiltinModuleCatalog` + загруженных plugin manifests;
+- текущие `module_config.<slot>.<module_id>` payloads.
+
+Сохранение идёт через `POST /config/builder`. Endpoint валидирует, что
+выбранный `module_id` зарегистрирован для своего slot-а, проверяет, что
+`module_config` сериализуется в TOML, строит новый runtime registry и только
+после успешной сборки пишет TOML. После записи app-server применяет
+`runtime.reload_registry`, поэтому новый module selection начинает действовать
+без перезапуска процесса.
+
+Builder пишет только `[modules]` и `[module_config]` в активный config file
+(или в `config.toml` внутри активной config-директории). Provider profiles,
+`api_key_file`, `base_url_file`, `tools.enabled`, permissions и secrets этим
+flow не меняются.
+Если `~/.config/Proteus-agent/configs` является symlink на репозиторный
+`configs/`, правки builder-а становятся обычными git-изменениями в репо;
+`~/.config/Proteus-agent/secrets/*.json` остаются локальными.
 
 ## Compactor
 

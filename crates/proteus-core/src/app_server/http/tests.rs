@@ -259,6 +259,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
     let protected = [
         (Method::GET, "/events"),
         (Method::GET, "/config"),
+        (Method::GET, "/config/builder"),
         (Method::GET, "/inspect/topology"),
         (Method::GET, "/inspect/topology.mmd"),
         (Method::GET, "/inspect/topology.map"),
@@ -278,6 +279,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::POST, "/model"),
         (Method::POST, "/effort"),
         (Method::POST, "/reasoning"),
+        (Method::POST, "/config/builder"),
         (Method::POST, "/resume"),
         (Method::POST, "/new-session"),
         (Method::POST, "/delete-session"),
@@ -325,6 +327,127 @@ async fn read_json_rejects_oversized_body() {
 
     assert!(error.contains("within"), "{error}");
     assert!(error.contains(&MAX_JSON_BODY_BYTES.to_string()), "{error}");
+}
+
+#[tokio::test]
+async fn route_config_builder_returns_editable_module_slots() {
+    let (state, server) = test_state().await;
+
+    let response = route_request(state, authed_get_request("/config/builder"))
+        .await
+        .expect("config builder response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response_bytes(response).await;
+    let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
+    assert_eq!(
+        snapshot.get("writable").and_then(Value::as_bool),
+        Some(false)
+    );
+    let slots = snapshot
+        .get("slots")
+        .and_then(Value::as_array)
+        .expect("builder slots");
+    assert!(slots.iter().any(|slot| {
+        slot.get("id").and_then(Value::as_str) == Some("workflow")
+            && slot
+                .get("modules")
+                .and_then(Value::as_array)
+                .is_some_and(|modules| !modules.is_empty())
+    }));
+    assert!(!slots.iter().any(|slot| {
+        matches!(
+            slot.get("id").and_then(Value::as_str),
+            Some("model" | "tool")
+        )
+    }));
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_config_builder_persists_modules_and_reloads_runtime() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[modules]
+tool_exposure = "all_visible"
+"#,
+    )
+    .expect("write config");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    let response = route_request(
+        state,
+        authed_json_request(
+            "/config/builder",
+            json!({
+                "modules": {
+                    "tool_exposure": "dynamic"
+                },
+                "module_config": {
+                    "tool_exposure": {
+                        "dynamic": {
+                            "max_hot_tools": 3,
+                            "always_include": ["request_user_input"]
+                        }
+                    }
+                }
+            }),
+        ),
+    )
+    .await
+    .expect("config builder save response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response_bytes(response).await;
+    let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
+    assert!(
+        snapshot
+            .get("active_modules")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.iter().any(|item| {
+                item.get("slot").and_then(Value::as_str) == Some("tool_exposure")
+                    && item.get("id").and_then(Value::as_str) == Some("dynamic")
+            }))
+    );
+
+    let written = std::fs::read_to_string(&config_path).expect("read config");
+    assert!(written.contains("tool_exposure = \"dynamic\""), "{written}");
+    assert!(
+        written.contains("[module_config.tool_exposure.dynamic]"),
+        "{written}"
+    );
+    assert!(written.contains("max_hot_tools = 3"), "{written}");
+
+    let summary = server.config_summary().await;
+    assert!(
+        summary
+            .get("modules")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.iter().any(|item| {
+                item.get("slot").and_then(Value::as_str) == Some("tool_exposure")
+                    && item.get("id").and_then(Value::as_str) == Some("dynamic")
+            }))
+    );
+    assert!(
+        summary
+            .get("module_epoch")
+            .and_then(Value::as_u64)
+            .is_some_and(|epoch| epoch > 0)
+    );
+
+    server.shutdown().await;
 }
 
 #[test]

@@ -1256,6 +1256,152 @@ button.session-item.active {
     white-space: nowrap;
 }
 
+.config-builder {
+    min-width: 0;
+}
+
+.config-builder-target {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-builder-target span,
+.config-builder-field > span,
+.config-builder-modules > span,
+.config-builder-warning span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.config-builder-target code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-builder-warnings {
+    display: grid;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-builder-warning {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+}
+
+.config-builder-warning p {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.config-builder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.config-builder-slot {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--bg-panel-soft);
+    padding: var(--space-3);
+}
+
+.config-builder-slot-head {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.config-builder-slot-head div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.config-builder-slot-head strong,
+.config-builder-slot-head code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-builder-slot-head strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.config-builder-slot-head code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.config-builder-slot > p {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.config-builder-field {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.config-builder-field select,
+.config-builder-field textarea {
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.config-builder-field textarea {
+    min-height: 150px;
+    max-height: 420px;
+    line-height: 1.45;
+    white-space: pre;
+}
+
+.config-builder-modules {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.config-builder-modules .config-chip-row {
+    padding: 0;
+}
+
 .config-empty {
     color: var(--text-faint);
     font-family: var(--font-mono);

@@ -28,6 +28,35 @@ pub fn read_secret_from_config(
         .with_context(|| format!("environment variable {api_key_env} is required"))
 }
 
+pub fn read_config_string_or_default(
+    config: &Value,
+    field: &str,
+    default_value: &str,
+    default_json_key: &str,
+) -> Result<String> {
+    if let Some(value) = config.get(field).and_then(Value::as_str) {
+        return Ok(value.to_owned());
+    }
+
+    let file_field = format!("{field}_file");
+    if let Some(path) = config.get(&file_field).and_then(Value::as_str) {
+        let json_key_field = format!("{field}_json_key");
+        let key = config
+            .get(&json_key_field)
+            .and_then(Value::as_str)
+            .unwrap_or(default_json_key);
+        return read_secret_from_json_file(path, key);
+    }
+
+    let env_field = format!("{field}_env");
+    if let Some(env_name) = config.get(&env_field).and_then(Value::as_str) {
+        return std::env::var(env_name)
+            .with_context(|| format!("environment variable {env_name} is required"));
+    }
+
+    Ok(default_value.to_owned())
+}
+
 fn read_secret_from_json_file(path: impl AsRef<Path>, key: &str) -> Result<String> {
     let path = path.as_ref();
     let content = std::fs::read_to_string(path)

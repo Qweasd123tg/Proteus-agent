@@ -49,8 +49,8 @@ pub use config::HttpServerConfig;
 use config::new_request_id;
 use requests::{
     ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
-    SendRequest, SetModelRequest, SetPermissionModeRequest, SetReasoningEffortRequest,
-    SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
+    SendRequest, SetConfigBuilderRequest, SetModelRequest, SetPermissionModeRequest,
+    SetReasoningEffortRequest, SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
 };
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
@@ -150,6 +150,10 @@ where
         (Method::GET, "/config") => {
             let summary = state.current_server().await.config_summary().await;
             json_response(StatusCode::OK, &summary)
+        }
+        (Method::GET, "/config/builder") => {
+            let snapshot = state.current_server().await.config_builder_snapshot().await;
+            json_response(StatusCode::OK, &snapshot)
         }
         (Method::GET, "/inspect/topology") => {
             let snapshot = state.current_server().await.topology_snapshot().await;
@@ -315,6 +319,20 @@ where
                     .await;
                     json_response(StatusCode::OK, &output)
                 }
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
+        (Method::POST, "/config/builder") => {
+            match read_json::<SetConfigBuilderRequest, _>(request).await {
+                Ok(command) => match state
+                    .current_server()
+                    .await
+                    .set_config_builder(command.modules, command.module_config)
+                    .await
+                {
+                    Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
+                    Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+                },
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }

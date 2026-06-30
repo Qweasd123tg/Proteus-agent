@@ -8,7 +8,10 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
-    adapters::{http_retry::send_with_transport_retry, secrets::read_secret_from_config},
+    adapters::{
+        http_retry::send_with_transport_retry,
+        secrets::{read_config_string_or_default, read_secret_from_config},
+    },
     contracts::{ModelAdapter, ModelEventStream},
     domain::{ModelRef, ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface},
     model_standard::{
@@ -41,12 +44,14 @@ struct OpenAiPromptCacheConfig {
 
 impl OpenAiResponsesClient {
     pub fn from_provider_config(config: Value) -> Result<Self> {
-        let base_url = config
-            .get("base_url")
-            .and_then(Value::as_str)
-            .unwrap_or("https://api.openai.com/v1")
-            .trim_end_matches('/')
-            .to_owned();
+        let base_url = read_config_string_or_default(
+            &config,
+            "base_url",
+            "https://api.openai.com/v1",
+            "base_url",
+        )?
+        .trim_end_matches('/')
+        .to_owned();
         let stream_enabled = config
             .get("stream")
             .and_then(Value::as_bool)
@@ -741,6 +746,24 @@ mod tests {
         .expect("adapter should build without reading env secret");
 
         assert!(!client.stream_enabled);
+    }
+
+    #[test]
+    fn provider_config_reads_base_url_from_json_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("openai.json");
+        std::fs::write(&path, r#"{ "base_url": "https://proxy.example.test/v1/" }"#)
+            .expect("write secret");
+
+        let client = OpenAiResponsesClient::from_provider_config(json!({
+            "base_url_file": path,
+            "base_url_json_key": "base_url",
+            "api_key_env": "__PROTEUS_TEST_MISSING_OPENAI_KEY",
+            "stream": false
+        }))
+        .expect("adapter should read base_url file");
+
+        assert_eq!(client.base_url, "https://proxy.example.test/v1");
     }
 
     #[test]

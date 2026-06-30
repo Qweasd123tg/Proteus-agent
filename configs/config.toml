@@ -6,7 +6,8 @@ model = "deepseek-v4-pro"
 stream = true
 api_key_file = "/home/qweasd123tg/.config/Proteus-agent/secrets/anthropic.json"
 api_key_json_key = "anthropic_api_key"
-base_url = "https://__REMOVED_PRIVATE_HOST__/vercel"
+base_url_file = "/home/qweasd123tg/.config/Proteus-agent/secrets/anthropic.json"
+base_url_json_key = "base_url"
 auth = "bearer"
 api_version = "2023-06-01"
 

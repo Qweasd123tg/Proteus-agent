@@ -144,6 +144,7 @@ button.danger:hover {
 }
 
 input,
+select,
 textarea {
     width: 100%;
     border: 1px solid var(--border-subtle);
@@ -163,9 +164,14 @@ textarea::placeholder {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
     border-color: var(--border-strong);
     box-shadow: none;
+}
+
+select {
+    min-height: 38px;
 }
 
 textarea {

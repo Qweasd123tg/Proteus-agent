@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use proteus_contracts::contracts::{ApprovalCacheScope, UserInputResponse};
 use serde::Deserialize;
@@ -66,6 +66,14 @@ pub(super) struct SetReasoningEnabledRequest {
     pub(super) enabled: bool,
     #[serde(default)]
     pub(super) session_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct SetConfigBuilderRequest {
+    #[serde(default)]
+    pub(super) modules: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(super) module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize)]
