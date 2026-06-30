@@ -2,19 +2,14 @@ use std::{
     collections::HashSet,
     convert::Infallible,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Result, anyhow};
-use async_stream::stream;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Limited, StreamBody, combinators::UnsyncBoxBody};
+use http_body_util::{BodyExt, Limited, combinators::UnsyncBoxBody};
 use hyper::{
-    Method, Request, Response, StatusCode,
-    body::{Body, Frame},
-    header::{CACHE_CONTROL, CONNECTION, CONTENT_TYPE},
-    server::conn::http1,
-    service::service_fn,
+    Method, Request, Response, StatusCode, body::Body, server::conn::http1, service::service_fn,
 };
 use hyper_util::rt::TokioIo;
 use proteus_contracts::app_protocol::AppSessionActivityStatus;
@@ -44,6 +39,7 @@ mod config;
 mod requests;
 mod responses;
 mod security;
+mod sse;
 mod state;
 
 pub use config::HttpServerConfig;
@@ -57,15 +53,19 @@ use responses::{add_cors_headers, error_response, json_response, options_respons
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
 };
+use sse::sse_response;
 use state::{HttpAppState, RunningTurn, session_key as canonical_session_key};
 
 #[cfg(test)]
 use http_body_util::Full;
+#[cfg(test)]
+use hyper::header::CONTENT_TYPE;
+#[cfg(test)]
+use sse::encode_sse_output;
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
 
-const SSE_HEARTBEAT_SECS: u64 = 15;
 const MAX_JSON_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 pub async fn run_http_app_server(
@@ -1109,95 +1109,6 @@ fn command_response(id: Option<String>, result: Result<Option<Value>>) -> StdioO
             error: Some(format!("{error:#}")),
         },
     }
-}
-
-async fn sse_response(state: HttpAppState) -> HttpResponse {
-    let server = state.current_server().await;
-    let mut events = server.subscribe();
-    let mut activity_events = state.subscribe_activity();
-    let body = StreamBody::new(stream! {
-        yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
-
-        if let Err(error) = server.start_session().await {
-            let output = command_response(None, Err(error));
-            yield Ok(Frame::data(encode_sse_output(&output)));
-            return;
-        }
-        state.remember_server(server.clone()).await;
-        state.emit_session_activity_for_server(&server).await;
-
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));
-        loop {
-            tokio::select! {
-                _ = heartbeat.tick() => {
-                    yield Ok(Frame::data(Bytes::from_static(b": keep-alive\n\n")));
-                }
-                event = events.recv() => {
-                    match event {
-                        Ok(event) => {
-                            let should_stop = matches!(event, AppServerEvent::Shutdown);
-                            let output = StdioOutput::Event {
-                                event: Box::new(event),
-                            };
-                            yield Ok(Frame::data(encode_sse_output(&output)));
-                            if should_stop {
-                                break;
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            let output = command_response(
-                                None,
-                                Err(anyhow!("app-server event stream lagged by {count} events")),
-                            );
-                            yield Ok(Frame::data(encode_sse_output(&output)));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    }
-                }
-                event = activity_events.recv() => {
-                    match event {
-                        Ok(event) => {
-                            let output = StdioOutput::Event {
-                                event: Box::new(event),
-                            };
-                            yield Ok(Frame::data(encode_sse_output(&output)));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            let output = command_response(
-                                None,
-                                Err(anyhow!("app-server activity stream lagged by {count} events")),
-                            );
-                            yield Ok(Frame::data(encode_sse_output(&output)));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    }
-                }
-            }
-        }
-    })
-    .boxed_unsync();
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "text/event-stream")
-        .header(CACHE_CONTROL, "no-cache")
-        .header(CONNECTION, "keep-alive")
-        .body(body)
-        .expect("sse response is valid")
-}
-
-fn encode_sse_output(output: &StdioOutput) -> Bytes {
-    let data = serde_json::to_string(output).unwrap_or_else(|error| {
-        serde_json::to_string(&json!({
-            "type": "response",
-            "id": null,
-            "ok": false,
-            "output": null,
-            "error": format!("{error:#}"),
-        }))
-        .expect("fallback response serializes")
-    });
-    Bytes::from(format!("event: output\ndata: {data}\n\n"))
 }
 
 #[cfg(test)]
