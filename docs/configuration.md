@@ -140,20 +140,22 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
-`codex.config.toml` - экспериментальный Codex-shaped profile для чистой
-проверки Codex-подобной сборки модулей. Он подключает тот же provider
-через `include`, использует `coding.codex_loop_diagnostic`, `codex_context`,
-`rg`, `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
-`codex-tool-exposure` и `modules.compactor = "codex"`. В этом profile
-`apply_patch` регистрируется через `tools.configured` как native handler с
-`surface.kind = "freeform"` и OpenAI custom-tool grammar, а Playwright MCP
-подключается через `tools.mcp_servers` как набор browser tools
+`codex.config.toml` - packaged diagnostic Codex-shaped profile для чистой
+проверки Codex-подобной сборки модулей. Он подключает тот же provider через
+`include`, использует `coding.codex_loop_diagnostic`, `codex_context`, `rg`,
+`direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
+`codex-tool-exposure` и `modules.compactor = "codex"`. Diagnostic workflow
+сохраняет protocol/loop `coding.codex_loop`, но показывает последний
+`ToolResult`, если модель после tool call вернула пустой финальный ответ; strict
+parity остаётся в `coding.codex_loop` и может использоваться локальными synced
+configs. В этом profile `apply_patch` регистрируется через `tools.configured`
+как native handler с `surface.kind = "freeform"` и OpenAI custom-tool grammar, а
+Playwright MCP подключается через `tools.mcp_servers` как набор browser tools
 `playwright__browser_*`. Baseline profiles оставляют builtin `apply_patch`
-function tool с JSON аргументом `patch` и не включают этот MCP server.
-Для первого запуска Playwright MCP может потребоваться browser install:
-`npx -y @playwright/mcp@latest install-browser firefox`.
-После `./install.sh` запускается явно через `--config codex` из любой рабочей
-директории; старый
+function tool с JSON аргументом `patch` и не включают этот MCP server. Для
+первого запуска Playwright MCP может потребоваться browser install:
+`npx -y @playwright/mcp@latest install-browser firefox`. После `./install.sh`
+запускается явно через `--config codex` из любой рабочей директории; старый
 `proteus.codex.example.toml` оставлен как compatibility include на этот же
 profile. Baseline `coding` от этого профиля не зависит.
 

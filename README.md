@@ -305,7 +305,7 @@ proteus doctor
 1. `$PROTEUS_CONFIG_PATH`
 2. `$PROTEUS_CONFIG_HOME/configs/config.toml`
 3. `$HOME/.config/Proteus-agent/configs/config.toml` (default)
-4. `$XDG_CONFIG_HOME/Proteus-agent/configs/config.toml`
+4. `$XDG_CONFIG_HOME/Proteus-agent/configs/config.toml`, если `HOME` недоступен
 
 Если не найдено — используются безопасные stub defaults из `AppConfig`
 (`workflow = "none"`, `context = "none"`, `policy = "deny_all"`,

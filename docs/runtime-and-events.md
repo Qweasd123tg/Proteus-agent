@@ -471,12 +471,13 @@ model/tool loop: model request с tools, tool execution через workflow host
 внутреннего лимита tool rounds нет, а пустой финальный ответ не подменяется
 последним tool result.
 
-`coding.codex_loop_diagnostic` - variant для named config `codex`
-(`codex.config.toml`). Он использует тот же loop, но если модель после tool call
-вернула пустой финальный assistant-message, итоговый `AgentOutput.text`
-содержит диагностическое сообщение и последний `ToolResult`. Это не меняет
-history и model protocol, но делает MCP/tool smoke-тесты читаемыми вместо
-`<empty model response>`.
+`coding.codex_loop_diagnostic` - variant для packaged diagnostic profile
+`codex` (`codex.config.toml`) и smoke-проверок. Он использует тот же loop, но
+если модель после tool call вернула пустой финальный assistant-message, итоговый
+`AgentOutput.text` содержит диагностическое сообщение и последний `ToolResult`.
+Это не меняет history и model protocol, но делает MCP/tool smoke-тесты
+читаемыми вместо `<empty model response>`. Strict parity остаётся в
+`coding.codex_loop`.
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в

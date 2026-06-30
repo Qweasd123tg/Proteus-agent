@@ -389,8 +389,9 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   Core fallback `none` ничего не меняет; `codex-compactor` даёт Codex-style
   handoff-summary/sliding-window compaction без изменения session log.
 - ✅ `tool_exposure` добавлен как plugin ABI и host capability для workflow.
-  Core fallback `all_visible` сохраняет старое поведение; плагинная реализация
-  может искать и ранжировать большой tool catalog после policy visibility.
+  Core fallback `all_visible` сохраняет старое поведение; builtin `dynamic`
+  даёт простой lexical selector; плагинная реализация может искать и
+  ранжировать большой tool catalog после policy visibility.
 - ❌ YAML declarative loader — **отменён.** `ConfiguredProcessTool` в ядре покрывает use case.
 - ⏳ Persistent MCP client — отложено.
 

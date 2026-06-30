@@ -97,7 +97,7 @@ pack = config/profile + набор plugin implementations + docs/evals
 Pack нужен, чтобы проверить композицию уже существующих slots. Он не получает
 особых прав в core и не является стабильным ABI сам по себе.
 
-Пример:
+Схематичный пример pack-а с гипотетическими module ids:
 
 ```text
 quality baseline profile

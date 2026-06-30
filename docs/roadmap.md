@@ -119,8 +119,9 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 
 Первые дополнительные workflow живут в плагине `coding-workflow`:
 `coding.codex_loop` для strict Codex-shaped parity,
-`coding.codex_loop_diagnostic` для dogfood Codex-shaped профиля и
-`coding.plan_execute_review` для staged plan/execute/review экспериментов.
+`coding.codex_loop_diagnostic` для smoke/dogfood UX-профиля с диагностикой
+пустого финального ответа и `coding.plan_execute_review` для staged
+plan/execute/review экспериментов.
 
 Поведение должно настраиваться config-ом:
 
@@ -217,7 +218,8 @@ Scope:
   В ядре остались только slot-dependent tools: `apply_patch`, `search`,
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
-  `tool_exposure = "all_visible"`, `renderer = "text"`.
+  `tool_exposure = "all_visible"`, builtin selector `tool_exposure = "dynamic"`,
+  `renderer = "text"`.
   `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`,
   а packaged named configs — в `~/.config/Proteus-agent/configs/`,
   автоматически.
