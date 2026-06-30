@@ -96,10 +96,10 @@ pub async fn run_http_app_server(
                 tokio::spawn(async move {
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |request| route_request(state.clone(), request));
-                    if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-                        if should_log_http_connection_error(&error) {
-                            eprintln!("app-server HTTP connection error: {error}");
-                        }
+                    if let Err(error) = http1::Builder::new().serve_connection(io, service).await
+                        && should_log_http_connection_error(&error)
+                    {
+                        eprintln!("app-server HTTP connection error: {error}");
                     }
                 });
             }

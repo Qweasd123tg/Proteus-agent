@@ -901,10 +901,10 @@ fn append_transcript_message(
         match part {
             ContentPart::Text { text }
             | ContentPart::ReasoningSummary { text }
-            | ContentPart::Reasoning { text, signature: _ } => {
-                if !text.trim().is_empty() {
-                    text_parts.push(text.clone());
-                }
+            | ContentPart::Reasoning { text, signature: _ }
+                if !text.trim().is_empty() =>
+            {
+                text_parts.push(text.clone());
             }
             ContentPart::ToolCall { call } => {
                 flush_transcript_text(transcript, &role, &mut text_parts);

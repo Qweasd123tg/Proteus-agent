@@ -1250,12 +1250,14 @@ fn request_token_usage_snapshot(
 }
 
 fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsageCategory> {
-    let mut bytes = RequestCategoryBytes::default();
-    bytes.instructions = request
-        .instructions
-        .iter()
-        .map(|instruction| instruction.text.len())
-        .sum::<usize>();
+    let mut bytes = RequestCategoryBytes {
+        instructions: request
+            .instructions
+            .iter()
+            .map(|instruction| instruction.text.len())
+            .sum::<usize>(),
+        ..Default::default()
+    };
     if !request.instructions.is_empty() {
         bytes.instructions += request.instructions.len() * 8;
     }
