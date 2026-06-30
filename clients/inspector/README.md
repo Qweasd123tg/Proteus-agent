@@ -35,6 +35,13 @@ env -u NO_COLOR trunk serve
 По умолчанию inspector слушает `http://127.0.0.1:1421`, chat-клиент —
 `http://127.0.0.1:1420`, app-server — `http://127.0.0.1:8787`.
 Default CORS app-server разрешает оба web-порта.
+Если app-server слушает другой local origin, откройте Inspector с query
+parameter `server`; значение сохранится в `sessionStorage` как
+`proteus.appServerOrigin`:
+
+```text
+http://127.0.0.1:1421/?server=http%3A%2F%2F127.0.0.1%3A9000
+```
 
 Обычный wrapper после `./install.sh` поднимает Inspector вместе с chat-клиентом.
 Чтобы оставить только chat loop, запускайте `PROTEUS_INSPECTOR=0 proteus`.
@@ -44,6 +51,8 @@ Default CORS app-server разрешает оба web-порта.
 ```text
 http://127.0.0.1:1421/?session=<PROTEUS_SESSION_TOKEN>
 ```
+
+Custom app-server origin и token можно совмещать как `?server=...&session=...`.
 
 ## Граница
 

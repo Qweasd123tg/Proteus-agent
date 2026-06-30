@@ -101,6 +101,16 @@ env -u NO_COLOR trunk serve
 
 По умолчанию dev server слушает `http://127.0.0.1:1420`.
 AppServer HTTP по примеру выше слушает `http://127.0.0.1:8787`.
+Если app-server поднят на другом local origin, передайте его при первом
+открытии через query parameter `server`:
+
+```text
+http://127.0.0.1:1420/?server=http%3A%2F%2F127.0.0.1%3A9000
+```
+
+Клиент сохраняет это значение в `sessionStorage` под ключом
+`proteus.appServerOrigin`; aliases для bootstrap: `app_server`,
+`app_server_origin`, `proteus_server`.
 Откройте web-клиент:
 
 ```text
@@ -109,7 +119,8 @@ http://127.0.0.1:1420/
 
 Для строгого token smoke можно задать `PROTEUS_SESSION_TOKEN`, передать
 `--token "$PROTEUS_SESSION_TOKEN"` app-server и открыть
-`http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`.
+`http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`. Если одновременно
+нужен custom app-server origin, используйте `?server=...&session=...`.
 
 ## Граница
 

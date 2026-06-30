@@ -728,6 +728,14 @@ API не даёт ставить headers; для `fetch` используйте 
 `1420` для chat или `1421` для inspector, добавьте его origin через
 `--allow-origin http://127.0.0.1:<port>`.
 
+Chat и Inspector по умолчанию подключаются к app-server
+`http://127.0.0.1:8787`. Если app-server слушает другой local origin, передайте
+его UI при первом открытии query parameter-ом `server`, например
+`http://127.0.0.1:1420/?server=http%3A%2F%2F127.0.0.1%3A9000`. Значение
+сохраняется в `sessionStorage` (`proteus.appServerOrigin`) и может
+совмещаться с token bootstrap как `?server=...&session=...`. Aliases:
+`app_server`, `app_server_origin`, `proteus_server`.
+
 App-server поддерживает control-plane reload для tools/config/MCP discovery:
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
 из config, строят новый module snapshot и публикуют событие

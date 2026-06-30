@@ -7,16 +7,20 @@ use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
 
 use crate::types::{SessionToken, StdioOutput};
 
-pub(crate) const APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const SERVER_QUERY_KEYS: [&str; 4] = ["server", "app_server", "app_server_origin", "proteus_server"];
 const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
+const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
 const SESSION_HEADER: &str = "X-Proteus-Session";
 
 thread_local! {
+    static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
     static SESSION_TOKEN: RefCell<SessionToken> = RefCell::new(SessionToken::missing());
 }
 
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
+    load_app_server_origin()?;
     let token = if let Some(token) = query_session_token() {
         persist_session_token(&token)?;
         token
@@ -36,13 +40,14 @@ pub(crate) fn load_session_token() -> Result<SessionToken, String> {
 
 pub(crate) fn event_stream_url() -> String {
     let token = current_session_token();
+    let origin = app_server_origin();
     match token.as_deref() {
         Some(token) => format!(
-            "{APP_SERVER_ORIGIN}/events?{}={}",
+            "{origin}/events?{}={}",
             SESSION_QUERY_KEYS[0],
             encode_uri_component(token)
         ),
-        None => format!("{APP_SERVER_ORIGIN}/events"),
+        None => format!("{origin}/events"),
     }
 }
 
@@ -61,8 +66,7 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
     set_session_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
 
-    let request = Request::new_with_str_and_init(&format!("{APP_SERVER_ORIGIN}{path}"), &init)
-        .map_err(js_error)?;
+    let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
     let response_value = JsFuture::from(
         window()
             .ok_or_else(|| "window is unavailable".to_owned())?
@@ -103,8 +107,7 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     let headers = Headers::new().map_err(js_error)?;
     set_session_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
-    let request = Request::new_with_str_and_init(&format!("{APP_SERVER_ORIGIN}{path}"), &init)
-        .map_err(js_error)?;
+    let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
     let response_value = JsFuture::from(
         window()
             .ok_or_else(|| "window is unavailable".to_owned())?
@@ -138,7 +141,41 @@ fn current_session_token() -> SessionToken {
     SESSION_TOKEN.with(|stored| stored.borrow().clone())
 }
 
+fn load_app_server_origin() -> Result<(), String> {
+    let origin = if let Some(origin) = query_app_server_origin() {
+        persist_app_server_origin(&origin)?;
+        origin
+    } else if let Some(storage) = session_storage()? {
+        storage
+            .get_item(SERVER_STORAGE_KEY)
+            .map_err(js_error)?
+            .map(normalize_app_server_origin)
+            .unwrap_or_else(|| DEFAULT_APP_SERVER_ORIGIN.to_owned())
+    } else {
+        DEFAULT_APP_SERVER_ORIGIN.to_owned()
+    };
+
+    APP_SERVER_ORIGIN.with(|stored| *stored.borrow_mut() = origin);
+    Ok(())
+}
+
+fn app_server_origin() -> String {
+    APP_SERVER_ORIGIN.with(|stored| stored.borrow().clone())
+}
+
+fn app_server_url(path: &str) -> String {
+    format!("{}{}", app_server_origin(), path)
+}
+
+fn query_app_server_origin() -> Option<String> {
+    query_value(&SERVER_QUERY_KEYS).map(normalize_app_server_origin)
+}
+
 fn query_session_token() -> Option<SessionToken> {
+    query_value(&SESSION_QUERY_KEYS).map(SessionToken::new)
+}
+
+fn query_value(keys: &[&str]) -> Option<String> {
     let search = window()?.location().search().ok()?;
     let search = search.strip_prefix('?').unwrap_or(&search);
     for pair in search.split('&') {
@@ -146,12 +183,21 @@ fn query_session_token() -> Option<SessionToken> {
             continue;
         }
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if SESSION_QUERY_KEYS.iter().any(|candidate| candidate == &key) {
+        if keys.iter().any(|candidate| candidate == &key) {
             let value = decode_uri_component(value).unwrap_or_else(|| value.to_owned());
-            return Some(SessionToken::new(value));
+            return Some(value);
         }
     }
     None
+}
+
+fn persist_app_server_origin(origin: &str) -> Result<(), String> {
+    if let Some(storage) = session_storage()? {
+        storage
+            .set_item(SERVER_STORAGE_KEY, origin)
+            .map_err(js_error)?;
+    }
+    Ok(())
 }
 
 fn persist_session_token(token: &SessionToken) -> Result<(), String> {
@@ -185,6 +231,15 @@ pub(crate) fn encode_query_component(value: &str) -> String {
 
 fn decode_uri_component(value: &str) -> Option<String> {
     js_sys::decode_uri_component(value).ok()?.as_string()
+}
+
+fn normalize_app_server_origin(origin: String) -> String {
+    let origin = origin.trim().trim_end_matches('/');
+    if origin.is_empty() {
+        DEFAULT_APP_SERVER_ORIGIN.to_owned()
+    } else {
+        origin.to_owned()
+    }
 }
 
 fn http_error(status: u16, text: &str) -> String {
