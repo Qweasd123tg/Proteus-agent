@@ -235,10 +235,7 @@ impl AppServerHandle {
             return Ok(());
         }
         let web = self.config.read().await.web.clone();
-        let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-        let mut doc = existing.parse::<toml_edit::DocumentMut>().map_err(|err| {
-            anyhow::anyhow!("failed to parse config TOML at {}: {err}", path.display())
-        })?;
+        let mut doc = read_toml_document_or_empty(&path).await?;
         if !doc.contains_key("web") {
             doc["web"] = toml_edit::table();
         }
@@ -1309,10 +1306,7 @@ async fn persist_config_builder(path: &Path, config: &AppConfig) -> Result<()> {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let existing = tokio::fs::read_to_string(path).await.unwrap_or_default();
-    let mut doc = existing
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|err| anyhow!("failed to parse config TOML at {}: {err}", path.display()))?;
+    let mut doc = read_toml_document_or_empty(path).await?;
 
     if doc.get("modules").is_none_or(|item| !item.is_table_like()) {
         doc["modules"] = toml_edit::table();
@@ -1337,6 +1331,19 @@ async fn persist_config_builder(path: &Path, config: &AppConfig) -> Result<()> {
 
     tokio::fs::write(path, doc.to_string()).await?;
     Ok(())
+}
+
+async fn read_toml_document_or_empty(path: &Path) -> Result<toml_edit::DocumentMut> {
+    let existing = match tokio::fs::read_to_string(path).await {
+        Ok(existing) => existing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read config {}", path.display()));
+        }
+    };
+    existing
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|err| anyhow!("failed to parse config TOML at {}: {err}", path.display()))
 }
 
 fn load_module_catalog_with_reports() -> (BuiltinModuleCatalog, Vec<crate::core::PluginLoadReport>)
