@@ -1,6 +1,8 @@
 mod api;
 mod app;
 mod architecture;
+mod architecture_map;
+mod architecture_model;
 mod configs;
 mod types;
 mod ui_utils;
