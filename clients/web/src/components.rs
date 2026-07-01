@@ -1,4 +1,5 @@
 mod approval;
+mod chat_results;
 mod composer;
 mod context_map;
 mod controls;
@@ -9,6 +10,7 @@ mod sidebar;
 mod tool_activity;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
+pub(crate) use chat_results::ChatResultsView;
 pub(crate) use composer::ComposerView;
 pub(crate) use context_map::ContextMapView;
 pub(crate) use controls::{

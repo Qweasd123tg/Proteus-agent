@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use leptos::{html, prelude::*, task::spawn_local};
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
-use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, WheelEvent, window};
+use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
 use crate::actions::{
     AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
@@ -12,9 +12,8 @@ use crate::actions::{
 use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::components::{
-    ApprovalCard, ComposerView, ContextMapView, MessageNav, MessageView, PlanActionsCard,
-    QueuedPromptCard, ResumeView, SettingsView, SidebarView, ToastStack, ToolCardsCollapsed,
-    UserInputCard, WorkingCard,
+    ChatResultsView, ComposerView, ContextMapView, MessageNav, ResumeView, SettingsView,
+    SidebarView, ToastStack, ToolCardsCollapsed,
 };
 use crate::events::{
     BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
@@ -694,12 +693,6 @@ pub(crate) fn App() -> impl IntoView {
             element.scroll_into_view();
         }
     };
-    let latest_message_is_assistant = move || {
-        messages
-            .get()
-            .last()
-            .is_some_and(|message| message.role == MessageRole::Assistant)
-    };
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
@@ -1005,147 +998,31 @@ pub(crate) fn App() -> impl IntoView {
                         view! { <SettingsView /> }.into_any()
                     } else {
                         view! {
-                            <section
-                                class="results-panel"
-                                class:sticky-bottom=stick_to_bottom
-                                aria-label="Диалог"
-                                node_ref=results_ref
-                                on:wheel=move |ev: WheelEvent| {
-                                    if ev.delta_y() < 0.0 {
-                                        set_stick_to_bottom.set(false);
-                                    }
-                                }
-                                on:scroll=move |_| {
-                                    if let Some(results) = results_ref.get() {
-                                        let scroll_top = results.scroll_top();
-                                        if is_at_bottom(&results) {
-                                            set_stick_to_bottom.set(true);
-                                        } else if scroll_top + CHAT_REATTACH_THRESHOLD_PX
-                                            < last_results_scroll_top.get()
-                                        {
-                                            // Скролл вверх любым способом (scrollbar, touch,
-                                            // PageUp) отключает прилипание, не только колесо.
-                                            set_stick_to_bottom.set(false);
-                                        }
-                                        set_last_results_scroll_top.set(scroll_top);
-                                        let container_top =
-                                            results.get_bounding_client_rect().top();
-                                        set_active_user_message.set(active_user_message_id(
-                                            &user_messages.get_untracked(),
-                                            container_top,
-                                        ));
-                                    }
-                                }
-                            >
-                                {move || {
-                                    let approvals_empty =
-                                        pending_approvals.with(|items| items.is_empty());
-                                    let user_inputs_empty =
-                                        pending_user_inputs.with(|items| items.is_empty());
-                                    let working = is_sending.get() && user_inputs_empty;
-                                    if messages.with(|items| items.is_empty())
-                                        && approvals_empty
-                                        && user_inputs_empty
-                                        && queued_prompts.with(|items| items.is_empty())
-                                        && !working
-                                    {
-                                        view! {
-                                            <div class="empty-state">
-                                                <div class="empty-state-title">"Нет активной задачи"</div>
-                                            </div>
-                                        }
-                                        .into_any()
-                                    } else {
-                                        ().into_any()
-                                    }
-                                }}
-                                <For
-                                    each=move || {
-                                        messages.with(|items| {
-                                            items.iter().map(|message| message.id).collect::<Vec<_>>()
-                                        })
-                                    }
-                                    key=|message_id| *message_id
-                                    children=move |message_id| view! {
-                                        <MessageView
-                                            message_id
-                                            messages=messages_by_id
-                                            activity_now_ms
-                                        />
-                                    }
-                                />
-                                <For
-                                    each=move || pending_approvals.get()
-                                    key=|request| request.approval_id.clone()
-                                    children=move |request| {
-                                        view! { <ApprovalCard request on_resolve=resolve_approval /> }
-                                    }
-                                />
-                                <For
-                                    each=move || pending_user_inputs.get()
-                                    key=|request| request.request_id.clone()
-                                    children=move |request| {
-                                        view! { <UserInputCard request on_submit=submit_user_input /> }
-                                    }
-                                />
-                                {move || {
-                                    let user_inputs_empty =
-                                        pending_user_inputs.with(|items| items.is_empty());
-                                    if mode.get() == PermissionMode::Plan
-                                        && !is_sending.get()
-                                        && user_inputs_empty
-                                        && latest_message_is_assistant()
-                                    {
-                                        view! {
-                                            <PlanActionsCard
-                                                on_revise=revise_plan
-                                                on_execute=execute_plan
-                                                on_exit=exit_plan
-                                            />
-                                        }.into_any()
-                                    } else {
-                                        ().into_any()
-                                    }
-                                }}
-                                <For
-                                    each=move || queued_prompts.get()
-                                    key=|(id, _)| *id
-                                    children=move |(queued_id, text)| {
-                                        let send_text = text.clone();
-                                        let on_send = move |_| {
-                                            if is_sending.get() {
-                                                return;
-                                            }
-                                            set_stick_to_bottom.set(true);
-                                            set_queued_prompts
-                                                .update(|items| items.retain(|(id, _)| *id != queued_id));
-                                            send_prompt_for_mode(actions, mode.get(), send_text.clone());
-                                        };
-                                        let on_clear = move |_| {
-                                            set_queued_prompts
-                                                .update(|items| items.retain(|(id, _)| *id != queued_id));
-                                        };
-                                        view! {
-                                            <QueuedPromptCard
-                                                text
-                                                is_sending=is_sending
-                                                on_send
-                                                on_clear
-                                            />
-                                        }
-                                    }
-                                />
-
-                                {move || {
-                                    if is_sending.get()
-                                        && pending_user_inputs.with(|items| items.is_empty())
-                                    {
-                                        view! { <WorkingCard status=agent_status /> }.into_any()
-                                    } else {
-                                        ().into_any()
-                                    }
-                                }}
-                            </section>
+                            <ChatResultsView
+                                results_ref
+                                stick_to_bottom
+                                set_stick_to_bottom
+                                last_results_scroll_top
+                                set_last_results_scroll_top
+                                user_messages
+                                set_active_user_message
+                                messages
+                                messages_by_id
+                                activity_now_ms
+                                pending_approvals
+                                pending_user_inputs
+                                queued_prompts
+                                set_queued_prompts
+                                mode
+                                is_sending
+                                agent_status
+                                actions
+                                on_resolve_approval=resolve_approval
+                                on_submit_user_input=submit_user_input
+                                on_revise_plan=revise_plan
+                                on_execute_plan=execute_plan
+                                on_exit_plan=exit_plan
+                            />
 
                             <ComposerView
                                 composer_ref
