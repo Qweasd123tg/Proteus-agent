@@ -4,6 +4,7 @@ mod controls;
 mod message;
 mod resume;
 mod settings;
+mod sidebar;
 mod tool_activity;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
@@ -15,6 +16,7 @@ pub(crate) use controls::{
 pub(crate) use message::MessageView;
 pub(crate) use resume::ResumeView;
 pub(crate) use settings::SettingsView;
+pub(crate) use sidebar::SidebarView;
 pub(crate) use tool_activity::{
     ToolActivityCard, ToolCardsCollapsed, ToolPreview, current_tool, tool_args_preview,
     tool_turn_card_class,

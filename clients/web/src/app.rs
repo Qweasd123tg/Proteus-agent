@@ -13,15 +13,15 @@ use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::components::{
     ApprovalCard, ContextMapView, ContextRing, MessageNav, MessageView, PlanActionsCard,
-    QueuedPromptCard, ResumeView, SettingsView, ToastStack, ToolCardsCollapsed, UserInputCard,
-    WorkingCard,
+    QueuedPromptCard, ResumeView, SettingsView, SidebarView, ToastStack, ToolCardsCollapsed,
+    UserInputCard, WorkingCard,
 };
 use crate::events::{
     BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
 };
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, relative_time_from_now, set_timeout, short_id, short_path};
+use crate::ui_utils::{compact_text, set_timeout, short_id, short_path};
 
 const TOAST_DISMISS_MS: i32 = 6000;
 const MIN_COMPOSER_HEIGHT_PX: i32 = 56;
@@ -942,175 +942,22 @@ pub(crate) fn App() -> impl IntoView {
             on:mouseleave=stop_resize
         >
             <ToastStack toasts on_dismiss=dismiss_toast />
-            <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
-                <div class="sidebar-header">
-                    <h2>
-                        "Proteus"
-                        <span>"web"</span>
-                    </h2>
-                    <div class="sidebar-header-actions">
-                        <button type="button" title="Обновить сессии" on:click=refresh_sidebar_sessions>
-                            "↻"
-                        </button>
-                        <button type="button" title="Новая сессия" on:click=start_new_session>
-                            "+"
-                        </button>
-                        <button
-                            type="button"
-                            title=move || if sidebar_collapsed.get() { "Развернуть меню" } else { "Свернуть меню" }
-                            on:click=toggle_sidebar
-                        >
-                            {move || if sidebar_collapsed.get() { "›" } else { "‹" }}
-                        </button>
-                    </div>
-                </div>
-                <div
-                    class="sidebar-resize-handle"
-                    aria-hidden="true"
-                    on:mousedown=begin_sidebar_resize
-                ></div>
-
-                <div class="sidebar-search">
-                    <input
-                        type="text"
-                        placeholder=move || {
-                            let workspace = workspace_label.get();
-                            if workspace == "waiting for session" {
-                                sidebar_sessions_status.get()
-                            } else {
-                                let count = sidebar_sessions.with(|sessions| {
-                                    sessions
-                                        .iter()
-                                        .filter(|session| {
-                                            session.workspace_path.as_deref()
-                                                == Some(workspace.as_str())
-                                        })
-                                        .count()
-                                });
-                                format!("{count} сессий в текущей папке")
-                            }
-                        }
-                        readonly=true
-                    />
-                </div>
-
-                <div class="sessions-list">
-                    <ul class="session-list">
-                        <For
-                            each=move || {
-                                let workspace = workspace_label.get();
-                                sidebar_sessions.with(|sessions| {
-                                    sessions
-                                        .iter()
-                                        .filter(|session| {
-                                            workspace != "waiting for session"
-                                                && session.workspace_path.as_deref()
-                                                    == Some(workspace.as_str())
-                                        })
-                                        .cloned()
-                                        .collect::<Vec<_>>()
-                                })
-                            }
-                            key=|session| sidebar_session_render_key(session)
-                            children=move |session| {
-                                let workspace = session
-                                    .workspace_path
-                                    .clone()
-                                    .unwrap_or_else(|| "неизвестный workspace".to_owned());
-                                let session_id = session
-                                    .session_id
-                                    .as_deref()
-                                    .map(short_id)
-                                    .unwrap_or("legacy")
-                                    .to_owned();
-                                let title = sidebar_session_title(&session);
-                                let preview = sidebar_session_preview(&session);
-                                let activity_label =
-                                    sidebar_session_activity_label(session.activity.as_ref());
-                                let activity_dot_class =
-                                    sidebar_session_activity_dot_class(session.activity.as_ref());
-                                let message_count = session.message_count;
-                                let updated_at = relative_time_from_now(session.updated_at_ms);
-                                let resumable = session.resumable;
-                                let active_session_dir_value = session.session_dir.clone();
-                                let session_for_click = session.clone();
-                                let session_for_delete = session.clone();
-                                view! {
-                                    <li class="session-list-item">
-                                        <div class="session-item-shell">
-                                            <button
-                                                type="button"
-                                                class="session-item session-history-item"
-                                                class:active=move || {
-                                                    active_session_dir.get().as_deref() == Some(active_session_dir_value.as_str())
-                                                }
-                                                disabled=!resumable
-                                                title=workspace.clone()
-                                                on:click=move |_| open_sidebar_session(session_for_click.clone())
-                                            >
-                                                <div class="session-item-header">
-                                                    <span class="session-title-line">
-                                                        <span class=activity_dot_class></span>
-                                                        <span class="session-id">{title}</span>
-                                                    </span>
-                                                    <code class="session-code">{session_id}</code>
-                                                </div>
-                                                {match preview {
-                                                    Some(preview) => view! {
-                                                        <div class="session-preview">{preview}</div>
-                                                    }.into_any(),
-                                                    None => ().into_any(),
-                                                }}
-                                                <div class="session-meta">
-                                                    {match activity_label {
-                                                        Some(label) => view! {
-                                                            <span class="session-time session-activity">{label}</span>
-                                                        }.into_any(),
-                                                        None => ().into_any(),
-                                                    }}
-                                                    <span class="session-time">{format!("{message_count} сообщений")}</span>
-                                                    <span class="session-time">{updated_at}</span>
-                                                </div>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                class="session-delete"
-                                                title="Удалить чат"
-                                                aria-label="Удалить чат"
-                                                on:click=move |_| delete_sidebar_session(session_for_delete.clone())
-                                            >
-                                                "×"
-                                            </button>
-                                        </div>
-                                    </li>
-                                }
-                            }
-                        />
-                    </ul>
-                </div>
-
-                <section class="sidebar-panel">
-                    <div class="runtime-summary">
-                        <span class="panel-kicker">"Runtime"</span>
-                        <strong>{runtime_state}</strong>
-                        <code title=move || workspace_label.get()>{move || workspace_label.get()}</code>
-                    </div>
-                    <div class="activity-grid">
-                        <For
-                            each=activity
-                            key=|item| item.0
-                            children=move |(label, value)| {
-                                view! {
-                                    <div class="activity-row">
-                                        <span>{label}</span>
-                                        <strong>{value}</strong>
-                                    </div>
-                                }
-                            }
-                        />
-                    </div>
-                </section>
-            </aside>
+            <SidebarView
+                sidebar_width
+                sidebar_collapsed
+                workspace_label
+                sidebar_sessions
+                sidebar_sessions_status
+                active_session_dir
+                runtime_state
+                activity
+                on_refresh=refresh_sidebar_sessions
+                on_new_session=start_new_session
+                on_toggle=toggle_sidebar
+                on_begin_resize=begin_sidebar_resize
+                on_open_session=open_sidebar_session
+                on_delete_session=delete_sidebar_session
+            />
 
             <main class="workspace-main">
                 <header class="topbar">
