@@ -7,7 +7,7 @@ use proteus_contracts::{
 };
 use serde_json::{Value, json};
 
-use crate::{execute_tool, from_json_string, to_json_string};
+use crate::host::{execute_tool, from_json_string, to_json_string};
 
 pub const TOOL_SEARCH: &str = "proteus_tool_search";
 pub const TOOL_DESCRIBE: &str = "proteus_tool_describe";
