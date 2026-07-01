@@ -331,7 +331,11 @@ where
                 Ok(command) => match state
                     .current_server()
                     .await
-                    .set_config_builder(command.modules, command.module_config)
+                    .set_config_builder(
+                        command.modules,
+                        command.module_config,
+                        command.tools_enabled,
+                    )
                     .await
                 {
                     Ok(snapshot) => json_response(StatusCode::OK, &snapshot),

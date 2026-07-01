@@ -20,6 +20,8 @@ pub struct ConfigBuilderSnapshot {
     pub writable: bool,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
     pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
+    pub tools_enabled: Vec<String>,
+    pub tools: Vec<ConfigBuilderTool>,
     pub slots: Vec<ConfigBuilderSlot>,
     pub warnings: Vec<ConfigBuilderWarning>,
 }
@@ -58,6 +60,16 @@ pub struct ConfigBuilderModule {
 pub struct ConfigBuilderWarning {
     pub severity: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConfigBuilderTool {
+    pub name: String,
+    pub source: String,
+    pub safety: String,
+    pub description: String,
+    pub enabled: bool,
+    pub registered: bool,
 }
 
 const CONFIG_BUILDER_MODULE_SLOTS: [&str; 10] = [
@@ -114,6 +126,19 @@ pub(super) fn config_builder_snapshot_from_topology(
             .filter(|selection| is_config_builder_module_slot(&selection.slot))
             .collect(),
         module_config: config.module_config.clone(),
+        tools_enabled: config.tools.enabled.clone(),
+        tools: topology
+            .tools
+            .iter()
+            .map(|tool| ConfigBuilderTool {
+                name: tool.name.clone(),
+                source: tool.source.clone(),
+                safety: tool.safety.clone(),
+                description: tool.description.clone(),
+                enabled: tool.enabled,
+                registered: tool.registered,
+            })
+            .collect(),
         warnings: topology
             .warnings
             .iter()
@@ -248,6 +273,18 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     } else {
         doc["module_config"] = toml_edit::table();
     }
+
+    if doc.get("tools").is_none_or(|item| !item.is_table_like()) {
+        doc["tools"] = toml_edit::table();
+    }
+    doc["tools"]["enabled"] = toml_edit::value(
+        config
+            .tools
+            .enabled
+            .iter()
+            .cloned()
+            .collect::<toml_edit::Array>(),
+    );
 
     tokio::fs::write(path, doc.to_string()).await?;
     Ok(())

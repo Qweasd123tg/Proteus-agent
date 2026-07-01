@@ -361,6 +361,8 @@ async fn route_config_builder_returns_editable_module_slots() {
             Some("model" | "tool")
         )
     }));
+    assert!(snapshot.get("tools_enabled").is_some_and(Value::is_array));
+    assert!(snapshot.get("tools").is_some_and(Value::is_array));
 
     server.shutdown().await;
 }
@@ -402,7 +404,8 @@ tool_exposure = "all_visible"
                             "always_include": ["request_user_input"]
                         }
                     }
-                }
+                },
+                "tools_enabled": ["apply_patch", "search"]
             }),
         ),
     )
@@ -429,6 +432,14 @@ tool_exposure = "all_visible"
         "{written}"
     );
     assert!(written.contains("max_hot_tools = 3"), "{written}");
+    assert!(
+        written.contains("enabled = [\"apply_patch\", \"search\"]"),
+        "{written}"
+    );
+    assert_eq!(
+        snapshot.get("tools_enabled"),
+        Some(&json!(["apply_patch", "search"]))
+    );
 
     let summary = server.config_summary().await;
     assert!(

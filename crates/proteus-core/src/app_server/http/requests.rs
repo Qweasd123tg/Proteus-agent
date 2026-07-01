@@ -74,6 +74,9 @@ pub(super) struct SetConfigBuilderRequest {
     pub(super) modules: BTreeMap<String, String>,
     #[serde(default)]
     pub(super) module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// `None` — не трогать `tools.enabled`; `Some` — заменить список целиком.
+    #[serde(default)]
+    pub(super) tools_enabled: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -40,7 +40,7 @@ mod transcript;
 use approval_preview::approval_preview_for;
 pub use config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot,
-    ConfigBuilderWarning,
+    ConfigBuilderTool, ConfigBuilderWarning,
 };
 use config_builder::{
     config_builder_snapshot_from_topology, config_builder_target_path, persist_config_builder,
@@ -283,6 +283,7 @@ impl AppServerHandle {
         &self,
         modules: BTreeMap<String, String>,
         module_config: BTreeMap<String, BTreeMap<String, Value>>,
+        tools_enabled: Option<Vec<String>>,
     ) -> Result<ConfigBuilderSnapshot> {
         let catalog_entries = self.catalog_entries.read().await.clone();
         validate_config_builder_modules(&modules, &catalog_entries)?;
@@ -293,6 +294,9 @@ impl AppServerHandle {
         }
         for (slot, values) in module_config {
             next_config.module_config.insert(slot, values);
+        }
+        if let Some(tools_enabled) = tools_enabled {
+            next_config.tools.enabled = tools_enabled;
         }
         validate_module_config_toml(&next_config.module_config)?;
 
