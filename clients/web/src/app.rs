@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use leptos::{html, prelude::*, task::spawn_local};
-use serde_json::{Value, json};
-use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
 use crate::actions::{
@@ -11,24 +10,18 @@ use crate::actions::{
 };
 use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
+use crate::app_keyboard::install_global_keydown;
+use crate::app_resize::AppResizeState;
+use crate::app_sessions::{AppSessionActions, RuntimeSettingsBindings, TranscriptBindings};
+use crate::app_toasts::install_transport_toast_effect;
 use crate::components::{
     ChatResultsView, ComposerView, ContextMapView, MessageNav, ResumeView, SettingsView,
     SidebarView, ToastStack, ToolCardsCollapsed,
 };
-use crate::events::{
-    BufferedStreamDeltas, EventStreamBindings, close_event_stream, reconnect_event_stream,
-};
+use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, set_timeout, short_id, short_path};
-
-const TOAST_DISMISS_MS: i32 = 6000;
-const MIN_COMPOSER_HEIGHT_PX: i32 = 56;
-const DEFAULT_COMPOSER_HEIGHT_PX: i32 = 88;
-const MAX_COMPOSER_HEIGHT_PX: i32 = 240;
-const MIN_CHAT_WIDTH_PX: i32 = 420;
-const DEFAULT_CHAT_WIDTH_PX: i32 = 768;
-const MAX_CHAT_WIDTH_PX: i32 = 1600;
+use crate::ui_utils::{compact_text, set_timeout};
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -96,31 +89,13 @@ pub(crate) fn App() -> impl IntoView {
     let (stick_to_bottom, set_stick_to_bottom) = signal(true);
     let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
     let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
-    let (sidebar_width, set_sidebar_width) = signal(load_i32_setting("proteus.sidebarWidth", 260));
-    let (sidebar_collapsed, set_sidebar_collapsed) =
-        signal(load_bool_setting("proteus.sidebarCollapsed", false));
-    let (composer_height, set_composer_height) = signal(
-        load_i32_setting("proteus.composerHeight", DEFAULT_COMPOSER_HEIGHT_PX)
-            .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
-    );
-    let (chat_width, set_chat_width) = signal(
-        load_i32_setting("proteus.chatWidth", DEFAULT_CHAT_WIDTH_PX)
-            .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
-    );
+    let resize = AppResizeState::new();
     let (active_user_message, set_active_user_message) = signal(None::<u64>);
     // Дефолт раскрытия карточек тулов из [web].tool_cards_collapsed (/config);
     // отдаём вниз контекстом, ToolActivityCard читает его при монтировании.
     let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
     provide_context(ToolCardsCollapsed(tool_cards_collapsed));
     load_web_settings(set_tool_cards_collapsed);
-    let (dragging_sidebar, set_dragging_sidebar) = signal(false);
-    let (dragging_composer, set_dragging_composer) = signal(false);
-    let (dragging_chat, set_dragging_chat) = signal(false);
-    let (resize_start_x, set_resize_start_x) = signal(0_i32);
-    let (resize_start_y, set_resize_start_y) = signal(0_i32);
-    let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
-    let (resize_start_composer, set_resize_start_composer) = signal(DEFAULT_COMPOSER_HEIGHT_PX);
-    let (resize_start_chat, set_resize_start_chat) = signal(DEFAULT_CHAT_WIDTH_PX);
     let stream_delta_buffer = StoredValue::new_local(BufferedStreamDeltas::default());
     let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
     let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
@@ -203,21 +178,7 @@ pub(crate) fn App() -> impl IntoView {
         });
     });
 
-    Effect::new(move |_| {
-        save_i32_setting("proteus.sidebarWidth", sidebar_width.get());
-    });
-
-    Effect::new(move |_| {
-        save_bool_setting("proteus.sidebarCollapsed", sidebar_collapsed.get());
-    });
-
-    Effect::new(move |_| {
-        save_i32_setting("proteus.composerHeight", composer_height.get());
-    });
-
-    Effect::new(move |_| {
-        save_i32_setting("proteus.chatWidth", chat_width.get());
-    });
+    resize.install_persistence_effects();
 
     // Пока лента прилипла к низу, активным считаем последнее моё сообщение —
     // скролл-обработчик мид-скролла переопределит это при подъёме вверх.
@@ -228,59 +189,43 @@ pub(crate) fn App() -> impl IntoView {
         }
     });
 
-    Effect::new(move |_| match transport_status.get() {
-        TransportStatus::Error(message) => {
-            if last_error_toast.get_untracked().as_deref() != Some(message.as_str()) {
-                let id = next_toast_id.get_untracked();
-                set_next_toast_id.set(id + 1);
-                set_toasts.update(|items| {
-                    items.push(ToastMessage {
-                        id,
-                        text: message.clone(),
-                    });
-                });
-                set_last_error_toast.set(Some(message));
-                set_timeout(TOAST_DISMISS_MS, move || {
-                    set_toasts.update(|items| items.retain(|toast| toast.id != id));
-                });
-            }
-        }
-        TransportStatus::Connected => {
-            if last_error_toast.get_untracked().is_some() {
-                set_last_error_toast.set(None);
-            }
-        }
-        TransportStatus::Connecting | TransportStatus::Shutdown => {}
-    });
+    install_transport_toast_effect(
+        transport_status,
+        last_error_toast,
+        set_last_error_toast,
+        next_toast_id,
+        set_next_toast_id,
+        set_toasts,
+    );
+
+    let runtime_settings = RuntimeSettingsBindings {
+        set_mode,
+        set_model_name,
+        set_model_options,
+        set_reasoning_enabled,
+        set_effort,
+        set_effort_options,
+        set_workspace_label,
+        set_active_session_dir,
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        set_transport_status,
+    };
+    let transcript_bindings = TranscriptBindings {
+        set_messages,
+        transcript_generation,
+        next_message_id,
+        set_next_message_id,
+        set_transport_status,
+    };
 
     if is_chat_route || is_context_route || is_settings_route {
-        load_runtime_settings(
-            set_mode,
-            set_model_name,
-            set_model_options,
-            set_reasoning_enabled,
-            set_effort,
-            set_effort_options,
-            set_workspace_label,
-            set_active_session_dir,
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            set_transport_status,
-        );
+        runtime_settings.load();
     }
     if is_chat_route {
-        load_transcript(
-            messages,
-            set_messages,
-            transcript_generation,
-            transcript_generation.get_untracked(),
-            next_message_id,
-            set_next_message_id,
-            set_transport_status,
-        );
+        transcript_bindings.load_initial(messages);
     }
-    load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
 
     let event_source = StoredValue::new_local(None::<EventSource>);
     let event_stream_bindings = EventStreamBindings {
@@ -310,6 +255,28 @@ pub(crate) fn App() -> impl IntoView {
         set_sidebar_sessions,
         set_sidebar_sessions_status,
     };
+    let session_actions = AppSessionActions {
+        event_source,
+        event_stream: event_stream_bindings,
+        runtime_settings,
+        transcript: transcript_bindings,
+        active_session_dir,
+        set_transcript_generation,
+        set_session_label,
+        set_is_sending,
+        set_active_turn_id,
+        set_active_stream_message_id,
+        set_streamed_this_turn,
+        set_agent_status,
+        set_tool_activities,
+        set_queued_prompts,
+        set_pending_approvals,
+        set_pending_user_inputs,
+        set_stick_to_bottom,
+        set_sidebar_sessions,
+        set_sidebar_sessions_status,
+    };
+    session_actions.load_sidebar_sessions();
     reconnect_event_stream(event_source, event_stream_bindings);
 
     let actions = AppActions {
@@ -334,104 +301,8 @@ pub(crate) fn App() -> impl IntoView {
         set_active_turn_id,
     };
 
-    let reset_chat_view = move || {
-        set_transcript_generation.update(|generation| *generation += 1);
-        set_messages.set(Vec::new());
-        set_next_message_id.set(1);
-        set_active_stream_message_id.set(None);
-        set_streamed_this_turn.set(false);
-        set_tool_activities.set(Vec::new());
-        set_queued_prompts.set(Vec::new());
-        set_pending_approvals.set(Vec::new());
-        set_pending_user_inputs.set(Vec::new());
-        set_is_sending.set(false);
-        set_active_turn_id.set(None);
-        set_agent_status.set("ожидает".to_owned());
-        set_stick_to_bottom.set(true);
-    };
-
-    let reset_chat_view_for_clear = reset_chat_view;
-    let clear_transcript = move |_| {
-        reset_chat_view_for_clear();
-        spawn_local(async move {
-            match post_json("/clear", &json!({})).await {
-                Ok(output) => handle_command_response(
-                    output,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                ),
-                Err(error) => {
-                    report_error(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                        "Clear failed",
-                        error,
-                    );
-                }
-            }
-            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
-        });
-    };
-
-    let reset_chat_view_for_new_session = reset_chat_view;
-    let start_new_session = move |_| {
-        close_event_stream(event_source);
-        reset_chat_view_for_new_session();
-        let expected_generation = transcript_generation.get_untracked();
-        set_active_session_dir.set(None);
-        set_session_label.set("not started".to_owned());
-        set_sidebar_sessions_status.set("создаю новую сессию".to_owned());
-        spawn_local(async move {
-            match post_json("/new-session", &json!({ "id": "new-session" })).await {
-                Ok(StdioOutput::Response { ok: true, .. }) => {
-                    if transcript_generation.get_untracked() != expected_generation {
-                        return;
-                    }
-                    set_sidebar_sessions_status.set("новая сессия открыта".to_owned());
-                    reconnect_event_stream(event_source, event_stream_bindings);
-                    load_runtime_settings(
-                        set_mode,
-                        set_model_name,
-                        set_model_options,
-                        set_reasoning_enabled,
-                        set_effort,
-                        set_effort_options,
-                        set_workspace_label,
-                        set_active_session_dir,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                    replace_transcript(
-                        set_messages,
-                        transcript_generation,
-                        expected_generation,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                }
-                Ok(StdioOutput::Response { error, .. }) => {
-                    set_sidebar_sessions_status
-                        .set(error.unwrap_or_else(|| "не удалось создать сессию".to_owned()));
-                }
-                Ok(StdioOutput::Event { .. }) => {
-                    set_sidebar_sessions_status.set("неожиданное событие new-session".to_owned());
-                }
-                Err(error) => {
-                    set_sidebar_sessions_status.set(format!("не удалось создать сессию: {error}"));
-                }
-            }
-            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
-        });
-    };
-
-    let reset_chat_view_for_delete_session = reset_chat_view;
+    let clear_transcript = move |_| session_actions.clear_transcript();
+    let start_new_session = move |_| session_actions.start_new_session();
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
         spawn_local(async move {
@@ -635,54 +506,12 @@ pub(crate) fn App() -> impl IntoView {
             submit_prompt();
         }
     };
-    let begin_sidebar_resize = move |ev: MouseEvent| {
-        ev.prevent_default();
-        if sidebar_collapsed.get() {
-            return;
-        }
-        set_dragging_sidebar.set(true);
-        set_resize_start_x.set(ev.client_x());
-        set_resize_start_sidebar.set(sidebar_width.get());
-    };
-    let begin_composer_resize = move |ev: MouseEvent| {
-        ev.prevent_default();
-        set_dragging_composer.set(true);
-        set_resize_start_y.set(ev.client_y());
-        set_resize_start_composer.set(composer_height.get());
-    };
-    let begin_chat_resize = move |ev: MouseEvent| {
-        ev.prevent_default();
-        set_dragging_chat.set(true);
-        set_resize_start_x.set(ev.client_x());
-        set_resize_start_chat.set(chat_width.get());
-    };
-    let resize_drag = move |ev: MouseEvent| {
-        if dragging_sidebar.get() {
-            let delta = ev.client_x() - resize_start_x.get();
-            set_sidebar_width.set((resize_start_sidebar.get() + delta).clamp(210, 360));
-        }
-        if dragging_composer.get() {
-            let delta = ev.client_y() - resize_start_y.get();
-            set_composer_height.set(
-                (resize_start_composer.get() - delta)
-                    .clamp(MIN_COMPOSER_HEIGHT_PX, MAX_COMPOSER_HEIGHT_PX),
-            );
-        }
-        if dragging_chat.get() {
-            // Колонка отцентрована, поэтому правый край движется на половину
-            // изменения ширины — берём 2× дельты, чтобы ручка шла за курсором.
-            let delta = ev.client_x() - resize_start_x.get();
-            set_chat_width
-                .set((resize_start_chat.get() + delta * 2).clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX));
-        }
-    };
-    let stop_resize = move |_| {
-        set_dragging_sidebar.set(false);
-        set_dragging_composer.set(false);
-        set_dragging_chat.set(false);
-    };
-    let is_resizing =
-        move || dragging_sidebar.get() || dragging_composer.get() || dragging_chat.get();
+    let begin_sidebar_resize = move |ev: MouseEvent| resize.begin_sidebar_resize(ev);
+    let begin_composer_resize = move |ev: MouseEvent| resize.begin_composer_resize(ev);
+    let begin_chat_resize = move |ev: MouseEvent| resize.begin_chat_resize(ev);
+    let resize_drag = move |ev: MouseEvent| resize.drag(ev);
+    let stop_resize = move |_| resize.stop();
+    let is_resizing = move || resize.is_resizing();
     let jump_to_message = move |id: u64| {
         if let Some(element) = window()
             .and_then(|window| window.document())
@@ -696,248 +525,40 @@ pub(crate) fn App() -> impl IntoView {
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
-    let toggle_sidebar = move |_| {
-        set_sidebar_collapsed.update(|value| *value = !*value);
-    };
-    let refresh_sidebar_sessions =
-        move |_| load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+    let toggle_sidebar = move |_| resize.toggle_sidebar();
+    let refresh_sidebar_sessions = move |_| session_actions.load_sidebar_sessions();
     let open_sidebar_session = move |session: SessionSummary| {
-        if active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
-            return;
-        }
-        close_event_stream(event_source);
-        // Захватываем поколение явно (а не update + get_untracked): хрупкий
-        // паттерн мог оставлять expected рассинхронизированным и guard ниже
-        // ложно срабатывал, бросая пользователя на старой сессии.
-        let expected_generation = transcript_generation.get_untracked() + 1;
-        set_transcript_generation.set(expected_generation);
-        // Сбрасываем вид СИНХРОННО, как start_new_session. Иначе пока медленный
-        // /resume не вернулся, пользователь продолжает видеть старую сессию.
-        set_active_session_dir.set(Some(session.session_dir.clone()));
-        if let Some(workspace) = session.workspace_path.clone() {
-            set_workspace_label.set(workspace);
-        }
-        match session.session_id.clone() {
-            Some(session_id) => set_session_label.set(short_id(&session_id).to_owned()),
-            None => set_session_label.set(short_path(&session.session_dir)),
-        }
-        set_messages.set(Vec::new());
-        set_next_message_id.set(1);
-        set_queued_prompts.set(Vec::new());
-        set_active_stream_message_id.set(None);
-        set_streamed_this_turn.set(false);
-        apply_active_session_activity(
-            session.activity.as_ref(),
-            set_is_sending,
-            set_active_turn_id,
-            set_agent_status,
-        );
-        set_tool_activities.set(Vec::new());
-        set_pending_approvals.set(Vec::new());
-        set_pending_user_inputs.set(Vec::new());
-        let session_dir = session.session_dir.clone();
-        replace_transcript_for_session(
-            Some(session_dir.clone()),
-            set_messages,
-            transcript_generation,
-            expected_generation,
-            next_message_id,
-            set_next_message_id,
-            set_transport_status,
-        );
-        set_sidebar_sessions_status.set("открываю сессию".to_owned());
-        spawn_local(async move {
-            match post_json(
-                "/resume",
-                &ResumeSessionRequest {
-                    id: Some("sidebar-resume".to_owned()),
-                    session_dir: session_dir.clone(),
-                },
-            )
-            .await
-            {
-                Ok(StdioOutput::Response {
-                    ok: true, output, ..
-                }) => {
-                    if transcript_generation.get_untracked() != expected_generation {
-                        return;
-                    }
-                    if let Some(activity) = output
-                        .as_ref()
-                        .and_then(|value| value.get("activity"))
-                        .cloned()
-                        .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())
-                    {
-                        apply_active_session_activity(
-                            Some(&activity),
-                            set_is_sending,
-                            set_active_turn_id,
-                            set_agent_status,
-                        );
-                    }
-                    set_sidebar_sessions_status.set("сессия открыта".to_owned());
-                    reconnect_event_stream(event_source, event_stream_bindings);
-                    load_runtime_settings(
-                        set_mode,
-                        set_model_name,
-                        set_model_options,
-                        set_reasoning_enabled,
-                        set_effort,
-                        set_effort_options,
-                        set_workspace_label,
-                        set_active_session_dir,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                    replace_transcript_for_session(
-                        Some(session_dir.clone()),
-                        set_messages,
-                        transcript_generation,
-                        expected_generation,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                }
-                Ok(StdioOutput::Response { error, .. }) => {
-                    set_sidebar_sessions_status
-                        .set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
-                }
-                Ok(StdioOutput::Event { .. }) => {
-                    set_sidebar_sessions_status.set("неожиданное событие resume".to_owned());
-                }
-                Err(error) => {
-                    set_sidebar_sessions_status.set(format!("не удалось открыть сессию: {error}"));
-                }
-            }
-            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
-        });
+        session_actions.open_sidebar_session(session);
     };
     let delete_sidebar_session = move |session: SessionSummary| {
-        let confirmed = window()
-            .and_then(|window| window.confirm_with_message("Удалить этот чат?").ok())
-            .unwrap_or(false);
-        if !confirmed {
-            return;
-        }
-
-        let session_dir = session.session_dir.clone();
-        let deleting_active = active_session_dir.get().as_deref() == Some(session_dir.as_str());
-        let delete_request_generation = transcript_generation.get_untracked();
-        set_sidebar_sessions_status.set("удаляю сессию".to_owned());
-        spawn_local(async move {
-            match post_json(
-                "/delete-session",
-                &DeleteSessionRequest {
-                    id: Some("sidebar-delete".to_owned()),
-                    session_dir: session_dir.clone(),
-                },
-            )
-            .await
-            {
-                Ok(StdioOutput::Response {
-                    ok: true, output, ..
-                }) => {
-                    set_sidebar_sessions.update(|items| {
-                        items.retain(|item| item.session_dir != session_dir);
-                    });
-                    set_sidebar_sessions_status.set("сессия удалена".to_owned());
-                    let active_replaced = output
-                        .as_ref()
-                        .and_then(|value| value.get("active_replaced"))
-                        .and_then(Value::as_bool)
-                        .unwrap_or(deleting_active);
-                    if active_replaced {
-                        if transcript_generation.get_untracked() != delete_request_generation {
-                            return;
-                        }
-                        reset_chat_view_for_delete_session();
-                        let expected_generation = transcript_generation.get_untracked();
-                        set_active_session_dir.set(None);
-                        set_session_label.set("not started".to_owned());
-                        reconnect_event_stream(event_source, event_stream_bindings);
-                        load_runtime_settings(
-                            set_mode,
-                            set_model_name,
-                            set_model_options,
-                            set_reasoning_enabled,
-                            set_effort,
-                            set_effort_options,
-                            set_workspace_label,
-                            set_active_session_dir,
-                            set_messages,
-                            next_message_id,
-                            set_next_message_id,
-                            set_transport_status,
-                        );
-                        replace_transcript(
-                            set_messages,
-                            transcript_generation,
-                            expected_generation,
-                            next_message_id,
-                            set_next_message_id,
-                            set_transport_status,
-                        );
-                    }
-                }
-                Ok(StdioOutput::Response { error, .. }) => {
-                    set_sidebar_sessions_status
-                        .set(error.unwrap_or_else(|| "не удалось удалить сессию".to_owned()));
-                }
-                Ok(StdioOutput::Event { .. }) => {
-                    set_sidebar_sessions_status
-                        .set("неожиданное событие delete-session".to_owned());
-                }
-                Err(error) => {
-                    set_sidebar_sessions_status.set(format!("не удалось удалить сессию: {error}"));
-                }
-            }
-            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
-        });
+        session_actions.delete_sidebar_session(session);
     };
-    let global_keydown =
-        Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
-            if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
-                ev.prevent_default();
-                if let Some(textarea) = composer_ref.get() {
-                    let _ = textarea.focus();
-                }
-            } else if ev.key() == "Escape" && active_turn_id.get().is_some() {
-                ev.prevent_default();
-                cancel_active_turn(
-                    active_turn_id,
-                    next_request_id,
-                    set_next_request_id,
-                    set_is_sending,
-                    set_active_turn_id,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                );
-            }
-        }));
-    if let Some(window) = window() {
-        let _ = window
-            .add_event_listener_with_callback("keydown", global_keydown.as_ref().unchecked_ref());
-    }
-    global_keydown.forget();
+    install_global_keydown(
+        composer_ref,
+        active_turn_id,
+        next_request_id,
+        set_next_request_id,
+        set_is_sending,
+        set_active_turn_id,
+        set_messages,
+        next_message_id,
+        set_next_message_id,
+        set_transport_status,
+    );
 
     view! {
         <div
             class="app-layout"
             class:resizing=is_resizing
-            class:sidebar-collapsed=sidebar_collapsed
+            class:sidebar-collapsed=resize.sidebar_collapsed
             on:mousemove=resize_drag
             on:mouseup=stop_resize
             on:mouseleave=stop_resize
         >
             <ToastStack toasts on_dismiss=dismiss_toast />
             <SidebarView
-                sidebar_width
-                sidebar_collapsed
+                sidebar_width=resize.sidebar_width
+                sidebar_collapsed=resize.sidebar_collapsed
                 workspace_label
                 sidebar_sessions
                 sidebar_sessions_status
@@ -983,7 +604,7 @@ pub(crate) fn App() -> impl IntoView {
 
                 <section
                     class="session-workspace"
-                    style=move || format!("--chat-max-width: {}px", chat_width.get())
+                    style=move || format!("--chat-max-width: {}px", resize.chat_width.get())
                 >
                     {if is_resume_route {
                         view! { <ResumeView /> }.into_any()
@@ -1026,7 +647,7 @@ pub(crate) fn App() -> impl IntoView {
 
                             <ComposerView
                                 composer_ref
-                                composer_height
+                                composer_height=resize.composer_height
                                 draft
                                 set_draft
                                 mode
