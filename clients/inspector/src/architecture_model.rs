@@ -286,8 +286,9 @@ fn slot_order(slot: &TopologySlot) -> u32 {
         "workflow" => 0,
         "context" => 1,
         "compactor" => 2,
-        "model" => 3,
-        "tool_exposure" => 4,
+        // Держать в согласии с core topology/slots.rs: exposure идёт до model.
+        "tool_exposure" => 3,
+        "model" => 4,
         "policy" => 5,
         "tool" => 6,
         "renderer" => 7,
