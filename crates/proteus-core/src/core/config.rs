@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig},
-    model_standard::InstructionBlock,
+    model_standard::{InstructionBlock, InstructionKind},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -25,7 +25,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub model: ModelConfig,
     #[serde(default)]
-    pub instructions: Vec<InstructionBlock>,
+    pub instructions: Vec<InstructionSourceConfig>,
     #[serde(default)]
     pub modules: ModulesConfig,
     #[serde(default)]
@@ -58,7 +58,10 @@ impl AppConfig {
             Self::default()
         };
         let manifest_config_path = should_load.then_some(config_path.as_deref()).flatten();
-        config.with_tool_manifests(manifest_config_path).await
+        let config = config.with_tool_manifests(manifest_config_path).await?;
+        config
+            .with_resolved_instructions(manifest_config_path)
+            .await
     }
 
     pub async fn resolve_config_path(path: Option<&Path>) -> Result<Option<PathBuf>> {
@@ -145,6 +148,59 @@ impl AppConfig {
             .and_then(|slot| slot.get(id))
             .cloned()
             .unwrap_or(serde_json::Value::Null)
+    }
+
+    /// Резолвит `[[instructions]]` entries с `file` в текст. Относительные
+    /// пути считаются от каталога config-файла, чтобы один относительный
+    /// путь работал и в repo, и в установленном `~/.config/.../configs/`.
+    async fn with_resolved_instructions(mut self, config_path: Option<&Path>) -> Result<Self> {
+        let base_dir = config_path.map(|path| {
+            if path.is_dir() {
+                path.to_path_buf()
+            } else {
+                path.parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf()
+            }
+        });
+        for entry in &mut self.instructions {
+            match (&entry.text, &entry.file) {
+                (Some(_), Some(file)) => bail!(
+                    "instructions entry must set either text or file, not both: {}",
+                    file.display()
+                ),
+                (None, None) => bail!("instructions entry must set text or file"),
+                (Some(_), None) => {}
+                (None, Some(file)) => {
+                    let mut path = expand_user_path(file);
+                    if path.is_relative()
+                        && let Some(base_dir) = &base_dir
+                    {
+                        path = base_dir.join(path);
+                    }
+                    let text = tokio::fs::read_to_string(&path).await.with_context(|| {
+                        format!("failed to read instructions file {}", path.display())
+                    })?;
+                    entry.text = Some(text);
+                }
+            }
+        }
+        Ok(self)
+    }
+
+    /// Собирает contract-level `InstructionBlock` list из уже резолвленных
+    /// entries (`file` прочитан в `text` при load).
+    pub fn instruction_blocks(&self) -> Vec<InstructionBlock> {
+        self.instructions
+            .iter()
+            .map(|entry| {
+                InstructionBlock::new(
+                    entry.kind.clone(),
+                    entry.text.clone().unwrap_or_default(),
+                    entry.priority,
+                )
+            })
+            .collect()
     }
 
     async fn with_tool_manifests(mut self, config_path: Option<&Path>) -> Result<Self> {
@@ -286,6 +342,18 @@ fn module_kind_config_key(kind: ModuleKind) -> &'static str {
         ModuleKind::Renderer => "renderer",
         _ => "unknown",
     }
+}
+
+/// Config-уровневый source для `InstructionBlock`: либо inline `text`,
+/// либо `file` с prompt-текстом (резолвится при load).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstructionSourceConfig {
+    pub kind: InstructionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+    pub priority: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -935,6 +1003,89 @@ mod tests {
         assert_eq!(
             AppConfig::named_config_destination_path(Path::new("dev-slim")),
             Some(expected_dev_slim)
+        );
+    }
+
+    #[tokio::test]
+    async fn load_resolves_instruction_files_relative_to_config_dir() {
+        let dir = tempfile::tempdir().expect("config dir");
+        std::fs::create_dir_all(dir.path().join("prompts")).expect("prompts dir");
+        std::fs::write(
+            dir.path().join("prompts/base.md"),
+            "You are a coding agent.",
+        )
+        .expect("prompt file");
+        let config_path = dir.path().join("test.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[[instructions]]
+kind = "System"
+file = "prompts/base.md"
+priority = 100
+
+[[instructions]]
+kind = "Developer"
+text = "inline text"
+priority = 90
+"#,
+        )
+        .expect("config file");
+
+        let config = AppConfig::load(Some(&config_path)).await.expect("load");
+        let blocks = config.instruction_blocks();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "You are a coding agent.");
+        assert_eq!(blocks[0].priority, 100);
+        assert_eq!(blocks[1].text, "inline text");
+    }
+
+    #[tokio::test]
+    async fn load_fails_for_missing_instruction_file() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("test.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[[instructions]]
+kind = "System"
+file = "prompts/missing.md"
+priority = 100
+"#,
+        )
+        .expect("config file");
+
+        let error = AppConfig::load(Some(&config_path))
+            .await
+            .expect_err("missing instructions file");
+        assert!(
+            format!("{error:#}").contains("failed to read instructions file"),
+            "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_fails_when_instruction_sets_text_and_file() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("test.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[[instructions]]
+kind = "System"
+text = "inline"
+file = "prompts/base.md"
+priority = 100
+"#,
+        )
+        .expect("config file");
+
+        let error = AppConfig::load(Some(&config_path))
+            .await
+            .expect_err("conflicting instruction source");
+        assert!(
+            format!("{error:#}").contains("either text or file"),
+            "{error:#}"
         );
     }
 

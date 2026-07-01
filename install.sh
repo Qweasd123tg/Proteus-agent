@@ -323,6 +323,11 @@ install_config() {
 install_config "codex.config.toml" "codex.config.toml"
 install_config "proteus.provider.example.toml" "proteus.provider.example.toml"
 
+# Prompt-файлы обновляются при каждой установке: это код профиля, а не
+# пользовательские правки (в отличие от configs, которые не перезаписываются).
+mkdir -p "${configs_dir}/prompts"
+cp "${project_dir}/prompts/codex-default.md" "${configs_dir}/prompts/"
+
 echo "Installed: ${bin_path}"
 echo "Plugins:   ${plugins_dir}"
 echo "Configs:   ${configs_dir}"

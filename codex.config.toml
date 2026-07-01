@@ -1,5 +1,16 @@
 include = "proteus.provider.example.toml"
 
+# Base prompt: адаптированный upstream Codex base prompt
+# (codex-rs/protocol/src/prompts/base_instructions/default.md из исходников
+# Codex). Divergence от upstream: identity line без "Codex CLI", убраны
+# разделы update_plan/planning (нет такого tool) и sandbox pointer,
+# apply_patch описан как freeform, permission-режимы названы по-нашему,
+# добавлен совет предпочитать structured read/search tools в shell guidelines.
+[[instructions]]
+kind = "System"
+file = "prompts/codex-default.md"
+priority = 100
+
 [profile]
 name = "codex-experimental"
 

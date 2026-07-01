@@ -92,7 +92,7 @@ impl BuiltinRegistry {
         Ok(Self {
             model_config,
             runtime_config: config.runtime.clone(),
-            instructions: config.instructions.clone(),
+            instructions: config.instruction_blocks(),
             model,
             model_service: Some(model_service),
             search,
