@@ -8,7 +8,12 @@ use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
 use crate::types::SessionToken;
 
 const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
-const SERVER_QUERY_KEYS: [&str; 4] = ["server", "app_server", "app_server_origin", "proteus_server"];
+const SERVER_QUERY_KEYS: [&str; 4] = [
+    "server",
+    "app_server",
+    "app_server_origin",
+    "proteus_server",
+];
 const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";

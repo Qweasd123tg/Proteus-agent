@@ -125,9 +125,29 @@ pub(crate) struct ConfigBuilderSnapshot {
     #[serde(default)]
     pub(crate) module_config: BTreeMap<String, BTreeMap<String, Value>>,
     #[serde(default)]
+    pub(crate) tools_enabled: Vec<String>,
+    #[serde(default)]
+    pub(crate) tools: Vec<ConfigBuilderTool>,
+    #[serde(default)]
     pub(crate) slots: Vec<ConfigBuilderSlot>,
     #[serde(default)]
     pub(crate) warnings: Vec<ConfigBuilderWarning>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct ConfigBuilderTool {
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) safety: String,
+    #[serde(default)]
+    pub(crate) description: String,
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default)]
+    pub(crate) registered: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -182,6 +202,8 @@ pub(crate) struct ConfigBuilderWarning {
 pub(crate) struct ConfigBuilderSaveRequest {
     pub(crate) modules: BTreeMap<String, String>,
     pub(crate) module_config: BTreeMap<String, BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tools_enabled: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

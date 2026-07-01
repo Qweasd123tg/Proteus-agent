@@ -1402,6 +1402,191 @@ button.session-item.active {
     padding: 0;
 }
 
+.config-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.config-editor-toggle {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-chip);
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+}
+
+.config-editor-toggle:hover {
+    border-color: var(--border-strong);
+    color: var(--text-main);
+}
+
+.config-editor-rows {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.config-editor-row {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(90px, 38%) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.config-editor-key {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.config-editor-row input,
+.config-editor-row select {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.config-editor-row.error input {
+    border-color: var(--accent-red);
+}
+
+.config-editor-remove {
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 4px 8px;
+}
+
+.config-editor-remove:hover {
+    border-color: var(--border-strong);
+    color: var(--text-main);
+}
+
+.config-editor-add input::placeholder {
+    color: var(--text-faint);
+}
+
+.config-editor-error {
+    color: var(--accent-red);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tools-picker {
+    display: grid;
+    gap: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+    padding: var(--space-4);
+}
+
+.tools-picker-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.tools-picker-head div {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+}
+
+.tools-picker-head strong {
+    color: var(--text-main);
+    font-size: 13px;
+}
+
+.tools-picker-head span {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tools-picker-head input {
+    max-width: 220px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.tools-picker-list {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.tools-picker-row {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: var(--space-3);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: var(--space-2) var(--space-3);
+}
+
+.tools-picker-row:hover {
+    border-color: var(--border-subtle);
+    background: var(--bg-panel-hover);
+}
+
+.tools-picker-row input[type="checkbox"] {
+    margin-top: 3px;
+}
+
+.tools-picker-main {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.tools-picker-title {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.tools-picker-title strong {
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.tools-picker-title code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.tools-picker-main p {
+    overflow: hidden;
+    color: var(--text-muted);
+    display: -webkit-box;
+    font-size: 11px;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
 .config-empty {
     color: var(--text-faint);
     font-family: var(--font-mono);
