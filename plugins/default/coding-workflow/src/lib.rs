@@ -44,6 +44,7 @@ pub(crate) use proteus_contracts::{
     },
     plugin::PluginWorkflow,
 };
+use token_accounting::LastModelUsage;
 #[cfg(test)]
 use token_accounting::{estimate_message_tokens, request_token_usage_snapshot};
 
@@ -137,6 +138,7 @@ pub(crate) fn run_single_loop(
         );
     }
     let mut current_turn_messages_start = model_messages.len();
+    let mut last_usage: Option<LastModelUsage> = None;
 
     for _round in 0..max_tool_rounds {
         let prepared = request_from_state(
@@ -146,6 +148,7 @@ pub(crate) fn run_single_loop(
             SYSTEM_INSTRUCTIONS,
             None,
             "single_loop",
+            last_usage.as_ref(),
         )?;
         if let Some(report) = prepared.compaction.as_ref() {
             compactions.push(report.clone());
@@ -154,6 +157,7 @@ pub(crate) fn run_single_loop(
                 persistent_messages = persistent_messages_from_model_messages(&model_messages);
                 current_turn_messages_start =
                     current_turn_start(&model_messages, current_user_message_id);
+                last_usage = None;
             }
         }
         let request = prepared.request;
@@ -173,6 +177,12 @@ pub(crate) fn run_single_loop(
 
         model_messages.push(response.message.clone());
         persistent_messages.push(response.message.clone());
+        if let Some(usage) = response.usage.clone() {
+            last_usage = Some(LastModelUsage {
+                usage,
+                message_count: model_messages.len(),
+            });
+        }
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if !should_run_tools {
@@ -223,6 +233,7 @@ pub(crate) fn run_single_loop(
         SYSTEM_INSTRUCTIONS,
         None,
         "single_loop_final",
+        last_usage.as_ref(),
     )?;
     if let Some(report) = prepared.compaction.as_ref() {
         compactions.push(report.clone());
@@ -324,6 +335,7 @@ pub(crate) fn run_codex_loop(
     let mut current_turn_messages_start = model_messages.len();
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
+    let mut last_usage: Option<LastModelUsage> = None;
 
     loop {
         let prepared = request_from_state_with_instruction_blocks(
@@ -333,6 +345,7 @@ pub(crate) fn run_codex_loop(
             input.runtime.instructions.clone(),
             None,
             "codex_loop",
+            last_usage.as_ref(),
         )?;
         if let Some(report) = prepared.compaction.as_ref() {
             compactions.push(report.clone());
@@ -346,6 +359,7 @@ pub(crate) fn run_codex_loop(
                 )?;
                 current_turn_messages_start =
                     current_turn_start(&model_messages, current_user_message_id);
+                last_usage = None;
             }
         }
         let request = prepared.request;
@@ -369,6 +383,12 @@ pub(crate) fn run_codex_loop(
         let assistant_message = response.message.clone();
         model_messages.push(assistant_message.clone());
         persistent_messages.push(assistant_message.clone());
+        if let Some(usage) = response.usage.clone() {
+            last_usage = Some(LastModelUsage {
+                usage,
+                message_count: model_messages.len(),
+            });
+        }
 
         if should_run_tools {
             tool_rounds += 1;
@@ -468,6 +488,7 @@ pub(crate) fn run_plan_execute_review(
         PLAN_SYSTEM_INSTRUCTIONS,
         Some(PLAN_DEVELOPER_INSTRUCTIONS),
         "plan",
+        None,
     )?;
     if let Some(report) = prepared.compaction.as_ref() {
         compactions.push(report.clone());
@@ -509,6 +530,7 @@ pub(crate) fn run_plan_execute_review(
             PLAN_SYSTEM_INSTRUCTIONS,
             Some(EXECUTE_DEVELOPER_INSTRUCTIONS),
             "execute",
+            None,
         )?;
         if let Some(report) = prepared.compaction.as_ref() {
             compactions.push(report.clone());
@@ -565,6 +587,7 @@ pub(crate) fn run_plan_execute_review(
         PLAN_SYSTEM_INSTRUCTIONS,
         Some(REVIEW_DEVELOPER_INSTRUCTIONS),
         "review",
+        None,
     )?;
     if let Some(report) = prepared.compaction.as_ref() {
         compactions.push(report.clone());

@@ -367,6 +367,13 @@ async fn init_codex_writes_loadable_single_config_file() {
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
+    assert!(dir.path().join("prompts/codex-default.md").exists());
+    assert!(
+        config
+            .instruction_blocks()
+            .iter()
+            .any(|block| block.text.contains("coding agent"))
+    );
 }
 
 #[test]

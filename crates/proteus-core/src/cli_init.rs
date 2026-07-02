@@ -10,6 +10,10 @@ const CODING_PROFILE_CONFIG: &str = include_str!("../../../proteus.coding.exampl
 const CODEX_PROFILE_CONFIG: &str = include_str!("../../../codex.config.toml");
 const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../proteus.example.toml");
+const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../prompts/codex-default.md");
+/// Относительный путь совпадает с `file` в codex-конфиге: резолвится от
+/// каталога config-файла.
+const CODEX_PROMPT_FILE: &str = "prompts/codex-default.md";
 pub(crate) const INIT_CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +51,14 @@ impl InitProfile {
             Self::Safe => self.config_body().to_owned(),
         }
     }
+
+    /// Файлы, на которые ссылается config profile; кладутся рядом с ним.
+    fn support_files(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Codex => &[(CODEX_PROMPT_FILE, CODEX_DEFAULT_PROMPT)],
+            Self::Coding | Self::Full | Self::Safe => &[],
+        }
+    }
 }
 
 pub(crate) fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {
@@ -76,6 +88,14 @@ pub(crate) fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> 
         fs::create_dir_all(parent)?;
     }
     fs::write(&destination, profile.config_body_for_init())?;
+    let config_dir = destination.parent().unwrap_or_else(|| Path::new("."));
+    for (relative, body) in profile.support_files() {
+        let path = config_dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, body)?;
+    }
 
     println!(
         "Initialized {} profile: {}",

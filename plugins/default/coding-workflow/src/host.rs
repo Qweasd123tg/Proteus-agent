@@ -15,7 +15,7 @@ use serde_json::json;
 use super::{
     dynamic_tools,
     metadata::{insert_request_metadata_u32, insert_request_metadata_value, prompt_cache_key},
-    token_accounting::{estimate_message_tokens, request_token_usage_snapshot},
+    token_accounting::{LastModelUsage, effective_token_estimate, request_token_usage_snapshot},
 };
 
 pub(super) struct PreparedRequest {
@@ -29,9 +29,10 @@ struct CompactedMessages {
 }
 
 #[derive(Clone, Copy)]
-struct RequestOptions {
+struct RequestOptions<'a> {
     expose_tools: bool,
     include_dynamic_meta_tools: bool,
+    last_usage: Option<&'a LastModelUsage>,
 }
 
 pub(super) fn request_from_state(
@@ -41,6 +42,7 @@ pub(super) fn request_from_state(
     system_instructions: &str,
     developer_instructions: Option<&str>,
     phase: &str,
+    last_usage: Option<&LastModelUsage>,
 ) -> Result<PreparedRequest, PluginWorkflowError> {
     request_from_state_with_instruction_blocks_and_options(
         input,
@@ -56,6 +58,7 @@ pub(super) fn request_from_state(
         RequestOptions {
             expose_tools: true,
             include_dynamic_meta_tools: phase != "review",
+            last_usage,
         },
     )
 }
@@ -67,6 +70,7 @@ pub(super) fn request_from_state_with_instruction_blocks(
     instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
     phase: &str,
+    last_usage: Option<&LastModelUsage>,
 ) -> Result<PreparedRequest, PluginWorkflowError> {
     request_from_state_with_instruction_blocks_and_options(
         input,
@@ -78,6 +82,7 @@ pub(super) fn request_from_state_with_instruction_blocks(
         RequestOptions {
             expose_tools: true,
             include_dynamic_meta_tools: phase != "review",
+            last_usage,
         },
     )
 }
@@ -89,7 +94,7 @@ fn request_from_state_with_instruction_blocks_and_options(
     mut instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
     phase: &str,
-    options: RequestOptions,
+    options: RequestOptions<'_>,
 ) -> Result<PreparedRequest, PluginWorkflowError> {
     let mut tools = if options.expose_tools {
         visible_tools(host, input)?
@@ -119,7 +124,7 @@ fn request_from_state_with_instruction_blocks_and_options(
             80,
         ));
     }
-    let compacted = compact_messages(input, host, messages, phase)?;
+    let compacted = compact_messages(input, host, messages, phase, options.last_usage)?;
     let mut request =
         CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
             .with_instructions(instructions)
@@ -166,6 +171,7 @@ fn compact_messages(
     host: &mut PluginWorkflowHostMut<'_>,
     messages: &[CanonicalMessage],
     reason: &str,
+    last_usage: Option<&LastModelUsage>,
 ) -> Result<CompactedMessages, PluginWorkflowError> {
     ensure_not_cancelled(host)?;
     let compaction_input = CompactionInput::new(
@@ -174,7 +180,7 @@ fn compact_messages(
         messages.to_vec(),
     )
     .with_reason(reason)
-    .with_token_estimate(estimate_message_tokens(messages))
+    .with_token_estimate(effective_token_estimate(messages, last_usage))
     // window_tokens — сырое окно, из него компактор берёт trigger_fraction;
     // max_tokens оставляем как legacy-fallback на случай отсутствия конфига.
     .with_window_tokens(input.runtime.max_input_tokens)

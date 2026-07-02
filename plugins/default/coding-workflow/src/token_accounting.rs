@@ -190,6 +190,39 @@ fn tool_content_text_len(content: &ToolContent) -> usize {
     }
 }
 
+/// Реальный usage последнего model-ответа — точка отсчёта для оценки давления
+/// на контекст в следующем compaction-чеке (как inline auto-compact в Codex).
+pub(crate) struct LastModelUsage {
+    pub(crate) usage: TokenUsage,
+    /// Сколько сообщений model_messages покрывал этот usage (включая
+    /// assistant-ответ). Всё, что добавлено позже, оценивается по chars/4.
+    pub(crate) message_count: usize,
+}
+
+/// Оценка токенов истории для триггера компактора: если есть реальный usage
+/// прошлого запроса, берём его (input+output) плюс chars/4-дельту новых
+/// сообщений; chars/4 по всей истории остаётся нижней границей и fallback-ом.
+pub(crate) fn effective_token_estimate(
+    messages: &[CanonicalMessage],
+    last_usage: Option<&LastModelUsage>,
+) -> Option<u32> {
+    let char_estimate = estimate_message_tokens(messages);
+    let Some(last) = last_usage else {
+        return char_estimate;
+    };
+    if last.message_count > messages.len() {
+        // История сжалась после замера (компакция) — usage устарел.
+        return char_estimate;
+    }
+    let known = last
+        .usage
+        .input_tokens
+        .saturating_add(last.usage.output_tokens);
+    let delta = estimate_message_tokens(&messages[last.message_count..]).unwrap_or(0);
+    let usage_based = known.saturating_add(delta);
+    Some(char_estimate.unwrap_or(0).max(usage_based))
+}
+
 pub(crate) fn estimate_message_tokens(messages: &[CanonicalMessage]) -> Option<u32> {
     let bytes = messages
         .iter()
@@ -213,5 +246,66 @@ fn part_text_len(part: &ContentPart) -> usize {
         ContentPart::Patch { patch } => patch.content.len(),
         ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => text.len(),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod effective_estimate_tests {
+    use super::*;
+
+    fn text_message(text: &str) -> CanonicalMessage {
+        CanonicalMessage::text(MessageRole::User, text.to_owned())
+    }
+
+    #[test]
+    fn without_usage_falls_back_to_char_estimate() {
+        let messages = vec![text_message(&"x".repeat(400))];
+        assert_eq!(
+            effective_token_estimate(&messages, None),
+            estimate_message_tokens(&messages)
+        );
+    }
+
+    #[test]
+    fn usage_dominates_char_estimate_for_covered_history() {
+        // Реальный usage сильно выше chars/4 (thinking, schemas, плотный код).
+        let messages = vec![text_message("short"), text_message("reply")];
+        let last = LastModelUsage {
+            usage: TokenUsage::new(50_000, 2_000),
+            message_count: 2,
+        };
+
+        let estimate = effective_token_estimate(&messages, Some(&last)).expect("estimate");
+
+        assert!(estimate >= 52_000, "{estimate}");
+    }
+
+    #[test]
+    fn new_messages_after_usage_add_char_delta() {
+        let mut messages = vec![text_message("short"), text_message("reply")];
+        let last = LastModelUsage {
+            usage: TokenUsage::new(10_000, 500),
+            message_count: 2,
+        };
+        let base = effective_token_estimate(&messages, Some(&last)).expect("base");
+
+        messages.push(text_message(&"y".repeat(4_000)));
+        let grown = effective_token_estimate(&messages, Some(&last)).expect("grown");
+
+        assert!(grown >= base + 900, "base={base}, grown={grown}");
+    }
+
+    #[test]
+    fn stale_usage_after_history_shrink_is_ignored() {
+        let messages = vec![text_message("short")];
+        let last = LastModelUsage {
+            usage: TokenUsage::new(90_000, 1_000),
+            message_count: 5,
+        };
+
+        assert_eq!(
+            effective_token_estimate(&messages, Some(&last)),
+            estimate_message_tokens(&messages)
+        );
     }
 }
