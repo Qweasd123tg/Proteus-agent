@@ -109,7 +109,7 @@
     width: 30px;
     min-height: 30px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     font-size: 15px;
@@ -129,7 +129,7 @@
 .sidebar-search input {
     height: 32px;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-muted);
     font-size: 12px;
@@ -157,7 +157,7 @@
 
 .session-item {
     display: block;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     color: var(--text-main);
     padding: var(--space-2) 34px var(--space-2) var(--space-3);
 }
@@ -190,7 +190,7 @@ button.session-item.active {
     height: 24px;
     min-height: 24px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: transparent;
     color: var(--text-faint);
     font-size: 17px;
@@ -207,7 +207,7 @@ button.session-item.active {
 
 .session-delete:hover,
 .session-delete:focus {
-    background: rgb(255 107 107 / 14%);
+    background: var(--accent-red-soft);
     color: var(--accent-red);
     outline: none;
 }
@@ -345,7 +345,7 @@ button.session-item.active {
     min-height: 30px;
     flex: 0 0 auto;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     font-size: 15px;
@@ -379,7 +379,7 @@ button.session-item.active {
 }
 
 .topnav-link {
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     color: var(--text-muted);
     padding: 6px 10px;
     text-decoration: none;
@@ -523,9 +523,7 @@ button.session-item.active {
     background: var(--bg-panel);
     background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
     backdrop-filter: blur(12px);
-    box-shadow:
-        0 4px 24px rgb(0 0 0 / 35%),
-        0 1px 0 rgb(0 0 0 / 25%);
+    box-shadow: var(--shadow-md);
     transition:
         border-color 0.15s,
         box-shadow 0.15s;
@@ -534,7 +532,7 @@ button.session-item.active {
 .composer-shell:focus-within {
     border-color: var(--border-strong);
     box-shadow:
-        0 1px 0 rgb(0 0 0 / 25%),
+        var(--shadow-md),
         0 0 0 1px var(--border-strong);
 }
 
@@ -630,7 +628,7 @@ button.session-item.active {
     align-items: center;
     gap: var(--space-2);
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     padding: 0 var(--space-2);
@@ -698,7 +696,7 @@ button.session-item.active {
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-card);
     background: var(--bg-panel);
-    box-shadow: 0 18px 52px rgb(0 0 0 / 55%);
+    box-shadow: var(--shadow-lg);
     z-index: 20;
 }
 
@@ -734,7 +732,7 @@ button.session-item.active {
     justify-content: center;
     overflow: hidden;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-muted);
     font-size: 12px;
@@ -849,7 +847,7 @@ button.session-item.active {
     min-width: 0;
     max-width: min(460px, 44vw);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-main);
     padding: 0 var(--space-3);
@@ -1324,7 +1322,7 @@ button.session-item.active {
     align-content: start;
     gap: var(--space-3);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     padding: var(--space-3);
 }
@@ -1461,7 +1459,7 @@ button.session-item.active {
 
 .config-editor-remove {
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: transparent;
     color: var(--text-faint);
     cursor: pointer;
@@ -1537,7 +1535,7 @@ button.session-item.active {
     align-items: flex-start;
     gap: var(--space-3);
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     cursor: pointer;
     padding: var(--space-2) var(--space-3);
 }
@@ -1663,7 +1661,7 @@ button.session-item.active {
     min-width: 150px;
     gap: 2px;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     padding: var(--space-3);
 }
@@ -1690,7 +1688,7 @@ button.session-item.active {
 .topology-node-card {
     min-width: 0;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
 }
 
@@ -1709,7 +1707,7 @@ button.session-item.active {
     cursor: grab;
     user-select: none;
     background:
-        linear-gradient(90deg, rgb(91 140 255 / 4%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(107 158 255 / 4%) 1px, transparent 1px),
         linear-gradient(180deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
         var(--bg-panel);
     background-size: 48px 48px;
@@ -1766,17 +1764,17 @@ button.session-item.active {
     align-content: start;
     gap: 3px;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     padding: var(--space-2) var(--space-3);
 }
 
 .pipeline-step.anchor {
-    border-color: rgb(107 158 255 / 50%);
+    border-color: var(--accent-blue-border);
 }
 
 .pipeline-step.missing {
-    border-color: rgb(239 107 107 / 45%);
+    border-color: var(--accent-red-border);
 }
 
 .pipeline-step code {
@@ -1817,13 +1815,13 @@ button.session-item.active {
     align-content: start;
     gap: var(--space-2);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     padding: var(--space-2) var(--space-3);
 }
 
 .backend-card.missing {
-    border-color: rgb(216 162 30 / 36%);
+    border-color: var(--accent-yellow-border);
 }
 
 .backend-card code {
@@ -1858,17 +1856,17 @@ button.session-item.active {
 }
 
 .contribution-chip.active {
-    border-color: rgb(92 199 132 / 30%);
+    border-color: var(--accent-green-border);
     color: var(--accent-green);
 }
 
 .contribution-chip.available {
-    border-color: rgb(216 162 30 / 30%);
+    border-color: var(--accent-yellow-border);
     color: var(--accent-yellow);
 }
 
 .contribution-chip.inactive {
-    border-color: rgb(128 142 170 / 30%);
+    border-color: var(--border-strong);
     color: var(--text-faint);
 }
 
@@ -1891,11 +1889,11 @@ button.session-item.active {
 }
 
 .topology-node-card.active {
-    border-color: rgb(92 199 132 / 32%);
+    border-color: var(--accent-green-border);
 }
 
 .topology-node-card.missing {
-    border-color: rgb(216 162 30 / 30%);
+    border-color: var(--accent-yellow-border);
 }
 
 .topology-node-card.plugin {
@@ -1989,7 +1987,7 @@ button.session-item.active {
     min-height: 28px;
     flex: 0 0 auto;
     border-color: var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -1999,7 +1997,7 @@ button.session-item.active {
 
 .topology-filter-row button.active {
     border-color: var(--accent-blue);
-    background: rgb(107 158 255 / 10%);
+    background: var(--accent-blue-soft);
     color: var(--text-main);
 }
 
@@ -2029,7 +2027,7 @@ button.session-item.active {
 
 .topology-schema pre {
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     margin-top: var(--space-2);
 }
 

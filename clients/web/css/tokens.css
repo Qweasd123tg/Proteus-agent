@@ -14,6 +14,16 @@
     --accent-green: #5cc784;
     --accent-yellow: #d8a21e;
     --accent-red: #ef6b6b;
+    /* Полупрозрачные производные акцентов: soft — заливка, border — обводка.
+       Цветные подложки и рамки берутся отсюда, а не из локальных rgb(). */
+    --accent-blue-soft: rgb(107 158 255 / 12%);
+    --accent-blue-border: rgb(107 158 255 / 35%);
+    --accent-green-soft: rgb(92 199 132 / 13%);
+    --accent-green-border: rgb(92 199 132 / 32%);
+    --accent-yellow-soft: rgb(216 162 30 / 12%);
+    --accent-yellow-border: rgb(216 162 30 / 32%);
+    --accent-red-soft: rgb(239 107 107 / 13%);
+    --accent-red-border: rgb(239 107 107 / 38%);
     --font-sans:
         "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
         sans-serif;
@@ -29,9 +39,18 @@
     --topbar-height: 48px;
     --input-min-height: 56px;
     --chat-max-width: 768px;
+    /* Три роли скруглений: card — самостоятельные карточки/поповеры,
+       inner — вложенные блоки и контролы, small — микро-кнопки. */
     --radius-bubble: 18px;
     --radius-card: 12px;
+    --radius-inner: 8px;
+    --radius-small: 6px;
     --radius-chip: 999px;
+    /* Тени по «этажам»: sm — плавающие кнопки, md — карточки над лентой,
+       lg — поповеры/меню. */
+    --shadow-sm: 0 2px 8px rgb(0 0 0 / 35%);
+    --shadow-md: 0 8px 24px rgb(0 0 0 / 40%);
+    --shadow-lg: 0 18px 48px rgb(0 0 0 / 55%);
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.6;
@@ -75,7 +94,7 @@ button {
     gap: 6px;
     overflow: hidden;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-main);
     cursor: pointer;
@@ -133,13 +152,13 @@ button.secondary:hover {
 }
 
 button.danger {
-    border-color: rgb(239 107 107 / 35%);
+    border-color: var(--accent-red-border);
     color: var(--accent-red);
 }
 
 button.danger:hover {
-    background: rgb(239 107 107 / 10%);
-    border-color: rgb(239 107 107 / 55%);
+    background: var(--accent-red-soft);
+    border-color: var(--accent-red);
     color: #f48484;
 }
 
@@ -148,7 +167,7 @@ select,
 textarea {
     width: 100%;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-main);
     outline: none;
@@ -198,7 +217,7 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #4a4d54;
+    background: #4a4a4a;
 }
 
 @keyframes pulse {

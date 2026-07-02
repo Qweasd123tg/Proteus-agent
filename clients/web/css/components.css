@@ -14,7 +14,7 @@
     align-content: center;
     gap: 2px;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     padding: var(--space-2);
     font-size: 12px;
@@ -78,12 +78,12 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-3);
-    border: 1px solid rgb(239 107 107 / 35%);
+    border: 1px solid var(--accent-red-border);
     border-radius: var(--radius-card);
     background: var(--bg-panel-soft);
     color: var(--text-main);
     padding: var(--space-3);
-    box-shadow: 0 12px 30px rgb(0 0 0 / 42%);
+    box-shadow: var(--shadow-md);
 }
 
 .toast span {
@@ -128,7 +128,7 @@
 }
 
 .status-badge.running {
-    border-color: rgb(107 158 255 / 35%);
+    border-color: var(--accent-blue-border);
     color: var(--accent-blue);
 }
 
@@ -138,7 +138,7 @@
 }
 
 .status-badge.completed {
-    border-color: rgb(92 199 132 / 30%);
+    border-color: var(--accent-green-border);
     color: var(--accent-green);
 }
 
@@ -147,7 +147,7 @@
 }
 
 .status-badge.failed {
-    border-color: rgb(239 107 107 / 30%);
+    border-color: var(--accent-red-border);
     color: var(--accent-red);
 }
 
@@ -156,7 +156,7 @@
 }
 
 .status-badge.disconnected {
-    border-color: rgb(216 162 30 / 30%);
+    border-color: var(--accent-yellow-border);
     color: var(--accent-yellow);
 }
 
@@ -217,7 +217,7 @@
 
 .control-card > pre {
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-root);
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -241,7 +241,7 @@
     max-width: 100%;
     overflow-x: auto;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
 }
 
 .segmented button {
@@ -345,7 +345,7 @@
     right: calc(100% + var(--space-2));
     min-height: 22px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: rgb(0 0 0 / 30%);
     color: var(--text-muted);
     font-size: 10px;
@@ -418,9 +418,10 @@
 
 .reasoning-toggle {
     display: flex;
-    width: 100%;
+    width: fit-content;
     align-items: center;
-    justify-content: space-between;
+    /* Каретка сразу за чипом, а не на противоположном краю карточки. */
+    justify-content: flex-start;
     gap: var(--space-2);
     border: 0;
     background: transparent;
@@ -449,7 +450,7 @@
 .icon-button {
     min-height: 24px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: transparent;
     color: var(--text-faint);
     font-size: 11px;
@@ -483,7 +484,7 @@
     color: var(--text-main);
     font-size: 16px;
     line-height: 1;
-    box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+    box-shadow: var(--shadow-sm);
     transition:
         background 0.15s,
         transform 0.15s;
@@ -632,12 +633,12 @@
 
 .input-tabs button.active {
     border-color: var(--accent-blue);
-    background: rgb(107 158 255 / 12%);
+    background: var(--accent-blue-soft);
     color: var(--text-main);
 }
 
 .input-tabs button.done {
-    border-color: rgb(92 199 132 / 28%);
+    border-color: var(--accent-green-border);
     color: var(--accent-green);
 }
 
@@ -678,7 +679,7 @@
     justify-items: start;
     gap: 2px;
     border-color: var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-main);
     padding: var(--space-2) var(--space-3);
@@ -688,7 +689,7 @@
 
 .choice-button.active {
     border-color: var(--accent-blue);
-    background: rgb(107 158 255 / 12%);
+    background: var(--accent-blue-soft);
     color: var(--text-main);
 }
 
@@ -719,7 +720,7 @@
 
 .queued-message {
     display: grid;
-    gap: var(--space-3);
+    gap: var(--space-2);
 }
 
 .queued-message p {
@@ -730,14 +731,22 @@
     font-size: 13px;
 }
 
+/* Однострочная карточка: бейдж слева, кнопки справа — без пустого «второго
+   этажа», который делал карточку наполовину порожней. */
 .plan-actions-card {
     display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
     gap: var(--space-3);
     margin-bottom: var(--space-5);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-panel);
     padding: var(--space-3) var(--space-4);
+}
+
+.plan-actions-card .task-card-header {
+    margin-bottom: 0;
 }
 
 .plan-actions-message {
@@ -860,7 +869,7 @@
     justify-content: flex-start;
     gap: var(--space-2);
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-card);
     background: var(--bg-panel-soft);
     color: var(--text-muted);
     padding: 0 var(--space-3);
@@ -930,14 +939,14 @@
     gap: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-top: 0;
-    border-radius: 0 0 10px 10px;
+    border-radius: 0 0 var(--radius-card) var(--radius-card);
     background: var(--bg-root);
     padding: var(--space-3);
     margin-top: -1px;
 }
 
 .tool-card.expanded .tool-card-summary {
-    border-radius: 10px 10px 0 0;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
 
 .tool-preview {
@@ -977,7 +986,9 @@
 
 .tool-arg-row {
     display: grid;
-    grid-template-columns: minmax(72px, 0.3fr) minmax(0, 1fr);
+    /* Колонка ключей обнимает контент (с потолком), а не тянется долей
+       ширины карточки — иначе между ключом и значением дыра в треть карточки. */
+    grid-template-columns: fit-content(200px) minmax(0, 1fr);
     min-width: 0;
     gap: var(--space-2);
     align-items: baseline;
@@ -1090,7 +1101,7 @@
 
 .control-card .tool-preview {
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: var(--bg-root);
     padding: var(--space-3);
 }
@@ -1113,7 +1124,7 @@
 .tool-preview-toggle {
     justify-self: start;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: transparent;
     color: var(--accent-blue);
     padding: 2px 6px;
@@ -1164,12 +1175,12 @@
 
 /* Заливка добавленных/удалённых строк целиком. */
 .tool-preview .tk-line.tk-row-add {
-    background: rgba(92, 199, 132, 0.13);
+    background: var(--accent-green-soft);
     box-shadow: inset 2px 0 0 var(--accent-green);
 }
 
 .tool-preview .tk-line.tk-row-del {
-    background: rgba(239, 107, 107, 0.13);
+    background: var(--accent-red-soft);
     box-shadow: inset 2px 0 0 var(--accent-red);
 }
 
@@ -1306,10 +1317,10 @@
     overflow-x: hidden;
     overflow-y: auto;
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-card);
     background: var(--bg-panel);
     padding: var(--space-2);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+    box-shadow: var(--shadow-md);
     opacity: 0;
     transform: translateY(-50%);
     pointer-events: none;
@@ -1331,7 +1342,7 @@
     min-width: 0;
     overflow: hidden;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     padding: 8px 12px;
@@ -1389,7 +1400,7 @@
     justify-content: space-between;
     gap: var(--space-4);
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-card);
     background: var(--bg-panel-soft);
     padding: var(--space-3) var(--space-4);
     cursor: pointer;
