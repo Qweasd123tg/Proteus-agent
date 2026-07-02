@@ -59,11 +59,19 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string" }
+                    "command": { "type": "string" },
+                    "workdir": {
+                        "type": "string",
+                        "description": "Working directory for the command; relative paths resolve against the workspace root. Defaults to the workspace root."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": "Per-call timeout in milliseconds; capped at the tool default."
+                    }
                 },
                 "required": ["command"]
             },
@@ -94,19 +102,25 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    let command = call
-        .get("args")
+    let args = call.get("args");
+    let command = args
         .and_then(|args| args.get("command"))
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("shell requires string arg 'command'"))?;
+    let workdir = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")))?;
+    let timeout_ms = args
+        .and_then(|args| args.get("timeout_ms"))
+        .and_then(Value::as_u64)
+        .map_or(TIMEOUT_MS, |requested| requested.clamp(1, TIMEOUT_MS));
 
     let (output, timed_out, external_terminal) = if should_use_ptyxis() {
-        let (output, timed_out) = run_in_ptyxis(command, cwd, Duration::from_millis(TIMEOUT_MS))
-            .with_context(|| "failed to run shell in Ptyxis")?;
+        let (output, timed_out) =
+            run_in_ptyxis(command, &workdir, Duration::from_millis(timeout_ms))
+                .with_context(|| "failed to run shell in Ptyxis")?;
         (output, timed_out, Some(PTYXIS_TERMINAL))
     } else {
-        let child = spawn_shell(command, cwd).with_context(|| "failed to spawn shell")?;
-        let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(TIMEOUT_MS))
+        let child = spawn_shell(command, &workdir).with_context(|| "failed to spawn shell")?;
+        let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(timeout_ms))
             .with_context(|| "failed to wait for shell")?;
         (output, timed_out, None)
     };
@@ -125,7 +139,7 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
     }
 
     let error_msg = if timed_out {
-        Some(format!("process timed out after {TIMEOUT_MS}ms"))
+        Some(format!("process timed out after {timeout_ms}ms"))
     } else if !success {
         Some(match status {
             Some(code) => format!("process exited with code {code}"),
@@ -142,7 +156,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "stdout_truncated": output.stdout.truncated,
         "stderr_truncated": output.stderr.truncated,
         "timed_out": timed_out,
-        "timeout_ms": TIMEOUT_MS,
+        "timeout_ms": timeout_ms,
+        "workdir": workdir,
         "external_terminal": external_terminal,
     });
 
@@ -155,6 +170,34 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "metadata": metadata
     });
     Ok(result.to_string())
+}
+
+/// Резолвит `workdir` арг: относительный путь — от workspace root. Директория
+/// обязана существовать, иначе модель получает понятную ошибку вместо
+/// сбоя spawn.
+fn resolve_workdir(cwd: &str, workdir: Option<&Value>) -> Result<String> {
+    let Some(workdir) = workdir else {
+        return Ok(cwd.to_owned());
+    };
+    let workdir = workdir
+        .as_str()
+        .ok_or_else(|| anyhow!("shell arg 'workdir' must be a string"))?;
+    if workdir.trim().is_empty() {
+        return Ok(cwd.to_owned());
+    }
+    let path = Path::new(workdir);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        Path::new(cwd).join(path)
+    };
+    if !resolved.is_dir() {
+        return Err(anyhow!(
+            "shell workdir does not exist or is not a directory: {}",
+            resolved.display()
+        ));
+    }
+    Ok(resolved.display().to_string())
 }
 
 fn should_use_ptyxis() -> bool {
@@ -581,6 +624,82 @@ mod tests {
             .expect_err("missing command must error");
 
         assert!(error.to_string().contains("requires string arg 'command'"));
+    }
+
+    #[test]
+    fn shell_runs_in_relative_workdir() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::create_dir(dir.path().join("sub")).expect("subdir");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": "pwd", "workdir": "sub" }
+        });
+
+        let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+            .expect("invoke");
+
+        assert_eq!(result["ok"], true);
+        let output = result["output"].as_str().expect("output");
+        assert!(output.trim_end().ends_with("sub"), "{output}");
+        assert!(
+            result["metadata"]["workdir"]
+                .as_str()
+                .expect("workdir meta")
+                .ends_with("sub")
+        );
+    }
+
+    #[test]
+    fn shell_rejects_missing_workdir() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": "pwd", "workdir": "no-such-dir" }
+        });
+
+        let error = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .expect_err("missing workdir must error");
+
+        assert!(error.to_string().contains("does not exist"), "{error}");
+    }
+
+    #[test]
+    fn shell_honours_per_call_timeout() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": "sleep 5", "timeout_ms": 100 }
+        });
+
+        let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+            .expect("invoke");
+
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["metadata"]["timed_out"], true);
+        assert_eq!(result["metadata"]["timeout_ms"], 100);
+        assert_eq!(result["error"], "process timed out after 100ms");
+    }
+
+    #[test]
+    fn shell_caps_per_call_timeout_at_default() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": "true", "timeout_ms": u64::MAX }
+        });
+
+        let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+            .expect("invoke");
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["timeout_ms"], TIMEOUT_MS);
     }
 
     #[test]
