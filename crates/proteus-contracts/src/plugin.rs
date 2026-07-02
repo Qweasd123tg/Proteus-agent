@@ -600,6 +600,16 @@ pub trait PluginWorkflowHost: Send + Sync {
 
     /// Input JSON: `Event`. Emits with current runtime event context.
     fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError>;
+
+    /// Input JSON: `AgentTask` и `Vec<ToolCall>`. Output JSON:
+    /// `Vec<ToolResult>` в порядке calls. Подряд идущие ReadOnly tools хост
+    /// может выполнять конкурентно; остальные выполняются последовательно,
+    /// сохраняя порядок вызовов.
+    fn execute_tools_json(
+        &self,
+        task_json: RString,
+        calls_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
 }
 
 #[repr(C)]

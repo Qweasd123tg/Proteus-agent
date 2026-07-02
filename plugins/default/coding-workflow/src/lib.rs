@@ -52,8 +52,8 @@ use history::{
     current_turn_start, persistent_messages_from_model_messages, replace_after_compaction,
 };
 use host::{
-    build_context, complete_model, emit_event, execute_or_handle_tool, request_from_state,
-    request_from_state_with_instruction_blocks,
+    build_context, complete_model, emit_event, execute_or_handle_tool, execute_tools,
+    request_from_state, request_from_state_with_instruction_blocks,
 };
 #[cfg(test)]
 use metadata::{insert_request_metadata_u32, prompt_cache_key};
@@ -215,8 +215,8 @@ pub(crate) fn run_single_loop(
             });
         }
 
-        for call in response.tool_calls {
-            let result = execute_or_handle_tool(host, &input, &call, "single_loop")?;
+        let results = execute_tools(host, &input, &response.tool_calls, "single_loop")?;
+        for result in results {
             let call_id = result.call_id.clone();
             let tool_result_message =
                 CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
@@ -392,9 +392,11 @@ pub(crate) fn run_codex_loop(
 
         if should_run_tools {
             tool_rounds += 1;
-            for call in response.tool_calls {
+            for call in &response.tool_calls {
                 executed_tools.push(call.name.clone());
-                let result = execute_or_handle_tool(host, &input, &call, "codex_loop")?;
+            }
+            let results = execute_tools(host, &input, &response.tool_calls, "codex_loop")?;
+            for result in results {
                 let call_id = result.call_id.clone();
                 let tool_result_message = CanonicalMessage::new(
                     MessageRole::Tool,

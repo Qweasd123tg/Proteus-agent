@@ -1087,6 +1087,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
+name = "plan-tool"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "proteus-contracts",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "policy-pack"
 version = "0.1.0"
 dependencies = [

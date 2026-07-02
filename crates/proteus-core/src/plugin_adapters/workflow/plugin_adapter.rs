@@ -267,6 +267,26 @@ impl PluginWorkflowHost for WorkflowHost {
         self.block_on_json(async move { orchestrator.execute(&ctx, &task, call).await })
     }
 
+    fn execute_tools_json(
+        &self,
+        task_json: RString,
+        calls_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let task: AgentTask = match serde_json::from_str(task_json.as_str()) {
+            Ok(task) => task,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let calls: Vec<ToolCall> = match serde_json::from_str(calls_json.as_str()) {
+            Ok(calls) => calls,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        let orchestrator = self.tool_orchestrator.clone();
+        self.block_on_json(
+            async move { execute_tool_batch(&orchestrator, &ctx, &task, calls).await },
+        )
+    }
+
     fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
         let event: Event = match serde_json::from_str(event_json.as_str()) {
             Ok(event) => event,
@@ -286,6 +306,49 @@ impl PluginWorkflowHost for WorkflowHost {
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }
     }
+}
+
+/// Выполняет батч tool calls: подряд идущие ReadOnly tools конкурентно
+/// (join_all поверх spawn_blocking-исполнителей), остальные — по одному в
+/// порядке вызовов. Результаты возвращаются в исходном порядке.
+async fn execute_tool_batch(
+    orchestrator: &ToolOrchestrator,
+    ctx: &RuntimeContext,
+    task: &AgentTask,
+    calls: Vec<ToolCall>,
+) -> anyhow::Result<Vec<proteus_contracts::domain::ToolResult>> {
+    use proteus_contracts::domain::ToolSafety;
+
+    let specs = orchestrator.visible_tool_specs(ctx, &task.cwd);
+    let read_only = |call: &ToolCall| {
+        specs
+            .iter()
+            .find(|spec| spec.name == call.name)
+            .is_some_and(|spec| matches!(spec.safety, ToolSafety::ReadOnly))
+    };
+
+    let mut results = Vec::with_capacity(calls.len());
+    let mut queue = calls.into_iter().peekable();
+    while let Some(call) = queue.next() {
+        if read_only(&call) {
+            let mut group = vec![call];
+            while queue.peek().is_some_and(&read_only) {
+                group.push(queue.next().expect("peeked call"));
+            }
+            let outputs = futures_util::future::join_all(
+                group
+                    .into_iter()
+                    .map(|call| orchestrator.execute(ctx, task, call)),
+            )
+            .await;
+            for output in outputs {
+                results.push(output?);
+            }
+        } else {
+            results.push(orchestrator.execute(ctx, task, call).await?);
+        }
+    }
+    Ok(results)
 }
 
 #[cfg(test)]

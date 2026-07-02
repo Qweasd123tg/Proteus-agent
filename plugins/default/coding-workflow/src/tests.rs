@@ -425,6 +425,29 @@ impl PluginWorkflowHost for FakeHost {
         ))
     }
 
+    fn execute_tools_json(
+        &self,
+        task_json: RString,
+        calls_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let calls: Vec<ToolCall> =
+            serde_json::from_str(calls_json.as_str()).expect("tool calls json");
+        let mut results = Vec::new();
+        for call in calls {
+            let call_json = serde_json::to_string(&call).expect("tool call json");
+            match self.execute_tool_json(task_json.clone(), RString::from(call_json)) {
+                RResult::ROk(result_json) => results.push(
+                    serde_json::from_str::<ToolResult>(result_json.as_str())
+                        .expect("tool result json"),
+                ),
+                RResult::RErr(error) => return RResult::RErr(error),
+            }
+        }
+        RResult::ROk(RString::from(
+            serde_json::to_string(&results).expect("tool results json"),
+        ))
+    }
+
     fn execute_tool_json(
         &self,
         _task_json: RString,

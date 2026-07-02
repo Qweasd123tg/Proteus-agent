@@ -249,6 +249,38 @@ fn visible_tools(
     Ok(output.tools)
 }
 
+/// Выполняет батч tool calls одного ответа модели. Meta-tools динамической
+/// экспозиции обрабатываются локально, поэтому при их наличии (или одном
+/// вызове) используется последовательный путь; иначе — batch host API, где
+/// подряд идущие ReadOnly tools выполняются конкурентно.
+pub(super) fn execute_tools(
+    host: &mut PluginWorkflowHostMut<'_>,
+    input: &PluginWorkflowInput,
+    calls: &[ToolCall],
+    phase: &str,
+) -> Result<Vec<ToolResult>, PluginWorkflowError> {
+    if calls.len() <= 1
+        || calls
+            .iter()
+            .any(|call| dynamic_tools::is_meta_tool(&call.name))
+    {
+        return calls
+            .iter()
+            .map(|call| execute_or_handle_tool(host, input, call, phase))
+            .collect();
+    }
+    ensure_not_cancelled(host)?;
+    let task_json = to_json_string(&input.task)?;
+    let calls_json = to_json_string(&calls)?;
+    let results_json = match host
+        .execute_tools_json(RString::from(task_json), RString::from(calls_json))
+    {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(results_json.as_str())
+}
+
 pub(super) fn execute_tool(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
