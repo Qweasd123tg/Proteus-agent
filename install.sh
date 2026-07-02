@@ -13,6 +13,7 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p file-tools \
   -p git-tools \
   -p shell-tool \
+  -p plan-tool \
   -p rg-search \
   -p direct-patch \
   -p coding-workflow \

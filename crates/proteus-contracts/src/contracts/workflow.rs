@@ -7,7 +7,7 @@ use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
         HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure,
-        ToolRegistry, UserInputTransport,
+        ToolRegistry, TurnPermissionGrants, UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -40,6 +40,9 @@ pub struct RuntimeContext {
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
+    /// Turn-scoped permission grants: контекст создаётся на каждый ход
+    /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
+    pub turn_grants: Arc<TurnPermissionGrants>,
 }
 
 impl RuntimeContext {
@@ -87,6 +90,7 @@ impl RuntimeContext {
             patch,
             compactor,
             tool_exposure,
+            turn_grants: Arc::default(),
         }
     }
 

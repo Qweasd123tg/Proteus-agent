@@ -258,19 +258,25 @@ mode-aware wrapper.
 
 Порядок решения:
 
-1. если tool name в `deny`, запретить;
-2. если tool name в `allow`, разрешить;
-3. если tool name в `ask_before`, запросить approval;
-4. если `ToolSafety::ReadOnly`, разрешить;
-5. если `WritesFiles` или `RunsCommands`, запросить approval;
-6. если `Network`, `Dangerous` или tool неизвестен, запретить.
+1. если tool name в `deny`, запретить — deny побеждает всё, включая
+   `allow_sandboxed`;
+2. если tool name в `allow_sandboxed`: не-эскалированный вызов разрешается без
+   approval (tool сам исполняет команду в песочнице), а вызов с
+   `with_escalated_permissions: true` требует approval — кроме случая, когда на
+   этот ход уже выдан грант `escalated_exec` (см. ниже);
+3. если tool name в `allow`, разрешить;
+4. если tool name в `ask_before`, запросить approval;
+5. если `ToolSafety::ReadOnly`, разрешить;
+6. если `WritesFiles` или `RunsCommands`, запросить approval;
+7. если `Network`, `Dangerous` или tool неизвестен, запретить.
 
 Пример:
 
 ```toml
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+allow = ["search", "read_file", "git_diff", "request_user_input", "write_stdin"]
+allow_sandboxed = ["shell", "exec_command"]
+ask_before = ["apply_patch", "write_file", "shell", "exec_command", "request_permissions", "remember_fact"]
 deny = []
 ```
 
@@ -278,6 +284,23 @@ deny = []
 approval, write/shell/memory-write tools остаются видимыми только при
 интерактивном approval transport, а network/dangerous tools не появляются у
 модели без явной правки config.
+
+### Approval-gated grants и request_permissions
+
+`policy-pack` регистрирует tool `request_permissions`: модель заранее просит
+turn-scoped эскалацию (сейчас поддерживается только `escalated_exec` —
+unsandboxed запуск `shell`/`exec_command`). Механизм генерический и живёт в
+contracts (`TurnPermissionGrants`): если tool call прошёл через явный user
+approval и его успешный результат содержит `metadata.granted_permissions`,
+core мержит эти строки в гранты текущего хода и передаёт их в
+`PolicyContext::granted_permissions`. `codex_policy` при виде гранта
+`escalated_exec` пропускает эскалированные вызовы из `allow_sandboxed` без
+повторного Ask.
+
+Гранты не переживают ход: `RuntimeContext` создаётся на каждый ход заново.
+Core учитывает `granted_permissions` только на approved-пути, поэтому
+`request_permissions` обязан стоять в `ask_before` — сам approval и есть
+выдача гранта. Tool в `allow`-списке выдать грант сам себе не может.
 
 ## allow_all
 

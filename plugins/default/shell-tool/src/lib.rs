@@ -1,10 +1,11 @@
 //! Shell tool как dylib-плагин.
 //!
-//! Регистрирует один tool `shell` через `PluginTool` ABI. Безопасность
-//! `RunsCommands` — `PermissionMode::Auto` запретит без approval, `plan`
-//! скроет вообще. Вынесен из ядра именно ради этого: shell — самая
-//! рискованная вещь, логично делать её opt-in через плагин, а не
-//! встраивать.
+//! Регистрирует tools `shell` (one-shot команда), `exec_command` и
+//! `write_stdin` (персистентные интерактивные PTY-сессии, см. `unified_exec`)
+//! через `PluginTool` ABI. Безопасность `RunsCommands` —
+//! `PermissionMode::Auto` запретит без approval, `plan` скроет вообще.
+//! Вынесен из ядра именно ради этого: shell — самая рискованная вещь,
+//! логично делать её opt-in через плагин, а не встраивать.
 //!
 //! Реализация держит stdout/stderr bounded и на Unix запускает shell в
 //! отдельной process group, чтобы timeout мог остановить не только `sh`, но и
@@ -42,9 +43,14 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-/// Максимум stdout/stderr в килобайтах. Reader продолжает дренировать pipe
-/// после лимита, но сохраняет только первые байты.
+mod unified_exec;
+
+/// Максимум stdout/stderr. Reader продолжает дренировать pipe после лимита,
+/// но сохраняет только head+tail: модель видит и начало вывода, и хвост
+/// (там обычно ошибки), середина заменяется маркером.
 const OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
+const HEAD_LIMIT_BYTES: usize = OUTPUT_LIMIT_BYTES / 2;
+const TAIL_LIMIT_BYTES: usize = OUTPUT_LIMIT_BYTES - HEAD_LIMIT_BYTES;
 
 /// Timeout на выполнение команды. Shell-команды часто запускают тесты,
 /// сборки или генерацию артефактов, поэтому 30 секунд слишком агрессивны.
@@ -139,8 +145,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         (output, timed_out, None)
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout.bytes).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr.bytes).into_owned();
+    let stdout = output.stdout.to_text();
+    let stderr = output.stderr.to_text();
     let status = output.status.code();
     let success = output.status.success();
 
@@ -164,11 +170,11 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
     };
 
     let metadata = json!({
-        "status": status,
+        "exit_code": status,
         "stdout_bytes": output.stdout.original_len,
         "stderr_bytes": output.stderr.original_len,
-        "stdout_truncated": output.stdout.truncated,
-        "stderr_truncated": output.stderr.truncated,
+        "stdout_truncated": output.stdout.truncated(),
+        "stderr_truncated": output.stderr.truncated(),
         "timed_out": timed_out,
         "timeout_ms": timeout_ms,
         "workdir": workdir,
@@ -391,12 +397,7 @@ fn read_bounded_file(path: &Path) -> Result<BoundedBuffer> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error.into()),
     };
-    let original_len = bytes.len();
-    Ok(BoundedBuffer {
-        bytes: bytes.into_iter().take(OUTPUT_LIMIT_BYTES).collect(),
-        original_len,
-        truncated: original_len > OUTPUT_LIMIT_BYTES,
-    })
+    Ok(BoundedBuffer::from_bytes(&bytes))
 }
 
 #[cfg(unix)]
@@ -522,10 +523,73 @@ fn spawn_shell(
     command_builder.spawn()
 }
 
+/// Head+tail буфер с жёстким потолком памяти: первые `HEAD_LIMIT_BYTES` и
+/// последние `TAIL_LIMIT_BYTES` байта, середина дропается.
 struct BoundedBuffer {
-    bytes: Vec<u8>,
+    head: Vec<u8>,
+    tail: std::collections::VecDeque<u8>,
     original_len: usize,
-    truncated: bool,
+}
+
+impl BoundedBuffer {
+    fn new() -> Self {
+        Self {
+            head: Vec::new(),
+            tail: std::collections::VecDeque::new(),
+            original_len: 0,
+        }
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let mut buffer = Self::new();
+        buffer.push(bytes);
+        buffer
+    }
+
+    fn push(&mut self, data: &[u8]) {
+        self.original_len += data.len();
+        let mut rest = data;
+        if self.head.len() < HEAD_LIMIT_BYTES {
+            let take = (HEAD_LIMIT_BYTES - self.head.len()).min(rest.len());
+            self.head.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+        }
+        if rest.is_empty() {
+            return;
+        }
+        self.tail.extend(rest.iter().copied());
+        if self.tail.len() > TAIL_LIMIT_BYTES {
+            let excess = self.tail.len() - TAIL_LIMIT_BYTES;
+            self.tail.drain(..excess);
+        }
+    }
+
+    fn truncated(&self) -> bool {
+        self.original_len > self.head.len() + self.tail.len()
+    }
+
+    fn to_text(&self) -> String {
+        let head = String::from_utf8_lossy(&self.head);
+        if self.tail.is_empty() {
+            return head.into_owned();
+        }
+        let tail_bytes: Vec<u8> = self.tail.iter().copied().collect();
+        let tail = String::from_utf8_lossy(&tail_bytes);
+        if !self.truncated() {
+            return format!("{head}{tail}");
+        }
+        let omitted = self.original_len - self.head.len() - self.tail.len();
+        format!(
+            "{head}\n{}\n{tail}",
+            omitted_marker(omitted, self.original_len)
+        )
+    }
+}
+
+/// Единый формат маркера усечения для терминальных tools (`shell`,
+/// `exec_command`/`write_stdin`).
+fn omitted_marker(omitted: usize, total: usize) -> String {
+    format!("[... omitted {omitted} of {total} bytes ...]")
 }
 
 struct ShellOutput {
@@ -572,32 +636,19 @@ where
     R: Read + Send + 'static,
 {
     std::thread::spawn(move || {
+        let mut buffer = BoundedBuffer::new();
         let Some(mut reader) = reader else {
-            return Ok(BoundedBuffer {
-                bytes: Vec::new(),
-                original_len: 0,
-                truncated: false,
-            });
+            return Ok(buffer);
         };
-        let mut bytes = Vec::new();
-        let mut original_len = 0usize;
         let mut buf = [0u8; 8192];
         loop {
             let read = reader.read(&mut buf)?;
             if read == 0 {
                 break;
             }
-            original_len += read;
-            if bytes.len() < OUTPUT_LIMIT_BYTES {
-                let remaining = OUTPUT_LIMIT_BYTES - bytes.len();
-                bytes.extend_from_slice(&buf[..read.min(remaining)]);
-            }
+            buffer.push(&buf[..read]);
         }
-        Ok(BoundedBuffer {
-            bytes,
-            original_len,
-            truncated: original_len > OUTPUT_LIMIT_BYTES,
-        })
+        Ok(buffer)
     })
 }
 
@@ -627,7 +678,19 @@ extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
     let tool: PluginToolObject = PluginTool_TO::from_value(ShellTool, TD_Opaque);
-    registry.register_tool(tool)
+    if let RResult::RErr(err) = registry.register_tool(tool) {
+        return RResult::RErr(err);
+    }
+
+    let exec: PluginToolObject =
+        PluginTool_TO::from_value(unified_exec::ExecCommandTool, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_tool(exec) {
+        return RResult::RErr(err);
+    }
+
+    let stdin: PluginToolObject =
+        PluginTool_TO::from_value(unified_exec::WriteStdinTool, TD_Opaque);
+    registry.register_tool(stdin)
 }
 
 #[export_root_module]
@@ -635,7 +698,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("shell-tool"),
         description: RStr::from_str(
-            "Shell tool plugin: opt-in RunsCommands tool, registers 'shell'",
+            "Shell tool plugin: opt-in RunsCommands tools, registers 'shell', 'exec_command', 'write_stdin'",
         ),
         register_modules,
     }
@@ -682,7 +745,7 @@ mod tests {
         assert!(output.contains(dir.path().to_str().unwrap()), "{output}");
         assert!(output.contains("hello"), "{output}");
         assert_eq!(result["metadata"]["timed_out"], false);
-        assert_eq!(result["metadata"]["status"], 0);
+        assert_eq!(result["metadata"]["exit_code"], 0);
     }
 
     #[test]
@@ -694,7 +757,7 @@ mod tests {
         assert_eq!(result["ok"], false);
         assert_eq!(result["output"], "problem");
         assert_eq!(result["error"], "process exited with code 7");
-        assert_eq!(result["metadata"]["status"], 7);
+        assert_eq!(result["metadata"]["exit_code"], 7);
     }
 
     #[test]
@@ -868,14 +931,38 @@ mod tests {
     }
 
     #[test]
-    fn shell_truncates_large_output_without_blocking() {
+    fn shell_truncates_large_output_head_and_tail() {
         let dir = tempfile::tempdir().expect("workspace");
 
-        let result = invoke(dir.path(), "yes x | head -n 100000");
+        let result = invoke(dir.path(), "seq 1 50000");
 
         assert_eq!(result["ok"], true);
         assert_eq!(result["metadata"]["stdout_truncated"], true);
         assert!(result["metadata"]["stdout_bytes"].as_u64().unwrap() > OUTPUT_LIMIT_BYTES as u64);
+        let output = result["output"].as_str().expect("output");
+        // Видны начало, маркер пропуска и хвост вывода.
+        assert!(output.starts_with("1\n2\n"), "{}", &output[..40]);
+        assert!(output.contains("[... omitted"), "no marker");
+        assert!(output.trim_end().ends_with("50000"), "tail missing");
+    }
+
+    #[test]
+    fn bounded_buffer_keeps_head_and_tail_within_limit() {
+        let mut buffer = BoundedBuffer::new();
+        buffer.push(&vec![b'a'; HEAD_LIMIT_BYTES]);
+        buffer.push(&vec![b'b'; TAIL_LIMIT_BYTES]);
+        assert!(!buffer.truncated());
+        assert_eq!(buffer.to_text().len(), OUTPUT_LIMIT_BYTES);
+
+        buffer.push(&vec![b'c'; TAIL_LIMIT_BYTES]);
+        assert!(buffer.truncated());
+        let text = buffer.to_text();
+        assert!(text.starts_with('a'));
+        assert!(text.trim_end().ends_with('c'));
+        assert!(text.contains("[... omitted"), "no marker");
+        // Память ограничена head+tail, середина ушла.
+        assert_eq!(buffer.original_len, HEAD_LIMIT_BYTES + 2 * TAIL_LIMIT_BYTES);
+        assert_eq!(buffer.head.len() + buffer.tail.len(), OUTPUT_LIMIT_BYTES);
     }
 
     #[test]

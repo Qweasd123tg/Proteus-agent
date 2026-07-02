@@ -1,7 +1,7 @@
 name = "shell-tool"
 version = "0.1.0"
-description = "Shell tool plugin: runs arbitrary shell commands via sh -lc. Opt-in because it is RunsCommands-safety."
+description = "Shell tool plugin: one-shot 'shell' plus interactive PTY sessions 'exec_command'/'write_stdin' (sh -lc). Opt-in because it is RunsCommands-safety."
 author = "proteus-core examples"
-tags = ["tool", "shell", "command"]
+tags = ["tool", "shell", "command", "interactive", "session"]
 library = "libshell_tool.so"
 requires_proteus_contracts = "0.1"

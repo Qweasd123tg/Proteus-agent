@@ -68,6 +68,11 @@ impl ToolOrchestrator {
         if ctx.is_cancelled() {
             anyhow::bail!("turn canceled by client");
         }
+        // Codex-модели часто вызывают apply_patch как shell-команду
+        // (`apply_patch <<'EOF' ...`). Роутим такой вызов в настоящий
+        // apply_patch tool, чтобы патч прошёл patch-flow (policy, applier,
+        // события) вместо падения в шелле на несуществующем бинаре.
+        let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
@@ -110,7 +115,12 @@ impl ToolOrchestrator {
                 })
                 .await?;
                 if approval.approved {
-                    return self.invoke_allowed(ctx, task, &call, tool_spec).await;
+                    let result = self.invoke_allowed(ctx, task, &call, tool_spec).await?;
+                    // Approval-gated grants: только результат явно одобренного
+                    // вызова может выдать turn-scoped права (см. contracts
+                    // TurnPermissionGrants).
+                    merge_granted_permissions(ctx, &result);
+                    return Ok(result);
                 }
 
                 let result = ToolResult::error(
@@ -148,8 +158,11 @@ impl ToolOrchestrator {
             };
         };
 
-        ctx.policy
-            .evaluate(call, &PolicyContext::new(cwd.to_path_buf(), Some(spec)))
+        ctx.policy.evaluate(
+            call,
+            &PolicyContext::new(cwd.to_path_buf(), Some(spec))
+                .with_granted_permissions(ctx.turn_grants.snapshot()),
+        )
     }
 
     async fn invoke_allowed(
@@ -301,6 +314,80 @@ Re-run the tool with a narrower range or explicit limit for the remaining conten
     )
 }
 
+/// Перехват shell-стиля apply_patch: если команда — это вызов `apply_patch`
+/// с патчем (heredoc, кавычки или голый аргумент) и tool `apply_patch`
+/// зарегистрирован, переписывает вызов на него с тем же `call_id`.
+fn intercept_apply_patch_call(ctx: &RuntimeContext, call: &ToolCall) -> Option<ToolCall> {
+    if call.name != "shell" && call.name != "exec_command" {
+        return None;
+    }
+    let command = call
+        .args
+        .get("command")
+        .or_else(|| call.args.get("cmd"))
+        .and_then(Value::as_str)?;
+    let patch = extract_apply_patch_body(command)?;
+    ctx.tools.spec("apply_patch").ok()?;
+    Some(ToolCall::new(
+        call.id.clone(),
+        "apply_patch".to_owned(),
+        json!({ "patch": patch }),
+    ))
+}
+
+/// Достаёт тело патча из shell-вызова `apply_patch`. Поддерживает heredoc
+/// (`apply_patch <<'EOF' ... EOF`), одинарные/двойные кавычки и голый
+/// аргумент; тело обязано начинаться с `*** Begin Patch`.
+fn extract_apply_patch_body(command: &str) -> Option<String> {
+    let rest = command.trim().strip_prefix("apply_patch")?.trim();
+    if let Some(heredoc) = rest.strip_prefix("<<") {
+        let (delimiter_line, body) = heredoc.split_once('\n')?;
+        let delimiter = delimiter_line
+            .trim()
+            .trim_start_matches('-')
+            .trim_matches(|quote| quote == '\'' || quote == '"');
+        if delimiter.is_empty() {
+            return None;
+        }
+        let body = body.trim_end().strip_suffix(delimiter)?;
+        return normalized_patch(body.strip_suffix('\n').unwrap_or(body));
+    }
+    for quote in ['\'', '"'] {
+        if let Some(inner) = rest
+            .strip_prefix(quote)
+            .and_then(|inner| inner.strip_suffix(quote))
+        {
+            return normalized_patch(inner);
+        }
+    }
+    normalized_patch(rest)
+}
+
+fn normalized_patch(text: &str) -> Option<String> {
+    let text = text.trim();
+    text.starts_with("*** Begin Patch").then(|| text.to_owned())
+}
+
+/// Мержит `metadata.granted_permissions` успешного approved-результата в
+/// гранты текущего хода. Вызывается только с approved-пути `execute`.
+fn merge_granted_permissions(ctx: &RuntimeContext, result: &ToolResult) {
+    if !result.ok {
+        return;
+    }
+    let Some(permissions) = result.metadata.get("granted_permissions") else {
+        return;
+    };
+    let Some(permissions) = permissions.as_array() else {
+        return;
+    };
+    ctx.turn_grants.grant(
+        permissions
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned),
+    );
+}
+
 fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
     let mut object = match metadata {
         Value::Object(object) => object,
@@ -373,6 +460,41 @@ fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_apply_patch_body_supports_heredoc_quotes_and_bare() {
+        let patch = "*** Begin Patch\n*** Add File: hi.txt\n+hi\n*** End Patch";
+
+        let heredoc = format!("apply_patch <<'EOF'\n{patch}\nEOF");
+        assert_eq!(extract_apply_patch_body(&heredoc).as_deref(), Some(patch));
+
+        let heredoc_plain = format!("apply_patch <<EOF\n{patch}\nEOF\n");
+        assert_eq!(
+            extract_apply_patch_body(&heredoc_plain).as_deref(),
+            Some(patch)
+        );
+
+        let quoted = format!("apply_patch '{patch}'");
+        assert_eq!(extract_apply_patch_body(&quoted).as_deref(), Some(patch));
+
+        let bare = format!("apply_patch {patch}");
+        assert_eq!(extract_apply_patch_body(&bare).as_deref(), Some(patch));
+    }
+
+    #[test]
+    fn extract_apply_patch_body_rejects_non_patch_commands() {
+        assert_eq!(extract_apply_patch_body("cargo test"), None);
+        assert_eq!(extract_apply_patch_body("apply_patch --help"), None);
+        assert_eq!(
+            extract_apply_patch_body("apply_patch <<'EOF'\nnot a patch\nEOF"),
+            None
+        );
+        // git apply и прочие команды с подстрокой не матчатся.
+        assert_eq!(
+            extract_apply_patch_body("echo apply_patch <<'EOF'\n*** Begin Patch\nEOF"),
+            None
+        );
+    }
 
     #[test]
     fn truncate_utf8_adds_visible_notice_within_limit() {

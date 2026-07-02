@@ -31,6 +31,8 @@ struct PluginPolicyContextDto<'a> {
     cwd: String,
     tool_spec: Option<&'a ToolSpec>,
     config: &'a Value,
+    /// Turn-scoped approval-gated гранты (см. contracts `TurnPermissionGrants`).
+    granted_permissions: &'a [String],
 }
 
 /// JSON DTO для `evaluate_visibility`.
@@ -72,6 +74,7 @@ impl ApprovalPolicy for PluginPolicyAdapter {
             cwd: ctx.cwd.to_string_lossy().into_owned(),
             tool_spec: ctx.tool_spec.as_ref(),
             config: &self.config,
+            granted_permissions: &ctx.granted_permissions,
         };
         let ctx_json = match serde_json::to_string(&ctx_dto) {
             Ok(s) => s,

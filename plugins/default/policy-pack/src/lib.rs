@@ -21,11 +21,13 @@ use proteus_contracts::{
     },
     plugin::{
         PluginApprovalPolicy_TO, PluginRegisterError, PluginRegistryMut, PluginRoot,
-        PluginRoot_Ref, PolicyObject,
+        PluginRoot_Ref, PluginTool_TO, PluginToolObject, PolicyObject,
     },
 };
 use serde::Deserialize;
 use serde_json::Value;
+
+pub mod request_permissions;
 
 #[derive(Default)]
 pub struct AllowAllPolicyPlugin;
@@ -104,6 +106,13 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
             Ok(config) => config,
             Err(error) => return policy_error(error),
         };
+        // deny побеждает всё, включая allow_sandboxed: явный запрет в конфиге
+        // не должен обходиться sandbox-веткой.
+        if config.deny_set().contains(call.name.as_str()) {
+            return decision(PolicyDecision::Deny {
+                reason: format!("tool '{}' explicitly denied by codex policy", call.name),
+            });
+        }
         if config.allow_sandboxed.iter().any(|name| name == &call.name) {
             let escalated = call
                 .args
@@ -111,6 +120,15 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             if !escalated {
+                return decision(PolicyDecision::Allow);
+            }
+            // Turn-scoped грант, выданный через request_permissions: пользователь
+            // уже одобрил эскалацию на этот ход, повторный Ask не нужен.
+            if ctx
+                .granted_permissions
+                .iter()
+                .any(|permission| permission == request_permissions::ESCALATED_EXEC_GRANT)
+            {
                 return decision(PolicyDecision::Allow);
             }
             let justification = call
@@ -154,6 +172,10 @@ struct PolicyContextDto {
     tool_spec: Option<ToolSpec>,
     #[serde(default)]
     config: Value,
+    /// Turn-scoped approval-gated гранты, которые ядро собрало из одобренных
+    /// tool results (см. contracts `TurnPermissionGrants`).
+    #[serde(default)]
+    granted_permissions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,7 +357,15 @@ extern "C" fn register_modules(
 
     let codex_policy: PolicyObject =
         PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque);
-    registry.register_approval_policy(AbiRString::from("codex_policy"), codex_policy)
+    if let RResult::RErr(error) =
+        registry.register_approval_policy(AbiRString::from("codex_policy"), codex_policy)
+    {
+        return RResult::RErr(error);
+    }
+
+    let request_permissions: PluginToolObject =
+        PluginTool_TO::from_value(request_permissions::RequestPermissionsTool, TD_Opaque);
+    registry.register_tool(request_permissions)
 }
 
 #[cfg(feature = "plugin-entrypoint")]
@@ -344,7 +374,7 @@ pub fn instantiate_root_module() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("policy-pack"),
         description: RStr::from_str(
-            "ApprovalPolicy plugins: allow_all, ask_write, and codex_policy",
+            "ApprovalPolicy plugins (allow_all, ask_write, codex_policy) plus the 'request_permissions' tool for turn-scoped escalation grants",
         ),
         register_modules,
     }
@@ -469,6 +499,64 @@ mod tests {
                 json!({ "deny": ["read_file"], "allow": ["read_file"] })
             ),
             PolicyDecision::Deny { reason } if reason.contains("explicitly denied")
+        ));
+    }
+
+    fn evaluate_escalated_shell(granted_permissions: Value) -> PolicyDecision {
+        let plugin = CodexPolicyPlugin;
+        let call = ToolCall::new(
+            new_call_id(),
+            "shell".to_owned(),
+            json!({
+                "command": "cargo add serde",
+                "with_escalated_permissions": true,
+                "justification": "need network"
+            }),
+        );
+        let spec = ToolSpec::new("shell", "Test tool", json!({}), ToolSafety::RunsCommands);
+        let ctx = json!({
+            "cwd": "/tmp/proteus-policy-test",
+            "tool_spec": spec,
+            "config": { "allow_sandboxed": ["shell"] },
+            "granted_permissions": granted_permissions,
+        });
+        let result = plugin.evaluate_json(
+            serde_json::to_string(&call).unwrap().into(),
+            serde_json::to_string(&ctx).unwrap().into(),
+        );
+        let body = match result {
+            RResult::ROk(body) => body,
+            RResult::RErr(error) => panic!("policy error: {error}"),
+        };
+        serde_json::from_str(body.as_str()).unwrap()
+    }
+
+    #[test]
+    fn codex_policy_deny_beats_allow_sandboxed() {
+        assert!(matches!(
+            evaluate(
+                "shell",
+                ToolSafety::RunsCommands,
+                json!({ "deny": ["shell"], "allow_sandboxed": ["shell"] })
+            ),
+            PolicyDecision::Deny { reason } if reason.contains("explicitly denied")
+        ));
+    }
+
+    #[test]
+    fn codex_policy_escalation_asks_without_grant_and_allows_with_grant() {
+        assert!(matches!(
+            evaluate_escalated_shell(json!([])),
+            PolicyDecision::Ask { reason } if reason.contains("escalated permissions")
+        ));
+        assert_eq!(
+            evaluate_escalated_shell(json!(["escalated_exec"])),
+            PolicyDecision::Allow
+        );
+        // Посторонний грант эскалацию не открывает.
+        assert!(matches!(
+            evaluate_escalated_shell(json!(["something_else"])),
+            PolicyDecision::Ask { .. }
         ));
     }
 

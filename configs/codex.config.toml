@@ -38,15 +38,15 @@ tool_exposure = "codex_dynamic"
 renderer = "statusline"
 
 [tools]
-enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan"]
-allow_sandboxed = ["shell"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "write_stdin"]
+allow_sandboxed = ["shell", "exec_command"]
+ask_before = ["apply_patch", "write_file", "shell", "exec_command", "request_permissions", "remember_fact"]
 deny = []
 
 [module_config.compactor.codex]
@@ -54,32 +54,17 @@ trigger_fraction = 0.8
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input", "update_plan"]
+always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin"]
 
+# Strict Codex-shaped context: настоящий Codex не инжектит repo_tree/diff/search
+# в промпт — модель обучена исследовать репо сама через exec. В prompt уходят
+# только project instructions (AGENTS.md и аналоги). Диагностический профиль с
+# жирным контекстом живёт в корневом codex.config.toml.
 [module_config.context.codex_context]
-providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
+providers = ["project_instructions"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
-max_search_results = 40
-repo_tree_max_entries = 300
-repo_tree_max_depth = 4
-git_diff_max_bytes = 16000
-repo_tree_skip_entries = [
-  ".git",
-  "target",
-  "node_modules",
-  ".proteus",
-  "sessions",
-  "dist",
-  "build",
-  "examples/source",
-  "examples/research",
-  ".env",
-  "secrets.json",
-  "config.local.json",
-]
 project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
-manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "README.md"]
 
 [app_server]
 approval_timeout_ms = 0
@@ -94,4 +79,4 @@ path = ".proteus/events.jsonl"
 
 # Веб-клиент: карточки тулов свёрнуты по умолчанию.
 [web]
-tool_cards_collapsed = false
+tool_cards_collapsed = true
