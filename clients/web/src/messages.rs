@@ -138,6 +138,50 @@ pub(crate) fn push_assistant_message_if_missing(
     }
 }
 
+/// Подкладывает историю с сервера перед уже накопленными живыми сообщениями:
+/// при старте посреди активного хода SSE успевает доставить стрим-дельты
+/// раньше, чем приходит ответ /history, и историю нельзя ни выбросить, ни
+/// поставить после хвоста. Id истории выделяются поверх текущего счётчика,
+/// чтобы не столкнуться с id живых сообщений (порядок ленты задаёт Vec, не id).
+pub(crate) fn prepend_history_messages(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    mut transcript: Vec<Message>,
+) {
+    let base = next_message_id.get();
+    for (index, message) in transcript.iter_mut().enumerate() {
+        message.id = base + index as u64;
+    }
+    set_next_message_id.set(base + transcript.len() as u64);
+    set_messages.update(|items| {
+        // Если ход успел завершиться, пока /history был в пути, живые
+        // сообщения могут дублировать хвост истории — локальный дубль убираем.
+        items.retain(|live| !history_duplicates_live(&transcript, live));
+        let live = std::mem::take(items);
+        *items = transcript;
+        items.extend(live);
+    });
+}
+
+fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
+    if let Some(live_tool) = &live.tool {
+        return transcript.iter().any(|hist| {
+            hist.tool
+                .as_ref()
+                .is_some_and(|tool| tool.call_id == live_tool.call_id)
+        });
+    }
+    if live.text.trim().is_empty() || live.streaming {
+        return false;
+    }
+    transcript
+        .iter()
+        .rev()
+        .take(4)
+        .any(|hist| hist.tool.is_none() && hist.role == live.role && hist.text == live.text)
+}
+
 /// Завершить активный reasoning-блок (сворачивается в UI). Вызывается, когда
 /// начинается текст ответа, tool call или ход завершается.
 pub(crate) fn finish_streaming_reasoning(set_messages: WriteSignal<Vec<Message>>) {
@@ -354,6 +398,131 @@ mod tests {
             assert_eq!(items[1].id, 2);
             assert_eq!(items[1].text, "final answer");
             assert_eq!(next_message_id.get_untracked(), 3);
+        });
+    }
+
+    fn history_message(id: u64, role: MessageRole, text: &str) -> Message {
+        Message {
+            id,
+            version: 0,
+            role,
+            text: text.to_owned(),
+            tool: None,
+            streaming: false,
+        }
+    }
+
+    #[test]
+    fn prepend_history_messages_keeps_live_tail_after_history() {
+        let owner = Owner::new();
+        owner.with(|| {
+            // Живой хвост: стрим-сообщение, прилетевшее по SSE раньше /history.
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                version: 0,
+                role: MessageRole::Assistant,
+                text: "хвост стрима".to_owned(),
+                tool: None,
+                streaming: true,
+            }]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let transcript = vec![
+                history_message(1, MessageRole::User, "первый вопрос"),
+                history_message(2, MessageRole::Assistant, "первый ответ"),
+            ];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 3);
+            assert_eq!(items[0].text, "первый вопрос");
+            assert_eq!(items[1].text, "первый ответ");
+            // Хвост остаётся живым и последним; его id не меняется.
+            assert_eq!(items[2].id, 1);
+            assert!(items[2].streaming);
+            // Id истории выделены поверх счётчика и не пересекаются с живыми.
+            assert_eq!(items[0].id, 2);
+            assert_eq!(items[1].id, 3);
+            assert_eq!(next_message_id.get_untracked(), 4);
+        });
+    }
+
+    #[test]
+    fn prepend_history_messages_drops_live_duplicates_of_history_tail() {
+        let owner = Owner::new();
+        owner.with(|| {
+            // Ход успел завершиться, пока /history был в пути: финальный ответ
+            // уже лежит в живых сообщениях и продублирован историей.
+            let (messages, set_messages) = signal(vec![history_message(
+                1,
+                MessageRole::Assistant,
+                "финальный ответ",
+            )]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let transcript = vec![
+                history_message(1, MessageRole::User, "вопрос"),
+                history_message(2, MessageRole::Assistant, "финальный ответ"),
+            ];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].text, "вопрос");
+            assert_eq!(items[1].text, "финальный ответ");
+        });
+    }
+
+    #[test]
+    fn prepend_history_messages_drops_live_tool_duplicated_by_call_id() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let live_tool = ToolActivity {
+                call_id: "call-7".to_owned(),
+                name: "shell".to_owned(),
+                args: serde_json::Value::Null,
+                args_preview: String::new(),
+                started_at_ms: 0,
+                status: ToolActivityStatus::Done,
+                result_preview: None,
+            };
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                version: 0,
+                role: MessageRole::System,
+                text: String::new(),
+                tool: Some(live_tool.clone()),
+                streaming: false,
+            }]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let mut history_tool_message =
+                history_message(1, MessageRole::System, "");
+            history_tool_message.tool = Some(live_tool);
+            let transcript = vec![
+                history_message(1, MessageRole::User, "вопрос"),
+                history_tool_message,
+            ];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert!(items[1].tool.is_some());
         });
     }
 

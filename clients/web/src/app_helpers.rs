@@ -4,7 +4,7 @@ use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
 use crate::api::{encode_query_component, get_json};
-use crate::messages::report_error;
+use crate::messages::{prepend_history_messages, report_error};
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
@@ -167,14 +167,29 @@ pub(crate) fn load_transcript(
     spawn_local(async move {
         match get_json::<Vec<TranscriptMessage>>("/history").await {
             Ok(items) => {
+                if transcript_generation.get_untracked() != expected_generation {
+                    return;
+                }
                 let transcript = transcript_messages(items);
-                if !transcript.is_empty()
-                    && transcript_generation.get_untracked() == expected_generation
+                if transcript.is_empty() {
+                    return;
+                }
+                if messages.get_untracked().is_empty()
                     && next_message_id.get_untracked() == expected_next_message_id
-                    && messages.get_untracked().is_empty()
                 {
                     set_next_message_id.set(next_message_id_after(&transcript));
                     set_messages.set(transcript);
+                } else {
+                    // Агент пишет: SSE доставил живые сообщения раньше, чем
+                    // пришёл /history. Историю не выбрасываем (иначе лента
+                    // теряет все прошлые ходы до конца текущего), а
+                    // подкладываем перед живым хвостом.
+                    prepend_history_messages(
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        transcript,
+                    );
                 }
             }
             Err(error) => report_error(

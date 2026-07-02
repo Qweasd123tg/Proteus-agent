@@ -17,8 +17,9 @@ use self::runtime::{
 pub(crate) use self::stream::BufferedStreamDeltas;
 use self::stream::{StreamFlushBindings, flush_stream_delta_buffer};
 use crate::messages::{
-    finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
-    push_assistant_message_if_missing, push_message, push_user_message_once,
+    finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
+    finish_streaming_assistant_message, push_assistant_message_if_missing, push_message,
+    push_user_message_once,
 };
 use crate::types::*;
 use crate::ui_utils::output_text;
@@ -356,28 +357,42 @@ fn handle_app_event(
             set_agent_status.set("ожидает".to_owned());
             let final_text = non_empty_output_text(&output);
             if streamed_this_turn.get() {
-                if let Some(message_id) = active_stream_message_id.get() {
-                    set_messages.update(|items| {
-                        if let Some(message) =
-                            items.iter_mut().find(|message| message.id == message_id)
-                        {
-                            message.streaming = false;
-                            message.version += 1;
+                match (active_stream_message_id.get(), final_text) {
+                    // Финальный текст авторитетен: если страница открылась
+                    // посреди хода, стрим-сообщение содержит только хвост
+                    // ответа — перезаписываем целиком, а не доклеиваем полный
+                    // текст вторым сообщением. В обычном случае тексты равны.
+                    (Some(_), Some(final_text)) => {
+                        finish_streaming_assistant_message(
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            active_stream_message_id,
+                            set_active_stream_message_id,
+                            final_text,
+                        );
+                    }
+                    (Some(_), None) => {
+                        finish_active_streaming_assistant_message(
+                            set_messages,
+                            active_stream_message_id,
+                            set_active_stream_message_id,
+                        );
+                    }
+                    (None, final_text) => {
+                        finish_all_streaming_assistant_messages(set_messages);
+                        if let Some(final_text) = final_text {
+                            push_assistant_message_if_missing(
+                                set_messages,
+                                next_message_id,
+                                set_next_message_id,
+                                final_text,
+                            );
                         }
-                    });
-                } else {
-                    finish_all_streaming_assistant_messages(set_messages);
+                    }
                 }
                 set_active_stream_message_id.set(None);
                 set_streamed_this_turn.set(false);
-                if let Some(final_text) = final_text {
-                    push_assistant_message_if_missing(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        final_text,
-                    );
-                }
             } else {
                 finish_streaming_assistant_message(
                     set_messages,
