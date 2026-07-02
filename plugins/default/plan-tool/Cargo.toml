@@ -1,0 +1,14 @@
+[package]
+name = "plan-tool"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+proteus-contracts = { path = "../../../crates/proteus-contracts" }
+abi_stable = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

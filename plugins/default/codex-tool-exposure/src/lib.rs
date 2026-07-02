@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 
 const MODULE_ID: &str = "codex_dynamic";
 const DEFAULT_MAX_HOT_TOOLS: usize = 10;
-const DEFAULT_ALWAYS_INCLUDE: &[&str] = &["request_user_input"];
+const DEFAULT_ALWAYS_INCLUDE: &[&str] = &["request_user_input", "update_plan"];
 
 const CODEX_PRIORITY: &[&str] = &[
     "read_file",

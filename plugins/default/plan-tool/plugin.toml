@@ -1,0 +1,7 @@
+name = "plan-tool"
+version = "0.1.0"
+description = "Plan tool plugin: update_plan keeps a step-by-step task plan in the transcript; clients render it as a plan card."
+author = "proteus-core examples"
+tags = ["tool", "plan", "workflow"]
+library = "libplan_tool.so"
+requires_proteus_contracts = "0.1"

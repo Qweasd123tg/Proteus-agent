@@ -1594,6 +1594,52 @@ button.session-item.active {
     padding: var(--space-4);
 }
 
+.plan-step-list {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.plan-step-row {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.plan-step-marker {
+    flex: none;
+    width: 14px;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    text-align: center;
+}
+
+.plan-step-row.completed .plan-step-marker {
+    color: var(--accent-green);
+}
+
+.plan-step-row.completed .plan-step-text {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-color: var(--border-strong);
+}
+
+.plan-step-row.in_progress .plan-step-marker {
+    color: var(--accent-blue);
+}
+
+.plan-step-row.in_progress .plan-step-text {
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.plan-step-row.pending .plan-step-text {
+    color: var(--text-muted);
+}
+
 .toolbar-actions,
 .tool-badges {
     display: flex;

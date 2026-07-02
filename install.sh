@@ -305,7 +305,7 @@ install_plugin() {
   fi
 }
 
-for plugin in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory; do
+for plugin in file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
 

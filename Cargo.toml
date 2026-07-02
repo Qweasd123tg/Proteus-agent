@@ -12,6 +12,7 @@ members = [
     "plugins/default/git-tools",
     "plugins/default/sqlite-memory",
     "plugins/default/shell-tool",
+    "plugins/default/plan-tool",
     "plugins/default/rg-search",
     "plugins/default/direct-patch",
     "plugins/default/coding-workflow",

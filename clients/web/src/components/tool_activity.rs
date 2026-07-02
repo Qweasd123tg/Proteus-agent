@@ -18,6 +18,13 @@ struct ToolDisplay {
     summary: Option<String>,
     args: Vec<ToolArgPreview>,
     patch_files: Vec<PatchFilePreview>,
+    plan_steps: Vec<PlanStepPreview>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PlanStepPreview {
+    step: String,
+    status: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,7 +152,12 @@ pub(crate) fn ToolActivityCard(
                         .as_ref()
                         .map(|display| display.args.clone())
                         .unwrap_or_default();
+                    let plan_steps = tool_display
+                        .as_ref()
+                        .map(|display| display.plan_steps.clone())
+                        .unwrap_or_default();
                     let has_patch_files = !patch_files.is_empty();
+                    let has_plan = !plan_steps.is_empty();
                     view! {
                         <div class="tool-card-details">
                             {if has_patch_files {
@@ -153,10 +165,15 @@ pub(crate) fn ToolActivityCard(
                             } else {
                                 ().into_any()
                             }}
+                            {if has_plan {
+                                view! { <PlanStepList steps=plan_steps /> }.into_any()
+                            } else {
+                                ().into_any()
+                            }}
                             // Аргументы показываем один раз: структурированным
                             // списком, если он есть, иначе сырым превью. Раньше
                             // оба блока рисовались вместе и дублировали args.
-                            {if has_patch_files {
+                            {if has_patch_files || has_plan {
                                 ().into_any()
                             } else if !arg_previews.is_empty() {
                                 view! { <ToolArgList args=arg_previews /> }.into_any()
@@ -187,6 +204,34 @@ fn ToolArgList(args: Vec<ToolArgPreview>) -> impl IntoView {
                         <div class="tool-arg-row">
                             <span class="tool-arg-key">{arg.key}</span>
                             <span class="tool-arg-value">{arg.value}</span>
+                        </div>
+                    }
+                }
+            />
+        </div>
+    }
+}
+
+#[component]
+fn PlanStepList(steps: Vec<PlanStepPreview>) -> impl IntoView {
+    let rows: Vec<(usize, PlanStepPreview)> = steps.into_iter().enumerate().collect();
+    view! {
+        <div class="plan-step-list">
+            <div class="tool-preview-caption">"план"</div>
+            <For
+                each=move || rows.clone()
+                key=|(index, step)| format!("{index}:{}:{}", step.step, step.status)
+                children=move |(_, step)| {
+                    let marker = match step.status.as_str() {
+                        "completed" => "✓",
+                        "in_progress" => "▸",
+                        _ => "○",
+                    };
+                    let row_class = format!("plan-step-row {}", step.status);
+                    view! {
+                        <div class=row_class>
+                            <span class="plan-step-marker">{marker}</span>
+                            <span class="plan-step-text">{step.step}</span>
                         </div>
                     }
                 }
@@ -265,13 +310,20 @@ fn tool_display(tool: &ToolActivity) -> ToolDisplay {
         .as_deref()
         .map(parse_apply_patch_files)
         .unwrap_or_default();
-    let args = if patch_files.is_empty() {
+    let plan_steps = if tool.name == "update_plan" {
+        parse_plan_steps(&tool.args)
+    } else {
+        Vec::new()
+    };
+    let args = if patch_files.is_empty() && plan_steps.is_empty() {
         tool_arg_previews(&tool.args)
     } else {
         Vec::new()
     };
     let summary = if !patch_files.is_empty() {
         Some(apply_patch_summary(&patch_files))
+    } else if !plan_steps.is_empty() {
+        Some(plan_summary(&plan_steps))
     } else {
         generic_tool_summary(&args)
     };
@@ -280,7 +332,40 @@ fn tool_display(tool: &ToolActivity) -> ToolDisplay {
         summary,
         args,
         patch_files,
+        plan_steps,
     }
+}
+
+fn parse_plan_steps(args: &Value) -> Vec<PlanStepPreview> {
+    args.get("plan")
+        .and_then(Value::as_array)
+        .map(|steps| {
+            steps
+                .iter()
+                .filter_map(|entry| {
+                    let step = entry.get("step").and_then(Value::as_str)?;
+                    let status = entry.get("status").and_then(Value::as_str)?;
+                    Some(PlanStepPreview {
+                        step: step.to_owned(),
+                        status: status.to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn plan_summary(steps: &[PlanStepPreview]) -> String {
+    let completed = steps
+        .iter()
+        .filter(|step| step.status == "completed")
+        .count();
+    let current = steps
+        .iter()
+        .find(|step| step.status == "in_progress")
+        .map(|step| format!(" · {}", step.step))
+        .unwrap_or_default();
+    format!("план {}/{}{}", completed, steps.len(), current)
 }
 
 fn tool_activity_args_preview(tool: &ToolActivity) -> String {

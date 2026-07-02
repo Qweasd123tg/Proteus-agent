@@ -373,10 +373,17 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
 }
 
 fn codex_profile_enabled_tool_names() -> Vec<&'static str> {
-    coding_profile_tool_names()
+    let mut names: Vec<&'static str> = coding_profile_tool_names()
         .into_iter()
         .filter(|name| *name != "apply_patch")
-        .collect()
+        .collect();
+    let after_user_input = names
+        .iter()
+        .position(|name| *name == "request_user_input")
+        .map(|index| index + 1)
+        .unwrap_or(names.len());
+    names.insert(after_user_input, "update_plan");
+    names
 }
 
 fn dev_slim_tool_names() -> Vec<&'static str> {

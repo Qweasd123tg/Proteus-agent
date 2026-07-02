@@ -38,13 +38,13 @@ tool_exposure = "codex_dynamic"
 renderer = "statusline"
 
 [tools]
-enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan"]
 ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 deny = []
 
@@ -53,7 +53,7 @@ trigger_fraction = 0.8
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input"]
+always_include = ["request_user_input", "update_plan"]
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
