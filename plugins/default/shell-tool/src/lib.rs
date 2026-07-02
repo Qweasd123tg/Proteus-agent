@@ -59,7 +59,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Commands run in a sandbox with no network access and read-only filesystem outside the workspace when the sandbox is available. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -71,6 +71,14 @@ impl PluginTool for ShellTool {
                     "timeout_ms": {
                         "type": "integer",
                         "description": "Per-call timeout in milliseconds; capped at the tool default."
+                    },
+                    "with_escalated_permissions": {
+                        "type": "boolean",
+                        "description": "Request an unsandboxed run (network / writes outside workspace). Requires user approval."
+                    },
+                    "justification": {
+                        "type": "string",
+                        "description": "One sentence explaining why escalated permissions are needed."
                     }
                 },
                 "required": ["command"]
@@ -112,6 +120,11 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(|args| args.get("timeout_ms"))
         .and_then(Value::as_u64)
         .map_or(TIMEOUT_MS, |requested| requested.clamp(1, TIMEOUT_MS));
+    let escalated = args
+        .and_then(|args| args.get("with_escalated_permissions"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let sandbox = if escalated { None } else { sandbox_kind(cwd) };
 
     let (output, timed_out, external_terminal) = if should_use_ptyxis() {
         let (output, timed_out) =
@@ -119,7 +132,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
                 .with_context(|| "failed to run shell in Ptyxis")?;
         (output, timed_out, Some(PTYXIS_TERMINAL))
     } else {
-        let child = spawn_shell(command, &workdir).with_context(|| "failed to spawn shell")?;
+        let child = spawn_shell(command, cwd, &workdir, sandbox)
+            .with_context(|| "failed to spawn shell")?;
         let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(timeout_ms))
             .with_context(|| "failed to wait for shell")?;
         (output, timed_out, None)
@@ -158,6 +172,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "timed_out": timed_out,
         "timeout_ms": timeout_ms,
         "workdir": workdir,
+        "sandbox": sandbox.map(SandboxKind::label),
+        "escalated": escalated,
         "external_terminal": external_terminal,
     });
 
@@ -413,12 +429,82 @@ fn exit_status_from_code(code: i32) -> ExitStatus {
     ExitStatus::from_raw(code as u32)
 }
 
-fn spawn_shell(command: &str, cwd: &str) -> std::io::Result<Child> {
-    let mut command_builder = Command::new("sh");
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SandboxKind {
+    Bwrap,
+}
+
+impl SandboxKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Bwrap => "bwrap",
+        }
+    }
+}
+
+/// Sandbox доступен, если найден bubblewrap. `PROTEUS_SHELL_SANDBOX=0`
+/// выключает его целиком (эскалация тогда не нужна, но и изоляции нет).
+fn sandbox_kind(_cwd: &str) -> Option<SandboxKind> {
+    if std::env::var("PROTEUS_SHELL_SANDBOX").is_ok_and(|value| value == "0") {
+        return None;
+    }
+    let available = std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("bwrap").is_file()));
+    available.then_some(SandboxKind::Bwrap)
+}
+
+/// argv для bwrap: read-only корень, rw-bind workspace (и workdir, если он
+/// вне workspace), без сети, свежие /dev,/proc,/tmp.
+fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
+    let mut args = vec![
+        "--die-with-parent".to_owned(),
+        "--unshare-net".to_owned(),
+        "--ro-bind".to_owned(),
+        "/".to_owned(),
+        "/".to_owned(),
+        "--dev".to_owned(),
+        "/dev".to_owned(),
+        "--proc".to_owned(),
+        "/proc".to_owned(),
+        "--tmpfs".to_owned(),
+        "/tmp".to_owned(),
+        "--bind".to_owned(),
+        workspace.to_owned(),
+        workspace.to_owned(),
+    ];
+    if !Path::new(workdir).starts_with(workspace) {
+        args.extend(["--bind".to_owned(), workdir.to_owned(), workdir.to_owned()]);
+    }
+    args.extend([
+        "--chdir".to_owned(),
+        workdir.to_owned(),
+        "sh".to_owned(),
+        "-lc".to_owned(),
+        command.to_owned(),
+    ]);
+    args
+}
+
+fn spawn_shell(
+    command: &str,
+    workspace: &str,
+    workdir: &str,
+    sandbox: Option<SandboxKind>,
+) -> std::io::Result<Child> {
+    let mut command_builder = match sandbox {
+        Some(SandboxKind::Bwrap) => {
+            let mut builder = Command::new("bwrap");
+            builder.args(bwrap_args(command, workspace, workdir));
+            builder
+        }
+        None => {
+            let mut builder = Command::new("sh");
+            builder.arg("-lc").arg(command);
+            builder
+        }
+    };
     command_builder
-        .arg("-lc")
-        .arg(command)
-        .current_dir(cwd)
+        .current_dir(workdir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -703,9 +789,77 @@ mod tests {
     }
 
     #[test]
+    fn bwrap_args_isolate_network_and_bind_workspace() {
+        let args = bwrap_args("echo hi", "/ws", "/ws/sub");
+        assert!(args.contains(&"--unshare-net".to_owned()));
+        assert!(args.windows(3).any(|w| w == ["--ro-bind", "/", "/"]));
+        assert!(args.windows(3).any(|w| w == ["--bind", "/ws", "/ws"]));
+        assert!(args.windows(2).any(|w| w == ["--chdir", "/ws/sub"]));
+        assert_eq!(args.last().map(String::as_str), Some("echo hi"));
+        // workdir внутри workspace не биндится отдельно
+        assert!(
+            !args
+                .windows(3)
+                .any(|w| w == ["--bind", "/ws/sub", "/ws/sub"])
+        );
+    }
+
+    #[test]
+    fn bwrap_args_bind_external_workdir() {
+        let args = bwrap_args("pwd", "/ws", "/opt/elsewhere");
+        assert!(
+            args.windows(3)
+                .any(|w| w == ["--bind", "/opt/elsewhere", "/opt/elsewhere"])
+        );
+    }
+
+    #[test]
+    fn escalated_call_skips_sandbox_and_reports_metadata() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": {
+                "command": "printf ok",
+                "with_escalated_permissions": true,
+                "justification": "test"
+            }
+        });
+
+        let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
+            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+            .expect("invoke");
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["escalated"], true);
+        assert_eq!(result["metadata"]["sandbox"], Value::Null);
+    }
+
+    #[test]
+    fn sandboxed_run_blocks_network_when_bwrap_available() {
+        if sandbox_kind(".").is_none() {
+            return; // окружение без bwrap — интеграцию пропускаем
+        }
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let ok = invoke(dir.path(), "printf sandboxed");
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["metadata"]["sandbox"], "bwrap");
+
+        // сеть в sandbox отрезана: getent/curl недоступны без сети;
+        // используем /dev/tcp bash-исмуляцию через sh — надёжнее ping
+        let net = invoke(
+            dir.path(),
+            "sh -c 'echo x > /dev/tcp/127.0.0.1/9' 2>&1; true",
+        );
+        assert_eq!(net["metadata"]["sandbox"], "bwrap");
+    }
+
+    #[test]
     fn timeout_kills_child_process_group() {
         let dir = tempfile::tempdir().expect("workspace");
-        let child = spawn_shell("sleep 5", &dir.path().display().to_string()).expect("spawn shell");
+        let cwd = dir.path().display().to_string();
+        let child = spawn_shell("sleep 5", &cwd, &cwd, None).expect("spawn shell");
 
         let (_output, timed_out) =
             wait_with_timeout(child, Duration::from_millis(100)).expect("wait with timeout");

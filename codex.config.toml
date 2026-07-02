@@ -83,6 +83,7 @@ mode = "normal"
 
 [module_config.policy.codex_policy]
 allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan"]
+allow_sandboxed = ["shell"]
 ask_before = [
   "apply_patch",
   "write_file",

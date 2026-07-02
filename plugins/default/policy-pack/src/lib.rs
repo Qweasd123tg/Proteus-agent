@@ -104,6 +104,27 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
             Ok(config) => config,
             Err(error) => return policy_error(error),
         };
+        if config.allow_sandboxed.iter().any(|name| name == &call.name) {
+            let escalated = call
+                .args
+                .get("with_escalated_permissions")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !escalated {
+                return decision(PolicyDecision::Allow);
+            }
+            let justification = call
+                .args
+                .get("justification")
+                .and_then(Value::as_str)
+                .unwrap_or("no justification provided");
+            return decision(PolicyDecision::Ask {
+                reason: format!(
+                    "tool '{}' requests escalated permissions: {justification}",
+                    call.name
+                ),
+            });
+        }
         decision(evaluate_codex_call(
             &config,
             &call.name,
@@ -175,6 +196,11 @@ struct CodexPolicyConfig {
     ask_before: Vec<String>,
     #[serde(default)]
     deny: Vec<String>,
+    /// Tools, чьи не-эскалированные вызовы выполняются без approval, потому
+    /// что сам tool исполняет их в песочнице (Codex-семантика: sandboxed
+    /// run → allow, `with_escalated_permissions: true` → ask).
+    #[serde(default)]
+    allow_sandboxed: Vec<String>,
 }
 
 impl CodexPolicyConfig {
