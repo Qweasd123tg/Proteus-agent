@@ -1,5 +1,11 @@
 active_provider = "openai"
 
+# Base prompt: адаптированный upstream Codex base prompt (см. prompts/).
+[[instructions]]
+kind = "System"
+file = "prompts/codex-default.md"
+priority = 100
+
 [providers.openai]
 provider = "openai"
 model = "gpt-5.5"
