@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use leptos::{html, prelude::*, task::spawn_local};
-use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsCast, prelude::wasm_bindgen};
 use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
 use crate::actions::{
@@ -316,6 +316,26 @@ pub(crate) fn App() -> impl IntoView {
 
     let clear_transcript = move |_| session_actions.clear_transcript();
     let start_new_session = move |_| session_actions.start_new_session();
+    // Нативный <details> композер-меню сам не закрывается по клику мимо —
+    // закрываем с корневого обработчика, если клик пришёл не изнутри меню.
+    let close_composer_menu_on_outside_click = move |ev: MouseEvent| {
+        let Some(document) = window().and_then(|window| window.document()) else {
+            return;
+        };
+        let Ok(Some(menu)) = document.query_selector(".composer-menu[open]") else {
+            return;
+        };
+        let target = ev
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+        if target
+            .as_ref()
+            .is_some_and(|target| menu.contains(Some(target)))
+        {
+            return;
+        }
+        let _ = menu.remove_attribute("open");
+    };
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
         spawn_local(async move {
@@ -567,6 +587,7 @@ pub(crate) fn App() -> impl IntoView {
             on:mousemove=resize_drag
             on:mouseup=stop_resize
             on:mouseleave=stop_resize
+            on:click=close_composer_menu_on_outside_click
         >
             <ToastStack toasts on_dismiss=dismiss_toast />
             <SidebarView
@@ -589,7 +610,7 @@ pub(crate) fn App() -> impl IntoView {
             <main class="workspace-main">
                 <header class="topbar">
                     <div class="topbar-left">
-                        <a class="brand" href="#">"Proteus"</a>
+                        <a class="brand" href="/">"Proteus"</a>
                         <span class=transport_badge_class>
                             <span class="dot"></span>
                             {move || transport_status.get().label()}

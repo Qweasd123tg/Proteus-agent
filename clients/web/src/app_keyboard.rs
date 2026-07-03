@@ -25,19 +25,31 @@ pub(crate) fn install_global_keydown(
                 if let Some(textarea) = composer_ref.get() {
                     let _ = textarea.focus();
                 }
-            } else if ev.key() == "Escape" && active_turn_id.get().is_some() {
-                ev.prevent_default();
-                cancel_active_turn(
-                    active_turn_id,
-                    next_request_id,
-                    set_next_request_id,
-                    set_is_sending,
-                    set_active_turn_id,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                );
+            } else if ev.key() == "Escape" {
+                // Сначала закрывается открытое меню композера; отмена хода —
+                // только когда закрывать нечего, иначе Escape по меню
+                // неожиданно стопит агента.
+                if let Some(document) = window().and_then(|window| window.document())
+                    && let Ok(Some(menu)) = document.query_selector(".composer-menu[open]")
+                {
+                    ev.prevent_default();
+                    let _ = menu.remove_attribute("open");
+                    return;
+                }
+                if active_turn_id.get().is_some() {
+                    ev.prevent_default();
+                    cancel_active_turn(
+                        active_turn_id,
+                        next_request_id,
+                        set_next_request_id,
+                        set_is_sending,
+                        set_active_turn_id,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                }
             }
         }));
     if let Some(window) = window() {

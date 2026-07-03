@@ -8,6 +8,20 @@ use crate::app_helpers::{
 use crate::types::*;
 use crate::ui_utils::{relative_time_from_now, short_id};
 
+/// Фильтр списка сессий по строке поиска: заголовок, превью и путь сессии.
+fn session_matches_query(session: &SessionSummary, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+    sidebar_session_title(session).to_lowercase().contains(&query)
+        || sidebar_session_preview(session)
+            .unwrap_or_default()
+            .to_lowercase()
+            .contains(&query)
+        || session.session_dir.to_lowercase().contains(&query)
+}
+
 #[component]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn SidebarView<R, N, T, B, O, D, RS, AC>(
@@ -36,7 +50,10 @@ where
     RS: Fn() -> String + Copy + Send + 'static,
     AC: Fn() -> Vec<(&'static str, String)> + Copy + Send + 'static,
 {
+    let (query, set_query) = signal(String::new());
     view! {
+        // При схлопывании inline-width проигрывает !important-правилу коллапса,
+        // поэтому transition в CSS анимирует оба направления.
         <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
             <div class="sidebar-header">
                 <h2>
@@ -86,10 +103,11 @@ where
                                     })
                                     .count()
                             });
-                            format!("{count} сессий в текущей папке")
+                            format!("Поиск · {count} сессий в папке")
                         }
                     }
-                    readonly=true
+                    prop:value=move || query.get()
+                    on:input:target=move |ev| set_query.set(ev.target().value())
                 />
             </div>
 
@@ -98,6 +116,7 @@ where
                     <For
                         each=move || {
                             let workspace = workspace_label.get();
+                            let query = query.get();
                             sidebar_sessions.with(|sessions| {
                                 sessions
                                     .iter()
@@ -105,6 +124,7 @@ where
                                         workspace != "waiting for session"
                                             && session.workspace_path.as_deref()
                                                 == Some(workspace.as_str())
+                                            && session_matches_query(session, &query)
                                     })
                                     .cloned()
                                     .collect::<Vec<_>>()

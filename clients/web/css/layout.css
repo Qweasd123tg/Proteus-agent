@@ -14,12 +14,27 @@
     max-width: 52px;
 }
 
-.app-layout.sidebar-collapsed .sidebar-resize-handle,
+.app-layout.sidebar-collapsed .sidebar-resize-handle {
+    display: none;
+}
+
+/* Содержимое гасим видимостью, а не display: none — ширина сайдбара
+   анимируется (см. .sidebar), и контент растворяется, а не исчезает скачком. */
+.sidebar-search,
+.sessions-list,
+.sidebar-panel,
+.sidebar-header h2 {
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
 .app-layout.sidebar-collapsed .sidebar-search,
 .app-layout.sidebar-collapsed .sessions-list,
 .app-layout.sidebar-collapsed .sidebar-panel,
 .app-layout.sidebar-collapsed .sidebar-header h2 {
-    display: none;
+    opacity: 0;
+    visibility: hidden;
 }
 
 .app-layout.sidebar-collapsed .sidebar-header {
@@ -51,6 +66,17 @@
     overflow: hidden;
     border-right: 1px solid var(--border-subtle);
     background: var(--bg-panel);
+    /* Схлопывание едет так же плавно, как инфо-панель справа. */
+    transition:
+        width 0.18s ease,
+        min-width 0.18s ease,
+        max-width 0.18s ease;
+}
+
+/* Во время ручного ресайза анимация ширины мешает — курсор должен вести
+   панель без запаздывания. */
+.app-layout.resizing .sidebar {
+    transition: none;
 }
 
 .sidebar-resize-handle {
