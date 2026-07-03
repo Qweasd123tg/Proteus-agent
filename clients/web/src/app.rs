@@ -220,6 +220,8 @@ pub(crate) fn App() -> impl IntoView {
         transcript_generation,
         next_message_id,
         set_next_message_id,
+        set_active_stream_message_id,
+        set_streamed_this_turn,
         set_transport_status,
     };
 

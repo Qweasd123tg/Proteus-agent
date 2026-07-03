@@ -11,6 +11,10 @@ pub struct AppTranscriptMessage {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<AppTranscriptTool>,
+    /// Текст ещё стримится: сообщение — живой прогресс незавершённого хода
+    /// (см. turn_progress), клиент продолжает дописывать в него дельты.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub streaming: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -58,6 +62,7 @@ fn append_transcript_message(
                         status: "running".to_owned(),
                         result: None,
                     }),
+                    streaming: false,
                 });
             }
             ContentPart::ToolResult { result } => {
@@ -82,6 +87,7 @@ fn flush_transcript_text(
         role: role.to_owned(),
         text: text_parts.join("\n\n"),
         tool: None,
+        streaming: false,
     });
     text_parts.clear();
 }
@@ -110,6 +116,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
             status,
             result: Some(result_text),
         }),
+        streaming: false,
     });
 }
 

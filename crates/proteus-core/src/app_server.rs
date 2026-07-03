@@ -36,6 +36,7 @@ mod path_utils;
 pub mod protocol;
 pub mod stdio;
 mod transcript;
+mod turn_progress;
 
 use approval_preview::approval_preview_for;
 pub use config_builder::{
@@ -55,6 +56,7 @@ use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptTool};
+use turn_progress::TurnProgress;
 
 // Wire protocol вынесен в proteus-contracts чтобы клиенты depend на него
 // без зависимости на ядро. Здесь просто re-export для обратной
@@ -90,6 +92,7 @@ pub struct AppServerHandle {
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
+    turn_progress: Arc<Mutex<TurnProgress>>,
 }
 
 impl AppServerHandle {
@@ -122,7 +125,13 @@ impl AppServerHandle {
         let _ = self
             .events
             .send(AppServerEvent::UserMessageSubmitted { text: text.clone() });
-        match self.runtime.run_with_cancellation(text, cancellation).await {
+        let result = self.runtime.run_with_cancellation(text, cancellation).await;
+        // Ход завершён: его сообщения уже в history (или потеряны при ошибке),
+        // прогресс очищаем до эмита TurnOutput — чтобы /history, вызванный по
+        // TurnOutput, не отдал текст хода дважды. Отмена и таймауты тоже
+        // проходят здесь, у форвардера событий такой гарантии нет.
+        self.turn_progress.lock().await.clear();
+        match result {
             Ok(output) => {
                 let _ = self.events.send(AppServerEvent::TurnOutput {
                     output: Box::new(output.clone()),
@@ -369,7 +378,11 @@ impl AppServerHandle {
     }
 
     pub async fn transcript(&self) -> Vec<AppTranscriptMessage> {
-        transcript_messages(&self.runtime.history().await)
+        let mut transcript = transcript_messages(&self.runtime.history().await);
+        // Хвост незавершённого хода: history пополняется только при коммите
+        // хода, настриманный текст и tool-вызовы до тех пор живут в прогрессе.
+        transcript.extend(self.turn_progress.lock().await.snapshot());
+        transcript
     }
 
     pub async fn pending_requests(&self) -> AppPendingRequests {
@@ -675,8 +688,9 @@ impl AgentAppServer {
         let (events, _) = broadcast::channel(1024);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
+        let turn_progress = Arc::new(Mutex::new(TurnProgress::default()));
 
-        spawn_runtime_event_forwarder(core_broadcast, events.clone());
+        spawn_runtime_event_forwarder(core_broadcast, events.clone(), turn_progress.clone());
         spawn_approval_forwarder(
             approval_rx,
             events.clone(),
@@ -700,6 +714,7 @@ impl AgentAppServer {
             events,
             pending_approvals,
             pending_user_inputs,
+            turn_progress,
         })
     }
 }
@@ -754,12 +769,14 @@ fn build_registry_and_plugin_reports(
 fn spawn_runtime_event_forwarder(
     core_broadcast: Arc<BroadcastEventSink>,
     events: broadcast::Sender<AppServerEvent>,
+    turn_progress: Arc<Mutex<TurnProgress>>,
 ) {
     tokio::spawn(async move {
         let mut rx = core_broadcast.subscribe();
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
+                    turn_progress.lock().await.apply(&envelope.event);
                     let _ = events.send(AppServerEvent::Runtime {
                         envelope: Box::new(envelope),
                     });

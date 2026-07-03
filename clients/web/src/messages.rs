@@ -138,6 +138,24 @@ pub(crate) fn push_assistant_message_if_missing(
     }
 }
 
+/// Если хвост загруженного транскрипта — незавершённое streaming-сообщение
+/// ассистента (сервер отдал прогресс бегущего хода), делаем его целью для
+/// последующих SSE-дельт: текст продолжит дописываться в него, а TurnOutput
+/// в конце перезапишет его финальным текстом.
+pub(crate) fn adopt_streaming_tail(
+    transcript: &[Message],
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
+) {
+    let Some(last) = transcript.last() else {
+        return;
+    };
+    if last.role == MessageRole::Assistant && last.streaming && last.tool.is_none() {
+        set_active_stream_message_id.set(Some(last.id));
+        set_streamed_this_turn.set(true);
+    }
+}
+
 /// Подкладывает историю с сервера перед уже накопленными живыми сообщениями:
 /// при старте посреди активного хода SSE успевает доставить стрим-дельты
 /// раньше, чем приходит ответ /history, и историю нельзя ни выбросить, ни
@@ -147,6 +165,8 @@ pub(crate) fn prepend_history_messages(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
     mut transcript: Vec<Message>,
 ) {
     let base = next_message_id.get();
@@ -154,7 +174,21 @@ pub(crate) fn prepend_history_messages(
         message.id = base + index as u64;
     }
     set_next_message_id.set(base + transcript.len() as u64);
+    let history_has_streaming_tail = transcript.last().is_some_and(|message| {
+        message.role == MessageRole::Assistant && message.streaming && message.tool.is_none()
+    });
+    let streaming_tail_id = history_has_streaming_tail
+        .then(|| transcript.last().map(|message| message.id))
+        .flatten();
     set_messages.update(|items| {
+        // Стрим-хвост из снапшота прогресса уже содержит текст, который SSE
+        // успел доставить живьём после подключения, — локальный стрим-дубль
+        // убираем, дальше дельты пойдут в усыновлённое сообщение истории.
+        if history_has_streaming_tail {
+            items.retain(|live| {
+                !(live.role == MessageRole::Assistant && live.streaming && live.tool.is_none())
+            });
+        }
         // Если ход успел завершиться, пока /history был в пути, живые
         // сообщения могут дублировать хвост истории — локальный дубль убираем.
         items.retain(|live| !history_duplicates_live(&transcript, live));
@@ -162,6 +196,10 @@ pub(crate) fn prepend_history_messages(
         *items = transcript;
         items.extend(live);
     });
+    if let Some(id) = streaming_tail_id {
+        set_active_stream_message_id.set(Some(id));
+        set_streamed_this_turn.set(true);
+    }
 }
 
 fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
@@ -426,6 +464,8 @@ mod tests {
                 streaming: true,
             }]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (active_stream_message_id, set_active_stream_message_id) = signal(Some(1_u64));
+            let (streamed_this_turn, set_streamed_this_turn) = signal(true);
             let transcript = vec![
                 history_message(1, MessageRole::User, "первый вопрос"),
                 history_message(2, MessageRole::Assistant, "первый ответ"),
@@ -435,6 +475,8 @@ mod tests {
                 set_messages,
                 next_message_id,
                 set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
                 transcript,
             );
 
@@ -449,6 +491,54 @@ mod tests {
             assert_eq!(items[0].id, 2);
             assert_eq!(items[1].id, 3);
             assert_eq!(next_message_id.get_untracked(), 4);
+            // История без стрим-хвоста — живой стрим остаётся целью дельт.
+            assert_eq!(active_stream_message_id.get_untracked(), Some(1));
+            assert!(streamed_this_turn.get_untracked());
+        });
+    }
+
+    #[test]
+    fn prepend_history_messages_adopts_history_streaming_tail() {
+        let owner = Owner::new();
+        owner.with(|| {
+            // Живой хвост из SSE и стрим-хвост в снапшоте прогресса: снапшот
+            // авторитетнее (содержит настриманное до перезагрузки), локальный
+            // дубль выбрасывается, дельты переключаются на сообщение истории.
+            let (messages, set_messages) = signal(vec![Message {
+                id: 1,
+                version: 0,
+                role: MessageRole::Assistant,
+                text: "хвост после переподключения".to_owned(),
+                tool: None,
+                streaming: true,
+            }]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (active_stream_message_id, set_active_stream_message_id) = signal(Some(1_u64));
+            let (streamed_this_turn, set_streamed_this_turn) = signal(true);
+            let mut partial = history_message(3, MessageRole::Assistant, "первые сто слов");
+            partial.streaming = true;
+            let transcript = vec![
+                history_message(1, MessageRole::User, "вопрос"),
+                history_message(2, MessageRole::Assistant, "прошлый ответ"),
+                partial,
+            ];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 3);
+            assert_eq!(items[2].text, "первые сто слов");
+            assert!(items[2].streaming);
+            // Цель для дельт — усыновлённый хвост истории (id 2 + 2 = 4).
+            assert_eq!(active_stream_message_id.get_untracked(), Some(4));
+            assert!(streamed_this_turn.get_untracked());
         });
     }
 
@@ -464,6 +554,8 @@ mod tests {
                 "финальный ответ",
             )]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (_, set_active_stream_message_id) = signal(None::<u64>);
+            let (_, set_streamed_this_turn) = signal(false);
             let transcript = vec![
                 history_message(1, MessageRole::User, "вопрос"),
                 history_message(2, MessageRole::Assistant, "финальный ответ"),
@@ -473,6 +565,8 @@ mod tests {
                 set_messages,
                 next_message_id,
                 set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
                 transcript,
             );
 
@@ -505,6 +599,8 @@ mod tests {
                 streaming: false,
             }]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (_, set_active_stream_message_id) = signal(None::<u64>);
+            let (_, set_streamed_this_turn) = signal(false);
             let mut history_tool_message =
                 history_message(1, MessageRole::System, "");
             history_tool_message.tool = Some(live_tool);
@@ -517,6 +613,8 @@ mod tests {
                 set_messages,
                 next_message_id,
                 set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
                 transcript,
             );
 

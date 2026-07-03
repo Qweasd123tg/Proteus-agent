@@ -4,7 +4,7 @@ use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
 use crate::api::{encode_query_component, get_json};
-use crate::messages::{prepend_history_messages, report_error};
+use crate::messages::{adopt_streaming_tail, prepend_history_messages, report_error};
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
@@ -177,6 +177,7 @@ pub(crate) fn load_runtime_settings(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_transcript(
     messages: ReadSignal<Vec<Message>>,
     set_messages: WriteSignal<Vec<Message>>,
@@ -184,6 +185,8 @@ pub(crate) fn load_transcript(
     expected_generation: u64,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     let expected_next_message_id = next_message_id.get_untracked();
@@ -201,6 +204,11 @@ pub(crate) fn load_transcript(
                     && next_message_id.get_untracked() == expected_next_message_id
                 {
                     set_next_message_id.set(next_message_id_after(&transcript));
+                    adopt_streaming_tail(
+                        &transcript,
+                        set_active_stream_message_id,
+                        set_streamed_this_turn,
+                    );
                     set_messages.set(transcript);
                 } else {
                     // Агент пишет: SSE доставил живые сообщения раньше, чем
@@ -211,6 +219,8 @@ pub(crate) fn load_transcript(
                         set_messages,
                         next_message_id,
                         set_next_message_id,
+                        set_active_stream_message_id,
+                        set_streamed_this_turn,
                         transcript,
                     );
                 }
@@ -239,7 +249,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
                 role: message_role_from_wire(&item.role),
                 text: item.text,
                 tool,
-                streaming: false,
+                streaming: item.streaming,
             }
         })
         .collect()
@@ -373,6 +383,8 @@ pub(crate) fn replace_transcript(
     expected_generation: u64,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     replace_transcript_for_session(
@@ -382,10 +394,13 @@ pub(crate) fn replace_transcript(
         expected_generation,
         next_message_id,
         set_next_message_id,
+        set_active_stream_message_id,
+        set_streamed_this_turn,
         set_transport_status,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_transcript_for_session(
     session_dir: Option<String>,
     set_messages: WriteSignal<Vec<Message>>,
@@ -393,6 +408,8 @@ pub(crate) fn replace_transcript_for_session(
     expected_generation: u64,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
+    set_active_stream_message_id: WriteSignal<Option<u64>>,
+    set_streamed_this_turn: WriteSignal<bool>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
@@ -403,6 +420,11 @@ pub(crate) fn replace_transcript_for_session(
                 }
                 let transcript = transcript_messages(items);
                 set_next_message_id.set(next_message_id_after(&transcript));
+                adopt_streaming_tail(
+                    &transcript,
+                    set_active_stream_message_id,
+                    set_streamed_this_turn,
+                );
                 set_messages.set(transcript);
             }
             Err(error) => report_error(
@@ -721,6 +743,7 @@ mod tests {
                 status: "done".to_owned(),
                 result: Some("line 1\nline 2".to_owned()),
             }),
+            streaming: false,
         }]);
 
         assert_eq!(messages.len(), 1);

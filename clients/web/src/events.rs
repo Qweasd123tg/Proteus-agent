@@ -127,6 +127,8 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                 expected_generation,
                 bindings.next_message_id,
                 bindings.set_next_message_id,
+                bindings.set_active_stream_message_id,
+                bindings.set_streamed_this_turn,
                 bindings.set_transport_status,
             );
         }

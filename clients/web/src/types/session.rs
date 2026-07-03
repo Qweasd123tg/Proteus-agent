@@ -33,6 +33,10 @@ pub(crate) struct TranscriptMessage {
     pub(crate) text: String,
     #[serde(default)]
     pub(crate) tool: Option<TranscriptTool>,
+    /// Хвост незавершённого хода: текст ещё стримится, клиент должен сделать
+    /// это сообщение целью для последующих SSE-дельт.
+    #[serde(default)]
+    pub(crate) streaming: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

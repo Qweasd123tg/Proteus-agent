@@ -61,6 +61,8 @@ pub(crate) struct TranscriptBindings {
     pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
+    pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
+    pub(crate) set_streamed_this_turn: WriteSignal<bool>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
 }
 
@@ -73,6 +75,8 @@ impl TranscriptBindings {
             self.transcript_generation.get_untracked(),
             self.next_message_id,
             self.set_next_message_id,
+            self.set_active_stream_message_id,
+            self.set_streamed_this_turn,
             self.set_transport_status,
         );
     }
@@ -84,6 +88,8 @@ impl TranscriptBindings {
             expected_generation,
             self.next_message_id,
             self.set_next_message_id,
+            self.set_active_stream_message_id,
+            self.set_streamed_this_turn,
             self.set_transport_status,
         );
     }
@@ -96,6 +102,8 @@ impl TranscriptBindings {
             expected_generation,
             self.next_message_id,
             self.set_next_message_id,
+            self.set_active_stream_message_id,
+            self.set_streamed_this_turn,
             self.set_transport_status,
         );
     }
