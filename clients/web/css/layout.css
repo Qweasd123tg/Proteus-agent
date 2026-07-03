@@ -379,10 +379,6 @@ button.session-item.active {
     visibility: hidden;
 }
 
-.info-panel-rail .context-ring {
-    margin-right: 0;
-}
-
 .info-rail-plan {
     display: grid;
     justify-items: center;
@@ -535,6 +531,17 @@ button.session-item.active {
     font-weight: 600;
     letter-spacing: 0;
     text-decoration: none;
+    white-space: nowrap;
+}
+
+/* Путь workspace, в котором запущен агент. */
+.topbar-workspace {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -738,45 +745,14 @@ button.session-item.active {
     padding: 0 var(--space-2) var(--space-2);
 }
 
-.composer-meta,
 .composer-buttons {
     display: flex;
     min-width: 0;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.composer-meta {
-    flex: 1 1 auto;
-    min-width: 160px;
-    overflow: hidden;
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.composer-meta span {
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.composer-mode {
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-chip);
-    color: var(--text-muted);
-    font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 1px 8px;
-    text-transform: uppercase;
-}
-
-.composer-buttons {
     flex: 0 1 auto;
     flex-wrap: nowrap;
+    align-items: center;
     justify-content: flex-end;
+    gap: var(--space-2);
 }
 
 .composer-menu {

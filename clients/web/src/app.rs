@@ -593,6 +593,10 @@ pub(crate) fn App() -> impl IntoView {
                             <span class="dot"></span>
                             {move || transport_status.get().label()}
                         </span>
+                        // Путь workspace, в котором запущен агент.
+                        <code class="topbar-workspace" title=move || workspace_label.get()>
+                            {move || workspace_label.get()}
+                        </code>
                     </div>
                     <nav class="topnav">
                         <span class="topnav-status">
@@ -691,7 +695,6 @@ pub(crate) fn App() -> impl IntoView {
                                 active_turn_id
                                 stick_to_bottom
                                 set_stick_to_bottom
-                                context_usage
                                 actions
                                 settings_summary
                                 draft_is_empty

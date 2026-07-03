@@ -466,75 +466,56 @@
     transform: translateY(-1px);
 }
 
-.context-ring {
-    position: relative;
-    display: flex;
+/* Вертикальная шкала контекста в рейке инфо-панели: столбик-«градусник»
+   с заливкой снизу, штрихом порога автокомпакта и процентом под треком. */
+.context-gauge {
+    display: grid;
     flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin-right: auto;
+    justify-items: center;
+    gap: var(--space-1);
     cursor: default;
 }
 
-/* Бублик рисуется conic-градиентом, дырку прорезаем radial-маской —
-   это работает на любом фоне и не зависит от SVG-namespace. */
-.context-ring::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: conic-gradient(
-        var(--context-ring-color, var(--accent-green)) var(--context-ring-deg, 0deg),
-        var(--border-strong) 0deg
-    );
-    -webkit-mask: radial-gradient(
-        farthest-side,
-        transparent calc(100% - 3px),
-        #000 calc(100% - 3px)
-    );
-    mask: radial-gradient(
-        farthest-side,
-        transparent calc(100% - 3px),
-        #000 calc(100% - 3px)
-    );
+.context-gauge-track {
+    position: relative;
+    width: 6px;
+    height: 64px;
+    overflow: hidden;
+    border-radius: var(--radius-chip);
+    background: var(--bg-panel-soft);
 }
 
-/* Метка-порог автокомпакта: тонкий радиальный штрих на дуге под углом
-   --context-ring-mark-deg. Рисуется только когда сервер прислал порог
-   (класс context-ring-has-mark), иначе метки нет. */
-.context-ring-has-mark::after {
-    content: "";
+.context-gauge-fill {
     position: absolute;
-    top: 0;
-    left: 50%;
-    width: 2px;
-    height: 50%;
-    transform-origin: bottom center;
-    transform: translateX(-50%) rotate(var(--context-ring-mark-deg, 288deg));
-    background: linear-gradient(
-        to top,
-        transparent calc(100% - 4px),
-        var(--text-main) calc(100% - 4px)
-    );
+    right: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: inherit;
+    background: var(--accent-green);
+}
+
+.context-gauge-warn .context-gauge-fill {
+    background: var(--accent-yellow);
+}
+
+.context-gauge-crit .context-gauge-fill {
+    background: var(--accent-red);
+}
+
+.context-gauge-mark {
+    position: absolute;
+    right: 0;
+    left: 0;
+    height: 2px;
     border-radius: 1px;
+    background: var(--text-main);
     pointer-events: none;
 }
 
-.context-ring-warn {
-    --context-ring-color: var(--accent-yellow);
-}
-
-.context-ring-crit {
-    --context-ring-color: var(--accent-red);
-}
-
-.context-ring-label {
-    position: relative;
+.context-gauge-label {
     color: var(--text-muted);
     font-family: var(--font-mono);
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 600;
     line-height: 1;
 }

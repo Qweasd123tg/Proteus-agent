@@ -1,7 +1,6 @@
 use leptos::{html, prelude::*};
 use web_sys::{KeyboardEvent, MouseEvent, SubmitEvent};
 
-use super::controls::ContextRing;
 use crate::actions::AppActions;
 use crate::types::*;
 
@@ -22,7 +21,6 @@ pub(crate) fn ComposerView<S, K, R, C, P, T, SS, DE>(
     active_turn_id: ReadSignal<Option<String>>,
     stick_to_bottom: ReadSignal<bool>,
     set_stick_to_bottom: WriteSignal<bool>,
-    context_usage: ReadSignal<Option<ContextUsage>>,
     actions: AppActions,
     settings_summary: SS,
     draft_is_empty: DE,
@@ -86,7 +84,6 @@ where
                     on:keydown=on_keydown
                 />
                 <div class="composer-actions">
-                    <ContextRing usage=context_usage />
                     <div class="composer-buttons">
                         <button type="button" class="secondary" on:click=on_clear>
                             "Очистить"
