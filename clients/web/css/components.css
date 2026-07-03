@@ -466,58 +466,83 @@
     transform: translateY(-1px);
 }
 
-/* Вертикальная шкала контекста в рейке инфо-панели: столбик-«градусник»
-   с заливкой снизу, штрихом порога автокомпакта и процентом под треком. */
-.context-gauge {
-    display: grid;
+/* Бублик контекста в рейке инфо-панели. */
+.context-ring {
+    position: relative;
+    display: flex;
     flex: 0 0 auto;
-    justify-items: center;
-    gap: var(--space-1);
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
     cursor: default;
 }
 
-.context-gauge-track {
-    position: relative;
-    width: 6px;
-    height: 64px;
-    overflow: hidden;
-    border-radius: var(--radius-chip);
-    background: var(--bg-panel-soft);
-}
-
-.context-gauge-fill {
+/* Дуга — два conic-слоя: нижний несёт круговой градиент (зелёный у нуля,
+   жёлтый к ~70%, красный к концу окна), верхний закрашивает непройденную
+   часть цветом трека. Цвет меняется плавно по мере наполнения, без резких
+   порогов. Дырку прорезает radial-маска — работает на любом фоне. */
+.context-ring::before {
+    content: "";
     position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    border-radius: inherit;
-    background: var(--accent-green);
+    inset: 0;
+    border-radius: 50%;
+    background:
+        conic-gradient(
+            transparent var(--context-ring-deg, 0deg),
+            var(--border-strong) var(--context-ring-deg, 0deg)
+        ),
+        conic-gradient(
+            var(--accent-green) 0deg,
+            var(--accent-green) 140deg,
+            var(--accent-yellow) 250deg,
+            var(--accent-red) 335deg
+        );
+    -webkit-mask: radial-gradient(
+        farthest-side,
+        transparent calc(100% - 3px),
+        #000 calc(100% - 3px)
+    );
+    mask: radial-gradient(
+        farthest-side,
+        transparent calc(100% - 3px),
+        #000 calc(100% - 3px)
+    );
 }
 
-.context-gauge-warn .context-gauge-fill {
-    background: var(--accent-yellow);
-}
-
-.context-gauge-crit .context-gauge-fill {
-    background: var(--accent-red);
-}
-
-.context-gauge-mark {
+/* Метка-порог автокомпакта: приглушённый радиальный штрих на дуге под углом
+   --context-ring-mark-deg. Рисуется только когда сервер прислал порог. */
+.context-ring-has-mark::after {
+    content: "";
     position: absolute;
-    right: 0;
-    left: 0;
-    height: 2px;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 50%;
+    transform-origin: bottom center;
+    transform: translateX(-50%) rotate(var(--context-ring-mark-deg, 288deg));
+    background: linear-gradient(
+        to top,
+        transparent calc(100% - 4px),
+        var(--text-muted) calc(100% - 4px)
+    );
     border-radius: 1px;
-    background: var(--text-main);
+    opacity: 0.8;
     pointer-events: none;
 }
 
-.context-gauge-label {
+.context-ring-label {
+    position: relative;
     color: var(--text-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
     line-height: 1;
+}
+
+/* У красной зоны подкрашивается и цифра — сигнал виден без наведения. */
+.context-ring-crit .context-ring-label {
+    color: var(--accent-red);
 }
 
 .input-question {

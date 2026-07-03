@@ -4,8 +4,7 @@ use web_sys::MouseEvent;
 use crate::types::*;
 
 /// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
-const CONTEXT_GAUGE_WARN_PERCENT: u8 = 70;
-const CONTEXT_GAUGE_CRIT_PERCENT: u8 = 90;
+const CONTEXT_RING_CRIT_PERCENT: u8 = 90;
 
 #[component]
 pub(crate) fn ToastStack<F>(toasts: ReadSignal<Vec<ToastMessage>>, on_dismiss: F) -> impl IntoView
@@ -197,25 +196,22 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
     }
 }
 
-/// Вертикальная шкала заполнения контекстного окна (рейка инфо-панели):
-/// столбик-«градусник» с процентом под ним и штрихом порога автокомпакта.
+/// Бублик заполнения контекстного окна (рейка инфо-панели): дуга открывает
+/// круговой градиент зелёный → жёлтый → красный по мере наполнения, метка
+/// порога автокомпакта — приглушённый штрих на дуге, процент в центре.
 /// На старте использует последний сохранённый снимок, если текущая сессия
 /// ещё не прислала свежий `TokenUsageUpdated`.
 #[component]
-pub(crate) fn ContextGauge(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
+pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
     move || {
         let Some(context) = usage.get() else {
             return ().into_any();
         };
         let percent = context.percent();
+        let degrees = f64::from(percent) / 100.0 * 360.0;
+        // Метку автокомпакта рисуем только когда сервер прислал порог.
         let compaction_percent = context.compaction_percent();
-        let level = if percent >= CONTEXT_GAUGE_CRIT_PERCENT {
-            "crit"
-        } else if percent >= CONTEXT_GAUGE_WARN_PERCENT {
-            "warn"
-        } else {
-            "ok"
-        };
+        let mut style = format!("--context-ring-deg: {degrees:.1}deg");
         let mut title = format!(
             "Контекст: {percent}% · {} / {} токенов",
             format_token_count(context.used_tokens),
@@ -224,35 +220,28 @@ pub(crate) fn ContextGauge(usage: ReadSignal<Option<ContextUsage>>) -> impl Into
         if let (Some(mark_percent), Some(trigger_tokens)) =
             (compaction_percent, context.compaction_trigger_tokens)
         {
+            let mark_degrees = f64::from(mark_percent) / 100.0 * 360.0;
+            style.push_str(&format!("; --context-ring-mark-deg: {mark_degrees:.1}deg"));
             title.push_str(&format!(
                 " · автокомпакт при {mark_percent}% (~{})",
                 format_token_count(trigger_tokens),
             ));
         }
+        let mut class = "context-ring".to_owned();
+        if compaction_percent.is_some() {
+            class.push_str(" context-ring-has-mark");
+        }
+        if percent >= CONTEXT_RING_CRIT_PERCENT {
+            class.push_str(" context-ring-crit");
+        }
         view! {
             <div
-                class=format!("context-gauge context-gauge-{level}")
+                class=class
+                style=style
                 title=title.clone()
                 aria-label=title
             >
-                <div class="context-gauge-track">
-                    <span
-                        class="context-gauge-fill"
-                        style=format!("height: {percent}%")
-                    ></span>
-                    {compaction_percent
-                        .map(|mark| {
-                            view! {
-                                <span
-                                    class="context-gauge-mark"
-                                    style=format!("bottom: {mark}%")
-                                ></span>
-                            }
-                            .into_any()
-                        })
-                        .unwrap_or_else(|| ().into_any())}
-                </div>
-                <span class="context-gauge-label">{format!("{percent}%")}</span>
+                <span class="context-ring-label">{percent.to_string()}</span>
             </div>
         }
         .into_any()

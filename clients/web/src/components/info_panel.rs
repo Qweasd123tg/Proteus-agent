@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
-use super::controls::ContextGauge;
+use super::controls::ContextRing;
 use super::format_token_count;
 use super::tool_activity::{PlanStepPreview, parse_plan_steps};
 use crate::types::*;
@@ -73,10 +73,10 @@ where
                 </button>
             </div>
 
-            // Рейка свёрнутого состояния: шкала контекста с меткой компакта
+            // Рейка свёрнутого состояния: бублик контекста с меткой компакта
             // и мини-этапы плана точками.
             <div class="info-panel-rail">
-                <ContextGauge usage=context_usage />
+                <ContextRing usage=context_usage />
                 <div class="info-rail-plan">
                     <For
                         each=move || plan_steps.get().into_iter().enumerate()
