@@ -47,7 +47,8 @@
     }
 
     .context-overview,
-    .context-grid {
+    .context-grid,
+    .context-map-layout {
         grid-template-columns: 1fr;
     }
 
