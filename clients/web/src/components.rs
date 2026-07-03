@@ -3,6 +3,7 @@ mod chat_results;
 mod composer;
 mod context_map;
 mod controls;
+mod info_panel;
 mod message;
 mod resume;
 mod settings;
@@ -16,6 +17,7 @@ pub(crate) use context_map::ContextMapView;
 pub(crate) use controls::{
     MessageNav, PlanActionsCard, QueuedPromptCard, ToastStack, WorkingCard, format_token_count,
 };
+pub(crate) use info_panel::InfoPanelView;
 pub(crate) use message::MessageView;
 pub(crate) use resume::ResumeView;
 pub(crate) use settings::SettingsView;

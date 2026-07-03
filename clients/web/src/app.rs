@@ -15,8 +15,8 @@ use crate::app_resize::AppResizeState;
 use crate::app_sessions::{AppSessionActions, RuntimeSettingsBindings, TranscriptBindings};
 use crate::app_toasts::install_transport_toast_effect;
 use crate::components::{
-    ChatResultsView, ComposerView, ContextMapView, MessageNav, ResumeView, SettingsView,
-    SidebarView, ToastStack, ToolCardsCollapsed,
+    ChatResultsView, ComposerView, ContextMapView, InfoPanelView, MessageNav, ResumeView,
+    SettingsView, SidebarView, ToastStack, ToolCardsCollapsed,
 };
 use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
@@ -91,6 +91,14 @@ pub(crate) fn App() -> impl IntoView {
     let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let resize = AppResizeState::new();
     let (active_user_message, set_active_user_message) = signal(None::<u64>);
+    // Инфо-панель справа (план, контекст, сессия); состояние переживает
+    // перезагрузку страницы.
+    let (info_panel_open, set_info_panel_open) =
+        signal(load_bool_setting("proteus.infoPanelOpen", false));
+    let toggle_info_panel = move |_| {
+        set_info_panel_open.update(|value| *value = !*value);
+        save_bool_setting("proteus.infoPanelOpen", info_panel_open.get_untracked());
+    };
     // Дефолт раскрытия карточек тулов из [web].tool_cards_collapsed (/config);
     // отдаём вниз контекстом, ToolActivityCard читает его при монтировании.
     let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
@@ -604,6 +612,22 @@ pub(crate) fn App() -> impl IntoView {
                         >
                             "Стоп"
                         </button>
+                        {if is_chat_route {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="sidebar-toggle"
+                                    class:active=move || info_panel_open.get()
+                                    title="Инфо по чату"
+                                    aria-label="Инфо по чату"
+                                    on:click=toggle_info_panel
+                                >
+                                    "▤"
+                                </button>
+                            }.into_any()
+                        } else {
+                            ().into_any()
+                        }}
                     </nav>
                 </header>
 
@@ -693,6 +717,26 @@ pub(crate) fn App() -> impl IntoView {
                     }}
                 </section>
             </main>
+
+            {if is_chat_route {
+                view! {
+                    <InfoPanelView
+                        open=info_panel_open
+                        messages
+                        model_name
+                        mode
+                        reasoning_enabled
+                        effort
+                        context_usage
+                        agent_status
+                        event_count
+                        tool_activities
+                        workspace_label
+                    />
+                }.into_any()
+            } else {
+                ().into_any()
+            }}
         </div>
     }
 }

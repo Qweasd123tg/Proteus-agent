@@ -22,9 +22,9 @@ struct ToolDisplay {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct PlanStepPreview {
-    step: String,
-    status: String,
+pub(crate) struct PlanStepPreview {
+    pub(crate) step: String,
+    pub(crate) status: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -336,7 +336,7 @@ fn tool_display(tool: &ToolActivity) -> ToolDisplay {
     }
 }
 
-fn parse_plan_steps(args: &Value) -> Vec<PlanStepPreview> {
+pub(crate) fn parse_plan_steps(args: &Value) -> Vec<PlanStepPreview> {
     args.get("plan")
         .and_then(Value::as_array)
         .map(|steps| {

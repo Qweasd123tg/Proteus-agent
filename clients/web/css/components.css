@@ -703,8 +703,11 @@
     line-height: 1.35;
 }
 
+/* Block-level (не inline-flex): карточка — прямой ребёнок ленты, и только у
+   block-уровня работают auto-margins центрирующей колонки; inline-версия
+   прилипала к левому краю панели вместо колонки чата. Бейдж внутри компактный. */
 .working-card {
-    display: inline-flex;
+    display: flex;
     margin-bottom: var(--space-3);
 }
 

@@ -321,6 +321,94 @@ button.session-item.active {
     background: var(--bg-root);
 }
 
+/* Инфо-панель справа: план задачи, контекст, сессия. Выезжает анимацией
+   ширины; контент лежит в обёртке фиксированной ширины, чтобы не сминался
+   во время выезда. */
+.info-panel {
+    display: flex;
+    width: 0;
+    min-height: 0;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-left: 0 solid var(--border-subtle);
+    background: var(--bg-panel);
+    transition:
+        width 0.18s ease,
+        border-left-width 0.18s ease;
+}
+
+.info-panel.open {
+    width: 300px;
+    border-left-width: 1px;
+}
+
+.info-panel-inner {
+    display: flex;
+    width: 300px;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.info-panel-body {
+    display: grid;
+    min-height: 0;
+    flex: 1;
+    align-content: start;
+    gap: var(--space-5);
+    overflow-y: auto;
+    padding: var(--space-4);
+}
+
+.info-panel-section {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.info-panel-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.info-panel-section-head code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.info-panel-empty {
+    color: var(--text-faint);
+    font-size: 12px;
+}
+
+.info-row {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.info-row span {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+    font-size: 12px;
+}
+
+.info-row code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .topbar {
     display: flex;
     height: var(--topbar-height);
@@ -352,7 +440,8 @@ button.session-item.active {
     padding: 0;
 }
 
-.sidebar-toggle:hover {
+.sidebar-toggle:hover,
+.sidebar-toggle.active {
     background: var(--bg-panel-soft);
     color: var(--text-main);
 }

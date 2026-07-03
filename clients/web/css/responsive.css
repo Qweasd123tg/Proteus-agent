@@ -29,6 +29,19 @@
         min-height: 0;
     }
 
+    /* На узких экранах панель не отъедает ширину, а накрывает контент справа. */
+    .info-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 15;
+    }
+
+    .info-panel.open {
+        box-shadow: var(--shadow-lg);
+    }
+
     .composer-buttons {
         justify-content: flex-end;
     }
