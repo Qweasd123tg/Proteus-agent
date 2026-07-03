@@ -32,8 +32,8 @@ mod state;
 #[cfg(test)]
 use commands::spawn_send_turn;
 use commands::{
-    command_response, execute_app_request, execute_delete_session, execute_new_session,
-    execute_resume, execute_send, execute_send_async, execute_set_model,
+    command_response, config_summary_with_activity, execute_app_request, execute_delete_session,
+    execute_new_session, execute_resume, execute_send, execute_send_async, execute_set_model,
     execute_set_permission_mode, execute_set_reasoning_effort, execute_set_reasoning_enabled,
     execute_set_web_config,
 };
@@ -152,8 +152,16 @@ where
         (Method::GET, "/health") => json_response(StatusCode::OK, &json!({ "ok": true })),
         (Method::GET, "/events") => sse_response(state).await,
         (Method::GET, "/config") => {
-            let summary = state.current_server().await.config_summary().await;
-            json_response(StatusCode::OK, &summary)
+            // Вместе с конфигом отдаём activity текущей сессии: после
+            // перезагрузки страницы клиент только отсюда может узнать, что ход
+            // ещё выполняется, и увести отправку в очередь вместо /send-async.
+            let server = state.current_server().await;
+            match config_summary_with_activity(&state, &server).await {
+                Ok(summary) => json_response(StatusCode::OK, &summary),
+                Err(error) => {
+                    error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}"))
+                }
+            }
         }
         (Method::GET, "/config/builder") => {
             let snapshot = state.current_server().await.config_builder_snapshot().await;

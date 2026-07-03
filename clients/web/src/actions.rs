@@ -442,6 +442,26 @@ pub(crate) fn execute_plan_prompt() -> String {
     "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
 }
 
+/// Суффикс поколения загрузки страницы. Id запросов служат id ходов на
+/// сервере, а счётчик живёт в памяти приложения: после перезагрузки он снова
+/// начинается с 1, и без уникального суффикса новый «send-1» сталкивается с
+/// ещё выполняющимся ходом прошлой загрузки («turn id is already running»).
+fn boot_nonce() -> &'static str {
+    static NONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NONCE.get_or_init(|| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let ms = js_sys::Date::now().max(0.0) as u64;
+            let salt = (js_sys::Math::random() * f64::from(u16::MAX)) as u16;
+            format!("{:x}{salt:x}", ms & 0xffff_ffff)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "boot".to_owned()
+        }
+    })
+}
+
 pub(crate) fn take_request_id(
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
@@ -449,7 +469,7 @@ pub(crate) fn take_request_id(
 ) -> String {
     let id = next_request_id.get();
     set_next_request_id.set(id + 1);
-    format!("{prefix}-{id}")
+    format!("{prefix}-{}-{id}", boot_nonce())
 }
 
 fn command_succeeded(output: &StdioOutput) -> bool {

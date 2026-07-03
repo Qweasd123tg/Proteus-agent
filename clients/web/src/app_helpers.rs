@@ -69,6 +69,7 @@ pub(crate) fn load_web_settings(set_tool_cards_collapsed: WriteSignal<bool>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,
@@ -78,6 +79,9 @@ pub(crate) fn load_runtime_settings(
     set_effort_options: WriteSignal<Vec<String>>,
     set_workspace_label: WriteSignal<String>,
     set_active_session_dir: WriteSignal<Option<String>>,
+    set_is_sending: WriteSignal<bool>,
+    set_active_turn_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -95,6 +99,25 @@ pub(crate) fn load_runtime_settings(
                         .and_then(Value::as_str)
                         .map(ToOwned::to_owned),
                 );
+                // Сервер кладёт в /config activity текущей сессии. Если ход ещё
+                // выполняется (страница открылась посреди хода), сразу помечаем
+                // занятость: composer уводит новые сообщения в очередь, а не в
+                // /send-async, и «Стоп» знает id бегущего хода. Idle нарочно не
+                // применяем — не затирать оптимистичный is_sending уже начатой
+                // отправки.
+                if let Some(activity) = config
+                    .get("activity")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())
+                    && session_activity_is_busy(&activity)
+                {
+                    apply_active_session_activity(
+                        Some(&activity),
+                        set_is_sending,
+                        set_active_turn_id,
+                        set_agent_status,
+                    );
+                }
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
                 }

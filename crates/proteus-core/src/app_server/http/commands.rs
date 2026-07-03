@@ -340,7 +340,7 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     Ok(summary)
 }
 
-async fn config_summary_with_activity(
+pub(super) async fn config_summary_with_activity(
     state: &HttpAppState,
     server: &AppServerHandle,
 ) -> Result<Value> {
