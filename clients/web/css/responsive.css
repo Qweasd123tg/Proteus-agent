@@ -21,15 +21,12 @@
         min-height: 0;
     }
 
-    .sidebar-panel {
-        display: none;
-    }
-
     .workspace-main {
         min-height: 0;
     }
 
-    /* На узких экранах панель не отъедает ширину, а накрывает контент справа. */
+    /* На узких экранах панель не отъедает ширину, а накрывает контент справа;
+       свёрнутая рейка прячется целиком — 52px поверх ленты дороже пользы. */
     .info-panel {
         position: fixed;
         top: 0;
@@ -38,8 +35,17 @@
         z-index: 15;
     }
 
+    .info-panel:not(.open) {
+        width: 0;
+        border-left: 0;
+    }
+
     .info-panel.open {
         box-shadow: var(--shadow-lg);
+    }
+
+    .info-panel-mobile-toggle {
+        display: inline-flex;
     }
 
     .composer-buttons {

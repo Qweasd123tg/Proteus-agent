@@ -24,15 +24,13 @@ fn session_matches_query(session: &SessionSummary, query: &str) -> bool {
 
 #[component]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn SidebarView<R, N, T, B, O, D, RS, AC>(
+pub(crate) fn SidebarView<R, N, T, B, O, D>(
     sidebar_width: ReadSignal<i32>,
     sidebar_collapsed: ReadSignal<bool>,
     workspace_label: ReadSignal<String>,
     sidebar_sessions: ReadSignal<Vec<SessionSummary>>,
     sidebar_sessions_status: ReadSignal<String>,
     active_session_dir: ReadSignal<Option<String>>,
-    runtime_state: RS,
-    activity: AC,
     on_refresh: R,
     on_new_session: N,
     on_toggle: T,
@@ -47,8 +45,6 @@ where
     B: Fn(MouseEvent) + Copy + 'static,
     O: Fn(SessionSummary) + Copy + Send + 'static,
     D: Fn(SessionSummary) + Copy + Send + 'static,
-    RS: Fn() -> String + Copy + Send + 'static,
-    AC: Fn() -> Vec<(&'static str, String)> + Copy + Send + 'static,
 {
     let (query, set_query) = signal(String::new());
     view! {
@@ -209,27 +205,6 @@ where
                 </ul>
             </div>
 
-            <section class="sidebar-panel">
-                <div class="runtime-summary">
-                    <span class="panel-kicker">"Runtime"</span>
-                    <strong>{runtime_state}</strong>
-                    <code title=move || workspace_label.get()>{move || workspace_label.get()}</code>
-                </div>
-                <div class="activity-grid">
-                    <For
-                        each=activity
-                        key=|item| item.0
-                        children=move |(label, value)| {
-                            view! {
-                                <div class="activity-row">
-                                    <span>{label}</span>
-                                    <strong>{value}</strong>
-                                </div>
-                            }
-                        }
-                    />
-                </div>
-            </section>
         </aside>
     }
 }

@@ -428,26 +428,6 @@ pub(crate) fn App() -> impl IntoView {
         );
     };
 
-    let activity = move || {
-        let pending_total = pending_approvals.get().len() + pending_user_inputs.get().len();
-        vec![
-            ("events", event_count.get().to_string()),
-            ("tools", tool_activities.get().len().to_string()),
-            ("pending", pending_total.to_string()),
-        ]
-    };
-    let runtime_state = move || match transport_status.get() {
-        TransportStatus::Connecting => "подключение".to_owned(),
-        TransportStatus::Connected => {
-            if is_sending.get() {
-                agent_status.get()
-            } else {
-                "готов".to_owned()
-            }
-        }
-        TransportStatus::Error(message) => compact_text(&message, 34),
-        TransportStatus::Shutdown => "остановлен".to_owned(),
-    };
     let settings_summary = move || {
         let model = model_name.get();
         let model = if model.trim().is_empty() {
@@ -597,8 +577,6 @@ pub(crate) fn App() -> impl IntoView {
                 sidebar_sessions
                 sidebar_sessions_status
                 active_session_dir
-                runtime_state
-                activity
                 on_refresh=refresh_sidebar_sessions
                 on_new_session=start_new_session
                 on_toggle=toggle_sidebar
@@ -633,11 +611,14 @@ pub(crate) fn App() -> impl IntoView {
                         >
                             "Стоп"
                         </button>
+                        // Резервный тумблер инфо-панели для узких экранов:
+                        // там свёрнутая рейка спрятана целиком, и своей кнопки
+                        // у панели не видно. На десктопе скрыт (см. CSS).
                         {if is_chat_route {
                             view! {
                                 <button
                                     type="button"
-                                    class="sidebar-toggle"
+                                    class="sidebar-toggle info-panel-mobile-toggle"
                                     class:active=move || info_panel_open.get()
                                     title="Инфо по чату"
                                     aria-label="Инфо по чату"
@@ -743,6 +724,7 @@ pub(crate) fn App() -> impl IntoView {
                 view! {
                     <InfoPanelView
                         open=info_panel_open
+                        on_toggle=toggle_info_panel
                         messages
                         model_name
                         mode
@@ -752,6 +734,8 @@ pub(crate) fn App() -> impl IntoView {
                         agent_status
                         event_count
                         tool_activities
+                        pending_approvals
+                        pending_user_inputs
                         workspace_label
                     />
                 }.into_any()

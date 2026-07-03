@@ -22,7 +22,6 @@
    анимируется (см. .sidebar), и контент растворяется, а не исчезает скачком. */
 .sidebar-search,
 .sessions-list,
-.sidebar-panel,
 .sidebar-header h2 {
     transition:
         opacity 0.12s ease,
@@ -31,7 +30,6 @@
 
 .app-layout.sidebar-collapsed .sidebar-search,
 .app-layout.sidebar-collapsed .sessions-list,
-.app-layout.sidebar-collapsed .sidebar-panel,
 .app-layout.sidebar-collapsed .sidebar-header h2 {
     opacity: 0;
     visibility: hidden;
@@ -131,9 +129,11 @@
     gap: var(--space-1);
 }
 
-.sidebar-header button {
+.sidebar-header button,
+.info-panel-header button {
     width: 30px;
     min-height: 30px;
+    flex: 0 0 auto;
     border: 0;
     border-radius: var(--radius-inner);
     background: transparent;
@@ -142,7 +142,8 @@
     padding: 0;
 }
 
-.sidebar-header button:hover {
+.sidebar-header button:hover,
+.info-panel-header button:hover {
     background: var(--bg-panel-soft);
     color: var(--text-main);
 }
@@ -298,46 +299,6 @@ button.session-item.active {
     color: var(--accent-yellow);
 }
 
-.sidebar-panel {
-    display: grid;
-    flex-shrink: 0;
-    gap: var(--space-2);
-    border-top: 1px solid var(--border-subtle);
-    padding: var(--space-3) var(--space-4);
-}
-
-.runtime-summary {
-    display: grid;
-    min-width: 0;
-    gap: 2px;
-}
-
-.runtime-summary strong,
-.runtime-summary code {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.runtime-summary strong {
-    color: var(--text-main);
-    font-size: 12px;
-    font-weight: 500;
-}
-
-.runtime-summary code {
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.activity-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-2);
-}
-
 .workspace-main {
     display: flex;
     flex: 1;
@@ -347,44 +308,140 @@ button.session-item.active {
     background: var(--bg-root);
 }
 
-/* Инфо-панель справа: план задачи, контекст, сессия. Выезжает анимацией
-   ширины; контент лежит в обёртке фиксированной ширины, чтобы не сминался
-   во время выезда. */
+/* Инфо-панель справа: план задачи, контекст, сессия. Свёрнутая — рейка 52px
+   с кружком контекста и мини-планом (зеркально левому сайдбару); развёрнутая
+   выезжает анимацией ширины, контент фиксированной ширины не сминается. */
 .info-panel {
     display: flex;
-    width: 0;
+    width: 52px;
     min-height: 0;
     flex-direction: column;
     flex-shrink: 0;
     overflow: hidden;
-    border-left: 0 solid var(--border-subtle);
+    border-left: 1px solid var(--border-subtle);
     background: var(--bg-panel);
-    transition:
-        width 0.18s ease,
-        border-left-width 0.18s ease;
+    transition: width 0.18s ease;
 }
 
 .info-panel.open {
     width: 300px;
-    border-left-width: 1px;
 }
 
-.info-panel-inner {
+.info-panel-header {
     display: flex;
-    width: 300px;
-    min-height: 0;
-    flex: 1;
+    height: var(--topbar-height);
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.info-panel-header h2 {
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
+.info-panel:not(.open) .info-panel-header {
+    justify-content: center;
+    padding: 0;
+}
+
+.info-panel:not(.open) .info-panel-header h2 {
+    width: 0;
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* Рейка свёрнутого состояния. В развёрнутом схлопывается в ноль, чтобы не
+   расталкивать контент. */
+.info-panel-rail {
+    display: flex;
     flex-direction: column;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
+.info-panel.open .info-panel-rail {
+    height: 0;
+    padding: 0;
+    opacity: 0;
+    overflow: hidden;
+    visibility: hidden;
+}
+
+.info-panel-rail .context-ring {
+    margin-right: 0;
+}
+
+.info-rail-plan {
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+}
+
+.info-rail-step {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--border-strong);
+}
+
+.info-rail-step.completed {
+    background: var(--accent-green);
+}
+
+.info-rail-step.in_progress {
+    animation: pulse 2s infinite;
+    background: var(--accent-blue);
 }
 
 .info-panel-body {
     display: grid;
+    width: 300px;
     min-height: 0;
     flex: 1;
     align-content: start;
     gap: var(--space-5);
     overflow-y: auto;
     padding: var(--space-4);
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
+.info-panel:not(.open) .info-panel-body {
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* Тумблер панели в топбаре нужен только на узких экранах, где свёрнутая
+   рейка спрятана; на десктопе у панели своя кнопка в шапке. */
+.info-panel-mobile-toggle {
+    display: none;
+}
+
+/* Отметка порога автокомпакта на полосе контекста — как штрих на кружке. */
+.info-usage-bar {
+    position: relative;
+}
+
+.info-usage-bar .info-usage-mark {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--text-main);
 }
 
 .info-panel-section {

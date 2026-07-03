@@ -7,36 +7,6 @@
     text-transform: uppercase;
 }
 
-.activity-row {
-    display: grid;
-    min-width: 0;
-    min-height: 48px;
-    align-content: center;
-    gap: 2px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-inner);
-    background: var(--bg-panel-soft);
-    padding: var(--space-2);
-    font-size: 12px;
-}
-
-.activity-row span {
-    color: var(--text-faint);
-    font-size: 10px;
-    text-transform: uppercase;
-}
-
-.activity-row strong {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 600;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .session-status-dot {
     display: inline-block;
     width: 6px;
