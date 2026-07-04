@@ -1,6 +1,8 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
-    contracts::{CompactionInput, ToolExposureRequest},
+    contracts::{
+        CompactionInput, SubagentRequest, SubagentResult, SubagentRoleSpec, ToolExposureRequest,
+    },
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
     },
@@ -15,6 +17,7 @@ use serde_json::json;
 use super::{
     dynamic_tools,
     metadata::{insert_request_metadata_u32, insert_request_metadata_value, prompt_cache_key},
+    task_tool,
     token_accounting::{LastModelUsage, effective_token_estimate, request_token_usage_snapshot},
 };
 
@@ -112,6 +115,10 @@ fn request_from_state_with_instruction_blocks_and_options(
     if dynamic_tools_enabled {
         dynamic_tools::append_meta_tools(&mut tools, phase);
     }
+    if options.expose_tools {
+        let roles = subagent_roles(host)?;
+        task_tool::append_task_tool(&mut tools, &roles);
+    }
     if let Some(developer_instructions) = developer_instructions {
         instructions.push(InstructionBlock::new(
             InstructionKind::Developer,
@@ -169,6 +176,8 @@ pub(super) fn execute_or_handle_tool(
 ) -> Result<ToolResult, PluginWorkflowError> {
     if dynamic_tools::is_meta_tool(&call.name) {
         dynamic_tools::handle_meta_tool_call(host, input, call, phase)
+    } else if task_tool::is_task_tool(&call.name) {
+        task_tool::handle_task_tool_call(host, input, call)
     } else {
         execute_tool(host, input, call)
     }
@@ -291,6 +300,7 @@ pub(super) fn execute_tools(
         || calls
             .iter()
             .any(|call| dynamic_tools::is_meta_tool(&call.name))
+        || calls.iter().any(|call| task_tool::is_task_tool(&call.name))
     {
         return calls
             .iter()
@@ -307,6 +317,30 @@ pub(super) fn execute_tools(
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
     from_json_string(results_json.as_str())
+}
+
+pub(super) fn subagent_roles(
+    host: &mut PluginWorkflowHostMut<'_>,
+) -> Result<Vec<SubagentRoleSpec>, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
+    let roles_json = match host.subagent_roles_json() {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(roles_json.as_str())
+}
+
+pub(super) fn run_subagent(
+    host: &mut PluginWorkflowHostMut<'_>,
+    request: &SubagentRequest,
+) -> Result<SubagentResult, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
+    let request_json = to_json_string(request)?;
+    let result_json = match host.run_subagent_json(RString::from(request_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(result_json.as_str())
 }
 
 pub(super) fn execute_tool(

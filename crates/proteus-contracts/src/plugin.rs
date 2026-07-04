@@ -610,6 +610,15 @@ pub trait PluginWorkflowHost: Send + Sync {
         task_json: RString,
         calls_json: RString,
     ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Output JSON: `Vec<SubagentRoleSpec>` из slot'а `subagent`. Пустой
+    /// список — делегирование выключено, task-тул генерировать не надо.
+    fn subagent_roles_json(&self) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `SubagentRequest`. Output JSON: `SubagentResult`.
+    /// Блокирует до завершения дочернего цикла (v1 — sequential).
+    fn run_subagent_json(&self, request_json: RString)
+    -> RResult<RString, PluginWorkflowHostError>;
 }
 
 #[repr(C)]
@@ -677,6 +686,50 @@ impl std::fmt::Display for PluginWorkflowError {
 impl std::error::Error for PluginWorkflowError {}
 
 pub type WorkflowObject = PluginWorkflow_TO<abi_stable::std_types::RBox<()>>;
+
+/// Sync sabi_trait для subagent-плагинов (slot `subagent`).
+///
+/// Плагин исполняет дочерний агентский цикл синхронно; async-операции
+/// (модель, tools, exposure, события) идут через тот же узкий host API,
+/// что и у workflow-плагинов (`PluginWorkflowHost`), — мост в runtime
+/// обеспечивает core-адаптер через spawn_blocking.
+#[sabi_trait]
+pub trait PluginSubagent: Send + Sync + 'static {
+    /// Output JSON: `Vec<SubagentRoleSpec>`.
+    fn roles_json(&self) -> RResult<RString, PluginSubagentError>;
+
+    /// Input JSON: `SubagentRequest`. Output JSON: `SubagentResult`.
+    fn run_json(
+        &self,
+        request_json: RString,
+        host: &mut PluginWorkflowHostMut<'_>,
+    ) -> RResult<RString, PluginSubagentError>;
+}
+
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginSubagentError {
+    pub message: RString,
+}
+
+impl PluginSubagentError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginSubagentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PluginSubagentError {}
+
+pub type SubagentObject = PluginSubagent_TO<abi_stable::std_types::RBox<()>>;
 
 /// Ошибка регистрации модуля плагином.
 #[repr(C)]
@@ -796,6 +849,13 @@ pub trait PluginRegistry: Send + Sync {
         &mut self,
         module_id: RString,
         workflow: WorkflowObject,
+    ) -> RResult<(), PluginRegisterError>;
+
+    /// Регистрирует SubagentRunner под module_id в slot `subagent`.
+    fn register_subagent(
+        &mut self,
+        module_id: RString,
+        subagent: SubagentObject,
     ) -> RResult<(), PluginRegisterError>;
 }
 

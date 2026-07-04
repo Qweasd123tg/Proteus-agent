@@ -333,6 +333,7 @@ custom URL.
     "patch": "null",
     "compactor": "none",
     "tool_exposure": "all_visible",
+    "subagent": "sequential",
     "renderer": "plain"
   }
 }
@@ -407,7 +408,7 @@ Inspector route `/configs` содержит Config builder для редакти
 
 - editable slots из `[modules]`: `workflow`, `context`, `tool_exposure`,
   `policy`, `search`, `patch`, `memory`, `memory_policy`, `compactor`,
-  `renderer`;
+  `subagent`, `renderer`;
 - список зарегистрированных реализаций каждого slot-а из текущего
   `BuiltinModuleCatalog` + загруженных plugin manifests;
 - текущие `module_config.<slot>.<module_id>` payloads;
@@ -474,7 +475,9 @@ compactor использует legacy fallback от workflow или default `320
 
 `modules.tool_exposure = "all_visible"` — безопасный default без plugin pack.
 Он сохраняет старое поведение: все policy-visible tools передаются workflow как
-model-facing tools. Плагинная реализация может искать, ранжировать или
+model-facing tools. `ToolExposureRequest.phase` в этом режиме игнорируется;
+phase-aware фильтрация работает только в соответствующих selector-ах вроде
+`codex_dynamic`. Плагинная реализация может искать, ранжировать или
 ограничивать tools через тот же host callback `select_tools_json`.
 
 `modules.tool_exposure = "dynamic"` включает builtin lexical selector. Это
@@ -514,6 +517,41 @@ meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
 approval, validation, timeout и event log остаются теми же, что у прямого
 вызова. В plan phase workflow даёт только search/describe; non-ReadOnly hidden
 calls дополнительно отклоняются handler-ом.
+
+## Subagent
+
+`modules.subagent = "none"` отключает делегирование: workflow host возвращает
+пустой список ролей, и `coding-workflow` не добавляет model-facing tool `task`.
+
+`modules.subagent = "sequential"` включает builtin sequential runner. Он читает
+роли из `module_config.subagent.sequential`; при пустом списке ролей поведение
+эквивалентно выключенному делегированию для workflow.
+
+```toml
+[modules]
+subagent = "sequential"
+
+[module_config.subagent.sequential]
+max_depth = 1
+
+[[module_config.subagent.sequential.roles]]
+name = "explore"
+description = "Read-only explorer that returns paths and line numbers."
+prompt = "Inspect the repository without editing files. Return concise findings with paths and line numbers."
+max_iterations = 15
+# exposure_phase = "subagent:explore"
+# tools = ["search", "read_file", "grep", "git_status", "git_diff"]
+# timeout_ms = 60000
+# max_summary_bytes = 4096
+```
+
+Workflow-плагины получают роли через `subagent_roles_json()` и запускают ребёнка
+через `run_subagent_json(SubagentRequest)`. В `coding-workflow` это surface tool
+`task` с аргументами `agent_type`, `prompt` и optional `description`.
+У роли можно задать `tools = [...]`: после общего `ToolExposure` дочерний цикл
+оставит только перечисленные имена. `exposure_phase` помогает только с
+phase-aware exposure модулем; `all_visible` фазу не учитывает, поэтому per-role
+allowlist остаётся страховкой для ограниченных ролей.
 
 ## Renderer
 

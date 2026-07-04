@@ -71,6 +71,7 @@ executors, но external process modules и package manager ещё не реал
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, `dynamic`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
+| Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, plugin-provided через `PluginSubagent` |
 | Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
@@ -457,7 +458,8 @@ session history.
 
 `modules.tool_exposure = "all_visible"` — core fallback, который сохраняет
 старое поведение: всё, что разрешила policy visibility, попадает в model
-request.
+request. Он не учитывает `ToolExposureRequest.phase`; фазовые ограничения
+работают только в phase-aware selector-ах вроде `codex_dynamic`.
 
 `modules.tool_exposure = "dynamic"` — core selector для первого слоя экономии
 tool schemas. Он берёт только уже policy-visible candidates, сначала оставляет
@@ -497,6 +499,42 @@ Workflow передаёт `ToolExposureRequest` с task/cwd/query/max_tools/reas
 selector возвращает `ToolExposureOutput.tools`. Поэтому чужой алгоритм
 tool-search/ranking можно вынести в плагин, не обходя `ApprovalPolicy` и не
 передавая workflow прямой доступ к `ToolRegistry`.
+
+## Subagent
+
+`modules.subagent` выбирает реализацию `SubagentRunner`: изолированного
+дочернего agent loop с ролями. Contract живёт в
+`contracts/subagent.rs`: `roles() -> Vec<SubagentRoleSpec>` и
+`run(SubagentRequest) -> SubagentResult`. Workflow не получает прямой доступ к
+runner-у: плагинный workflow вызывает host-методы `subagent_roles_json()` и
+`run_subagent_json(request_json)`.
+
+Builtin `none` возвращает пустой список ролей и отключает делегирование.
+Builtin `sequential` запускает один дочерний цикл синхронно до результата.
+Роли задаются в module-owned payload:
+
+```toml
+[module_config.subagent.sequential]
+max_depth = 1
+
+[[module_config.subagent.sequential.roles]]
+name = "explore"
+description = "Read-only codebase explorer."
+prompt = "Inspect the repository without modifying files. Return paths and line numbers."
+max_iterations = 15
+# exposure_phase = "subagent:explore" # default if omitted
+# tools = ["search", "read_file", "grep", "git_status", "git_diff"]
+# timeout_ms = 60000
+# max_summary_bytes = 4096
+```
+
+`coding-workflow` превращает непустой список ролей в workflow-owned tool `task`.
+Модель передаёт `agent_type`, `prompt` и короткое `description`; workflow
+собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка как
+обычный `ToolResult`. Tool calls ребёнка идут через тот же policy/approval/tool
+контур, что и родительские. Для роли можно задать per-role `tools` allowlist:
+после exposure-фильтра runner оставит только перечисленные tools. Это особенно
+важно при `tool_exposure = "all_visible"`, где `exposure_phase` игнорируется.
 
 ## Workflow
 

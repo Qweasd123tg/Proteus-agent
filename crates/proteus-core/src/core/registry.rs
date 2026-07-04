@@ -5,8 +5,8 @@ use anyhow::Result;
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryPolicy, MemoryStore,
-        ModelClient, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure,
-        ToolRegistry, UserInputTransport, Workflow,
+        ModelClient, PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner,
+        ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
@@ -34,6 +34,7 @@ pub struct BuiltinRegistry {
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
+    pub subagent: Arc<dyn SubagentRunner>,
     pub workflow: Arc<dyn Workflow>,
     pub renderer: Arc<dyn Renderer>,
 }
@@ -86,6 +87,7 @@ impl BuiltinRegistry {
             tools: &tools,
         };
         let policy = catalog.build_policy(&config.modules.policy, &policy_ctx)?;
+        let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
         let workflow = catalog.build_workflow(&config.modules.workflow, &build_ctx)?;
         let renderer = catalog.build_renderer(&config.modules.renderer, &build_ctx)?;
 
@@ -104,6 +106,7 @@ impl BuiltinRegistry {
             patch,
             compactor,
             tool_exposure,
+            subagent,
             workflow,
             renderer,
         })
@@ -160,6 +163,7 @@ impl BuiltinRegistry {
             self.patch.clone(),
             self.compactor.clone(),
             self.tool_exposure.clone(),
+            self.subagent.clone(),
         )
         .with_instructions(self.instructions.clone())
     }

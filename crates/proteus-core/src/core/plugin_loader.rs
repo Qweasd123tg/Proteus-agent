@@ -30,7 +30,7 @@ use proteus_contracts::{
         CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryPolicyObject,
         MemoryStoreObject, PatchApplierObject, PluginRegisterError, PluginRegistry,
         PluginRegistry_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
-        ToolExposureObject, WorkflowObject,
+        SubagentObject, ToolExposureObject, WorkflowObject,
     },
 };
 
@@ -176,6 +176,18 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
     ) -> RResult<(), PluginRegisterError> {
         let id = module_id.into_string();
         match self.catalog.register_plugin_workflow(&id, workflow) {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
+        }
+    }
+
+    fn register_subagent(
+        &mut self,
+        module_id: RString,
+        subagent: SubagentObject,
+    ) -> RResult<(), PluginRegisterError> {
+        let id = module_id.into_string();
+        match self.catalog.register_plugin_subagent(&id, subagent) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }

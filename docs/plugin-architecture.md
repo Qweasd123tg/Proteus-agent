@@ -159,11 +159,15 @@ non-stdio transports — отдельная задача. Если они поя
   `codex-tool-exposure` регистрирует module id `codex_dynamic`.
   Module-owned payload `module_config.tool_exposure.<id>` передаётся в
   `ToolExposureInput.config`.
+- **subagent** - `PluginSubagent::roles_json() -> Vec<SubagentRoleSpec>` и
+  `run_json(request_json) -> SubagentResult`. Это ABI для дочерних agent loops:
+  workflow видит только роли и вызывает прогон через host, а реализация slot-а
+  владеет изоляцией истории, thread_id, tool exposure phase и лимитами.
 - **workflow** - `PluginWorkflow::run_json(input_json, host) ->
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
   `complete_model`, `compact_history`, `select_tools`, `visible_tools`,
-  `execute_tool`, `emit_event`). Runtime metadata, включая model/ref,
+  `execute_tool`, `subagent_roles_json`, `run_subagent_json`, `emit_event`). Runtime metadata, включая model/ref,
   reasoning, timeout-ы и base `InstructionBlock` prompt, приходит в
   `PluginWorkflowInput.runtime`.
 
@@ -218,7 +222,7 @@ mismatch.
 
 Registry - единое хранилище зарегистрированных modules. Один API для builtin и dylib-плагинов. MCP tools попадают в `ToolRegistry` через config/runtime discovery, но не являются plugin modules.
 
-Текущее состояние: `BuiltinModuleCatalog` в `crates/proteus-core/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy`, request-time `compactor`, `tool_exposure` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
+Текущее состояние: `BuiltinModuleCatalog` в `crates/proteus-core/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, `subagent` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
 
 ---
 

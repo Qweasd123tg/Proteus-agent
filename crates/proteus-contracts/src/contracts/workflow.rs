@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
-        HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, ToolExposure,
-        ToolRegistry, TurnPermissionGrants, UserInputTransport,
+        HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, SubagentRunner,
+        ToolExposure, ToolRegistry, TurnPermissionGrants, UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -40,6 +40,7 @@ pub struct RuntimeContext {
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
+    pub subagent: Arc<dyn SubagentRunner>,
     /// Turn-scoped permission grants: контекст создаётся на каждый ход
     /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
     pub turn_grants: Arc<TurnPermissionGrants>,
@@ -67,6 +68,7 @@ impl RuntimeContext {
         patch: Arc<dyn PatchApplier>,
         compactor: Arc<dyn HistoryCompactor>,
         tool_exposure: Arc<dyn ToolExposure>,
+        subagent: Arc<dyn SubagentRunner>,
     ) -> Self {
         Self {
             session_id,
@@ -90,6 +92,7 @@ impl RuntimeContext {
             patch,
             compactor,
             tool_exposure,
+            subagent,
             turn_grants: Arc::default(),
         }
     }

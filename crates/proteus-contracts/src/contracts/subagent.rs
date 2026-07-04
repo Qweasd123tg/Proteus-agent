@@ -1,0 +1,236 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    contracts::workflow::RuntimeContext,
+    domain::{AgentTask, ThreadId},
+    model_standard::TokenUsage,
+};
+
+/// Описание роли субагента.
+///
+/// Роль — декларативная единица делегирования: системный промпт, фаза
+/// tool exposure и лимиты дочернего цикла. Workflow использует список ролей
+/// для генерации спеки task-тула (описания ролей вклеиваются в параметр
+/// `agent_type`), но сам дочерний цикл исполняет slot `subagent`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SubagentRoleSpec {
+    /// Идентификатор роли ("explore", "reviewer", ...). Модель передаёт его
+    /// в task-тул как `agent_type`.
+    pub name: String,
+    /// Однострочное описание для модели: когда эту роль звать.
+    pub description: String,
+    /// Системный промпт дочернего цикла.
+    pub prompt: String,
+    /// Фаза для `ToolExposure::select` при отборе tools ребёнка.
+    /// По умолчанию реализация использует `"subagent:<name>"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure_phase: Option<String>,
+    /// Лимиты дочернего цикла.
+    #[serde(default)]
+    pub limits: SubagentLimits,
+    /// Implementation-specific настройки роли (например, model override
+    /// в будущих реализациях). Ядро содержимое не интерпретирует.
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+impl SubagentRoleSpec {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        prompt: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            prompt: prompt.into(),
+            exposure_phase: None,
+            limits: SubagentLimits::default(),
+            config: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_exposure_phase(mut self, phase: impl Into<String>) -> Self {
+        self.exposure_phase = Some(phase.into());
+        self
+    }
+
+    pub fn with_limits(mut self, limits: SubagentLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    pub fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Эффективная фаза exposure: явная или `"subagent:<name>"`.
+    pub fn effective_exposure_phase(&self) -> String {
+        self.exposure_phase
+            .clone()
+            .unwrap_or_else(|| format!("subagent:{}", self.name))
+    }
+}
+
+/// Лимиты дочернего цикла. Реализация обязана останавливать цикл при
+/// достижении любого из них и возвращать соответствующий `SubagentStatus`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SubagentLimits {
+    /// Максимум итераций модель→tools дочернего цикла.
+    pub max_iterations: u32,
+    /// Общий таймаут дочернего цикла. None — ограничен только таймаутом
+    /// родительского turn'а.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    /// Обрезка итогового summary. None — без обрезки.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_summary_bytes: Option<usize>,
+}
+
+impl Default for SubagentLimits {
+    fn default() -> Self {
+        Self {
+            max_iterations: 12,
+            timeout_ms: None,
+            max_summary_bytes: None,
+        }
+    }
+}
+
+/// Запрос на прогон субагента.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SubagentRequest {
+    /// Имя роли из `SubagentRunner::roles`.
+    pub role: String,
+    /// Задание ребёнку. Единственный контекст, который ребёнок получает
+    /// от родителя: история родителя не передаётся.
+    pub prompt: String,
+    /// Task родителя — источник cwd и контекста для tool execution
+    /// и `ToolExposureRequest`.
+    pub task: AgentTask,
+    /// Короткая метка задачи для событий/UI (3-5 слов).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Каркас для caller-specific данных (например, маркер глубины
+    /// вложенности). Ядро содержимое не интерпретирует.
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl SubagentRequest {
+    pub fn new(role: impl Into<String>, prompt: impl Into<String>, task: AgentTask) -> Self {
+        Self {
+            role: role.into(),
+            prompt: prompt.into(),
+            task,
+            description: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+/// Терминальный статус дочернего цикла.
+///
+/// Ошибки инфраструктуры (модель недоступна, роль не найдена) — через
+/// `Err` из `SubagentRunner::run`; статус описывает штатные исходы.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SubagentStatus {
+    /// Ребёнок завершил задачу финальным текстовым ответом.
+    Completed,
+    /// Достигнут `max_iterations`; summary — последний доступный текст.
+    MaxIterationsReached,
+    /// Истёк `timeout_ms` роли.
+    TimedOut,
+    /// Отменён через cancellation родителя.
+    Cancelled,
+}
+
+/// Результат прогона субагента — единственное, что попадает к родителю.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SubagentResult {
+    /// Финальный текст ребёнка (обрезанный по `max_summary_bytes`).
+    pub summary: String,
+    pub status: SubagentStatus,
+    /// Сколько итераций модель→tools выполнено.
+    pub iterations: u32,
+    /// ThreadId, под которым эмитились события дочернего цикла.
+    /// Клиенты используют его для группировки вложенной активности.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_thread_id: Option<ThreadId>,
+    /// Суммарный token usage дочернего цикла (все model-запросы ребёнка).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl SubagentResult {
+    pub fn new(summary: impl Into<String>, status: SubagentStatus, iterations: u32) -> Self {
+        Self {
+            summary: summary.into(),
+            status,
+            iterations,
+            child_thread_id: None,
+            usage: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_child_thread_id(mut self, thread_id: ThreadId) -> Self {
+        self.child_thread_id = Some(thread_id);
+        self
+    }
+
+    pub fn with_usage(mut self, usage: TokenUsage) -> Self {
+        self.usage = Some(usage);
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+/// Slot `subagent`: исполнение дочерних агентских циклов с изолированным
+/// контекстом.
+///
+/// Контракт владеет дочерним циклом целиком (модель → tools → модель), не
+/// вызывая slot `workflow` — это разрывает цикл зависимостей между слотами.
+/// Реализация обязана гонять tool calls ребёнка через тот же
+/// policy/approval-контур, что и родительские (безопасность не ослабляется
+/// делегированием), и уважать `ctx.cancellation`.
+///
+/// v1 — последовательный `run`. Параллельный вариант (`spawn`/`wait`/
+/// `cancel` с handle) — планируемое расширение контракта; DTO спроектированы
+/// так, чтобы его добавление не ломало существующие реализации.
+#[async_trait]
+pub trait SubagentRunner: Send + Sync {
+    /// Роли, доступные для делегирования. Пустой список = делегирование
+    /// выключено (workflow не генерирует task-тул).
+    fn roles(&self) -> Vec<SubagentRoleSpec>;
+
+    /// Прогоняет дочерний цикл и возвращает результат. `ctx` — контекст
+    /// родительского turn'а; реализация сама изолирует ребёнка (свой
+    /// thread_id, своя история, свой отбор tools по фазе роли).
+    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult>;
+}

@@ -301,6 +301,24 @@ pub enum Event {
     PatchApplied {
         result: PatchResult,
     },
+    /// Дочерний агентский цикл запущен slot'ом `subagent`. События самого
+    /// цикла эмитятся под `child_thread_id` — клиенты группируют по нему
+    /// вложенную активность.
+    SubagentStarted {
+        role: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        child_thread_id: ThreadId,
+    },
+    /// Дочерний цикл завершён, summary вернулся родителю. `status` —
+    /// snake_case значение `SubagentStatus` ("completed", "cancelled", ...);
+    /// строка, а не enum, чтобы domain не зависел от contracts.
+    SubagentFinished {
+        role: String,
+        status: String,
+        iterations: u32,
+        child_thread_id: ThreadId,
+    },
     TurnFinished {
         output: AgentOutput,
     },

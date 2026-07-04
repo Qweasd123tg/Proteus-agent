@@ -84,6 +84,7 @@ pub(super) fn build_edges(
         ("slot:workflow", "slot:tool_exposure", "selects tools"),
         ("slot:workflow", "slot:model", "model call"),
         ("slot:workflow", "slot:policy", "approval gate"),
+        ("slot:workflow", "slot:subagent", "delegates"),
         ("slot:workflow", "slot:renderer", "final output"),
         ("slot:tool", "tools", "registry"),
         ("slot:tool_exposure", "tools", "visible tools"),

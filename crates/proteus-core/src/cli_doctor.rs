@@ -295,6 +295,7 @@ fn check_selected_modules(
             ModuleKind::ToolExposure,
             config.modules.tool_exposure.as_str(),
         ),
+        (ModuleKind::Subagent, config.modules.subagent.as_str()),
         (ModuleKind::Workflow, config.modules.workflow.as_str()),
         (ModuleKind::Renderer, config.modules.renderer.as_str()),
     ];

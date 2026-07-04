@@ -7,14 +7,14 @@ use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
-        PatchApplier, Renderer, SearchBackend, ToolExposure, Workflow,
+        PatchApplier, Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
     },
-    core::ModelConfig,
+    core::{ModelConfig, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, DynamicToolExposure, EmptyContextBuilder,
-        FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy, NoWorkflow, NullPatchApplier,
-        NullSearch, TextRenderer,
+        FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy, NoSubagent, NoWorkflow,
+        NullPatchApplier, NullSearch, TextRenderer,
     },
 };
 
@@ -173,6 +173,30 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         build_dynamic_tool_exposure,
     );
 
+    // Subagent runners
+    catalog.register_module::<dyn SubagentRunner>(
+        slot::SUBAGENT,
+        "none",
+        manifest(
+            "none",
+            ModuleKind::Subagent,
+            &["disabled"],
+            "Делегирование выключено: ролей нет, run возвращает ошибку.",
+        ),
+        build_no_subagent,
+    );
+    catalog.register_module::<dyn SubagentRunner>(
+        slot::SUBAGENT,
+        "sequential",
+        manifest(
+            "sequential",
+            ModuleKind::Subagent,
+            &["sequential", "roles_from_config"],
+            "Последовательный дочерний агентский цикл: роли и лимиты из module_config.subagent.sequential.",
+        ),
+        build_sequential_subagent,
+    );
+
     // Workflows
     catalog.register_module::<dyn Workflow>(
         slot::WORKFLOW,
@@ -284,6 +308,17 @@ fn build_dynamic_tool_exposure(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn T
         crate::stubs::DynamicToolExposureConfig::default(),
     )?;
     Ok(Arc::new(DynamicToolExposure::new(config)))
+}
+
+fn build_no_subagent(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
+    Ok(Arc::new(NoSubagent))
+}
+
+fn build_sequential_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
+    let config = ctx
+        .config
+        .module_config_value(ModuleKind::Subagent, "sequential");
+    Ok(Arc::new(SequentialSubagentRunner::from_config(config)?))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

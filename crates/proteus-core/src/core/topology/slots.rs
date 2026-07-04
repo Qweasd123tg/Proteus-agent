@@ -18,6 +18,7 @@ pub(super) fn active_modules(
         "tool_exposure".to_owned(),
         config.modules.tool_exposure.clone(),
     );
+    modules.insert("subagent".to_owned(), config.modules.subagent.clone());
     modules.insert("policy".to_owned(), config.modules.policy.clone());
     modules.insert("search".to_owned(), config.modules.search.clone());
     modules.insert("patch".to_owned(), config.modules.patch.clone());
@@ -40,6 +41,7 @@ pub(super) fn build_slots(
         "workflow",
         "context",
         "tool_exposure",
+        "subagent",
         "policy",
         "search",
         "patch",
@@ -80,6 +82,7 @@ fn slot_title(id: &str) -> &'static str {
         "workflow" => "Workflow",
         "context" => "Context",
         "tool_exposure" => "Tool Exposure",
+        "subagent" => "Subagent",
         "policy" => "Policy",
         "search" => "Search",
         "patch" => "Patch",
@@ -98,6 +101,7 @@ fn slot_responsibility(id: &str) -> &'static str {
         "workflow" => "Controls the agent turn loop: planning, model calls, tool calls, review.",
         "context" => "Builds context chunks before model calls.",
         "tool_exposure" => "Chooses which registered tools are exposed to the model.",
+        "subagent" => "Runs delegated child agent loops for workflows.",
         "policy" => "Evaluates tool execution and approval requirements.",
         "search" => "Provides repository/search backend.",
         "patch" => "Applies structured patches to the workspace.",
@@ -113,7 +117,8 @@ fn slot_responsibility(id: &str) -> &'static str {
 fn slot_category(id: &str) -> &'static str {
     match id {
         "workflow" => "orchestrator",
-        "context" | "compactor" | "model" | "tool_exposure" | "policy" | "renderer" => "pipeline",
+        "context" | "compactor" | "model" | "tool_exposure" | "subagent" | "policy"
+        | "renderer" => "pipeline",
         "tool" => "registry",
         "search" | "patch" | "memory" => "backend",
         "memory_policy" => "post_turn",
@@ -132,11 +137,12 @@ fn slot_order(id: &str) -> u32 {
         "model" => 4,
         "policy" => 5,
         "tool" => 6,
-        "renderer" => 7,
-        "search" => 8,
-        "patch" => 9,
-        "memory" => 10,
-        "memory_policy" => 11,
+        "subagent" => 7,
+        "renderer" => 8,
+        "search" => 9,
+        "patch" => 10,
+        "memory" => 11,
+        "memory_policy" => 12,
         _ => 100,
     }
 }
@@ -148,6 +154,7 @@ fn slot_required(id: &str) -> bool {
             | "workflow"
             | "context"
             | "tool_exposure"
+            | "subagent"
             | "policy"
             | "patch"
             | "compactor"

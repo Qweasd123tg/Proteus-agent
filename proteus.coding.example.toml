@@ -16,6 +16,7 @@ policy = "ask_write"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "all_visible"
+subagent = "sequential"
 renderer = "statusline"
 
 [tools]
@@ -38,6 +39,18 @@ trigger_fraction = 0.8
 [module_config.tool_exposure.dynamic]
 max_hot_tools = 10
 always_include = ["request_user_input"]
+
+# [module_config.subagent.sequential]
+# max_depth = 1
+#
+# [[module_config.subagent.sequential.roles]]
+# name = "explore"
+# description = "Read-only codebase explorer that returns paths and line numbers."
+# prompt = "You are a read-only codebase researcher. Inspect the repository without modifying files. Return concise findings with file paths and line numbers."
+# max_iterations = 15
+# # all_visible ignores exposure_phase; use tools as a per-role safety allowlist.
+# exposure_phase = "subagent:explore"
+# tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]

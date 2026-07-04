@@ -309,6 +309,9 @@ struct FakeHost {
     visible_tools: Mutex<Vec<ToolSpec>>,
     selected_tools: Mutex<Vec<ToolSpec>>,
     executed_calls: Mutex<Vec<ToolCall>>,
+    subagent_roles: Mutex<Vec<SubagentRoleSpec>>,
+    subagent_requests: Mutex<Vec<SubagentRequest>>,
+    subagent_results: Mutex<VecDeque<SubagentResult>>,
     compactions: Mutex<Vec<CompactionInput>>,
     compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
 }
@@ -322,6 +325,9 @@ impl FakeHost {
             visible_tools: Mutex::new(Vec::new()),
             selected_tools: Mutex::new(Vec::new()),
             executed_calls: Mutex::new(Vec::new()),
+            subagent_roles: Mutex::new(Vec::new()),
+            subagent_requests: Mutex::new(Vec::new()),
+            subagent_results: Mutex::new(VecDeque::new()),
             compactions: Mutex::new(Vec::new()),
             compaction_outputs: Mutex::new(VecDeque::new()),
         }
@@ -338,6 +344,16 @@ impl FakeHost {
         outputs: Vec<proteus_contracts::contracts::CompactionOutput>,
     ) -> Self {
         self.compaction_outputs = Mutex::new(VecDeque::from(outputs));
+        self
+    }
+
+    fn with_subagent_roles(mut self, roles: Vec<SubagentRoleSpec>) -> Self {
+        self.subagent_roles = Mutex::new(roles);
+        self
+    }
+
+    fn with_subagent_results(mut self, results: Vec<SubagentResult>) -> Self {
+        self.subagent_results = Mutex::new(VecDeque::from(results));
         self
     }
 }
@@ -462,6 +478,36 @@ impl PluginWorkflowHost for FakeHost {
             .with_metadata(json!({ "inner": true }));
         RResult::ROk(RString::from(
             serde_json::to_string(&result).expect("tool result json"),
+        ))
+    }
+
+    fn subagent_roles_json(&self) -> RResult<RString, PluginWorkflowHostError> {
+        RResult::ROk(RString::from(
+            serde_json::to_string(&*self.subagent_roles.lock().expect("subagent roles"))
+                .expect("subagent roles json"),
+        ))
+    }
+
+    fn run_subagent_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: SubagentRequest =
+            serde_json::from_str(request_json.as_str()).expect("subagent request json");
+        self.subagent_requests
+            .lock()
+            .expect("subagent requests")
+            .push(request);
+        let Some(result) = self
+            .subagent_results
+            .lock()
+            .expect("subagent results")
+            .pop_front()
+        else {
+            return RResult::RErr(PluginWorkflowHostError::new("subagent run not configured"));
+        };
+        RResult::ROk(RString::from(
+            serde_json::to_string(&result).expect("subagent result json"),
         ))
     }
 
@@ -993,6 +1039,102 @@ fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
             .iter()
             .any(|instruction| instruction.text.contains("full tool catalog"))
     );
+}
+
+#[test]
+fn task_tool_spec_is_generated_only_when_roles_exist() {
+    assert!(task_tool::task_tool_spec(&[]).is_none());
+
+    let roles = vec![SubagentRoleSpec::new(
+        "explore",
+        "Read-only codebase exploration",
+        "Inspect files without editing.",
+    )];
+    let spec = task_tool::task_tool_spec(&roles).expect("task tool spec");
+
+    assert_eq!(spec.name, task_tool::TASK_TOOL);
+    assert_eq!(
+        spec.input_schema["required"],
+        json!(["prompt", "agent_type"])
+    );
+    assert!(
+        spec.input_schema["properties"]["agent_type"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("- explore: Read-only codebase exploration")
+    );
+}
+
+#[test]
+fn single_loop_adds_task_tool_when_subagent_roles_available() {
+    let input = workflow_input("delegate exploration");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let mut host = FakeHost::default().with_subagent_roles(vec![SubagentRoleSpec::new(
+        "explore",
+        "Read-only exploration",
+        "Explore the repository.",
+    )]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json = match CodingSingleLoopWorkflow::default()
+        .run_json(RString::from(input_json), &mut host_to)
+    {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+    };
+    let _output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    let requests = host.requests.lock().expect("requests");
+    assert!(requests[0].tools.iter().any(|tool| tool.name == "task"));
+}
+
+#[test]
+fn task_tool_call_runs_subagent_and_records_request() {
+    let input = workflow_input("inspect task");
+    let call = ToolCall::new(
+        new_call_id(),
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "explore",
+            "prompt": "Find callers of run_subagent_json",
+            "description": "find subagent callers"
+        }),
+    );
+    let mut host = FakeHost::default().with_subagent_results(vec![SubagentResult::new(
+        "found host.rs:1",
+        SubagentStatus::Completed,
+        2,
+    )]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = task_tool::handle_task_tool_call(&mut host_to, &input, &call).unwrap();
+    drop(host_to);
+
+    assert!(result.ok);
+    assert_eq!(result.call_id, call.id);
+    assert_eq!(result.output, "found host.rs:1");
+    assert_eq!(result.metadata["status"], "completed");
+    assert_eq!(result.metadata["iterations"], 2);
+    assert!(
+        host.executed_calls
+            .lock()
+            .expect("executed calls")
+            .is_empty()
+    );
+
+    let requests = host.subagent_requests.lock().expect("subagent requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].role, "explore");
+    assert_eq!(requests[0].prompt, "Find callers of run_subagent_json");
+    assert_eq!(
+        requests[0].description.as_deref(),
+        Some("find subagent callers")
+    );
+    assert_eq!(requests[0].task.text, input.task.text);
 }
 
 #[test]

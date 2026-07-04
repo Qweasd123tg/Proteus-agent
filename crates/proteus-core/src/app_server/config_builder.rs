@@ -92,7 +92,7 @@ pub struct ConfigBuilderTool {
     pub registered: bool,
 }
 
-const CONFIG_BUILDER_MODULE_SLOTS: [&str; 10] = [
+const CONFIG_BUILDER_MODULE_SLOTS: [&str; 11] = [
     "workflow",
     "context",
     "tool_exposure",
@@ -102,6 +102,7 @@ const CONFIG_BUILDER_MODULE_SLOTS: [&str; 10] = [
     "memory",
     "memory_policy",
     "compactor",
+    "subagent",
     "renderer",
 ];
 
@@ -293,6 +294,7 @@ pub(super) fn set_module_slot(
         "patch" => modules.patch = module_id,
         "compactor" => modules.compactor = module_id,
         "tool_exposure" => modules.tool_exposure = module_id,
+        "subagent" => modules.subagent = module_id,
         "renderer" => modules.renderer = module_id,
         _ => anyhow::bail!("unsupported config builder slot: {slot}"),
     }
@@ -365,6 +367,7 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     doc["modules"]["patch"] = toml_edit::value(config.modules.patch.clone());
     doc["modules"]["compactor"] = toml_edit::value(config.modules.compactor.clone());
     doc["modules"]["tool_exposure"] = toml_edit::value(config.modules.tool_exposure.clone());
+    doc["modules"]["subagent"] = toml_edit::value(config.modules.subagent.clone());
     doc["modules"]["renderer"] = toml_edit::value(config.modules.renderer.clone());
 
     let module_config_doc = module_config_toml_document(&config.module_config)?;

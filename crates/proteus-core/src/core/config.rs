@@ -340,6 +340,7 @@ fn module_kind_config_key(kind: ModuleKind) -> &'static str {
         ModuleKind::ToolExposure => "tool_exposure",
         ModuleKind::Workflow => "workflow",
         ModuleKind::Renderer => "renderer",
+        ModuleKind::Subagent => "subagent",
         _ => "unknown",
     }
 }
@@ -463,6 +464,8 @@ pub struct ModulesConfig {
     pub compactor: String,
     #[serde(default = "default_tool_exposure")]
     pub tool_exposure: String,
+    #[serde(default = "default_subagent")]
+    pub subagent: String,
     #[serde(default = "default_renderer")]
     pub renderer: String,
 }
@@ -479,6 +482,7 @@ impl Default for ModulesConfig {
             patch: default_patch(),
             compactor: default_compactor(),
             tool_exposure: default_tool_exposure(),
+            subagent: default_subagent(),
             renderer: default_renderer(),
         }
     }
@@ -682,6 +686,10 @@ fn default_compactor() -> String {
 
 fn default_tool_exposure() -> String {
     "all_visible".to_owned()
+}
+
+fn default_subagent() -> String {
+    "sequential".to_owned()
 }
 
 fn default_renderer() -> String {

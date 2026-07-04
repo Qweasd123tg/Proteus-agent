@@ -6,12 +6,12 @@ use super::{BuiltinModuleCatalog, ErasedFactory, ModuleEntry, arc_to_any, valida
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, PatchApplier,
-        Renderer, SearchBackend, Tool, ToolExposure, Workflow,
+        Renderer, SearchBackend, SubagentRunner, Tool, ToolExposure, Workflow,
     },
     domain::{ModuleKind, ModuleManifest, slot},
     plugin_adapters::{
         PluginContextBuilderAdapter, PluginContextProviderAdapter, PluginMemoryPolicyAdapter,
-        PluginToolExposureAdapter, PluginWorkflowAdapter,
+        PluginSubagentAdapter, PluginToolExposureAdapter, PluginWorkflowAdapter,
     },
 };
 
@@ -519,6 +519,49 @@ impl BuiltinModuleCatalog {
                 factory: erased,
             },
         );
+        Ok(())
+    }
+
+    pub fn register_plugin_subagent(
+        &mut self,
+        module_id: &str,
+        subagent: proteus_contracts::plugin::SubagentObject,
+    ) -> Result<()> {
+        validate_plugin_id("subagent module", module_id)?;
+        let slot_id = slot::SUBAGENT;
+        let key = (slot_id.clone(), module_id.to_owned());
+        if self.entries.contains_key(&key) {
+            bail!(
+                "subagent module '{}' is already registered (slot: {})",
+                module_id,
+                slot_id
+            );
+        }
+
+        // PluginSubagent ABI не несёт module config (роли объявляет сам
+        // плагин), поэтому адаптер создаётся один раз и переиспользуется
+        // между build'ами — как у workflow.
+        let shared: Arc<dyn SubagentRunner> = Arc::new(PluginSubagentAdapter::new(subagent));
+        let factory_shared = shared.clone();
+        let erased: ErasedFactory = Box::new(move |input| {
+            let _ = input.module()?;
+            Ok(arc_to_any(factory_shared.clone()))
+        });
+
+        let mut manifest =
+            ModuleManifest::builtin(module_id, ModuleKind::Subagent, &["plugin", "dylib"]);
+        manifest.description = Some(format!(
+            "Subagent runner from plugin (module id: {module_id})"
+        ));
+
+        self.entries.insert(
+            key,
+            ModuleEntry {
+                manifest,
+                factory: erased,
+            },
+        );
+        drop(shared);
         Ok(())
     }
 }

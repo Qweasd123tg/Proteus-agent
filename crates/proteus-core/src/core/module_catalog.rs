@@ -13,8 +13,8 @@ mod plugin_registration;
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
-        PatchApplier, Renderer, SearchBackend, ToolExposure, ToolRegistry, Workflow,
-        register_provider_tools,
+        PatchApplier, Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
+        Workflow, register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -448,6 +448,18 @@ impl BuiltinModuleCatalog {
     ) -> Result<Arc<dyn ToolExposure>> {
         self.build_typed::<dyn ToolExposure>(
             slot::TOOL_EXPOSURE,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
+    }
+
+    pub fn build_subagent(
+        &self,
+        module: &str,
+        ctx: &ModuleBuildContext<'_>,
+    ) -> Result<Arc<dyn SubagentRunner>> {
+        self.build_typed::<dyn SubagentRunner>(
+            slot::SUBAGENT,
             module,
             &ModuleBuildInput::Module(ctx),
         )

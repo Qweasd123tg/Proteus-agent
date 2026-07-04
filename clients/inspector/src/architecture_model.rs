@@ -269,7 +269,8 @@ fn slot_category(slot: &TopologySlot) -> String {
     }
     match slot.id.as_str() {
         "workflow" => "orchestrator",
-        "context" | "compactor" | "model" | "tool_exposure" | "policy" | "renderer" => "pipeline",
+        "context" | "compactor" | "model" | "tool_exposure" | "subagent" | "policy"
+        | "renderer" => "pipeline",
         "tool" => "registry",
         "search" | "patch" | "memory" => "backend",
         "memory_policy" => "post_turn",
@@ -291,11 +292,12 @@ fn slot_order(slot: &TopologySlot) -> u32 {
         "model" => 4,
         "policy" => 5,
         "tool" => 6,
-        "renderer" => 7,
-        "search" => 8,
-        "patch" => 9,
-        "memory" => 10,
-        "memory_policy" => 11,
+        "subagent" => 7,
+        "renderer" => 8,
+        "search" => 9,
+        "patch" => 10,
+        "memory" => 11,
+        "memory_policy" => 12,
         _ => 100,
     }
 }

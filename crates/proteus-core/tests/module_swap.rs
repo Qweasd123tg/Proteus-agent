@@ -454,6 +454,11 @@ fn builtin_module_catalog_lists_builtin_slots() {
         .into_iter()
         .map(|manifest| manifest.id)
         .collect::<Vec<_>>();
+    let subagent_ids = catalog
+        .manifests_by_kind(ModuleKind::Subagent)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
     let renderer_ids = catalog
         .manifests_by_kind(ModuleKind::Renderer)
         .into_iter()
@@ -471,8 +476,41 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(workflow_ids, ["none"]);
     assert_eq!(compactor_ids, ["none"]);
     assert_eq!(tool_exposure_ids, ["all_visible", "dynamic"]);
+    assert_eq!(subagent_ids, ["none", "sequential"]);
     assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
+}
+
+#[test]
+fn subagent_slot_swaps_none_and_sequential_roles() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+
+    config.modules.subagent = "none".to_owned();
+    let registry = registry_from_test_config(&config, dir.path());
+    assert!(registry.subagent.roles().is_empty());
+
+    config.modules.subagent = "sequential".to_owned();
+    set_module_config(
+        &mut config,
+        "subagent",
+        "sequential",
+        json!({
+            "roles": [
+                {
+                    "name": "explore",
+                    "description": "Read-only exploration",
+                    "prompt": "Inspect the repository without editing.",
+                    "max_iterations": 15
+                }
+            ]
+        }),
+    );
+    let registry = registry_from_test_config(&config, dir.path());
+    let roles = registry.subagent.roles();
+    assert_eq!(roles.len(), 1);
+    assert_eq!(roles[0].name, "explore");
+    assert_eq!(roles[0].limits.max_iterations, 15);
 }
 
 #[tokio::test]

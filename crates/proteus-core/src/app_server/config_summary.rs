@@ -49,6 +49,7 @@ pub(super) fn render_config_summary(
     lines.push(format!("  memory: {}", config.modules.memory));
     lines.push(format!("  memory_policy: {}", config.modules.memory_policy));
     lines.push(format!("  compactor: {}", config.modules.compactor));
+    lines.push(format!("  subagent: {}", config.modules.subagent));
     lines.push(format!("  renderer: {}", config.modules.renderer));
 
     lines.push("tools.enabled:".to_owned());
@@ -107,6 +108,7 @@ pub(super) fn module_summary(config: &AppConfig) -> Vec<Value> {
         ("memory", config.modules.memory.as_str()),
         ("memory_policy", config.modules.memory_policy.as_str()),
         ("compactor", config.modules.compactor.as_str()),
+        ("subagent", config.modules.subagent.as_str()),
         ("renderer", config.modules.renderer.as_str()),
     ]
     .into_iter()

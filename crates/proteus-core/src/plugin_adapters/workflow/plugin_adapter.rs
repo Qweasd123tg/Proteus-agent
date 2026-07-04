@@ -22,8 +22,8 @@ use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput, ToolExposureRequest,
-        Workflow, WorkflowOutput,
+        CompactionInput, ContextBuildInput, RuntimeContext, SubagentRequest, ToolExposureInput,
+        ToolExposureRequest, Workflow, WorkflowOutput,
     },
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
@@ -72,11 +72,7 @@ impl Workflow for PluginWorkflowAdapter {
         let host_ctx = ctx.clone();
 
         let output_json = tokio::task::spawn_blocking(move || {
-            let mut host = WorkflowHost {
-                ctx: host_ctx,
-                handle,
-                tool_orchestrator: ToolOrchestrator::default(),
-            };
+            let mut host = WorkflowHost::new(host_ctx, handle);
             let mut host_to: PluginWorkflowHostMut<'_> =
                 PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
             match PluginWorkflow_TO::run_json(&*workflow, RString::from(input_json), &mut host_to) {
@@ -95,13 +91,24 @@ impl Workflow for PluginWorkflowAdapter {
     }
 }
 
-struct WorkflowHost {
+/// Host, через который sync-плагины (workflow и subagent) зовут async runtime.
+/// Переиспользуется адаптером slot'а `subagent` — см.
+/// `plugin_adapters/subagent.rs`.
+pub(crate) struct WorkflowHost {
     ctx: RuntimeContext,
     handle: Handle,
     tool_orchestrator: ToolOrchestrator,
 }
 
 impl WorkflowHost {
+    pub(crate) fn new(ctx: RuntimeContext, handle: Handle) -> Self {
+        Self {
+            ctx,
+            handle,
+            tool_orchestrator: ToolOrchestrator::default(),
+        }
+    }
+
     fn block_on_json<T, F>(&self, future: F) -> RResult<RString, PluginWorkflowHostError>
     where
         T: serde::Serialize,
@@ -306,6 +313,28 @@ impl PluginWorkflowHost for WorkflowHost {
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }
     }
+
+    fn subagent_roles_json(&self) -> RResult<RString, PluginWorkflowHostError> {
+        if self.ctx.is_cancelled() {
+            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
+        }
+        match serde_json::to_string(&self.ctx.subagent.roles()) {
+            Ok(json) => RResult::ROk(RString::from(json)),
+            Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        }
+    }
+
+    fn run_subagent_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: SubagentRequest = match serde_json::from_str(request_json.as_str()) {
+            Ok(request) => request,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        self.block_on_json(async move { ctx.subagent.run(request, ctx.clone()).await })
+    }
 }
 
 /// Выполняет батч tool calls: подряд идущие ReadOnly tools конкурентно
@@ -500,6 +529,7 @@ mod tests {
             Arc::new(NullPatchApplier),
             Arc::new(NoCompactor),
             Arc::new(AllVisibleToolExposure),
+            Arc::new(crate::stubs::NoSubagent),
         )
         .with_instructions(vec![InstructionBlock::new(
             InstructionKind::System,

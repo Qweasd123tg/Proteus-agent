@@ -28,6 +28,7 @@ pub enum ModuleKind {
     ToolExposure,
     Workflow,
     Renderer,
+    Subagent,
 }
 
 impl ModuleManifest {
@@ -73,6 +74,7 @@ pub mod slot {
     pub const TOOL_EXPOSURE: SlotId = Cow::Borrowed("tool_exposure");
     pub const WORKFLOW: SlotId = Cow::Borrowed("workflow");
     pub const RENDERER: SlotId = Cow::Borrowed("renderer");
+    pub const SUBAGENT: SlotId = Cow::Borrowed("subagent");
 }
 
 /// Сопоставление `ModuleKind` → `SlotId` для встроенных slots.
@@ -94,6 +96,7 @@ impl ModuleKind {
             ModuleKind::ToolExposure => slot::TOOL_EXPOSURE,
             ModuleKind::Workflow => slot::WORKFLOW,
             ModuleKind::Renderer => slot::RENDERER,
+            ModuleKind::Subagent => slot::SUBAGENT,
         }
     }
 }

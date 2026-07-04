@@ -38,6 +38,7 @@
     "patch": "null",
     "compactor": "codex",
     "tool_exposure": "all_visible",
+    "subagent": "sequential",
     "renderer": "statusline"
   },
   "module_config": {
