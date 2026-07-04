@@ -8,19 +8,24 @@ use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
 use crate::types::{SessionToken, StdioOutput};
 
 const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const DEFAULT_INSPECTOR_ORIGIN: &str = "http://127.0.0.1:1421";
 const SERVER_QUERY_KEYS: [&str; 4] = ["server", "app_server", "app_server_origin", "proteus_server"];
+const INSPECTOR_QUERY_KEYS: [&str; 3] = ["inspector", "inspector_origin", "proteus_inspector"];
 const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
+const INSPECTOR_STORAGE_KEY: &str = "proteus.inspectorOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
 const SESSION_HEADER: &str = "X-Proteus-Session";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
+    static INSPECTOR_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_INSPECTOR_ORIGIN.to_owned());
     static SESSION_TOKEN: RefCell<SessionToken> = RefCell::new(SessionToken::missing());
 }
 
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     load_app_server_origin()?;
+    load_inspector_origin()?;
     let token = if let Some(token) = query_session_token() {
         persist_session_token(&token)?;
         token
@@ -159,6 +164,45 @@ fn load_app_server_origin() -> Result<(), String> {
     Ok(())
 }
 
+fn load_inspector_origin() -> Result<(), String> {
+    let origin = if let Some(origin) = query_value(&INSPECTOR_QUERY_KEYS)
+        .map(|origin| normalize_origin(origin, DEFAULT_INSPECTOR_ORIGIN))
+    {
+        if let Some(storage) = session_storage()? {
+            storage
+                .set_item(INSPECTOR_STORAGE_KEY, &origin)
+                .map_err(js_error)?;
+        }
+        origin
+    } else if let Some(storage) = session_storage()? {
+        storage
+            .get_item(INSPECTOR_STORAGE_KEY)
+            .map_err(js_error)?
+            .map(|origin| normalize_origin(origin, DEFAULT_INSPECTOR_ORIGIN))
+            .unwrap_or_else(|| DEFAULT_INSPECTOR_ORIGIN.to_owned())
+    } else {
+        DEFAULT_INSPECTOR_ORIGIN.to_owned()
+    };
+
+    INSPECTOR_ORIGIN.with(|stored| *stored.borrow_mut() = origin);
+    Ok(())
+}
+
+/// Ссылка на Inspector с пробросом session token и app-server origin:
+/// hardcoded href терял бы token при включённом token-режиме.
+pub(crate) fn inspector_link_url() -> String {
+    let origin = INSPECTOR_ORIGIN.with(|stored| stored.borrow().clone());
+    let mut params = Vec::new();
+    if let Some(token) = current_session_token().as_deref() {
+        params.push(format!("session={}", encode_uri_component(token)));
+    }
+    params.push(format!(
+        "server={}",
+        encode_uri_component(&app_server_origin())
+    ));
+    format!("{origin}/?{}", params.join("&"))
+}
+
 fn app_server_origin() -> String {
     APP_SERVER_ORIGIN.with(|stored| stored.borrow().clone())
 }
@@ -234,9 +278,13 @@ fn decode_uri_component(value: &str) -> Option<String> {
 }
 
 fn normalize_app_server_origin(origin: String) -> String {
+    normalize_origin(origin, DEFAULT_APP_SERVER_ORIGIN)
+}
+
+fn normalize_origin(origin: String, default: &str) -> String {
     let origin = origin.trim().trim_end_matches('/');
     if origin.is_empty() {
-        DEFAULT_APP_SERVER_ORIGIN.to_owned()
+        default.to_owned()
     } else {
         origin.to_owned()
     }

@@ -804,7 +804,7 @@ pub(crate) fn App() -> impl IntoView {
                                 </a>
                                 <a
                                     class="topbar-menu-item"
-                                    href="http://127.0.0.1:1421/"
+                                    href=crate::api::inspector_link_url()
                                     on:click=move |_| close_topbar_menu()
                                 >
                                     "Inspector"
