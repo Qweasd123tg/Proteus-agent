@@ -17,6 +17,10 @@ pub struct ToolExposureRequest {
     pub max_tools: Option<usize>,
     #[serde(default)]
     pub reason: Option<String>,
+    /// Фаза workflow ("plan"/"execute"/"review"/...), если workflow фазовый.
+    /// Selector может использовать её для phase-aware отбора tools.
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 impl ToolExposureRequest {
@@ -27,6 +31,7 @@ impl ToolExposureRequest {
             query: None,
             max_tools: None,
             reason: None,
+            phase: None,
         }
     }
 
@@ -42,6 +47,11 @@ impl ToolExposureRequest {
 
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
+        self
+    }
+
+    pub fn with_phase(mut self, phase: impl Into<String>) -> Self {
+        self.phase = Some(phase.into());
         self
     }
 }

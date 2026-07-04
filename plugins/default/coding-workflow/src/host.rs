@@ -96,11 +96,13 @@ fn request_from_state_with_instruction_blocks_and_options(
     phase: &str,
     options: RequestOptions<'_>,
 ) -> Result<PreparedRequest, PluginWorkflowError> {
-    let mut tools = if options.expose_tools {
-        visible_tools(host, input)?
+    let selected = if options.expose_tools {
+        visible_tools(host, input, phase)?
     } else {
-        Vec::new()
+        SelectedTools::empty()
     };
+    let exposure_metadata = selected.metadata;
+    let mut tools = selected.tools;
     let dynamic_tools_enabled = if options.expose_tools && options.include_dynamic_meta_tools {
         let all_visible_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
         dynamic_tools::has_hidden_tools(&tools, &all_visible_tools)
@@ -147,6 +149,12 @@ fn request_from_state_with_instruction_blocks_and_options(
     }
     let prompt_cache_key = prompt_cache_key(input, &request);
     insert_request_metadata_value(&mut request, "prompt_cache_key", json!(prompt_cache_key));
+    // Telemetry селектора (hidden count, saved schema tokens и т.п.) не должна
+    // теряться на workflow-границе: кладём её в metadata запроса, откуда её
+    // видят снимки usage и event log.
+    if !exposure_metadata.is_null() {
+        insert_request_metadata_value(&mut request, "tool_exposure", exposure_metadata);
+    }
     Ok(PreparedRequest {
         request,
         compaction: compacted.report,
@@ -233,12 +241,29 @@ pub(super) fn complete_model(
     Ok(response)
 }
 
+pub(super) struct SelectedTools {
+    pub(super) tools: Vec<ToolSpec>,
+    pub(super) metadata: serde_json::Value,
+}
+
+impl SelectedTools {
+    fn empty() -> Self {
+        Self {
+            tools: Vec::new(),
+            metadata: serde_json::Value::Null,
+        }
+    }
+}
+
 fn visible_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
-) -> Result<Vec<ToolSpec>, PluginWorkflowError> {
+    phase: &str,
+) -> Result<SelectedTools, PluginWorkflowError> {
     ensure_not_cancelled(host)?;
-    let request = ToolExposureRequest::new(input.task.clone()).with_reason("before_model_request");
+    let request = ToolExposureRequest::new(input.task.clone())
+        .with_reason("before_model_request")
+        .with_phase(phase);
     let request_json = to_json_string(&request)?;
     let tools_json = match host.select_tools_json(RString::from(request_json)) {
         RResult::ROk(json) => json,
@@ -246,7 +271,10 @@ fn visible_tools(
     };
     let output: proteus_contracts::contracts::ToolExposureOutput =
         from_json_string(tools_json.as_str())?;
-    Ok(output.tools)
+    Ok(SelectedTools {
+        tools: output.tools,
+        metadata: output.metadata,
+    })
 }
 
 /// Выполняет батч tool calls одного ответа модели. Meta-tools динамической

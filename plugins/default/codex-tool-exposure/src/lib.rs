@@ -88,6 +88,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         .unwrap_or(config.max_hot_tools)
         .max(1);
     let query = tool_query(&input);
+    let phase = input.request.phase.clone();
     let before = estimate_tool_schema_tokens(&input.candidates);
 
     if candidate_count <= max_tools {
@@ -101,6 +102,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
             candidate_count,
             max_tools,
             query,
+            phase,
             before,
             reasons,
         );
@@ -118,6 +120,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         if let Some(tool) = input
             .candidates
             .iter()
+            .filter(|tool| phase_allows(tool, phase.as_deref()))
             .find(|tool| tool.name == name.as_str())
         {
             selected_names.insert(tool.name.clone());
@@ -130,6 +133,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         .candidates
         .iter()
         .filter(|tool| !selected_names.contains(&tool.name))
+        .filter(|tool| phase_allows(tool, phase.as_deref()))
         .map(|tool| {
             let scored = score_tool(tool, &query_terms);
             (scored.score, scored.reason, tool)
@@ -158,6 +162,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         candidate_count,
         max_tools,
         query,
+        phase,
         before,
         selected_reasons,
     )
@@ -260,6 +265,12 @@ fn score_tool(tool: &ToolSpec, query_terms: &HashSet<String>) -> ScoredTool {
     }
 }
 
+/// Plan-фаза read-only: workflow всё равно вырежет write/shell из запроса,
+/// поэтому selector не тратит на них hot set.
+fn phase_allows(tool: &ToolSpec, phase: Option<&str>) -> bool {
+    phase != Some("plan") || matches!(tool.safety, ToolSafety::ReadOnly)
+}
+
 fn codex_priority(name: &str) -> Option<f32> {
     CODEX_PRIORITY
         .iter()
@@ -295,6 +306,7 @@ fn output(
     candidate_count: usize,
     max_tools: usize,
     query: String,
+    phase: Option<String>,
     before: usize,
     selected_reasons: HashMap<String, String>,
 ) -> ToolExposureOutput {
@@ -316,6 +328,7 @@ fn output(
     output.metadata = json!({
         "selector": MODULE_ID,
         "query": query,
+        "phase": phase,
         "candidate_count": candidate_count,
         "selected_count": selected_tools.len(),
         "hidden_count": candidate_count.saturating_sub(selected_tools.len()),
@@ -490,6 +503,42 @@ mod tests {
             "intent_match"
         );
         assert_eq!(output.metadata["hidden_count"], 2);
+    }
+
+    #[test]
+    fn codex_selector_penalizes_non_read_only_tools_in_plan_phase() {
+        let task = AgentTask::new(
+            "fix code and run tests".to_owned(),
+            std::env::current_dir().unwrap(),
+        );
+        let request = ToolExposureRequest::new(task)
+            .with_query("fix code and run tests")
+            .with_max_tools(3)
+            .with_phase("plan");
+        // Пустой always_include, чтобы проверить именно скоринг.
+        let input = ToolExposureInput::new(
+            request,
+            vec![
+                spec("shell", "Run commands", ToolSafety::RunsCommands),
+                spec("apply_patch", "Apply patch", ToolSafety::WritesFiles),
+                spec("read_file", "Read a file", ToolSafety::ReadOnly),
+                spec("grep", "Search files", ToolSafety::ReadOnly),
+                spec("git_diff", "Show git diff", ToolSafety::ReadOnly),
+                spec("list_dir", "List directory", ToolSafety::ReadOnly),
+            ],
+        )
+        .with_config(json!({ "always_include": ["read_file"] }));
+
+        let output = select_with_input(input);
+
+        let names = output
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!names.contains(&"shell"), "{names:?}");
+        assert!(!names.contains(&"apply_patch"), "{names:?}");
+        assert_eq!(output.metadata["phase"], json!("plan"));
     }
 
     #[test]

@@ -474,7 +474,11 @@ Selector пишет observability metadata:
 стабильный приоритет, а `shell`, `apply_patch`, `write_file` и
 `remember_fact` поднимаются только при явном intent match в task/query. Как и
 `dynamic`, selector видит только policy-visible candidates и пишет
-`selected_tool_reasons` в metadata.
+`selected_tool_reasons` в metadata. Selector phase-aware: workflow передаёт
+`ToolExposureRequest.phase`, и в `plan`-фазе non-ReadOnly кандидаты не
+попадают в hot set. Workflow сохраняет metadata селектора (hidden count,
+schema-token savings и т.д.) в metadata запроса под ключом `tool_exposure`,
+откуда её видят usage snapshots и event log.
 `module_config.tool_exposure.codex_dynamic` передаётся в
 `ToolExposureInput.config`; плагин читает `max_hot_tools` и `always_include`.
 
@@ -516,7 +520,11 @@ events вызывает через host API (`build_context`, `complete_model`,
 `modules.workflow = "coding.plan_execute_review"` поставляется тем же
 плагином и добавляет явные фазы:
 
-- `plan` — первый model call без tools составляет короткий internal plan;
+- `plan` — bounded read-only tool loop (до 3 tool-раундов): модель может
+  читать код и вызывать search/describe meta-tools, write/shell tools
+  вырезаются из запроса; последний plan-запрос идёт принудительно без tools,
+  чтобы фаза закончилась текстовым планом. Tool results plan-фазы видны
+  execute-фазе;
 - `execute` — model/tool loop следует плану и вызывает tools через host API;
 - `review` — финальный model call идёт без tools и формирует user-facing ответ
   с указанием сделанного и gaps проверки.
