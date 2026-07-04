@@ -343,6 +343,8 @@ where
                         command.modules,
                         command.module_config,
                         command.tools_enabled,
+                        command.active_provider,
+                        command.permission_mode,
                     )
                     .await
                 {

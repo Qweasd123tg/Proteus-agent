@@ -6,19 +6,20 @@ use serde_json::Value;
 use crate::api::{get_json, post_json};
 use crate::types::*;
 
+use super::DraftSetters;
 use super::module_config_editor::ModuleConfigEditor;
+use super::tools_picker::ToolsPicker;
 
 #[component]
 pub(super) fn ConfigBuilderView(
     builder: ConfigBuilderSnapshot,
     draft_modules: ReadSignal<BTreeMap<String, String>>,
-    set_draft_modules: WriteSignal<BTreeMap<String, String>>,
     draft_config_texts: ReadSignal<BTreeMap<String, String>>,
-    set_draft_config_texts: WriteSignal<BTreeMap<String, String>>,
     draft_module_config: ReadSignal<BTreeMap<String, BTreeMap<String, Value>>>,
-    set_draft_module_config: WriteSignal<BTreeMap<String, BTreeMap<String, Value>>>,
     draft_tools: ReadSignal<BTreeSet<String>>,
-    set_draft_tools: WriteSignal<BTreeSet<String>>,
+    draft_provider: ReadSignal<Option<String>>,
+    draft_mode: ReadSignal<String>,
+    drafts: DraftSetters,
     set_builder: WriteSignal<Option<ConfigBuilderSnapshot>>,
     set_summary: WriteSignal<Option<ConfigSummary>>,
     set_status: WriteSignal<String>,
@@ -32,6 +33,22 @@ pub(super) fn ConfigBuilderView(
         .unwrap_or_else(|| "(config path unavailable)".to_owned());
     let writable = builder.writable;
 
+    // Dirty-состояние: сравнение черновиков со snapshot-ом. Ложное
+    // срабатывание из-за форматирования JSON безвредно (кнопка просто
+    // активна), пропуск реального изменения невозможен — сравнение точное.
+    let saved_modules = builder_active_modules(&builder);
+    let saved_texts = builder_config_texts(&builder, &saved_modules);
+    let saved_tools = builder.tools_enabled.iter().cloned().collect::<BTreeSet<_>>();
+    let saved_provider = builder.active_provider.clone();
+    let saved_mode = builder.permission_mode.clone();
+    let dirty = Memo::new(move |_| {
+        draft_modules.with(|modules| *modules != saved_modules)
+            || draft_config_texts.with(|texts| *texts != saved_texts)
+            || draft_tools.with(|tools| *tools != saved_tools)
+            || draft_provider.with(|provider| *provider != saved_provider)
+            || draft_mode.with(|mode| *mode != saved_mode)
+    });
+
     let save = move |_| {
         if !writable {
             set_status.set("config path недоступен для записи".to_owned());
@@ -41,6 +58,8 @@ pub(super) fn ConfigBuilderView(
         let mut module_config = draft_module_config.get_untracked();
         let text_by_slot = draft_config_texts.get_untracked();
         let tools_enabled = draft_tools.get_untracked().into_iter().collect::<Vec<_>>();
+        let active_provider = draft_provider.get_untracked();
+        let permission_mode = Some(draft_mode.get_untracked()).filter(|mode| !mode.is_empty());
         let mut errors = Vec::new();
 
         for (slot, module_id) in &modules {
@@ -77,15 +96,12 @@ pub(super) fn ConfigBuilderView(
                 modules,
                 module_config,
                 tools_enabled: Some(tools_enabled),
+                active_provider,
+                permission_mode,
             };
             match post_json::<_, ConfigBuilderSnapshot>("/config/builder", &request).await {
                 Ok(next_builder) => {
-                    let next_modules = builder_active_modules(&next_builder);
-                    let next_texts = builder_config_texts(&next_builder, &next_modules);
-                    set_draft_module_config.set(next_builder.module_config.clone());
-                    set_draft_modules.set(next_modules);
-                    set_draft_config_texts.set(next_texts);
-                    set_draft_tools.set(next_builder.tools_enabled.iter().cloned().collect());
+                    drafts.reset_to(&next_builder);
                     set_builder.set(Some(next_builder));
                     match get_json::<ConfigSummary>("/config").await {
                         Ok(summary) => set_summary.set(Some(summary)),
@@ -110,7 +126,17 @@ pub(super) fn ConfigBuilderView(
             <div class="config-builder-target">
                 <span>"target"</span>
                 <code>{target_path}</code>
-                <button type="button" class="btn-primary" disabled=!writable on:click=save>"Сохранить"</button>
+                <span class="topology-muted">
+                    {move || if dirty.get() { "есть несохранённые изменения" } else { "" }}
+                </span>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    disabled=move || !writable || !dirty.get()
+                    on:click=save
+                >
+                    "Сохранить"
+                </button>
             </div>
             {if warnings.is_empty() {
                 view! { <div></div> }.into_any()
@@ -132,6 +158,7 @@ pub(super) fn ConfigBuilderView(
                     </div>
                 }.into_any()
             }}
+            <RuntimeSettings builder=builder.clone() draft_provider draft_mode drafts/>
             <div class="config-builder-grid">
                 <For
                     each=move || slots.clone()
@@ -141,17 +168,100 @@ pub(super) fn ConfigBuilderView(
                             <BuilderSlotCard
                                 builder_slot=slot
                                 draft_modules
-                                set_draft_modules
                                 draft_config_texts
-                                set_draft_config_texts
                                 draft_module_config
+                                drafts
                             />
                         }
                     }
                 />
             </div>
-            <ToolsPicker tools draft_tools set_draft_tools/>
+            <ToolsPicker tools draft_tools set_draft_tools=drafts.tools/>
         </section>
+    }
+}
+
+/// Provider (модель) и permission mode: config-уровневые настройки за
+/// пределами module slots. Provider доступен только когда в config есть
+/// `[providers]`; иначе модель задана секцией `[model]` и выбор недоступен.
+#[component]
+fn RuntimeSettings(
+    builder: ConfigBuilderSnapshot,
+    draft_provider: ReadSignal<Option<String>>,
+    draft_mode: ReadSignal<String>,
+    drafts: DraftSetters,
+) -> impl IntoView {
+    let providers = builder.providers.clone();
+    let modes = builder.permission_modes.clone();
+
+    view! {
+        <div class="config-builder-grid config-builder-runtime">
+            <article class="config-builder-slot">
+                <div class="config-builder-slot-head">
+                    <div>
+                        <span class="panel-kicker">"config"</span>
+                        <strong>"Model provider"</strong>
+                    </div>
+                    <code>"active_provider"</code>
+                </div>
+                <p>"Активный provider из [providers]; save переключает модель и перезагружает runtime."</p>
+                {if providers.is_empty() {
+                    view! {
+                        <div class="config-empty">"[providers] не настроены — модель задаётся секцией [model]"</div>
+                    }.into_any()
+                } else {
+                    let options = providers.clone();
+                    view! {
+                        <label class="config-builder-field">
+                            <span>"provider"</span>
+                            <select
+                                prop:value=move || draft_provider.get().unwrap_or_default()
+                                on:change:target=move |ev| {
+                                    drafts.provider.set(Some(ev.target().value()));
+                                }
+                            >
+                                <For
+                                    each=move || options.clone()
+                                    key=|provider| provider.id.clone()
+                                    children=move |provider| {
+                                        view! {
+                                            <option value=provider.id.clone()>
+                                                {format!("{} · {}", provider.id, provider.label)}
+                                            </option>
+                                        }
+                                    }
+                                />
+                            </select>
+                        </label>
+                    }.into_any()
+                }}
+            </article>
+            <article class="config-builder-slot">
+                <div class="config-builder-slot-head">
+                    <div>
+                        <span class="panel-kicker">"config"</span>
+                        <strong>"Permission mode"</strong>
+                    </div>
+                    <code>"permissions.mode"</code>
+                </div>
+                <p>"plan — только чтение, normal — approvals по policy, auto — авто-подтверждение."</p>
+                <label class="config-builder-field">
+                    <span>"mode"</span>
+                    <select
+                        prop:value=move || draft_mode.get()
+                        on:change:target=move |ev| drafts.mode.set(ev.target().value())
+                    >
+                        <For
+                            each=move || modes.clone()
+                            key=|mode| mode.clone()
+                            children=move |mode| {
+                                view! { <option value=mode.clone()>{mode.clone()}</option> }
+                            }
+                        />
+                    </select>
+                </label>
+            </article>
+        </div>
     }
 }
 
@@ -159,10 +269,9 @@ pub(super) fn ConfigBuilderView(
 fn BuilderSlotCard(
     builder_slot: ConfigBuilderSlot,
     draft_modules: ReadSignal<BTreeMap<String, String>>,
-    set_draft_modules: WriteSignal<BTreeMap<String, String>>,
     draft_config_texts: ReadSignal<BTreeMap<String, String>>,
-    set_draft_config_texts: WriteSignal<BTreeMap<String, String>>,
     draft_module_config: ReadSignal<BTreeMap<String, BTreeMap<String, Value>>>,
+    drafts: DraftSetters,
 ) -> impl IntoView {
     let slot = builder_slot;
     let slot_id = slot.id.clone();
@@ -194,13 +303,13 @@ fn BuilderSlotCard(
                     }
                     on:change:target=move |ev| {
                         let selected = ev.target().value();
-                        set_draft_modules.update(|items| {
+                        drafts.modules.update(|items| {
                             items.insert(slot_id_for_select_change.clone(), selected.clone());
                         });
                         let text = draft_module_config.with(|config| {
                             module_config_text(config, &slot_id_for_select_change, &selected)
                         });
-                        set_draft_config_texts.update(|items| {
+                        drafts.config_texts.update(|items| {
                             items.insert(slot_id_for_select_change.clone(), text);
                         });
                     }
@@ -216,7 +325,11 @@ fn BuilderSlotCard(
                     />
                 </select>
             </label>
-            <ModuleConfigEditor slot_id=slot_id.clone() draft_config_texts set_draft_config_texts/>
+            <ModuleConfigEditor
+                slot_id=slot_id.clone()
+                draft_config_texts
+                set_draft_config_texts=drafts.config_texts
+            />
             <div class="config-builder-modules">
                 <span>{format!("{module_count} candidates")}</span>
                 <div class="config-chip-row">
@@ -237,112 +350,6 @@ fn BuilderSlotCard(
                 </div>
             </div>
         </article>
-    }
-}
-
-/// Каталог tools с чекбоксами `tools.enabled`. Показывает и tools, которые
-/// включены в config, но не registered в runtime (например, plugin выключен).
-#[component]
-fn ToolsPicker(
-    tools: Vec<ConfigBuilderTool>,
-    draft_tools: ReadSignal<BTreeSet<String>>,
-    set_draft_tools: WriteSignal<BTreeSet<String>>,
-) -> impl IntoView {
-    let (filter, set_filter) = signal(String::new());
-    let total = tools.len();
-    let known = tools
-        .iter()
-        .map(|tool| tool.name.clone())
-        .collect::<BTreeSet<_>>();
-
-    let rows = move || {
-        let mut rows = tools.clone();
-        draft_tools.with(|draft| {
-            for name in draft {
-                if !known.contains(name) {
-                    rows.push(ConfigBuilderTool {
-                        name: name.clone(),
-                        source: "config".to_owned(),
-                        safety: "-".to_owned(),
-                        description: "включён в config, но не registered в runtime".to_owned(),
-                        enabled: true,
-                        registered: false,
-                    });
-                }
-            }
-        });
-        let needle = filter.get().trim().to_lowercase();
-        if !needle.is_empty() {
-            rows.retain(|tool| tool.name.to_lowercase().contains(&needle));
-        }
-        rows
-    };
-
-    view! {
-        <div class="tools-picker">
-            <div class="tools-picker-head">
-                <div>
-                    <strong>"Tools"</strong>
-                    <span>
-                        {move || draft_tools.with(BTreeSet::len)}
-                        " включено · "
-                        {total}
-                        " в каталоге"
-                    </span>
-                </div>
-                <input
-                    type="search"
-                    placeholder="фильтр по имени"
-                    prop:value=move || filter.get()
-                    on:input:target=move |ev| set_filter.set(ev.target().value())
-                />
-            </div>
-            <div class="tools-picker-list">
-                <For
-                    each=rows
-                    key=|tool| tool.name.clone()
-                    children=move |tool| {
-                        let name_for_checked = tool.name.clone();
-                        let name_for_toggle = tool.name.clone();
-                        view! {
-                            <label class="tools-picker-row">
-                                <input
-                                    type="checkbox"
-                                    prop:checked=move || {
-                                        draft_tools.with(|draft| draft.contains(&name_for_checked))
-                                    }
-                                    on:change:target=move |ev| {
-                                        let checked = ev.target().checked();
-                                        let name = name_for_toggle.clone();
-                                        set_draft_tools.update(|draft| {
-                                            if checked {
-                                                draft.insert(name);
-                                            } else {
-                                                draft.remove(&name);
-                                            }
-                                        });
-                                    }
-                                />
-                                <div class="tools-picker-main">
-                                    <div class="tools-picker-title">
-                                        <strong>{tool.name.clone()}</strong>
-                                        <code>{tool.source.clone()}</code>
-                                        <span class="status-badge idle">{tool.safety.clone()}</span>
-                                        {(!tool.registered)
-                                            .then(|| {
-                                                view! {
-                                                    <span class="status-badge failed">"не registered"</span>
-                                                }
-                                            })}
-                                    </div>
-                                    <p>{tool.description.clone()}</p>
-                                </div>
-                            </label>
-                        }
-                    }
-                />
-            </div>
-        </div>
     }
 }
 

@@ -357,6 +357,13 @@ impl AgentRuntime {
         self.services.model_ref.write().await.model = model.to_owned();
     }
 
+    /// Полная замена provider+model, например после смены `active_provider`
+    /// через config builder: `reload_registry` пересобирает model adapter, но
+    /// не трогает runtime override model_ref.
+    pub async fn set_model_ref(&self, model_ref: ModelRef) {
+        *self.services.model_ref.write().await = model_ref;
+    }
+
     pub async fn model_ref(&self) -> ModelRef {
         self.services.model_ref.read().await.clone()
     }

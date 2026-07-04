@@ -81,11 +81,12 @@ init создаст `<name>.config.toml` в default config dir, чтобы сл�
 ежедневный chat client: transcript, composer, approvals, typed user input,
 cancel, history/resume и control-plane mode/model/reasoning endpoints работают
 через `proteus server http`. `clients/inspector` — отдельный config/architecture
-client на другом dev-порту; он читает `/config` и `/inspect/topology*`, но не
-поднимает чатовый SSE/runtime-control state. Оба клиента используют тот же
-config root, session store и protocol DTO boundary, что и другие внешние
-клиенты; wasm-код держит локальные serde-типы, чтобы не тащить runtime
-internals во фронт.
+client на другом dev-порту; он читает `/config` и `/inspect/topology*`, а также
+редактирует config через `GET`/`POST /config/builder` (см. раздел «Config
+Builder» ниже), но не поднимает чатовый SSE/runtime-control state. Оба клиента
+используют тот же config root, session store и protocol DTO boundary, что и
+другие внешние клиенты; wasm-код держит локальные serde-типы, чтобы не тащить
+runtime internals во фронт.
 
 Пошаговый bootstrap для новой машины описан в
 [second-pc-bootstrap.md](second-pc-bootstrap.md).
@@ -409,14 +410,23 @@ Inspector route `/configs` содержит Config builder для редакти
   `renderer`;
 - список зарегистрированных реализаций каждого slot-а из текущего
   `BuiltinModuleCatalog` + загруженных plugin manifests;
-- текущие `module_config.<slot>.<module_id>` payloads.
+- текущие `module_config.<slot>.<module_id>` payloads;
+- каталог tools с флагами `enabled`/`registered` и текущий `tools.enabled`;
+- provider profiles из `[providers.*]` (id + provider/model label), выбранный
+  `active_provider` (с учётом fallback на `default`) и persisted
+  `[permissions] mode` со списком допустимых значений.
 
 Сохранение идёт через `POST /config/builder`. Endpoint валидирует, что
-выбранный `module_id` зарегистрирован для своего slot-а, проверяет, что
-`module_config` сериализуется в TOML, строит новый runtime registry и только
-после успешной сборки пишет TOML. После записи app-server применяет
+выбранный `module_id` зарегистрирован для своего slot-а и что
+`active_provider` определён в `[providers]`, проверяет, что `module_config`
+сериализуется в TOML, строит новый runtime registry и только после успешной
+сборки пишет TOML (`[modules]`, `[module_config]`, `[tools].enabled`,
+`active_provider`, `[permissions] mode`). После записи app-server применяет
 `runtime.reload_registry`, поэтому новый module selection начинает действовать
-без перезапуска процесса.
+без перезапуска процесса; смена `active_provider` дополнительно обновляет
+runtime model, а `permission_mode` — активный permission mode. Поля
+`tools_enabled`, `active_provider` и `permission_mode` в запросе опциональны:
+`null`/отсутствие означает «не трогать».
 
 Builder пишет только `[modules]` и `[module_config]` в активный config file
 (или в `config.toml` внутри активной config-директории). Provider profiles,

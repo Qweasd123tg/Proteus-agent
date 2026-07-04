@@ -1927,6 +1927,12 @@ button.topbar-menu-item.danger:not(:disabled):hover {
     padding: var(--space-4);
 }
 
+/* Runtime-ряд builder-а (provider, permission mode) идёт перед grid slots:
+   нижний padding убираем, чтобы не удваивать зазор между двумя grid. */
+.config-builder-runtime {
+    padding-bottom: 0;
+}
+
 .config-builder-slot {
     display: grid;
     min-width: 0;
@@ -2016,6 +2022,25 @@ button.topbar-menu-item.danger:not(:disabled):hover {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+}
+
+/* module_config как <details>: пустые payload свёрнуты по умолчанию. */
+summary.config-editor-head {
+    cursor: pointer;
+    list-style: none;
+}
+
+summary.config-editor-head::-webkit-details-marker {
+    display: none;
+}
+
+summary.config-editor-head > span::before {
+    content: "▸ ";
+    color: var(--text-faint);
+}
+
+details[open] > summary.config-editor-head > span::before {
+    content: "▾ ";
 }
 
 .config-editor-toggle {
@@ -2610,6 +2635,15 @@ button.topbar-menu-item.danger:not(:disabled):hover {
     border-color: var(--accent-blue);
     background: var(--accent-blue-soft);
     color: var(--text-main);
+}
+
+.topology-filter-search {
+    min-height: 28px;
+    flex: 1 1 160px;
+    margin-left: auto;
+    max-width: 240px;
+    font-family: var(--font-mono);
+    font-size: 11px;
 }
 
 .topology-tool-item {

@@ -10,10 +10,16 @@ runtime-control state.
 - `/architecture` читает `/inspect/topology` и `/inspect/topology.mmd`,
   показывает topology map, runtime pipeline, slots, tools, plugin
   contributions и warnings;
-- `/configs` читает `/config` и `/config/builder`, показывает active modules,
-  tools, plugins, model/reasoning и config files, а также даёт Config builder
-  для выбора реализации каждого `[modules]` slot-а и редактирования
-  `module_config.<slot>.<module_id>` JSON payload.
+- `/configs` читает `/config` и `/config/builder`, показывает runtime
+  overview (model/reasoning/config files) и plugins, а Config builder
+  редактирует `active_provider`, `[permissions] mode`, реализацию каждого
+  `[modules]` slot-а, `module_config.<slot>.<module_id>` JSON payload и
+  `tools.enabled` через `POST /config/builder`.
+
+Ссылка «Чат» в topbar строится динамически и пробрасывает `session` token и
+`server` origin обратно в chat-клиент; origin chat-клиента переопределяется
+query-параметром `chat` (сохраняется в `sessionStorage` как
+`proteus.chatOrigin`).
 
 ## Запуск
 
@@ -61,9 +67,10 @@ Custom app-server origin и token можно совмещать как `?server=
 - `clients/web` остаётся чатовым клиентом;
 - оба клиента используют HTTP app-server boundary и локальные serde DTO, не
   импортируя runtime internals из `proteus-core`;
-- Config builder пишет только `[modules]` и `[module_config]` через
-  `POST /config/builder`; provider profiles, secrets и `tools.enabled` остаются
-  отдельными config surfaces;
+- Config builder пишет `active_provider`, `[permissions] mode`, `[modules]`,
+  `[module_config]` и `[tools].enabled` через `POST /config/builder`; provider
+  profiles (`[providers.*]`) и secrets он не редактирует — только выбирает
+  активный;
 - Mermaid грузится только здесь, чтобы chat bundle не тянул architecture
   dependencies.
 

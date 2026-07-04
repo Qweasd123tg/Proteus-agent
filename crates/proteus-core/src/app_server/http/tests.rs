@@ -363,6 +363,15 @@ async fn route_config_builder_returns_editable_module_slots() {
     }));
     assert!(snapshot.get("tools_enabled").is_some_and(Value::is_array));
     assert!(snapshot.get("tools").is_some_and(Value::is_array));
+    assert!(snapshot.get("providers").is_some_and(Value::is_array));
+    assert_eq!(
+        snapshot.get("permission_mode").and_then(Value::as_str),
+        Some("normal")
+    );
+    assert_eq!(
+        snapshot.get("permission_modes"),
+        Some(&json!(["plan", "normal", "auto"]))
+    );
 
     server.shutdown().await;
 }
@@ -375,17 +384,27 @@ async fn route_config_builder_persists_modules_and_reloads_runtime() {
     std::fs::write(
         &config_path,
         r#"
+active_provider = "fast"
+
+[providers.fast]
+provider = "fake"
+model = "fake-fast"
+
+[providers.smart]
+provider = "fake"
+model = "fake-smart"
+
 [modules]
 tool_exposure = "all_visible"
 "#,
     )
     .expect("write config");
-    let server = AgentAppServer::launch(
-        AppConfig::default(),
-        cwd.path().to_path_buf(),
-        Some(&config_path),
-    )
-    .expect("app server");
+    let config = {
+        let raw = std::fs::read_to_string(&config_path).expect("read config");
+        toml::from_str::<AppConfig>(&raw).expect("parse config")
+    };
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
+        .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -405,7 +424,9 @@ tool_exposure = "all_visible"
                         }
                     }
                 },
-                "tools_enabled": ["apply_patch", "search"]
+                "tools_enabled": ["apply_patch", "search"],
+                "active_provider": "smart",
+                "permission_mode": "auto"
             }),
         ),
     )
@@ -436,10 +457,32 @@ tool_exposure = "all_visible"
         written.contains("enabled = [\"apply_patch\", \"search\"]"),
         "{written}"
     );
+    assert!(written.contains("active_provider = \"smart\""), "{written}");
+    assert!(written.contains("mode = \"auto\""), "{written}");
     assert_eq!(
         snapshot.get("tools_enabled"),
         Some(&json!(["apply_patch", "search"]))
     );
+    assert_eq!(
+        snapshot.get("active_provider").and_then(Value::as_str),
+        Some("smart")
+    );
+    assert_eq!(
+        snapshot.get("permission_mode").and_then(Value::as_str),
+        Some("auto")
+    );
+    assert!(
+        snapshot
+            .get("providers")
+            .and_then(Value::as_array)
+            .is_some_and(|providers| providers.iter().any(|provider| {
+                provider.get("id").and_then(Value::as_str) == Some("smart")
+                    && provider.get("active").and_then(Value::as_bool) == Some(true)
+            }))
+    );
+    assert_eq!(server.permission_mode().await, PermissionMode::Auto);
+    let model_ref = server.runtime.model_ref().await;
+    assert_eq!(model_ref.model, "fake-smart");
 
     let summary = server.config_summary().await;
     assert!(

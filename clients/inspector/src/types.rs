@@ -121,6 +121,14 @@ pub(crate) struct ConfigBuilderSnapshot {
     #[serde(default)]
     pub(crate) writable: bool,
     #[serde(default)]
+    pub(crate) active_provider: Option<String>,
+    #[serde(default)]
+    pub(crate) providers: Vec<ConfigBuilderProvider>,
+    #[serde(default)]
+    pub(crate) permission_mode: String,
+    #[serde(default)]
+    pub(crate) permission_modes: Vec<String>,
+    #[serde(default)]
     pub(crate) active_modules: Vec<ConfigModule>,
     #[serde(default)]
     pub(crate) module_config: BTreeMap<String, BTreeMap<String, Value>>,
@@ -132,6 +140,20 @@ pub(crate) struct ConfigBuilderSnapshot {
     pub(crate) slots: Vec<ConfigBuilderSlot>,
     #[serde(default)]
     pub(crate) warnings: Vec<ConfigBuilderWarning>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigBuilderProvider {
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) provider: String,
+    #[serde(default)]
+    pub(crate) model: String,
+    #[serde(default)]
+    pub(crate) label: String,
+    #[serde(default)]
+    pub(crate) active: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -204,6 +226,10 @@ pub(crate) struct ConfigBuilderSaveRequest {
     pub(crate) module_config: BTreeMap<String, BTreeMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tools_enabled: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) active_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) permission_mode: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

@@ -40,13 +40,13 @@ mod turn_progress;
 
 use approval_preview::approval_preview_for;
 pub use config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot,
-    ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
+    ConfigBuilderSnapshot, ConfigBuilderTool, ConfigBuilderWarning,
 };
 use config_builder::{
     config_builder_snapshot_from_topology, config_builder_target_path, persist_config_builder,
     read_toml_document_or_empty, set_module_slot, validate_config_builder_modules,
-    validate_module_config_toml,
+    validate_config_builder_provider, validate_module_config_toml,
 };
 use config_summary::{
     config_files, configured_model_options, configured_reasoning_effort_options, module_summary,
@@ -293,11 +293,17 @@ impl AppServerHandle {
         modules: BTreeMap<String, String>,
         module_config: BTreeMap<String, BTreeMap<String, Value>>,
         tools_enabled: Option<Vec<String>>,
+        active_provider: Option<String>,
+        permission_mode: Option<PermissionMode>,
     ) -> Result<ConfigBuilderSnapshot> {
         let catalog_entries = self.catalog_entries.read().await.clone();
         validate_config_builder_modules(&modules, &catalog_entries)?;
 
         let mut next_config = self.config.read().await.clone();
+        if let Some(active_provider) = &active_provider {
+            validate_config_builder_provider(active_provider, &next_config)?;
+        }
+        let previous_active_provider = next_config.active_provider.clone();
         for (slot, module_id) in modules {
             set_module_slot(&mut next_config.modules, &slot, module_id)?;
         }
@@ -306,6 +312,17 @@ impl AppServerHandle {
         }
         if let Some(tools_enabled) = tools_enabled {
             next_config.tools.enabled = tools_enabled;
+        }
+        // Смену provider применяем к runtime model_ref только при фактическом
+        // изменении: иначе save builder-а сбрасывал бы model, переключённую
+        // на лету через POST /model.
+        let provider_changed =
+            active_provider.is_some() && active_provider != previous_active_provider;
+        if let Some(active_provider) = active_provider {
+            next_config.active_provider = Some(active_provider);
+        }
+        if let Some(mode) = permission_mode {
+            next_config.permissions.mode = mode;
         }
         validate_module_config_toml(&next_config.module_config)?;
 
@@ -316,6 +333,12 @@ impl AppServerHandle {
         persist_config_builder(&target_path, &next_config).await?;
 
         let report = self.runtime.reload_registry(registry).await?;
+        if provider_changed && let Ok(model) = next_config.active_model_config() {
+            self.runtime.set_model_ref(model.model_ref()).await;
+        }
+        if let Some(mode) = permission_mode {
+            self.runtime.set_permission_mode(mode).await;
+        }
         *self.config.write().await = next_config;
         *self.plugin_reports.write().await = plugin_reports;
         *self.catalog_entries.write().await = catalog_entries;

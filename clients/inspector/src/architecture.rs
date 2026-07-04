@@ -140,6 +140,17 @@ fn TopologySnapshotView(
         .as_ref()
         .map(|model| format!("{}/{}", model.provider, model.name))
         .unwrap_or_else(|| "model не выбран".to_owned());
+    let model_stream = snapshot
+        .model
+        .as_ref()
+        .map(|model| if model.stream { "on" } else { "off" })
+        .unwrap_or("-");
+    let model_source = slots
+        .iter()
+        .find(|view| view.slot.id == "model")
+        .and_then(|view| view.active_module.as_ref())
+        .map(|module| module_source_label(&module.source))
+        .unwrap_or_else(|| "-".to_owned());
     let config_label = snapshot
         .config_path
         .as_deref()
@@ -175,9 +186,11 @@ fn TopologySnapshotView(
         }
     };
     let (tool_filter, set_tool_filter) = signal("all".to_owned());
+    let (tool_search, set_tool_search) = signal(String::new());
     let tools_for_filter = tools.clone();
     let filtered_tools = move || {
         let filter = tool_filter.get();
+        let needle = tool_search.get().trim().to_lowercase();
         tools_for_filter
             .clone()
             .into_iter()
@@ -189,6 +202,7 @@ fn TopologySnapshotView(
                 "plugin" => tool.provider_plugin.is_some(),
                 _ => true,
             })
+            .filter(|tool| needle.is_empty() || tool.name.to_lowercase().contains(&needle))
             .collect::<Vec<_>>()
     };
 
@@ -219,26 +233,30 @@ fn TopologySnapshotView(
                         <strong>{model_label}</strong>
                     </div>
                     <div class="config-kv">
-                        <span>"plugins"</span>
-                        <code>{format!("{loaded_plugin_count}/{} loaded", snapshot.plugins.len())}</code>
+                        <span>"source"</span>
+                        <code>{model_source}</code>
                     </div>
                     <div class="config-kv">
-                        <span>"warnings"</span>
-                        <code>{snapshot.warnings.len().to_string()}</code>
+                        <span>"stream"</span>
+                        <code>{model_stream}</code>
                     </div>
                 </article>
                 <article class="config-panel">
                     <div class="config-panel-header">
-                        <span class="panel-kicker">"tools"</span>
-                        <strong>{format!("{registered_tool_count} registered")}</strong>
+                        <span class="panel-kicker">"inventory"</span>
+                        <strong>{format!("{registered_tool_count} tools")}</strong>
+                    </div>
+                    <div class="config-kv">
+                        <span>"plugins"</span>
+                        <code>{format!("{loaded_plugin_count}/{} loaded", snapshot.plugins.len())}</code>
                     </div>
                     <div class="config-kv">
                         <span>"provided, не в registry"</span>
                         <code>{provided_only_count.to_string()}</code>
                     </div>
                     <div class="config-kv">
-                        <span>"config files"</span>
-                        <code>{snapshot.config_files.len().to_string()}</code>
+                        <span>"warnings"</span>
+                        <code>{snapshot.warnings.len().to_string()}</code>
                     </div>
                 </article>
             </section>
@@ -272,7 +290,7 @@ fn TopologySnapshotView(
                                     {if index < last_step_index {
                                         view! { <span class="pipeline-arrow" aria-hidden="true">"→"</span> }.into_any()
                                     } else {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     }}
                                 </>
                             }
@@ -299,7 +317,7 @@ fn TopologySnapshotView(
                                     <code>{backend.active_label}</code>
                                     <span class="pipeline-source">{backend.source}</span>
                                     {if used_by.is_empty() {
-                                        view! { <></> }.into_any()
+                                        ().into_any()
                                     } else {
                                         view! {
                                             <div class="config-chip-row">
@@ -325,13 +343,12 @@ fn TopologySnapshotView(
                     <h3>"Slots"</h3>
                     <span>{slot_cards.len()}</span>
                 </div>
-                <div class="topology-node-grid">
+                <div class="config-list">
                     <For
                         each=move || slot_cards.clone()
                         key=|view| view.slot.id.clone()
                         children=move |view| {
                             let slot_id = view.slot.id.clone();
-                            let title = non_empty(&view.slot.title, &slot_id);
                             let active_label = view
                                 .slot
                                 .active_module
@@ -348,13 +365,6 @@ fn TopologySnapshotView(
                                 .and_then(|module| module.description.clone())
                                 .unwrap_or_else(|| view.slot.responsibility.clone());
                             let is_active = view.slot.active_module.is_some();
-                            let card_class = if is_active {
-                                "topology-node-card active"
-                            } else if view.slot.required {
-                                "topology-node-card missing"
-                            } else {
-                                "topology-node-card"
-                            };
                             let status_class = if is_active {
                                 "status-badge completed"
                             } else if view.slot.required {
@@ -372,28 +382,18 @@ fn TopologySnapshotView(
                             let required_label = if view.slot.required { "required" } else { "optional" };
                             let alternatives = view.alternatives.clone();
                             view! {
-                                <article class=card_class>
-                                    <div class="topology-node-head">
-                                        <div>
-                                            <span class="panel-kicker">{slot_id}</span>
-                                            <strong>{title}</strong>
+                                <article class="config-list-item topology-tool-item">
+                                    <div class="config-list-main">
+                                        <div class="config-list-title">
+                                            <strong>{slot_id}</strong>
+                                            <code>{active_label}</code>
+                                            <span class="topology-muted">{source}</span>
                                         </div>
-                                        <div class="tool-badges">
-                                            <span class=status_class>{status_label}</span>
-                                            <span class="status-badge idle">{required_label}</span>
-                                        </div>
-                                    </div>
-                                    <div class="topology-node-body">
-                                        <code>{active_label}</code>
-                                        <span>{source}</span>
                                         <p>{description}</p>
-                                    </div>
-                                    {if alternatives.is_empty() {
-                                        view! { <></> }.into_any()
-                                    } else {
-                                        view! {
-                                            <div class="topology-available-inline">
-                                                <span>"available"</span>
+                                        {if alternatives.is_empty() {
+                                            ().into_any()
+                                        } else {
+                                            view! {
                                                 <div class="config-chip-row">
                                                     <For
                                                         each=move || alternatives.clone()
@@ -408,9 +408,13 @@ fn TopologySnapshotView(
                                                         }
                                                     />
                                                 </div>
-                                            </div>
-                                        }.into_any()
-                                    }}
+                                            }.into_any()
+                                        }}
+                                    </div>
+                                    <div class="tool-badges">
+                                        <span class=status_class>{status_label}</span>
+                                        <span class="status-badge idle">{required_label}</span>
+                                    </div>
                                 </article>
                             }
                         }
@@ -491,6 +495,13 @@ fn TopologySnapshotView(
                     <button type="button" class:active=move || tool_filter.get() == "read" on:click=move |_| set_tool_filter.set("read".to_owned())>"read"</button>
                     <button type="button" class:active=move || tool_filter.get() == "write" on:click=move |_| set_tool_filter.set("write".to_owned())>"write"</button>
                     <button type="button" class:active=move || tool_filter.get() == "plugin" on:click=move |_| set_tool_filter.set("plugin".to_owned())>"plugin"</button>
+                    <input
+                        type="search"
+                        class="topology-filter-search"
+                        placeholder="фильтр по имени"
+                        prop:value=move || tool_search.get()
+                        on:input:target=move |ev| set_tool_search.set(ev.target().value())
+                    />
                 </div>
                 <div class="config-list">
                     <For
@@ -539,42 +550,43 @@ fn TopologySnapshotView(
                 </div>
             </section>
 
-            <section class="config-section">
-                <div class="config-section-header">
-                    <h3>"Warnings"</h3>
-                    <span>{warnings.len()}</span>
-                </div>
-                {if warnings.is_empty() {
-                    view! { <div class="config-empty">"(none)"</div> }.into_any()
-                } else {
+            {(!warnings.is_empty())
+                .then(|| {
+                    let warnings = warnings.clone();
+                    let warning_count = warnings.len();
                     view! {
-                        <div class="config-list">
-                            <For
-                                each=move || warnings.clone()
-                                key=|warning| format!("{}:{}", warning.severity, warning.message)
-                                children=move |warning| {
-                                    let badge_class = if warning.severity == "error" {
-                                        "status-badge failed"
-                                    } else {
-                                        "status-badge disconnected"
-                                    };
-                                    view! {
-                                        <article class="config-list-item">
-                                            <div class="config-list-main">
-                                                <div class="config-list-title">
-                                                    <strong>{warning.severity.clone()}</strong>
+                        <section class="config-section">
+                            <div class="config-section-header">
+                                <h3>"Warnings"</h3>
+                                <span>{warning_count}</span>
+                            </div>
+                            <div class="config-list">
+                                <For
+                                    each=move || warnings.clone()
+                                    key=|warning| format!("{}:{}", warning.severity, warning.message)
+                                    children=move |warning| {
+                                        let badge_class = if warning.severity == "error" {
+                                            "status-badge failed"
+                                        } else {
+                                            "status-badge disconnected"
+                                        };
+                                        view! {
+                                            <article class="config-list-item">
+                                                <div class="config-list-main">
+                                                    <div class="config-list-title">
+                                                        <strong>{warning.severity.clone()}</strong>
+                                                    </div>
+                                                    <p>{warning.message}</p>
                                                 </div>
-                                                <p>{warning.message}</p>
-                                            </div>
-                                            <span class=badge_class>{warning.severity}</span>
-                                        </article>
+                                                <span class=badge_class>{warning.severity}</span>
+                                            </article>
+                                        }
                                     }
-                                }
-                            />
-                        </div>
-                    }.into_any()
-                }}
-            </section>
+                                />
+                            </div>
+                        </section>
+                    }
+                })}
 
             <details class="config-section mermaid-details">
                 <summary class="config-section-header">

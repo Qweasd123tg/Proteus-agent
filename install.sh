@@ -220,22 +220,25 @@ fi
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"
 echo "App server:        http://127.0.0.1:${app_port}"
-# Клиенты умеют читать app-server/inspector origin из query и sessionStorage;
-# без параметров web ходил бы на default 8787 даже при PROTEUS_APP_PORT.
+# Клиенты умеют читать app-server/inspector/chat origin из query и
+# sessionStorage; без параметров web ходил бы на default 8787 даже при
+# PROTEUS_APP_PORT, а inspector строил бы ссылку «Чат» на default 1420.
 encoded_app_origin="http%3A%2F%2F127.0.0.1%3A${app_port}"
 encoded_inspector_origin="http%3A%2F%2F127.0.0.1%3A${inspector_port}"
+encoded_web_origin="http%3A%2F%2F127.0.0.1%3A${web_port}"
 common_query="server=${encoded_app_origin}&inspector=${encoded_inspector_origin}"
+inspector_query="server=${encoded_app_origin}&chat=${encoded_web_origin}"
 if [ -n "${session_token}" ]; then
   echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>&${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
-    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>&server=${encoded_app_origin}"
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>&${inspector_query}"
   fi
   server_auth_args=(--token "${session_token}")
   open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}&${common_query}"
 else
   echo "Web client:        http://127.0.0.1:${web_port}/?${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
-    echo "Inspector:         http://127.0.0.1:${inspector_port}/?server=${encoded_app_origin}"
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?${inspector_query}"
   fi
   server_auth_args=()
   open_web_url="http://127.0.0.1:${web_port}/?${common_query}"

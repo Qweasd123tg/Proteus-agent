@@ -77,6 +77,12 @@ pub(super) struct SetConfigBuilderRequest {
     /// `None` — не трогать `tools.enabled`; `Some` — заменить список целиком.
     #[serde(default)]
     pub(super) tools_enabled: Option<Vec<String>>,
+    /// `None` — не трогать `active_provider`.
+    #[serde(default)]
+    pub(super) active_provider: Option<String>,
+    /// `None` — не трогать `[permissions] mode`.
+    #[serde(default)]
+    pub(super) permission_mode: Option<PermissionMode>,
 }
 
 #[derive(Debug, Deserialize)]

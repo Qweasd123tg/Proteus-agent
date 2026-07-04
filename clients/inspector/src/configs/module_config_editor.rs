@@ -21,21 +21,40 @@ pub(crate) fn ModuleConfigEditor(
     });
     let parsed = Memo::new(move |_| parse_object(&text.get()));
 
+    // Пустой config сворачиваем: у большинства slots payload отсутствует, и
+    // десять раскрытых пустых редакторов — просто шум. Раскрытие живёт как
+    // обычный details-toggle, initial state берём на момент mount.
+    let initially_open = parsed
+        .get_untracked()
+        .map(|entries| !entries.is_empty())
+        .unwrap_or(true);
+    let key_count = Memo::new(move |_| parsed.get().map(|entries| entries.len()).unwrap_or(0));
+
     let slot_for_form = slot_id.clone();
     let slot_for_raw = slot_id.clone();
 
     view! {
-        <div class="config-builder-field config-editor">
-            <div class="config-editor-head">
-                <span>"module_config"</span>
+        <details class="config-builder-field config-editor" open=initially_open>
+            <summary class="config-editor-head">
+                <span>
+                    "module_config"
+                    {move || {
+                        let count = key_count.get();
+                        if count > 0 { format!(" · {count}") } else { String::new() }
+                    }}
+                </span>
                 <button
                     type="button"
                     class="config-editor-toggle"
-                    on:click=move |_| raw_mode.update(|raw| *raw = !*raw)
+                    on:click=move |ev| {
+                        ev.prevent_default();
+                        ev.stop_propagation();
+                        raw_mode.update(|raw| *raw = !*raw);
+                    }
                 >
                     {move || if raw_mode.get() { "форма" } else { "JSON" }}
                 </button>
-            </div>
+            </summary>
             {move || {
                 let show_form = !raw_mode.get() && parsed.get().is_ok();
                 if show_form {
@@ -86,7 +105,7 @@ pub(crate) fn ModuleConfigEditor(
                     .into_any()
                 }
             }}
-        </div>
+        </details>
     }
 }
 

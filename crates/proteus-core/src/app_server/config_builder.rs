@@ -6,9 +6,12 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 
-use crate::core::{
-    AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-    TopologySnapshot,
+use crate::{
+    core::{
+        AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
+        TopologySnapshot,
+    },
+    domain::PermissionMode,
 };
 
 use super::module_summary;
@@ -18,12 +21,29 @@ pub struct ConfigBuilderSnapshot {
     pub config_path: Option<String>,
     pub target_path: Option<String>,
     pub writable: bool,
+    /// Выбранный provider с учётом fallback на "default"; `None` — providers
+    /// не настроены и модель берётся из секции `[model]`.
+    pub active_provider: Option<String>,
+    pub providers: Vec<ConfigBuilderProvider>,
+    /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
+    /// builder. Runtime mode может отличаться после `POST /mode`.
+    pub permission_mode: String,
+    pub permission_modes: Vec<String>,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
     pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
     pub tools_enabled: Vec<String>,
     pub tools: Vec<ConfigBuilderTool>,
     pub slots: Vec<ConfigBuilderSlot>,
     pub warnings: Vec<ConfigBuilderWarning>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConfigBuilderProvider {
+    pub id: String,
+    pub provider: String,
+    pub model: String,
+    pub label: String,
+    pub active: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -115,6 +135,13 @@ pub(super) fn config_builder_snapshot_from_topology(
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
+        active_provider: resolved_active_provider(config),
+        providers: config_builder_providers(config),
+        permission_mode: permission_mode_str(config.permissions.mode),
+        permission_modes: PERMISSION_MODES
+            .iter()
+            .map(|&mode| mode.to_owned())
+            .collect(),
         active_modules: module_summary(config)
             .into_iter()
             .filter_map(|value| {
@@ -175,6 +202,58 @@ fn module_source_label(source: &ModuleSourceTopology) -> String {
 
 fn is_config_builder_module_slot(slot: &str) -> bool {
     CONFIG_BUILDER_MODULE_SLOTS.contains(&slot)
+}
+
+const PERMISSION_MODES: [&str; 3] = ["plan", "normal", "auto"];
+
+/// Snake_case-имя PermissionMode через serde: остаётся в согласии с wire
+/// форматом `POST /mode` и `[permissions] mode` без ручного match.
+fn permission_mode_str(mode: PermissionMode) -> String {
+    serde_json::to_value(mode)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "normal".to_owned())
+}
+
+/// Provider id, который фактически выберет `active_model_config()`:
+/// явный `active_provider` или fallback на "default".
+fn resolved_active_provider(config: &AppConfig) -> Option<String> {
+    if let Some(active) = config
+        .active_provider
+        .as_ref()
+        .filter(|provider| !provider.trim().is_empty())
+    {
+        return Some(active.clone());
+    }
+    config
+        .providers
+        .contains_key("default")
+        .then(|| "default".to_owned())
+}
+
+fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
+    let active = resolved_active_provider(config);
+    config
+        .providers
+        .iter()
+        .map(|(id, profile)| ConfigBuilderProvider {
+            id: id.clone(),
+            provider: profile.provider.clone(),
+            model: profile.model.clone(),
+            label: format!("{}/{}", profile.provider, profile.model),
+            active: active.as_deref() == Some(id.as_str()),
+        })
+        .collect()
+}
+
+pub(super) fn validate_config_builder_provider(
+    active_provider: &str,
+    config: &AppConfig,
+) -> Result<()> {
+    if !config.providers.contains_key(active_provider) {
+        anyhow::bail!("active_provider is not defined in [providers]: {active_provider}");
+    }
+    Ok(())
 }
 
 pub(super) fn validate_config_builder_modules(
@@ -252,6 +331,24 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     }
 
     let mut doc = read_toml_document_or_empty(path).await?;
+
+    // active_provider записываем только когда выбор provider вообще возможен:
+    // без [providers] ключ в файле не нужен.
+    if let Some(active_provider) = config
+        .active_provider
+        .as_ref()
+        .filter(|provider| !provider.trim().is_empty())
+    {
+        doc["active_provider"] = toml_edit::value(active_provider.clone());
+    }
+
+    if doc
+        .get("permissions")
+        .is_none_or(|item| !item.is_table_like())
+    {
+        doc["permissions"] = toml_edit::table();
+    }
+    doc["permissions"]["mode"] = toml_edit::value(permission_mode_str(config.permissions.mode));
 
     if doc.get("modules").is_none_or(|item| !item.is_table_like()) {
         doc["modules"] = toml_edit::table();

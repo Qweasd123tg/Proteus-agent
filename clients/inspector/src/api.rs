@@ -8,24 +8,29 @@ use web_sys::{Headers, Request, RequestInit, RequestMode, Response, window};
 use crate::types::SessionToken;
 
 const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
+const DEFAULT_CHAT_ORIGIN: &str = "http://127.0.0.1:1420";
 const SERVER_QUERY_KEYS: [&str; 4] = [
     "server",
     "app_server",
     "app_server_origin",
     "proteus_server",
 ];
+const CHAT_QUERY_KEYS: [&str; 3] = ["chat", "chat_origin", "proteus_chat"];
 const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
+const CHAT_STORAGE_KEY: &str = "proteus.chatOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
 const SESSION_HEADER: &str = "X-Proteus-Session";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
+    static CHAT_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_CHAT_ORIGIN.to_owned());
     static SESSION_TOKEN: RefCell<SessionToken> = RefCell::new(SessionToken::missing());
 }
 
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     load_app_server_origin()?;
+    load_chat_origin()?;
     let token = if let Some(token) = query_session_token() {
         persist_session_token(&token)?;
         token
@@ -150,8 +155,51 @@ fn load_app_server_origin() -> Result<(), String> {
     Ok(())
 }
 
-fn app_server_origin() -> String {
+fn load_chat_origin() -> Result<(), String> {
+    let origin = if let Some(origin) = query_value(&CHAT_QUERY_KEYS) {
+        let origin = normalize_origin(origin, DEFAULT_CHAT_ORIGIN);
+        if let Some(storage) = session_storage()? {
+            storage
+                .set_item(CHAT_STORAGE_KEY, &origin)
+                .map_err(js_error)?;
+        }
+        origin
+    } else if let Some(storage) = session_storage()? {
+        storage
+            .get_item(CHAT_STORAGE_KEY)
+            .map_err(js_error)?
+            .map(|origin| normalize_origin(origin, DEFAULT_CHAT_ORIGIN))
+            .unwrap_or_else(|| DEFAULT_CHAT_ORIGIN.to_owned())
+    } else {
+        DEFAULT_CHAT_ORIGIN.to_owned()
+    };
+
+    CHAT_ORIGIN.with(|stored| *stored.borrow_mut() = origin);
+    Ok(())
+}
+
+/// Ссылка на chat-клиент с пробросом session token и app-server origin —
+/// зеркально `inspector_link_url()` в `clients/web`: hardcoded href терял бы
+/// token при включённом token-режиме и нестандартных портах.
+pub(crate) fn chat_link_url() -> String {
+    let origin = CHAT_ORIGIN.with(|stored| stored.borrow().clone());
+    let mut params = Vec::new();
+    if let Some(token) = current_session_token().as_deref() {
+        params.push(format!("session={}", encode_uri_component(token)));
+    }
+    params.push(format!(
+        "server={}",
+        encode_uri_component(&app_server_origin())
+    ));
+    format!("{origin}/?{}", params.join("&"))
+}
+
+pub(crate) fn app_server_origin() -> String {
     APP_SERVER_ORIGIN.with(|stored| stored.borrow().clone())
+}
+
+pub(crate) fn has_session_token() -> bool {
+    SESSION_TOKEN.with(|stored| stored.borrow().as_deref().is_some())
 }
 
 fn app_server_url(path: &str) -> String {
@@ -214,10 +262,18 @@ fn decode_uri_component(value: &str) -> Option<String> {
     js_sys::decode_uri_component(value).ok()?.as_string()
 }
 
+fn encode_uri_component(value: &str) -> String {
+    js_sys::encode_uri_component(value).into()
+}
+
 fn normalize_app_server_origin(origin: String) -> String {
+    normalize_origin(origin, DEFAULT_APP_SERVER_ORIGIN)
+}
+
+fn normalize_origin(origin: String, fallback: &str) -> String {
     let origin = origin.trim().trim_end_matches('/');
     if origin.is_empty() {
-        DEFAULT_APP_SERVER_ORIGIN.to_owned()
+        fallback.to_owned()
     } else {
         origin.to_owned()
     }

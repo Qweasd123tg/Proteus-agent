@@ -10,6 +10,7 @@ use crate::ui_utils::short_path;
 mod builder;
 mod module_config_editor;
 mod summary;
+mod tools_picker;
 
 use builder::{ConfigBuilderView, builder_active_modules, builder_config_texts};
 use summary::{ConfigOverview, ConfigSections};
@@ -23,29 +24,22 @@ pub(crate) fn ConfigsView() -> impl IntoView {
     let (draft_module_config, set_draft_module_config) =
         signal(BTreeMap::<String, BTreeMap<String, Value>>::new());
     let (draft_tools, set_draft_tools) = signal(BTreeSet::<String>::new());
+    let (draft_provider, set_draft_provider) = signal(None::<String>);
+    let (draft_mode, set_draft_mode) = signal(String::new());
     let (status, set_status) = signal("загружаю конфигурацию".to_owned());
 
-    load_config_page(
-        set_summary,
-        set_builder,
-        set_draft_modules,
-        set_draft_config_texts,
-        set_draft_module_config,
-        set_draft_tools,
-        set_status,
-    );
-
-    let refresh = move |_| {
-        load_config_page(
-            set_summary,
-            set_builder,
-            set_draft_modules,
-            set_draft_config_texts,
-            set_draft_module_config,
-            set_draft_tools,
-            set_status,
-        )
+    let drafts = DraftSetters {
+        modules: set_draft_modules,
+        config_texts: set_draft_config_texts,
+        module_config: set_draft_module_config,
+        tools: set_draft_tools,
+        provider: set_draft_provider,
+        mode: set_draft_mode,
     };
+
+    load_config_page(set_summary, set_builder, drafts, set_status);
+
+    let refresh = move |_| load_config_page(set_summary, set_builder, drafts, set_status);
 
     view! {
         <section class="configs-page">
@@ -71,13 +65,12 @@ pub(crate) fn ConfigsView() -> impl IntoView {
                                                 <ConfigBuilderView
                                                     builder
                                                     draft_modules
-                                                    set_draft_modules
                                                     draft_config_texts
-                                                    set_draft_config_texts
                                                     draft_module_config
-                                                    set_draft_module_config
                                                     draft_tools
-                                                    set_draft_tools
+                                                    draft_provider
+                                                    draft_mode
+                                                    drafts
                                                     set_builder
                                                     set_summary
                                                     set_status
@@ -116,13 +109,36 @@ pub(crate) fn ConfigsView() -> impl IntoView {
     }
 }
 
+/// Общий пучок write-сигналов черновика builder-а: черновик сбрасывается в
+/// состояние snapshot-а при загрузке страницы и после успешного save.
+#[derive(Clone, Copy)]
+struct DraftSetters {
+    modules: WriteSignal<BTreeMap<String, String>>,
+    config_texts: WriteSignal<BTreeMap<String, String>>,
+    module_config: WriteSignal<BTreeMap<String, BTreeMap<String, Value>>>,
+    tools: WriteSignal<BTreeSet<String>>,
+    provider: WriteSignal<Option<String>>,
+    mode: WriteSignal<String>,
+}
+
+impl DraftSetters {
+    /// Приводит все черновики к состоянию свежего snapshot-а.
+    fn reset_to(&self, builder: &ConfigBuilderSnapshot) {
+        let modules = builder_active_modules(builder);
+        let texts = builder_config_texts(builder, &modules);
+        self.module_config.set(builder.module_config.clone());
+        self.modules.set(modules);
+        self.config_texts.set(texts);
+        self.tools.set(builder.tools_enabled.iter().cloned().collect());
+        self.provider.set(builder.active_provider.clone());
+        self.mode.set(builder.permission_mode.clone());
+    }
+}
+
 fn load_config_page(
     set_summary: WriteSignal<Option<ConfigSummary>>,
     set_builder: WriteSignal<Option<ConfigBuilderSnapshot>>,
-    set_draft_modules: WriteSignal<BTreeMap<String, String>>,
-    set_draft_config_texts: WriteSignal<BTreeMap<String, String>>,
-    set_draft_module_config: WriteSignal<BTreeMap<String, BTreeMap<String, Value>>>,
-    set_draft_tools: WriteSignal<BTreeSet<String>>,
+    drafts: DraftSetters,
     set_status: WriteSignal<String>,
 ) {
     spawn_local(async move {
@@ -146,12 +162,7 @@ fn load_config_page(
 
         match get_json::<ConfigBuilderSnapshot>("/config/builder").await {
             Ok(builder) => {
-                let modules = builder_active_modules(&builder);
-                let texts = builder_config_texts(&builder, &modules);
-                set_draft_module_config.set(builder.module_config.clone());
-                set_draft_modules.set(modules);
-                set_draft_config_texts.set(texts);
-                set_draft_tools.set(builder.tools_enabled.iter().cloned().collect());
+                drafts.reset_to(&builder);
                 let slot_count = builder.slots.len();
                 let target = builder
                     .target_path
