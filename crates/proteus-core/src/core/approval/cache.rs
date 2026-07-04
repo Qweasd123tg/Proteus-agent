@@ -107,10 +107,11 @@ fn allows_tool_in_cwd_scope(request: &ApprovalRequest) -> bool {
     if request.call.name.eq_ignore_ascii_case("shell") {
         return false;
     }
+    // Fail closed: без известного ToolSpec широкий cache-scope не выдаётся.
     request
         .tool_spec
         .as_ref()
-        .is_none_or(|spec| matches!(spec.safety, ToolSafety::ReadOnly | ToolSafety::WritesFiles))
+        .is_some_and(|spec| matches!(spec.safety, ToolSafety::ReadOnly | ToolSafety::WritesFiles))
 }
 
 fn allows_workspace_write_scope(request: &ApprovalRequest) -> bool {
@@ -296,12 +297,46 @@ mod tests {
             cache: ApprovalCacheScope::ToolInCwd,
         }));
 
-        transport.request_approval(request("a.txt")).await.unwrap();
-        let cached = transport.request_approval(request("b.txt")).await.unwrap();
+        transport
+            .request_approval(request_with_safety(
+                "a.txt",
+                "write_file",
+                ToolSafety::WritesFiles,
+            ))
+            .await
+            .unwrap();
+        let cached = transport
+            .request_approval(request_with_safety(
+                "b.txt",
+                "write_file",
+                ToolSafety::WritesFiles,
+            ))
+            .await
+            .unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(cached.approved);
         assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn tool_in_cwd_cache_is_sanitized_when_tool_spec_is_missing() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ToolInCwd,
+        }));
+
+        // request() не несёт ToolSpec: широкий ToolInCwd должен деградировать
+        // до ExactCall, и другой args в том же cwd спрашивает заново.
+        transport.request_approval(request("a.txt")).await.unwrap();
+        transport.request_approval(request("b.txt")).await.unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // Точный повтор при этом продолжает работать из кэша.
+        transport.request_approval(request("a.txt")).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
