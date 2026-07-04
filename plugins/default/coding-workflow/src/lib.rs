@@ -26,8 +26,8 @@ use proteus_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RStr, RString},
     },
-    domain::{AgentOutput, CONTEXT_MESSAGE_NAME, Event, ToolChoice, ToolSafety},
-    model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
+    domain::{Event, ToolChoice, ToolSafety},
+    model_standard::FinishReason,
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginWorkflow_TO,
         PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
@@ -43,8 +43,8 @@ pub(crate) use proteus_contracts::{
     },
     domain::{ContextBundle, TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolResult, ToolSpec},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, InstructionBlock, InstructionKind,
-        TokenUsage,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
+        InstructionBlock, InstructionKind, MessageRole, TokenUsage,
     },
     plugin::PluginWorkflow,
 };
@@ -52,16 +52,15 @@ use token_accounting::LastModelUsage;
 #[cfg(test)]
 use token_accounting::{estimate_message_tokens, request_token_usage_snapshot};
 
-use history::current_turn_start;
 use host::{
-    build_context, complete_model, emit_event, execute_or_handle_tool, execute_tools,
-    request_from_state, request_from_state_with_instruction_blocks,
+    complete_model, emit_event, execute_or_handle_tool, execute_tools, request_from_state,
+    request_from_state_with_instruction_blocks,
 };
 #[cfg(test)]
 use metadata::{insert_request_metadata_u32, prompt_cache_key};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
-use scaffold::{PersistentRepair, append_tool_results, apply_compaction_report};
+use scaffold::{PersistentRepair, TurnScaffold};
 use validation::validate_codex_model_response;
 use workflows::EmptyFinalResponseMode;
 pub use workflows::{
@@ -112,57 +111,22 @@ pub(crate) fn run_single_loop(
     host: &mut PluginWorkflowHostMut<'_>,
     max_tool_rounds: usize,
 ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
-    emit_event(
-        host,
-        &Event::TaskReceived {
-            task: input.task.clone(),
-        },
-    )?;
-
-    let bundle = build_context(host, &input)?;
-    emit_event(
-        host,
-        &Event::ContextBuilt {
-            chunks: bundle.chunks.len(),
-            token_estimate: bundle.token_estimate,
-        },
-    )?;
-
-    let context_chunks = bundle.chunks.len();
-    let context_token_estimate = bundle.token_estimate;
-    let mut compactions = Vec::new();
-    let mut persistent_messages = input.history.clone();
-    let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
-    let current_user_message_id = user_message.id;
-    persistent_messages.push(user_message.clone());
-
-    let mut model_messages = persistent_messages.clone();
-    for chunk in bundle.chunks {
-        model_messages.push(
-            CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name(CONTEXT_MESSAGE_NAME),
-        );
-    }
-    let mut current_turn_messages_start = model_messages.len();
+    let mut turn = TurnScaffold::begin(host, &input)?;
     let mut last_usage: Option<LastModelUsage> = None;
 
     for _round in 0..max_tool_rounds {
         let prepared = request_from_state(
             &input,
             host,
-            &model_messages,
+            &turn.model_messages,
             SYSTEM_INSTRUCTIONS,
             None,
             "single_loop",
             last_usage.as_ref(),
         )?;
-        if apply_compaction_report(
+        if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
             &prepared.request.messages,
-            &mut model_messages,
-            &mut persistent_messages,
-            (current_user_message_id, &mut current_turn_messages_start),
-            &mut compactions,
             PersistentRepair::Rebuild,
         )? {
             last_usage = None;
@@ -182,66 +146,47 @@ pub(crate) fn run_single_loop(
             },
         )?;
 
-        model_messages.push(response.message.clone());
-        persistent_messages.push(response.message.clone());
+        turn.model_messages.push(response.message.clone());
+        turn.persistent_messages.push(response.message.clone());
         if let Some(usage) = response.usage.clone() {
             last_usage = Some(LastModelUsage {
                 usage,
-                message_count: model_messages.len(),
+                message_count: turn.model_messages.len(),
             });
         }
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if !should_run_tools {
-            let output = AgentOutput::new(
-                output_text(
-                    &response.message,
-                    &model_messages[current_turn_messages_start..],
-                ),
-                output_metadata(
-                    SINGLE_LOOP_MODULE_ID,
-                    &input,
-                    &model_messages,
-                    context_chunks,
-                    context_token_estimate,
-                ),
+            let text = output_text(
+                &response.message,
+                &turn.model_messages[turn.current_turn_messages_start..],
             );
-            emit_event(
-                host,
-                &Event::TurnFinished {
-                    output: output.clone(),
-                },
-            )?;
-            let new_messages_start =
-                current_turn_start(&persistent_messages, current_user_message_id);
-            return Ok(PluginWorkflowOutput {
-                output,
-                messages: persistent_messages,
-                new_messages_start: Some(new_messages_start),
-                compactions,
-            });
+            let metadata = output_metadata(
+                SINGLE_LOOP_MODULE_ID,
+                &input,
+                &turn.model_messages,
+                turn.context_chunks,
+                turn.context_token_estimate,
+            );
+            return turn.finish(host, text, metadata);
         }
 
         let results = execute_tools(host, &input, &response.tool_calls, "single_loop")?;
-        append_tool_results(results, &mut model_messages, &mut persistent_messages);
+        turn.append_tool_results(results);
     }
 
     let prepared = request_from_state(
         &input,
         host,
-        &model_messages,
+        &turn.model_messages,
         SYSTEM_INSTRUCTIONS,
         None,
         "single_loop_final",
         last_usage.as_ref(),
     )?;
-    apply_compaction_report(
+    turn.apply_compaction_report(
         prepared.compaction.as_ref(),
         &prepared.request.messages,
-        &mut model_messages,
-        &mut persistent_messages,
-        (current_user_message_id, &mut current_turn_messages_start),
-        &mut compactions,
         PersistentRepair::Rebuild,
     )?;
     let mut request = prepared.request;
@@ -261,38 +206,24 @@ pub(crate) fn run_single_loop(
         },
     )?;
 
-    model_messages.push(response.message.clone());
-    persistent_messages.push(response.message.clone());
-    let output = AgentOutput::new(
-        output_text(
-            &response.message,
-            &model_messages[current_turn_messages_start..],
-        ),
-        output_metadata_with_extra(
-            SINGLE_LOOP_MODULE_ID,
-            &input,
-            &model_messages,
-            context_chunks,
-            context_token_estimate,
-            json!({
-                "max_tool_rounds": max_tool_rounds,
-                "tool_round_limit_reached": true,
-            }),
-        ),
+    turn.model_messages.push(response.message.clone());
+    turn.persistent_messages.push(response.message.clone());
+    let text = output_text(
+        &response.message,
+        &turn.model_messages[turn.current_turn_messages_start..],
     );
-    emit_event(
-        host,
-        &Event::TurnFinished {
-            output: output.clone(),
-        },
-    )?;
-    let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
-    Ok(PluginWorkflowOutput {
-        output,
-        messages: persistent_messages,
-        new_messages_start: Some(new_messages_start),
-        compactions,
-    })
+    let metadata = output_metadata_with_extra(
+        SINGLE_LOOP_MODULE_ID,
+        &input,
+        &turn.model_messages,
+        turn.context_chunks,
+        turn.context_token_estimate,
+        json!({
+            "max_tool_rounds": max_tool_rounds,
+            "tool_round_limit_reached": true,
+        }),
+    );
+    turn.finish(host, text, metadata)
 }
 
 pub(crate) fn run_codex_loop(
@@ -301,38 +232,7 @@ pub(crate) fn run_codex_loop(
     module_id: &str,
     empty_final_response_mode: EmptyFinalResponseMode,
 ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
-    emit_event(
-        host,
-        &Event::TaskReceived {
-            task: input.task.clone(),
-        },
-    )?;
-
-    let bundle = build_context(host, &input)?;
-    emit_event(
-        host,
-        &Event::ContextBuilt {
-            chunks: bundle.chunks.len(),
-            token_estimate: bundle.token_estimate,
-        },
-    )?;
-
-    let context_chunks = bundle.chunks.len();
-    let context_token_estimate = bundle.token_estimate;
-    let mut compactions = Vec::new();
-    let mut persistent_messages = input.history.clone();
-    let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
-    let current_user_message_id = user_message.id;
-    persistent_messages.push(user_message.clone());
-
-    let mut model_messages = persistent_messages.clone();
-    for chunk in bundle.chunks {
-        model_messages.push(
-            CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name(CONTEXT_MESSAGE_NAME),
-        );
-    }
-    let mut current_turn_messages_start = model_messages.len();
+    let mut turn = TurnScaffold::begin(host, &input)?;
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
     let mut last_usage: Option<LastModelUsage> = None;
@@ -341,19 +241,15 @@ pub(crate) fn run_codex_loop(
         let prepared = request_from_state_with_instruction_blocks(
             &input,
             host,
-            &model_messages,
+            &turn.model_messages,
             input.runtime.instructions.clone(),
             None,
             "codex_loop",
             last_usage.as_ref(),
         )?;
-        if apply_compaction_report(
+        if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
             &prepared.request.messages,
-            &mut model_messages,
-            &mut persistent_messages,
-            (current_user_message_id, &mut current_turn_messages_start),
-            &mut compactions,
             PersistentRepair::ReplaceAfter,
         )? {
             last_usage = None;
@@ -377,12 +273,12 @@ pub(crate) fn run_codex_loop(
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         let assistant_message = response.message.clone();
-        model_messages.push(assistant_message.clone());
-        persistent_messages.push(assistant_message.clone());
+        turn.model_messages.push(assistant_message.clone());
+        turn.persistent_messages.push(assistant_message.clone());
         if let Some(usage) = response.usage.clone() {
             last_usage = Some(LastModelUsage {
                 usage,
-                message_count: model_messages.len(),
+                message_count: turn.model_messages.len(),
             });
         }
 
@@ -392,44 +288,30 @@ pub(crate) fn run_codex_loop(
                 executed_tools.push(call.name.clone());
             }
             let results = execute_tools(host, &input, &response.tool_calls, "codex_loop")?;
-            append_tool_results(results, &mut model_messages, &mut persistent_messages);
+            turn.append_tool_results(results);
             continue;
         }
 
-        let output = AgentOutput::new(
-            match empty_final_response_mode {
-                EmptyFinalResponseMode::Strict => message_text(&assistant_message),
-                EmptyFinalResponseMode::LastToolResultDiagnostic => output_text(
-                    &assistant_message,
-                    &model_messages[current_turn_messages_start..],
-                ),
-            },
-            output_metadata_with_extra(
-                module_id,
-                &input,
-                &model_messages,
-                context_chunks,
-                context_token_estimate,
-                json!({
-                    "tool_rounds": tool_rounds,
-                    "phases": ["turn_loop"],
-                    "executed_tools": executed_tools,
-                }),
+        let text = match empty_final_response_mode {
+            EmptyFinalResponseMode::Strict => message_text(&assistant_message),
+            EmptyFinalResponseMode::LastToolResultDiagnostic => output_text(
+                &assistant_message,
+                &turn.model_messages[turn.current_turn_messages_start..],
             ),
+        };
+        let metadata = output_metadata_with_extra(
+            module_id,
+            &input,
+            &turn.model_messages,
+            turn.context_chunks,
+            turn.context_token_estimate,
+            json!({
+                "tool_rounds": tool_rounds,
+                "phases": ["turn_loop"],
+                "executed_tools": executed_tools,
+            }),
         );
-        emit_event(
-            host,
-            &Event::TurnFinished {
-                output: output.clone(),
-            },
-        )?;
-        let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
-        return Ok(PluginWorkflowOutput {
-            output,
-            messages: persistent_messages,
-            new_messages_start: Some(new_messages_start),
-            compactions,
-        });
+        return turn.finish(host, text, metadata);
     }
 }
 
@@ -437,57 +319,22 @@ pub(crate) fn run_plan_execute_review(
     input: PluginWorkflowInput,
     host: &mut PluginWorkflowHostMut<'_>,
 ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
-    emit_event(
-        host,
-        &Event::TaskReceived {
-            task: input.task.clone(),
-        },
-    )?;
-
-    let bundle = build_context(host, &input)?;
-    emit_event(
-        host,
-        &Event::ContextBuilt {
-            chunks: bundle.chunks.len(),
-            token_estimate: bundle.token_estimate,
-        },
-    )?;
-
-    let context_chunks = bundle.chunks.len();
-    let context_token_estimate = bundle.token_estimate;
-    let mut compactions = Vec::new();
-    let mut persistent_messages = input.history.clone();
-    let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
-    let current_user_message_id = user_message.id;
-    persistent_messages.push(user_message.clone());
-
-    let mut model_messages = persistent_messages.clone();
-    for chunk in bundle.chunks {
-        model_messages.push(
-            CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name(CONTEXT_MESSAGE_NAME),
-        );
-    }
-    let mut current_turn_messages_start = model_messages.len();
+    let mut turn = TurnScaffold::begin(host, &input)?;
 
     let mut plan_tool_rounds_used = 0usize;
     for plan_round in 0..=MAX_PLAN_TOOL_ROUNDS {
         let prepared = request_from_state(
             &input,
             host,
-            &model_messages,
+            &turn.model_messages,
             PLAN_SYSTEM_INSTRUCTIONS,
             Some(PLAN_DEVELOPER_INSTRUCTIONS),
             "plan",
             None,
         )?;
-        apply_compaction_report(
+        turn.apply_compaction_report(
             prepared.compaction.as_ref(),
             &prepared.request.messages,
-            &mut model_messages,
-            &mut persistent_messages,
-            (current_user_message_id, &mut current_turn_messages_start),
-            &mut compactions,
             PersistentRepair::Rebuild,
         )?;
         let mut plan_request = prepared.request;
@@ -516,7 +363,7 @@ pub(crate) fn run_plan_execute_review(
         )?;
         let plan_message =
             with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
-        model_messages.push(plan_message.clone());
+        turn.model_messages.push(plan_message.clone());
 
         let should_run_tools = plan_response.finish_reason == FinishReason::ToolCalls
             && !plan_response.tool_calls.is_empty();
@@ -524,14 +371,10 @@ pub(crate) fn run_plan_execute_review(
             break;
         }
         plan_tool_rounds_used += 1;
-        persistent_messages.push(plan_message);
+        turn.persistent_messages.push(plan_message);
         for call in plan_response.tool_calls {
             let result = execute_or_handle_tool(host, &input, &call, "plan")?;
-            append_tool_results(
-                std::iter::once(result),
-                &mut model_messages,
-                &mut persistent_messages,
-            );
+            turn.append_tool_results(std::iter::once(result));
         }
     }
 
@@ -541,19 +384,15 @@ pub(crate) fn run_plan_execute_review(
         let prepared = request_from_state(
             &input,
             host,
-            &model_messages,
+            &turn.model_messages,
             PLAN_SYSTEM_INSTRUCTIONS,
             Some(EXECUTE_DEVELOPER_INSTRUCTIONS),
             "execute",
             None,
         )?;
-        apply_compaction_report(
+        turn.apply_compaction_report(
             prepared.compaction.as_ref(),
             &prepared.request.messages,
-            &mut model_messages,
-            &mut persistent_messages,
-            (current_user_message_id, &mut current_turn_messages_start),
-            &mut compactions,
             PersistentRepair::Rebuild,
         )?;
         let request = prepared.request;
@@ -572,11 +411,11 @@ pub(crate) fn run_plan_execute_review(
         )?;
 
         let finish_reason = response.finish_reason.clone();
-        model_messages.push(response.message.clone());
+        turn.model_messages.push(response.message.clone());
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if should_run_tools {
-            persistent_messages.push(response.message.clone());
+            turn.persistent_messages.push(response.message.clone());
         }
         if !should_run_tools {
             draft_finish_reason = Some(finish_reason);
@@ -586,30 +425,22 @@ pub(crate) fn run_plan_execute_review(
 
         for call in response.tool_calls {
             let result = execute_or_handle_tool(host, &input, &call, "execute")?;
-            append_tool_results(
-                std::iter::once(result),
-                &mut model_messages,
-                &mut persistent_messages,
-            );
+            turn.append_tool_results(std::iter::once(result));
         }
     }
 
     let prepared = request_from_state(
         &input,
         host,
-        &model_messages,
+        &turn.model_messages,
         PLAN_SYSTEM_INSTRUCTIONS,
         Some(REVIEW_DEVELOPER_INSTRUCTIONS),
         "review",
         None,
     )?;
-    apply_compaction_report(
+    turn.apply_compaction_report(
         prepared.compaction.as_ref(),
         &prepared.request.messages,
-        &mut model_messages,
-        &mut persistent_messages,
-        (current_user_message_id, &mut current_turn_messages_start),
-        &mut compactions,
         PersistentRepair::Rebuild,
     )?;
     let mut review_request = prepared.request.with_tool_choice(ToolChoice::None);
@@ -628,42 +459,29 @@ pub(crate) fn run_plan_execute_review(
         },
     )?;
 
-    model_messages.push(final_response.message.clone());
-    persistent_messages.push(final_response.message.clone());
-    let output = AgentOutput::new(
-        output_text(
-            &final_response.message,
-            &model_messages[current_turn_messages_start..],
-        ),
-        output_metadata_with_extra(
-            PLAN_EXECUTE_REVIEW_MODULE_ID,
-            &input,
-            &model_messages,
-            context_chunks,
-            context_token_estimate,
-            json!({
-                "max_tool_rounds": MAX_TOOL_ROUNDS,
-                "tool_round_limit_reached": tool_round_limit_reached,
-                "draft_finish_reason": draft_finish_reason,
-                "max_plan_tool_rounds": MAX_PLAN_TOOL_ROUNDS,
-                "plan_tool_rounds_used": plan_tool_rounds_used,
-                "phases": ["plan", "execute", "review"],
-            }),
-        ),
+    turn.model_messages.push(final_response.message.clone());
+    turn.persistent_messages
+        .push(final_response.message.clone());
+    let text = output_text(
+        &final_response.message,
+        &turn.model_messages[turn.current_turn_messages_start..],
     );
-    emit_event(
-        host,
-        &Event::TurnFinished {
-            output: output.clone(),
-        },
-    )?;
-    let new_messages_start = current_turn_start(&persistent_messages, current_user_message_id);
-    Ok(PluginWorkflowOutput {
-        output,
-        messages: persistent_messages,
-        new_messages_start: Some(new_messages_start),
-        compactions,
-    })
+    let metadata = output_metadata_with_extra(
+        PLAN_EXECUTE_REVIEW_MODULE_ID,
+        &input,
+        &turn.model_messages,
+        turn.context_chunks,
+        turn.context_token_estimate,
+        json!({
+            "max_tool_rounds": MAX_TOOL_ROUNDS,
+            "tool_round_limit_reached": tool_round_limit_reached,
+            "draft_finish_reason": draft_finish_reason,
+            "max_plan_tool_rounds": MAX_PLAN_TOOL_ROUNDS,
+            "plan_tool_rounds_used": plan_tool_rounds_used,
+            "phases": ["plan", "execute", "review"],
+        }),
+    );
+    turn.finish(host, text, metadata)
 }
 
 extern "C" fn register_modules(
