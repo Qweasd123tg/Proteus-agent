@@ -61,7 +61,7 @@ use host::{
 use metadata::{insert_request_metadata_u32, prompt_cache_key};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
-use scaffold::{PersistentRepair, apply_compaction_report};
+use scaffold::{PersistentRepair, append_tool_results, apply_compaction_report};
 use validation::validate_codex_model_response;
 use workflows::EmptyFinalResponseMode;
 pub use workflows::{
@@ -223,14 +223,7 @@ pub(crate) fn run_single_loop(
         }
 
         let results = execute_tools(host, &input, &response.tool_calls, "single_loop")?;
-        for result in results {
-            let call_id = result.call_id.clone();
-            let tool_result_message =
-                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
-                    .with_tool_call_id(call_id);
-            model_messages.push(tool_result_message.clone());
-            persistent_messages.push(tool_result_message);
-        }
+        append_tool_results(results, &mut model_messages, &mut persistent_messages);
     }
 
     let prepared = request_from_state(
@@ -399,16 +392,7 @@ pub(crate) fn run_codex_loop(
                 executed_tools.push(call.name.clone());
             }
             let results = execute_tools(host, &input, &response.tool_calls, "codex_loop")?;
-            for result in results {
-                let call_id = result.call_id.clone();
-                let tool_result_message = CanonicalMessage::new(
-                    MessageRole::Tool,
-                    vec![ContentPart::ToolResult { result }],
-                )
-                .with_tool_call_id(call_id);
-                model_messages.push(tool_result_message.clone());
-                persistent_messages.push(tool_result_message);
-            }
+            append_tool_results(results, &mut model_messages, &mut persistent_messages);
             continue;
         }
 
@@ -543,12 +527,11 @@ pub(crate) fn run_plan_execute_review(
         persistent_messages.push(plan_message);
         for call in plan_response.tool_calls {
             let result = execute_or_handle_tool(host, &input, &call, "plan")?;
-            let call_id = result.call_id.clone();
-            let tool_result_message =
-                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
-                    .with_tool_call_id(call_id);
-            model_messages.push(tool_result_message.clone());
-            persistent_messages.push(tool_result_message);
+            append_tool_results(
+                std::iter::once(result),
+                &mut model_messages,
+                &mut persistent_messages,
+            );
         }
     }
 
@@ -603,12 +586,11 @@ pub(crate) fn run_plan_execute_review(
 
         for call in response.tool_calls {
             let result = execute_or_handle_tool(host, &input, &call, "execute")?;
-            let call_id = result.call_id.clone();
-            let tool_result_message =
-                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
-                    .with_tool_call_id(call_id);
-            model_messages.push(tool_result_message.clone());
-            persistent_messages.push(tool_result_message);
+            append_tool_results(
+                std::iter::once(result),
+                &mut model_messages,
+                &mut persistent_messages,
+            );
         }
     }
 

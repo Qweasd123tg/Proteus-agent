@@ -1,6 +1,6 @@
 use proteus_contracts::{
-    domain::{HistoryCompactionReport, MessageId},
-    model_standard::CanonicalMessage,
+    domain::{HistoryCompactionReport, MessageId, ToolResult},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
     plugin::PluginWorkflowError,
 };
 
@@ -11,6 +11,21 @@ use crate::history::{
 pub(crate) enum PersistentRepair {
     Rebuild,
     ReplaceAfter,
+}
+
+pub(crate) fn append_tool_results(
+    results: impl IntoIterator<Item = ToolResult>,
+    model_messages: &mut Vec<CanonicalMessage>,
+    persistent_messages: &mut Vec<CanonicalMessage>,
+) {
+    for result in results {
+        let call_id = result.call_id.clone();
+        let tool_result_message =
+            CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
+                .with_tool_call_id(call_id);
+        model_messages.push(tool_result_message.clone());
+        persistent_messages.push(tool_result_message);
+    }
 }
 
 pub(crate) fn apply_compaction_report(
