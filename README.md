@@ -209,12 +209,14 @@ Wrapper использует текущую директорию как workspac
 `http://127.0.0.1:8787`, chat-клиент на `http://127.0.0.1:1420` и Inspector
 для config/architecture экранов на `http://127.0.0.1:1421`. Если Inspector не
 нужен, задайте `PROTEUS_INSPECTOR=0`; порт можно поменять через
-`PROTEUS_INSPECTOR_PORT`. Локальный dogfood по умолчанию не требует session
-token: можно открыть `http://127.0.0.1:1420/` напрямую. Если нужен строгий
-token-режим, задайте
-`PROTEUS_SESSION_TOKEN`; wrapper откроет browser с `?session=<token>`, а
-web-клиент будет использовать query token для `EventSource` и header
-`X-Proteus-Session` для `fetch`. Единственный launcher-аргумент `--config`
+`PROTEUS_INSPECTOR_PORT`. Wrapper по умолчанию генерирует ephemeral session
+token на запуск и открывает browser с
+`?session=<token>&server=<app-origin>&inspector=<inspector-origin>`;
+web-клиент использует query token для `EventSource` и header
+`X-Proteus-Session` для `fetch`, а `server=`/`inspector=` позволяют custom
+портам (`PROTEUS_APP_PORT` и т.п.) не ломать клиентов. Свой token задаётся
+через `PROTEUS_SESSION_TOKEN`; отключение token-режима — только явное:
+`PROTEUS_NO_SESSION_TOKEN=1`. Единственный launcher-аргумент `--config`
 передаётся в app-server, поэтому `proteus --config codex` запускает UI на
 named config `codex`; для обычных CLI команд передайте task/subcommand,
 например `proteus doctor`, `proteus --config codex doctor` или
@@ -234,10 +236,9 @@ transport запускается через `proteus server http`; CLI и `prote
 остаются параллельными путями для headless/debug прогонов.
 
 Для dogfood запуска держите app-server на loopback (`127.0.0.1`) и не
-выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood,
-по умолчанию открывается без session token и ограничивает browser CORS
-локальными/явно разрешёнными origins. Token auth включается через `--token`,
-если нужен строгий локальный smoke, но это не shared-network deployment
+выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood.
+Wrapper включает ephemeral session token по умолчанию, CORS ограничен
+локальными/явно разрешёнными origins; это не shared-network deployment
 модель.
 Reference snapshots для web-клиента лежат вне production-каталога:
 

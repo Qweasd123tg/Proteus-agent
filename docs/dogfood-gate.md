@@ -50,8 +50,10 @@ boundary. Активное направление — Leptos chat client в `cli
 проверки вынесены в отдельный Leptos client `clients/inspector`.
 
 App-server запускается только на loopback (`127.0.0.1`) для v0 dogfood.
-HTTP boundary по умолчанию не требует local session token для loopback dogfood
-и ограничивает CORS локальным или явно разрешённым web origin. Строгий token
+Wrapper `proteus` включает ephemeral session token по умолчанию
+(отключение — явное, `PROTEUS_NO_SESSION_TOKEN=1`); прямой запуск
+`proteus server http` без `--token` остаётся допустимым для loopback debug и
+ограничивает CORS локальным или явно разрешённым web origin. Строгий token
 режим включается через `--token`; тогда `/events`, `/send`,
 approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
 требуют token. Browser `EventSource` не умеет произвольные headers, поэтому

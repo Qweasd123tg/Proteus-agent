@@ -44,6 +44,24 @@ inspector_port="${PROTEUS_INSPECTOR_PORT:-1421}"
 inspector_enabled="${PROTEUS_INSPECTOR:-1}"
 session_token="${PROTEUS_SESSION_TOKEN:-}"
 
+generate_session_token() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'
+    return
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+    return
+  fi
+  od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+# Локальный token-режим включён по умолчанию (см. docs/dogfood-gate.md,
+# Blocking Bugs). Отключение — только явное: PROTEUS_NO_SESSION_TOKEN=1.
+if [ -z "${session_token}" ] && [ "${PROTEUS_NO_SESSION_TOKEN:-0}" != "1" ]; then
+  session_token=$(generate_session_token)
+fi
+
 listener_pids_for_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1; then
@@ -202,20 +220,25 @@ fi
 workspace_cwd=$(pwd)
 echo "Proteus workspace: ${workspace_cwd}"
 echo "App server:        http://127.0.0.1:${app_port}"
+# Клиенты умеют читать app-server/inspector origin из query и sessionStorage;
+# без параметров web ходил бы на default 8787 даже при PROTEUS_APP_PORT.
+encoded_app_origin="http%3A%2F%2F127.0.0.1%3A${app_port}"
+encoded_inspector_origin="http%3A%2F%2F127.0.0.1%3A${inspector_port}"
+common_query="server=${encoded_app_origin}&inspector=${encoded_inspector_origin}"
 if [ -n "${session_token}" ]; then
-  echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>"
+  echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>&${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
-    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>"
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>&server=${encoded_app_origin}"
   fi
   server_auth_args=(--token "${session_token}")
-  open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}"
+  open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}&${common_query}"
 else
-  echo "Web client:        http://127.0.0.1:${web_port}/"
+  echo "Web client:        http://127.0.0.1:${web_port}/?${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
-    echo "Inspector:         http://127.0.0.1:${inspector_port}/"
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?server=${encoded_app_origin}"
   fi
   server_auth_args=()
-  open_web_url="http://127.0.0.1:${web_port}/"
+  open_web_url="http://127.0.0.1:${web_port}/?${common_query}"
 fi
 echo
 
