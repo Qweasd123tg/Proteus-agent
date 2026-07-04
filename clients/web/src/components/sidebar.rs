@@ -8,13 +8,50 @@ use crate::app_helpers::{
 use crate::types::*;
 use crate::ui_utils::{relative_time_from_now, short_id};
 
+/// Сколько сессий помещается в рейку свёрнутого сайдбара.
+const SIDEBAR_RAIL_LIMIT: usize = 10;
+
+/// Класс индикатора сессии в свёрнутой рейке: спиннер у работающих,
+/// «?» у ждущих человека, точка у остальных.
+fn rail_session_class(session: &SessionSummary) -> &'static str {
+    match session.activity.as_ref().map(|a| a.status.as_str()) {
+        Some("waiting_input" | "waiting_approval") => "sidebar-rail-session waiting",
+        Some("running") => "sidebar-rail-session running",
+        _ => "sidebar-rail-session",
+    }
+}
+
+fn rail_sessions(workspace: &str, sessions: &[SessionSummary]) -> Vec<SessionSummary> {
+    if workspace == "waiting for session" {
+        return Vec::new();
+    }
+    sessions
+        .iter()
+        .filter(|session| session.workspace_path.as_deref() == Some(workspace))
+        .take(SIDEBAR_RAIL_LIMIT)
+        .cloned()
+        .collect()
+}
+
+fn rail_sessions_total(workspace: &str, sessions: &[SessionSummary]) -> usize {
+    if workspace == "waiting for session" {
+        return 0;
+    }
+    sessions
+        .iter()
+        .filter(|session| session.workspace_path.as_deref() == Some(workspace))
+        .count()
+}
+
 /// Фильтр списка сессий по строке поиска: заголовок, превью и путь сессии.
 fn session_matches_query(session: &SessionSummary, query: &str) -> bool {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return true;
     }
-    sidebar_session_title(session).to_lowercase().contains(&query)
+    sidebar_session_title(session)
+        .to_lowercase()
+        .contains(&query)
         || sidebar_session_preview(session)
             .unwrap_or_default()
             .to_lowercase()
@@ -65,6 +102,7 @@ where
                     </button>
                     <button
                         type="button"
+                        class="sidebar-collapse-toggle"
                         title=move || if sidebar_collapsed.get() {
                             "Развернуть меню"
                         } else {
@@ -81,6 +119,83 @@ where
                 aria-hidden="true"
                 on:mousedown=on_begin_resize
             ></div>
+
+            // Рейка свёрнутого сайдбара: сессии workspace индикаторами —
+            // спиннер у работающих, «?» у ждущих ответа, точка у остальных;
+            // при наведении — поповер с деталями (единый стиль .rail-popover).
+            // Кэп, чтобы колонка не переполнялась: рейка не скроллится,
+            // иначе поповеры обрезаются.
+            <div class="sidebar-rail">
+                <For
+                    each=move || {
+                        rail_sessions(
+                            &workspace_label.get(),
+                            &sidebar_sessions.get(),
+                        )
+                    }
+                    key=|session| sidebar_session_render_key(session)
+                    children=move |session| {
+                        let class = rail_session_class(&session);
+                        let waiting = class.ends_with("waiting");
+                        let title = sidebar_session_title(&session);
+                        let status_label =
+                            sidebar_session_activity_label(session.activity.as_ref())
+                                .unwrap_or_else(|| "ожидает".to_owned());
+                        let aria = format!("{title} · {status_label}");
+                        let message_count = session.message_count;
+                        let updated_at = relative_time_from_now(session.updated_at_ms);
+                        let session_dir = session.session_dir.clone();
+                        let session_for_click = session.clone();
+                        view! {
+                            <div class="sidebar-rail-item rail-popover-host">
+                                <button
+                                    type="button"
+                                    class=class
+                                    class:active=move || {
+                                        active_session_dir.get().as_deref()
+                                            == Some(session_dir.as_str())
+                                    }
+                                    disabled=!session.resumable
+                                    aria-label=aria
+                                    on:click=move |_| on_open_session(session_for_click.clone())
+                                >
+                                    {waiting.then_some("?")}
+                                </button>
+                                <div class="rail-popover rail-popover-right">
+                                    <div class="rail-popover-head">
+                                        <span class="panel-kicker">"Сессия"</span>
+                                        <code>{status_label}</code>
+                                    </div>
+                                    <div class="rail-popover-title">{title}</div>
+                                    <div class="info-row">
+                                        <span>"Сообщений"</span>
+                                        <code>{message_count.to_string()}</code>
+                                    </div>
+                                    <div class="info-row">
+                                        <span>"Обновлена"</span>
+                                        <code>{updated_at}</code>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                />
+                {move || {
+                    let total = rail_sessions_total(
+                        &workspace_label.get(),
+                        &sidebar_sessions.get(),
+                    );
+                    if total > SIDEBAR_RAIL_LIMIT {
+                        view! {
+                            <div class="sidebar-rail-more">
+                                {format!("+{}", total - SIDEBAR_RAIL_LIMIT)}
+                            </div>
+                        }.into_any()
+                    } else {
+                        ().into_any()
+                    }
+                }}
+            </div>
 
             <div class="sidebar-search">
                 <input

@@ -98,59 +98,18 @@ impl AppActions {
         });
     }
 
-    pub(crate) fn set_reasoning_enabled(self, enabled: bool) {
-        let previous_enabled = self.reasoning_enabled.get();
-        let previous_effort = self.effort.get();
-        if previous_enabled == enabled {
-            return;
-        }
-        self.set_reasoning_enabled.set(enabled);
-        if !enabled {
-            self.set_effort.set(ReasoningEffort::Config);
-        }
-        let request_id =
-            take_request_id(self.next_request_id, self.set_next_request_id, "reasoning");
-        let session_dir = self.active_session_dir.get_untracked();
-        spawn_local(async move {
-            match post_json(
-                "/reasoning",
-                &SetReasoningEnabledRequest {
-                    id: Some(request_id),
-                    enabled,
-                    session_dir,
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    if !handle_control_response(
-                        output,
-                        self.set_transport_status,
-                        "Reasoning update failed",
-                    ) {
-                        self.set_reasoning_enabled.set(previous_enabled);
-                        self.set_effort.set(previous_effort);
-                    }
-                }
-                Err(error) => {
-                    self.set_reasoning_enabled.set(previous_enabled);
-                    self.set_effort.set(previous_effort);
-                    self.set_control_error("Reasoning update failed", error);
-                }
-            }
-        });
-    }
-
+    /// Единственная ручка рассуждений: effort «none» выключает их целиком
+    /// (сервер понимает это значение на /effort), любой другой — включает.
     pub(crate) fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
-        if !self.reasoning_enabled.get() {
-            return;
-        }
         let previous_effort = self.effort.get();
+        let previous_enabled = self.reasoning_enabled.get();
         if previous_effort == new_effort {
             return;
         }
         let effort_value = new_effort.effort();
+        let enables = new_effort != ReasoningEffort::None;
         self.set_effort.set(new_effort);
+        self.set_reasoning_enabled.set(enables);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
         let session_dir = self.active_session_dir.get_untracked();
         spawn_local(async move {
@@ -171,10 +130,12 @@ impl AppActions {
                         "Effort update failed",
                     ) {
                         self.set_effort.set(previous_effort);
+                        self.set_reasoning_enabled.set(previous_enabled);
                     }
                 }
                 Err(error) => {
                     self.set_effort.set(previous_effort);
+                    self.set_reasoning_enabled.set(previous_enabled);
                     self.set_control_error("Effort update failed", error);
                 }
             }

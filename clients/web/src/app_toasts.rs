@@ -35,6 +35,7 @@ pub(crate) fn install_transport_toast_effect(
                 set_last_error_toast.set(None);
             }
         }
-        TransportStatus::Connecting | TransportStatus::Shutdown => {}
+        TransportStatus::Connecting | TransportStatus::Reconnecting | TransportStatus::Shutdown => {
+        }
     });
 }

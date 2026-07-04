@@ -38,6 +38,8 @@ impl PermissionMode {
 pub(crate) enum ReasoningEffort {
     #[default]
     Config,
+    /// Рассуждения выключены; на проводе — effort: "none".
+    None,
     Custom(String),
 }
 
@@ -45,6 +47,7 @@ impl ReasoningEffort {
     pub(crate) fn label(&self) -> String {
         match self {
             Self::Config => "auto".to_owned(),
+            Self::None => "none".to_owned(),
             Self::Custom(value) => value.clone(),
         }
     }
@@ -52,6 +55,7 @@ impl ReasoningEffort {
     pub(crate) fn value(&self) -> String {
         match self {
             Self::Config => "auto".to_owned(),
+            Self::None => "none".to_owned(),
             Self::Custom(value) => value.clone(),
         }
     }
@@ -59,6 +63,7 @@ impl ReasoningEffort {
     pub(crate) fn effort(&self) -> Option<String> {
         match self {
             Self::Config => None,
+            Self::None => Some("none".to_owned()),
             Self::Custom(value) => Some(value.clone()),
         }
     }
@@ -70,6 +75,8 @@ impl ReasoningEffort {
             || value.eq_ignore_ascii_case("config")
         {
             Self::Config
+        } else if value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("off") {
+            Self::None
         } else {
             Self::Custom(value.to_owned())
         }

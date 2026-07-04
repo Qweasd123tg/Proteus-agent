@@ -43,7 +43,7 @@ pub(crate) fn ContextMapView(
         set_snapshot,
         set_status,
     );
-    schedule_context_refresh(selected_session_dir, set_snapshot, set_status);
+    schedule_context_refresh(selected_session_dir, set_snapshot);
 
     let refresh = move |_| {
         load_context_map_snapshot(
@@ -137,7 +137,6 @@ fn load_context_map_snapshot(
 fn schedule_context_refresh(
     selected_session_dir: ReadSignal<Option<String>>,
     set_snapshot: WriteSignal<Option<ContextMapSnapshot>>,
-    set_status: WriteSignal<String>,
 ) {
     set_timeout(CONTEXT_REFRESH_MS, move || {
         let session_dir = selected_session_dir.get_untracked();
@@ -150,7 +149,7 @@ fn schedule_context_refresh(
                     set_snapshot.set(Some(snapshot));
                 }
             }
-            schedule_context_refresh(selected_session_dir, set_snapshot, set_status);
+            schedule_context_refresh(selected_session_dir, set_snapshot);
         });
     });
 }
@@ -407,26 +406,25 @@ fn context_map_segments(
         .sum();
 
     let mut segments = Vec::new();
-    if content_total == 0 {
-        if used_tokens > 0 {
-            segments.push(ContextMapSegment {
-                label: "занято".to_owned(),
-                tokens: used_tokens,
-                color: SEGMENT_FALLBACK_PALETTE[0],
-                percent: 0.0,
-            });
-        }
-    } else {
-        for (index, category) in content.iter().enumerate() {
-            let tokens =
-                (u64::from(used_tokens) * u64::from(category.tokens) / content_total) as u32;
-            segments.push(ContextMapSegment {
-                label: context_category_label(&category.name),
-                tokens,
-                color: context_category_color(&category.name, index),
-                percent: 0.0,
-            });
-        }
+    for (index, category) in content.iter().enumerate() {
+        let tokens = (u64::from(used_tokens) * u64::from(category.tokens))
+            .checked_div(content_total)
+            .unwrap_or(0) as u32;
+        segments.push(ContextMapSegment {
+            label: context_category_label(&category.name),
+            tokens,
+            color: context_category_color(&category.name, index),
+            percent: 0.0,
+        });
+    }
+    // Категорий нет (нулевые или только кэш) — рисуем занятое одним куском.
+    if segments.is_empty() && used_tokens > 0 {
+        segments.push(ContextMapSegment {
+            label: "занято".to_owned(),
+            tokens: used_tokens,
+            color: SEGMENT_FALLBACK_PALETTE[0],
+            percent: 0.0,
+        });
     }
 
     if let Some(max) = max_tokens.filter(|max| *max > 0) {

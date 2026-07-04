@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use leptos::{html, prelude::*, task::spawn_local};
-use wasm_bindgen::{JsCast, prelude::wasm_bindgen};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
 use crate::actions::{
     AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
-    revise_plan_prompt, send_planning_request, send_prompt_for_mode, take_request_id,
+    revise_plan_prompt, send_prompt_for_mode, take_request_id,
 };
 use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
@@ -21,7 +21,7 @@ use crate::components::{
 use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, set_timeout};
+use crate::ui_utils::{compact_text, set_timeout, short_path};
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -29,13 +29,50 @@ unsafe extern "C" {
     fn proteus_typeset_math();
 }
 
+/// Закрывает выпадающее меню-шестерёнку в топбаре (нативный <details>).
+fn close_topbar_menu() {
+    if let Some(document) = window().and_then(|window| window.document())
+        && let Ok(Some(menu)) = document.query_selector(".topbar-menu[open]")
+    {
+        let _ = menu.remove_attribute("open");
+    }
+}
+
 #[component]
 pub(crate) fn App() -> impl IntoView {
-    let route = current_path();
-    let is_resume_route = route == "/resume";
-    let is_context_route = route == "/context";
-    let is_settings_route = route == "/settings";
-    let is_chat_route = !(is_resume_route || is_context_route || is_settings_route);
+    // Роут — сигнал: страницы переключаются без перезагрузки, общий каркас
+    // (сайдбар, event stream, статусы, черновики) живёт непрерывно.
+    let (route, set_route) = signal(current_path());
+    let is_chat_route =
+        move || !matches!(route.get().as_str(), "/resume" | "/context" | "/settings");
+    let navigate = move |path: &str| {
+        if route.get_untracked() == path {
+            return;
+        }
+        if let Some(window) = window()
+            && let Ok(history) = window.history()
+        {
+            let _ = history.push_state_with_url(&JsValue::NULL, "", Some(path));
+        }
+        set_route.set(path.to_owned());
+    };
+    // Кнопки «назад/вперёд» браузера возвращают роут из адресной строки.
+    if let Some(window) = window() {
+        let on_popstate = Closure::<dyn FnMut(web_sys::Event)>::wrap(Box::new(move |_| {
+            set_route.set(current_path());
+        }));
+        window.set_onpopstate(Some(on_popstate.as_ref().unchecked_ref()));
+        on_popstate.forget();
+    }
+    // Обычный клик по навигации перехватываем; модификаторы и не-левую
+    // кнопку оставляем браузеру (открытие в новой вкладке).
+    let topnav_click = move |ev: MouseEvent, path: &'static str| {
+        if ev.ctrl_key() || ev.meta_key() || ev.shift_key() || ev.alt_key() || ev.button() != 0 {
+            return;
+        }
+        ev.prevent_default();
+        navigate(path);
+    };
     let (messages, set_messages) = signal(seed_messages());
     let _session_token = match load_session_token() {
         Ok(token) => token,
@@ -74,7 +111,7 @@ pub(crate) fn App() -> impl IntoView {
     let (streamed_this_turn, set_streamed_this_turn) = signal(false);
     let (agent_status, set_agent_status) = signal("ожидает".to_owned());
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
-    let (context_usage, set_context_usage) = signal(load_context_usage());
+    let (context_usage, set_context_usage) = signal(None::<ContextUsage>);
     let (transcript_generation, set_transcript_generation) = signal(0_u64);
     let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
@@ -91,14 +128,10 @@ pub(crate) fn App() -> impl IntoView {
     let (last_results_scroll_top, set_last_results_scroll_top) = signal(0_i32);
     let resize = AppResizeState::new();
     let (active_user_message, set_active_user_message) = signal(None::<u64>);
-    // Инфо-панель справа (план, контекст, сессия); состояние переживает
-    // перезагрузку страницы.
-    let (info_panel_open, set_info_panel_open) =
-        signal(load_bool_setting("proteus.infoPanelOpen", false));
-    let toggle_info_panel = move |_| {
-        set_info_panel_open.update(|value| *value = !*value);
-        save_bool_setting("proteus.infoPanelOpen", info_panel_open.get_untracked());
-    };
+    // Инфо-панель справа (план, контекст, сессия); состояние и ширина живут
+    // в AppResizeState и переживают перезагрузку страницы.
+    let info_panel_open = resize.info_open;
+    let toggle_info_panel = move |_| resize.toggle_info_panel();
     // Дефолт раскрытия карточек тулов из [web].tool_cards_collapsed (/config);
     // отдаём вниз контекстом, ToolActivityCard читает его при монтировании.
     let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
@@ -134,6 +167,9 @@ pub(crate) fn App() -> impl IntoView {
             pending_user_inputs.with(|items| items.len()),
             queued_prompts.with(|items| items.len()),
             is_sending.get(),
+            // Возврат на чат после SPA-перехода: лента смонтирована заново,
+            // прилипание к низу надо восстановить.
+            is_chat_route(),
         );
         if stick_to_bottom.get() {
             schedule_results_scroll(
@@ -147,6 +183,12 @@ pub(crate) fn App() -> impl IntoView {
     });
 
     Effect::new(move |_| {
+        // SPA-переход пересобирает DOM чата: вне чата сбрасываем подпись,
+        // чтобы по возвращении MathJax переверстал формулы заново.
+        if !is_chat_route() {
+            last_math_typeset_signature.set_value(None);
+            return;
+        }
         if active_stream_message_id.get().is_some() {
             return;
         }
@@ -197,6 +239,70 @@ pub(crate) fn App() -> impl IntoView {
         }
     });
 
+    // Черновик композера привязан к сессии: восстанавливается после
+    // переключения сессий и перезагрузки страницы.
+    let draft_session = StoredValue::new_local(None::<Option<String>>);
+    Effect::new(move |_| {
+        let session = active_session_dir.get();
+        let mut previous = None;
+        draft_session.with_value(|value| previous = value.clone());
+        draft_session.set_value(Some(session.clone()));
+        match previous {
+            // Первый прогон после монтирования: сессия ещё не резолвнулась.
+            None => {}
+            Some(previous) if previous == session => {}
+            Some(previous) => match session.as_deref() {
+                // Сессия только что получила dir (новая сессия или /config
+                // после перезагрузки): набранный текст не затираем, а
+                // записываем в черновик этой сессии.
+                Some(dir) if previous.is_none() => {
+                    let current = draft.get_untracked();
+                    if current.trim().is_empty() {
+                        set_draft.set(load_session_draft(dir).unwrap_or_default());
+                    } else {
+                        save_session_draft(dir, &current);
+                    }
+                }
+                Some(dir) => set_draft.set(load_session_draft(dir).unwrap_or_default()),
+                None => set_draft.set(String::new()),
+            },
+        }
+    });
+    // Каждое изменение черновика сохраняем под активной сессией.
+    Effect::new(move |_| {
+        let text = draft.get();
+        if let Some(dir) = active_session_dir.get_untracked() {
+            save_session_draft(&dir, &text);
+        }
+    });
+
+    // Бублик контекста тоже привязан к сессии: при переключении показываем
+    // её последний снимок (или ничего), а не хвост предыдущей. Живые
+    // TokenUsageUpdated затем перезаписывают сигнал.
+    Effect::new(move |_| {
+        let session = active_session_dir.get();
+        set_context_usage.set(load_context_usage(session.as_deref()));
+    });
+
+    // Счётчик для кнопки «вниз»: сколько сообщений добавилось с момента,
+    // как лента отлипла от низа.
+    let (detach_baseline, set_detach_baseline) = signal(None::<usize>);
+    Effect::new(move |_| {
+        if stick_to_bottom.get() {
+            if detach_baseline.get_untracked().is_some() {
+                set_detach_baseline.set(None);
+            }
+        } else if detach_baseline.get_untracked().is_none() {
+            set_detach_baseline.set(Some(messages.with_untracked(|items| items.len())));
+        }
+    });
+    let new_below_count = move || {
+        let Some(baseline) = detach_baseline.get() else {
+            return 0;
+        };
+        messages.with(|items| items.len()).saturating_sub(baseline)
+    };
+
     install_transport_toast_effect(
         transport_status,
         last_error_toast,
@@ -233,12 +339,8 @@ pub(crate) fn App() -> impl IntoView {
         set_transport_status,
     };
 
-    if is_chat_route || is_context_route || is_settings_route {
-        runtime_settings.load();
-    }
-    if is_chat_route {
-        transcript_bindings.load_initial(messages);
-    }
+    runtime_settings.load();
+    transcript_bindings.load_initial(messages);
 
     let event_source = StoredValue::new_local(None::<EventSource>);
     let event_stream_bindings = EventStreamBindings {
@@ -291,6 +393,34 @@ pub(crate) fn App() -> impl IntoView {
     };
     session_actions.load_sidebar_sessions();
     reconnect_event_stream(event_source, event_stream_bindings);
+    // Открытие сессии со страницы «Сессии»: тот же флоу, что и в сайдбаре,
+    // плюс переход в чат без перезагрузки.
+    let resume_open = move |session: SessionSummary| {
+        session_actions.open_sidebar_session(session);
+        navigate("/");
+    };
+    // Клик по транспорт-бейджу = ручной реконнект: не ждать грейс-таймер
+    // или F5, если стрим отвалился.
+    let reconnect_transport = move |_| {
+        reconnect_event_stream(event_source, event_stream_bindings);
+    };
+    // Фоновые сессии, ждущие человека (доступ или ответ): сайдбар может быть
+    // свёрнут, поэтому индикатор дублируется в топбаре.
+    let waiting_background_sessions = Memo::new(move |_| {
+        let active = active_session_dir.get();
+        sidebar_sessions.with(|sessions| {
+            sessions
+                .iter()
+                .filter(|session| {
+                    Some(session.session_dir.as_str()) != active.as_deref()
+                        && session.activity.as_ref().is_some_and(|activity| {
+                            activity.pending_approvals > 0 || activity.pending_user_inputs > 0
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    });
 
     let actions = AppActions {
         set_messages,
@@ -314,27 +444,29 @@ pub(crate) fn App() -> impl IntoView {
         set_active_turn_id,
     };
 
-    let clear_transcript = move |_| session_actions.clear_transcript();
     let start_new_session = move |_| session_actions.start_new_session();
-    // Нативный <details> композер-меню сам не закрывается по клику мимо —
-    // закрываем с корневого обработчика, если клик пришёл не изнутри меню.
-    let close_composer_menu_on_outside_click = move |ev: MouseEvent| {
+    // Нативные <details>-меню (композер, шестерёнка в топбаре) сами не
+    // закрываются по клику мимо — закрываем с корневого обработчика, если
+    // клик пришёл не изнутри меню.
+    let close_menus_on_outside_click = move |ev: MouseEvent| {
         let Some(document) = window().and_then(|window| window.document()) else {
-            return;
-        };
-        let Ok(Some(menu)) = document.query_selector(".composer-menu[open]") else {
             return;
         };
         let target = ev
             .target()
             .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
-        if target
-            .as_ref()
-            .is_some_and(|target| menu.contains(Some(target)))
-        {
-            return;
+        for selector in [".composer-menu[open]", ".topbar-menu[open]"] {
+            let Ok(Some(menu)) = document.query_selector(selector) else {
+                continue;
+            };
+            if target
+                .as_ref()
+                .is_some_and(|target| menu.contains(Some(target)))
+            {
+                continue;
+            }
+            let _ = menu.remove_attribute("open");
         }
-        let _ = menu.remove_attribute("open");
     };
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
@@ -428,35 +560,13 @@ pub(crate) fn App() -> impl IntoView {
         );
     };
 
-    let settings_summary = move || {
-        let model = model_name.get();
-        let model = if model.trim().is_empty() {
-            "model".to_owned()
-        } else {
-            compact_text(&model, 28)
-        };
-        let reasoning = if reasoning_enabled.get() {
-            effort.get().label()
-        } else {
-            "reasoning off".to_owned()
-        };
-        format!("{} · {} · {}", model, mode.get().label(), reasoning)
-    };
     let transport_badge_class = move || match transport_status.get() {
-        TransportStatus::Connecting => "status-badge disconnected",
+        TransportStatus::Connecting | TransportStatus::Reconnecting => "status-badge disconnected",
         TransportStatus::Connected => "status-badge completed",
         TransportStatus::Error(_) | TransportStatus::Shutdown => "status-badge failed",
     };
     let draft_is_empty = move || draft.get().trim().is_empty();
 
-    let send_plan = move |_| {
-        let text = draft.get();
-        if text.trim().is_empty() || is_sending.get() {
-            return;
-        }
-        set_draft.set(String::new());
-        send_planning_request(actions, text);
-    };
     let revise_plan = move |_| {
         let text = draft.get();
         if text.trim().is_empty() {
@@ -520,6 +630,7 @@ pub(crate) fn App() -> impl IntoView {
         }
     };
     let begin_sidebar_resize = move |ev: MouseEvent| resize.begin_sidebar_resize(ev);
+    let begin_info_resize = move |ev: MouseEvent| resize.begin_info_resize(ev);
     let begin_composer_resize = move |ev: MouseEvent| resize.begin_composer_resize(ev);
     let begin_chat_resize = move |ev: MouseEvent| resize.begin_chat_resize(ev);
     let resize_drag = move |ev: MouseEvent| resize.drag(ev);
@@ -567,7 +678,7 @@ pub(crate) fn App() -> impl IntoView {
             on:mousemove=resize_drag
             on:mouseup=stop_resize
             on:mouseleave=stop_resize
-            on:click=close_composer_menu_on_outside_click
+            on:click=close_menus_on_outside_click
         >
             <ToastStack toasts on_dismiss=dismiss_toast />
             <SidebarView
@@ -588,37 +699,78 @@ pub(crate) fn App() -> impl IntoView {
             <main class="workspace-main">
                 <header class="topbar">
                     <div class="topbar-left">
-                        <a class="brand" href="/">"Proteus"</a>
-                        <span class=transport_badge_class>
+                        <a
+                            class="brand"
+                            href="/"
+                            on:click=move |ev| topnav_click(ev, "/")
+                        >
+                            "Proteus"
+                        </a>
+                        <button
+                            type="button"
+                            class=transport_badge_class
+                            title="Переподключить поток событий"
+                            on:click=reconnect_transport
+                        >
                             <span class="dot"></span>
                             {move || transport_status.get().label()}
-                        </span>
-                        // Путь workspace, в котором запущен агент.
+                        </button>
+                        // Путь workspace, в котором запущен агент; полный —
+                        // в подсказке.
                         <code class="topbar-workspace" title=move || workspace_label.get()>
-                            {move || workspace_label.get()}
+                            {move || short_path(&workspace_label.get())}
                         </code>
                     </div>
                     <nav class="topnav">
-                        <span class="topnav-status">
-                            {move || format!("{} events · {} tools", event_count.get(), tool_activities.get().len())}
-                        </span>
-                        <a class="topnav-link" href="/">"Чат"</a>
-                        <a class="topnav-link" href="/context">"Контекст"</a>
-                        <a class="topnav-link" href="/resume">"Сессии"</a>
-                        <a class="topnav-link" href="/settings">"Настройки"</a>
-                        <a class="topnav-link" href="http://127.0.0.1:1421/">"Inspector"</a>
-                        <button
-                            type="button"
-                            class="secondary danger"
-                            disabled=move || active_turn_id.get().is_none()
-                            on:click=cancel_turn
+                        {move || {
+                            let waiting = waiting_background_sessions.get();
+                            if waiting.is_empty() {
+                                ().into_any()
+                            } else {
+                                let count = waiting.len();
+                                let first = waiting[0].clone();
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="status-badge attention"
+                                        title="Другие сессии ждут доступа или ответа — открыть"
+                                        on:click=move |_| session_actions
+                                            .open_sidebar_session(first.clone())
+                                    >
+                                        <span class="dot"></span>
+                                        {format!("ждёт: {count}")}
+                                    </button>
+                                }.into_any()
+                            }
+                        }}
+                        <a
+                            class="topnav-link"
+                            class:active=move || is_chat_route()
+                            href="/"
+                            on:click=move |ev| topnav_click(ev, "/")
                         >
-                            "Стоп"
-                        </button>
+                            "Чат"
+                        </a>
+                        <a
+                            class="topnav-link"
+                            class:active=move || route.get() == "/context"
+                            href="/context"
+                            on:click=move |ev| topnav_click(ev, "/context")
+                        >
+                            "Контекст"
+                        </a>
+                        <a
+                            class="topnav-link"
+                            class:active=move || route.get() == "/resume"
+                            href="/resume"
+                            on:click=move |ev| topnav_click(ev, "/resume")
+                        >
+                            "Сессии"
+                        </a>
                         // Резервный тумблер инфо-панели для узких экранов:
                         // там свёрнутая рейка спрятана целиком, и своей кнопки
                         // у панели не видно. На десктопе скрыт (см. CSS).
-                        {if is_chat_route {
+                        {move || if is_chat_route() {
                             view! {
                                 <button
                                     type="button"
@@ -634,6 +786,49 @@ pub(crate) fn App() -> impl IntoView {
                         } else {
                             ().into_any()
                         }}
+                        // Служебное — под шестерёнкой, чтобы не шуметь в
+                        // топбаре: настройки, Inspector, стоп, счётчики.
+                        <details class="topbar-menu">
+                            <summary title="Меню" aria-label="Меню">"⚙"</summary>
+                            <div class="topbar-menu-panel">
+                                <a
+                                    class="topbar-menu-item"
+                                    class:active=move || route.get() == "/settings"
+                                    href="/settings"
+                                    on:click=move |ev| {
+                                        close_topbar_menu();
+                                        topnav_click(ev, "/settings");
+                                    }
+                                >
+                                    "Настройки"
+                                </a>
+                                <a
+                                    class="topbar-menu-item"
+                                    href="http://127.0.0.1:1421/"
+                                    on:click=move |_| close_topbar_menu()
+                                >
+                                    "Inspector"
+                                </a>
+                                <button
+                                    type="button"
+                                    class="topbar-menu-item danger"
+                                    disabled=move || active_turn_id.get().is_none()
+                                    on:click=move |ev| {
+                                        close_topbar_menu();
+                                        cancel_turn(ev);
+                                    }
+                                >
+                                    "Остановить ход"
+                                </button>
+                                <div class="topbar-menu-footer">
+                                    {move || format!(
+                                        "{} events · {} tools",
+                                        event_count.get(),
+                                        tool_activities.with(|items| items.len()),
+                                    )}
+                                </div>
+                            </div>
+                        </details>
                     </nav>
                 </header>
 
@@ -641,16 +836,18 @@ pub(crate) fn App() -> impl IntoView {
                     class="session-workspace"
                     style=move || format!("--chat-max-width: {}px", resize.chat_width.get())
                 >
-                    {if is_resume_route {
-                        view! { <ResumeView /> }.into_any()
-                    } else if is_context_route {
+                    {move || {
+                        let current = route.get();
+                        if current == "/resume" {
+                            view! { <ResumeView on_open=resume_open /> }.into_any()
+                        } else if current == "/context" {
                         view! {
                             <ContextMapView
                                 sessions=sidebar_sessions
                                 active_session_dir=active_session_dir
                             />
                         }.into_any()
-                    } else if is_settings_route {
+                    } else if current == "/settings" {
                         view! { <SettingsView /> }.into_any()
                     } else {
                         view! {
@@ -696,13 +893,11 @@ pub(crate) fn App() -> impl IntoView {
                                 stick_to_bottom
                                 set_stick_to_bottom
                                 actions
-                                settings_summary
                                 draft_is_empty
+                                new_below_count
                                 on_submit=submit
                                 on_keydown=submit_shortcut
                                 on_begin_resize=begin_composer_resize
-                                on_clear=clear_transcript
-                                on_send_plan=send_plan
                                 on_cancel_turn=cancel_turn
                             />
 
@@ -719,15 +914,17 @@ pub(crate) fn App() -> impl IntoView {
                                 on_jump=jump_to_message
                             />
                         }.into_any()
-                    }}
+                    }}}
                 </section>
             </main>
 
-            {if is_chat_route {
+            {move || if is_chat_route() {
                 view! {
                     <InfoPanelView
                         open=info_panel_open
+                        width=resize.info_width
                         on_toggle=toggle_info_panel
+                        on_begin_resize=begin_info_resize
                         messages
                         model_name
                         mode

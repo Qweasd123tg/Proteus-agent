@@ -3,10 +3,11 @@ use web_sys::{KeyboardEvent, MouseEvent, SubmitEvent};
 
 use crate::actions::AppActions;
 use crate::types::*;
+use crate::ui_utils::compact_text;
 
 #[component]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn ComposerView<S, K, R, C, P, T, SS, DE>(
+pub(crate) fn ComposerView<S, K, R, T, DE, NB>(
     composer_ref: NodeRef<html::Textarea>,
     composer_height: ReadSignal<i32>,
     draft: ReadSignal<String>,
@@ -22,25 +23,38 @@ pub(crate) fn ComposerView<S, K, R, C, P, T, SS, DE>(
     stick_to_bottom: ReadSignal<bool>,
     set_stick_to_bottom: WriteSignal<bool>,
     actions: AppActions,
-    settings_summary: SS,
     draft_is_empty: DE,
+    new_below_count: NB,
     on_submit: S,
     on_keydown: K,
     on_begin_resize: R,
-    on_clear: C,
-    on_send_plan: P,
     on_cancel_turn: T,
 ) -> impl IntoView
 where
     S: Fn(SubmitEvent) + 'static,
     K: Fn(KeyboardEvent) + 'static,
     R: Fn(MouseEvent) + 'static,
-    C: Fn(MouseEvent) + Copy + 'static,
-    P: Fn(MouseEvent) + Copy + Send + 'static,
-    T: Fn(MouseEvent) + Copy + 'static,
-    SS: Fn() -> String + Copy + Send + 'static,
+    T: Fn(MouseEvent) + Copy + Send + 'static,
     DE: Fn() -> bool + Copy + Send + 'static,
+    NB: Fn() -> usize + Copy + Send + Sync + 'static,
 {
+    // Чип настроек: модель — ярко, режим и effort — приглушённой сноской.
+    let trigger_model = move || {
+        let model = model_name.get();
+        if model.trim().is_empty() {
+            "модель".to_owned()
+        } else {
+            compact_text(&model, 24)
+        }
+    };
+    let trigger_meta = move || {
+        let reasoning = if reasoning_enabled.get() {
+            effort.get().label()
+        } else {
+            "none".to_owned()
+        };
+        format!("{} · {}", mode.get().label(), reasoning)
+    };
     view! {
         <form
             class="composer"
@@ -54,12 +68,25 @@ where
                     view! {
                         <button
                             type="button"
-                            class="jump-to-bottom"
+                            class=move || {
+                                if new_below_count() > 0 {
+                                    "jump-to-bottom has-count"
+                                } else {
+                                    "jump-to-bottom"
+                                }
+                            }
                             title="К последнему сообщению"
                             aria-label="К последнему сообщению"
                             on:click=move |_| set_stick_to_bottom.set(true)
                         >
-                            "↓"
+                            {move || {
+                                let count = new_below_count();
+                                if count > 0 {
+                                    format!("↓ {count}")
+                                } else {
+                                    "↓".to_owned()
+                                }
+                            }}
                         </button>
                     }.into_any()
                 }
@@ -85,42 +112,32 @@ where
                 />
                 <div class="composer-actions">
                     <div class="composer-buttons">
-                        <button type="button" class="secondary" on:click=on_clear>
-                            "Очистить"
-                        </button>
+                        // Стоп появляется только пока идёт ход — в покое не
+                        // держим мёртвую серую кнопку.
                         {move || {
-                            if mode.get() == PermissionMode::Plan {
-                                ().into_any()
-                            } else {
+                            if active_turn_id.get().is_some() {
                                 view! {
                                     <button
                                         type="button"
-                                        class="secondary"
-                                        disabled=move || draft_is_empty() || is_sending.get()
-                                        on:click=on_send_plan
-                                        title="Переключиться в план и задать уточняющие вопросы"
+                                        class="secondary danger"
+                                        on:click=on_cancel_turn
                                     >
-                                        "План"
+                                        "Стоп"
                                     </button>
                                 }.into_any()
+                            } else {
+                                ().into_any()
                             }
                         }}
-                        <button
-                            type="button"
-                            class="secondary danger"
-                            disabled=move || active_turn_id.get().is_none()
-                            on:click=on_cancel_turn
-                        >
-                            "Стоп"
-                        </button>
                         <details class="composer-menu">
                             <summary class="composer-menu-trigger" aria-label="Настройки запроса">
-                                <span class="composer-menu-summary">{settings_summary}</span>
+                                <span class="composer-menu-model">{trigger_model}</span>
+                                <span class="composer-menu-meta">{trigger_meta}</span>
                             </summary>
                             <div class="composer-menu-panel">
                                 <section class="composer-menu-section">
                                     <span class="composer-menu-label">"model"</span>
-                                    <div class="composer-menu-options model-options">
+                                    <div class="composer-menu-options stacked">
                                         {move || {
                                             let options = model_options.get();
                                             let current = model_name.get();
@@ -131,8 +148,9 @@ where
                                                     current
                                                 };
                                                 view! {
-                                                    <button type="button" class="menu-option active" disabled=true>
-                                                        {label}
+                                                    <button type="button" class="menu-option menu-option-row active" disabled=true>
+                                                        <span class="menu-option-title">{label}</span>
+                                                        <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                                     </button>
                                                 }.into_any()
                                             } else {
@@ -146,11 +164,12 @@ where
                                                             view! {
                                                                 <button
                                                                     type="button"
-                                                                    class="menu-option"
+                                                                    class="menu-option menu-option-row"
                                                                     class:active=move || model_name.get() == active_model
                                                                     on:click=move |_| actions.set_model_name(click_model.clone())
                                                                 >
-                                                                    {model}
+                                                                    <span class="menu-option-title">{model}</span>
+                                                                    <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                                                 </button>
                                                             }
                                                         }
@@ -163,70 +182,59 @@ where
 
                                 <section class="composer-menu-section">
                                     <span class="composer-menu-label">"mode"</span>
-                                    <div class="composer-menu-options">
+                                    <div class="composer-menu-options stacked">
                                         <button
                                             type="button"
-                                            class="menu-option"
+                                            class="menu-option menu-option-row"
                                             class:active=move || mode.get() == PermissionMode::Plan
-                                            title=PermissionMode::Plan.description()
                                             on:click=move |_| actions.set_permission_mode(PermissionMode::Plan)
                                         >
-                                            {PermissionMode::Plan.label()}
+                                            <span class="menu-option-text">
+                                                <span class="menu-option-title">{PermissionMode::Plan.label()}</span>
+                                                <span class="menu-option-desc">{PermissionMode::Plan.description()}</span>
+                                            </span>
+                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                         </button>
                                         <button
                                             type="button"
-                                            class="menu-option"
+                                            class="menu-option menu-option-row"
                                             class:active=move || mode.get() == PermissionMode::Normal
-                                            title=PermissionMode::Normal.description()
                                             on:click=move |_| actions.set_permission_mode(PermissionMode::Normal)
                                         >
-                                            {PermissionMode::Normal.label()}
+                                            <span class="menu-option-text">
+                                                <span class="menu-option-title">{PermissionMode::Normal.label()}</span>
+                                                <span class="menu-option-desc">{PermissionMode::Normal.description()}</span>
+                                            </span>
+                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                         </button>
                                         <button
                                             type="button"
-                                            class="menu-option"
+                                            class="menu-option menu-option-row"
                                             class:active=move || mode.get() == PermissionMode::Auto
-                                            title=PermissionMode::Auto.description()
                                             on:click=move |_| actions.set_permission_mode(PermissionMode::Auto)
                                         >
-                                            {PermissionMode::Auto.label()}
+                                            <span class="menu-option-text">
+                                                <span class="menu-option-title">{PermissionMode::Auto.label()}</span>
+                                                <span class="menu-option-desc">{PermissionMode::Auto.description()}</span>
+                                            </span>
+                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                         </button>
                                     </div>
                                 </section>
 
-                                <section class="composer-menu-section compact">
-                                    <span class="composer-menu-label">"reasoning"</span>
-                                    <div class="composer-menu-options">
-                                        <button
-                                            type="button"
-                                            class="menu-option"
-                                            class:active=move || reasoning_enabled.get()
-                                            on:click=move |_| actions.set_reasoning_enabled(true)
-                                        >
-                                            "on"
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="menu-option"
-                                            class:active=move || !reasoning_enabled.get()
-                                            on:click=move |_| actions.set_reasoning_enabled(false)
-                                        >
-                                            "off"
-                                        </button>
-                                    </div>
-                                </section>
-
+                                // Единственная ручка рассуждений: «none»
+                                // выключает их целиком, любой effort включает.
                                 <section class="composer-menu-section compact">
                                     <span class="composer-menu-label">"effort"</span>
                                     <div class="composer-menu-options">
                                         <button
                                             type="button"
                                             class="menu-option"
-                                            class:active=move || effort.get() == ReasoningEffort::Config
-                                            disabled=move || !reasoning_enabled.get()
-                                            on:click=move |_| actions.set_reasoning_effort(ReasoningEffort::Config)
+                                            class:active=move || !reasoning_enabled.get()
+                                            title="Без рассуждений"
+                                            on:click=move |_| actions.set_reasoning_effort(ReasoningEffort::None)
                                         >
-                                            "auto"
+                                            "none"
                                         </button>
                                         <For
                                             each=move || effort_options.get()
@@ -238,8 +246,10 @@ where
                                                     <button
                                                         type="button"
                                                         class="menu-option"
-                                                        class:active=move || effort.get().value() == active_effort
-                                                        disabled=move || !reasoning_enabled.get()
+                                                        class:active=move || {
+                                                            reasoning_enabled.get()
+                                                                && effort.get().value() == active_effort
+                                                        }
                                                         on:click=move |_| actions.set_reasoning_effort(click_effort.clone())
                                                     >
                                                         {option}

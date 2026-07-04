@@ -967,6 +967,61 @@ async fn request_dispatch_sets_reasoning_effort() {
 }
 
 #[tokio::test]
+async fn reasoning_effort_none_toggles_reasoning() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    // effort «none» выключает рассуждения целиком.
+    let output = execute_app_request(
+        &state,
+        StdioRequest::SetReasoningEffort {
+            id: Some("effort-none".to_owned()),
+            effort: Some("none".to_owned()),
+        },
+    )
+    .await;
+    assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
+    let summary = server.config_summary().await;
+    assert_eq!(
+        summary
+            .pointer("/reasoning/enabled")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert!(
+        summary
+            .pointer("/reasoning/effort")
+            .is_none_or(Value::is_null)
+    );
+
+    // Выбор конкретного effort включает рассуждения обратно.
+    let output = execute_app_request(
+        &state,
+        StdioRequest::SetReasoningEffort {
+            id: Some("effort-back".to_owned()),
+            effort: Some("high".to_owned()),
+        },
+    )
+    .await;
+    assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
+    let summary = server.config_summary().await;
+    assert_eq!(
+        summary
+            .pointer("/reasoning/enabled")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        summary.pointer("/reasoning/effort").and_then(Value::as_str),
+        Some("high")
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn request_dispatch_sets_model_and_reasoning_enabled() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)

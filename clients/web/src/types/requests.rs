@@ -37,14 +37,6 @@ pub(crate) struct SetReasoningEffortRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SetReasoningEnabledRequest {
-    pub(crate) id: Option<String>,
-    pub(crate) enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub(crate) struct ResolveApprovalRequest {
     pub(crate) id: Option<String>,
     pub(crate) approval_id: String,

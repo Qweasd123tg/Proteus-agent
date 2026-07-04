@@ -3,14 +3,12 @@ use leptos::task::spawn_local;
 use serde_json::{Value, json};
 use web_sys::{EventSource, window};
 
-use crate::actions::handle_command_response;
 use crate::api::post_json;
 use crate::app_helpers::{
     apply_active_session_activity, load_runtime_settings, load_sidebar_sessions, load_transcript,
-    replace_transcript, replace_transcript_for_session,
+    remove_context_usage, remove_session_draft, replace_transcript, replace_transcript_for_session,
 };
 use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
-use crate::messages::report_error;
 use crate::types::*;
 use crate::ui_utils::{short_id, short_path};
 
@@ -137,30 +135,12 @@ impl AppSessionActions {
         load_sidebar_sessions(self.set_sidebar_sessions, self.set_sidebar_sessions_status);
     }
 
-    pub(crate) fn clear_transcript(self) {
-        self.reset_chat_view();
-        spawn_local(async move {
-            match post_json("/clear", &json!({})).await {
-                Ok(output) => handle_command_response(
-                    output,
-                    self.transcript.set_messages,
-                    self.transcript.next_message_id,
-                    self.transcript.set_next_message_id,
-                    self.transcript.set_transport_status,
-                ),
-                Err(error) => {
-                    report_error(
-                        self.transcript.set_messages,
-                        self.transcript.next_message_id,
-                        self.transcript.set_next_message_id,
-                        self.transcript.set_transport_status,
-                        "Clear failed",
-                        error,
-                    );
-                }
-            }
-            self.load_sidebar_sessions();
-        });
+    /// Переподключает event stream, если чат не переключился на другую
+    /// generation, пока запрос был в полёте.
+    fn reconnect_if_current(self, expected_generation: u64) {
+        if self.transcript.transcript_generation.get_untracked() == expected_generation {
+            reconnect_event_stream(self.event_source, self.event_stream);
+        }
     }
 
     pub(crate) fn start_new_session(self) {
@@ -187,14 +167,17 @@ impl AppSessionActions {
                 Ok(StdioOutput::Response { error, .. }) => {
                     self.set_sidebar_sessions_status
                         .set(error.unwrap_or_else(|| "не удалось создать сессию".to_owned()));
+                    self.reconnect_if_current(expected_generation);
                 }
                 Ok(StdioOutput::Event { .. }) => {
                     self.set_sidebar_sessions_status
                         .set("неожиданное событие new-session".to_owned());
+                    self.reconnect_if_current(expected_generation);
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось создать сессию: {error}"));
+                    self.reconnect_if_current(expected_generation);
                 }
             }
             self.load_sidebar_sessions();
@@ -279,14 +262,17 @@ impl AppSessionActions {
                 Ok(StdioOutput::Response { error, .. }) => {
                     self.set_sidebar_sessions_status
                         .set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
+                    self.reconnect_if_current(expected_generation);
                 }
                 Ok(StdioOutput::Event { .. }) => {
                     self.set_sidebar_sessions_status
                         .set("неожиданное событие resume".to_owned());
+                    self.reconnect_if_current(expected_generation);
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось открыть сессию: {error}"));
+                    self.reconnect_if_current(expected_generation);
                 }
             }
             self.load_sidebar_sessions();
@@ -305,6 +291,11 @@ impl AppSessionActions {
         let deleting_active =
             self.active_session_dir.get().as_deref() == Some(session_dir.as_str());
         let delete_request_generation = self.transcript.transcript_generation.get_untracked();
+        if deleting_active {
+            // Сервер перезапускает активный runtime и рвёт SSE — закрываем
+            // стрим сами, иначе обрыв мигает ошибкой до нашего реконнекта.
+            close_event_stream(self.event_source);
+        }
         self.set_sidebar_sessions_status
             .set("удаляю сессию".to_owned());
         spawn_local(async move {
@@ -323,6 +314,8 @@ impl AppSessionActions {
                     self.set_sidebar_sessions.update(|items| {
                         items.retain(|item| item.session_dir != session_dir);
                     });
+                    remove_session_draft(&session_dir);
+                    remove_context_usage(&session_dir);
                     self.set_sidebar_sessions_status
                         .set("сессия удалена".to_owned());
                     let active_replaced = output
@@ -344,19 +337,30 @@ impl AppSessionActions {
                         reconnect_event_stream(self.event_source, self.event_stream);
                         self.runtime_settings.load();
                         self.transcript.replace_current(expected_generation);
+                    } else if deleting_active {
+                        self.reconnect_if_current(delete_request_generation);
                     }
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
                     self.set_sidebar_sessions_status
                         .set(error.unwrap_or_else(|| "не удалось удалить сессию".to_owned()));
+                    if deleting_active {
+                        self.reconnect_if_current(delete_request_generation);
+                    }
                 }
                 Ok(StdioOutput::Event { .. }) => {
                     self.set_sidebar_sessions_status
                         .set("неожиданное событие delete-session".to_owned());
+                    if deleting_active {
+                        self.reconnect_if_current(delete_request_generation);
+                    }
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось удалить сессию: {error}"));
+                    if deleting_active {
+                        self.reconnect_if_current(delete_request_generation);
+                    }
                 }
             }
             self.load_sidebar_sessions();

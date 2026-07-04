@@ -9,7 +9,7 @@ use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
 pub(crate) const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
-const CONTEXT_USAGE_STORAGE_KEY: &str = "proteus.contextUsage";
+const CONTEXT_USAGE_STORAGE_PREFIX: &str = "proteus.contextUsage:";
 
 #[wasm_bindgen]
 unsafe extern "C" {
@@ -141,10 +141,10 @@ pub(crate) fn load_runtime_settings(
                     options.push(model.to_owned());
                 }
                 set_model_options.set(options);
-                if let Some(enabled) = config
+                let reasoning_enabled = config
                     .pointer("/reasoning/enabled")
-                    .and_then(Value::as_bool)
-                {
+                    .and_then(Value::as_bool);
+                if let Some(enabled) = reasoning_enabled {
                     set_reasoning_enabled.set(enabled);
                 }
                 let current_effort = config.pointer("/reasoning/effort").and_then(Value::as_str);
@@ -155,6 +155,11 @@ pub(crate) fn load_runtime_settings(
                     .flatten()
                     .filter_map(Value::as_str)
                     .filter(|value| !value.trim().is_empty())
+                    // «none» и «auto» — служебные значения, кнопка none в меню
+                    // своя; из опций сервера их не дублируем.
+                    .filter(|value| {
+                        !value.eq_ignore_ascii_case("none") && !value.eq_ignore_ascii_case("auto")
+                    })
                     .map(ToOwned::to_owned)
                     .collect::<Vec<_>>();
                 if let Some(effort) = current_effort {
@@ -162,6 +167,9 @@ pub(crate) fn load_runtime_settings(
                         effort_options.push(effort.to_owned());
                     }
                     set_effort.set(ReasoningEffort::from_value(effort));
+                } else if reasoning_enabled == Some(false) {
+                    // Рассуждения выключены — в меню effort подсвечиваем none.
+                    set_effort.set(ReasoningEffort::None);
                 }
                 set_effort_options.set(effort_options);
             }
@@ -377,6 +385,7 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_transcript(
     set_messages: WriteSignal<Vec<Message>>,
     transcript_generation: ReadSignal<u64>,
@@ -570,18 +579,71 @@ pub(crate) fn save_bool_setting(key: &str, value: bool) {
     }
 }
 
-pub(crate) fn load_context_usage() -> Option<ContextUsage> {
+/// Черновики композера: по ключу на сессию, переживают переключение и F5.
+const DRAFT_STORAGE_PREFIX: &str = "proteus.draft:";
+
+pub(crate) fn load_session_draft(session_dir: &str) -> Option<String> {
     window()
         .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(CONTEXT_USAGE_STORAGE_KEY).ok().flatten())
+        .and_then(|storage| {
+            storage
+                .get_item(&format!("{DRAFT_STORAGE_PREFIX}{session_dir}"))
+                .ok()
+                .flatten()
+        })
+        .filter(|value| !value.trim().is_empty())
+}
+
+pub(crate) fn save_session_draft(session_dir: &str, draft: &str) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let key = format!("{DRAFT_STORAGE_PREFIX}{session_dir}");
+        if draft.trim().is_empty() {
+            let _ = storage.remove_item(&key);
+        } else {
+            let _ = storage.set_item(&key, draft);
+        }
+    }
+}
+
+pub(crate) fn remove_session_draft(session_dir: &str) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.remove_item(&format!("{DRAFT_STORAGE_PREFIX}{session_dir}"));
+    }
+}
+
+/// Снимок контекста ключуется по сессии. Глобальный ключ здесь опасен:
+/// после смены сессии — или модуля workflow/компактора, который перестал
+/// слать TokenUsageUpdated, — бублик показывал бы хвост чужой сессии.
+pub(crate) fn load_context_usage(session_dir: Option<&str>) -> Option<ContextUsage> {
+    let session_dir = session_dir?;
+    window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| {
+            storage
+                .get_item(&format!("{CONTEXT_USAGE_STORAGE_PREFIX}{session_dir}"))
+                .ok()
+                .flatten()
+        })
         .and_then(|value| serde_json::from_str(&value).ok())
 }
 
-pub(crate) fn save_context_usage(usage: ContextUsage) {
+pub(crate) fn save_context_usage(session_dir: Option<&str>, usage: ContextUsage) {
+    let Some(session_dir) = session_dir else {
+        return;
+    };
     if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten())
         && let Ok(value) = serde_json::to_string(&usage)
     {
-        let _ = storage.set_item(CONTEXT_USAGE_STORAGE_KEY, &value);
+        let _ = storage.set_item(
+            &format!("{CONTEXT_USAGE_STORAGE_PREFIX}{session_dir}"),
+            &value,
+        );
+    }
+}
+
+pub(crate) fn remove_context_usage(session_dir: &str) {
+    if let Some(storage) = window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.remove_item(&format!("{CONTEXT_USAGE_STORAGE_PREFIX}{session_dir}"));
     }
 }
 

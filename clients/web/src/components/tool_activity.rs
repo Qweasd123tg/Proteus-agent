@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use serde_json::Value;
 
 use crate::markdown::highlight_preview;
+use crate::tool_names::{APPLY_PATCH_TOOL, UPDATE_PLAN_TOOL};
 use crate::types::*;
 use crate::ui_utils::{compact_text, format_json, short_id};
 
@@ -300,7 +301,7 @@ pub(crate) fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivit
 }
 
 fn tool_display(tool: &ToolActivity) -> ToolDisplay {
-    let patch = if tool.name == "apply_patch" {
+    let patch = if tool.name == APPLY_PATCH_TOOL {
         apply_patch_text_from_args(&tool.args)
             .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
     } else {
@@ -310,7 +311,7 @@ fn tool_display(tool: &ToolActivity) -> ToolDisplay {
         .as_deref()
         .map(parse_apply_patch_files)
         .unwrap_or_default();
-    let plan_steps = if tool.name == "update_plan" {
+    let plan_steps = if tool.name == UPDATE_PLAN_TOOL {
         parse_plan_steps(&tool.args)
     } else {
         Vec::new()
@@ -369,7 +370,7 @@ fn plan_summary(steps: &[PlanStepPreview]) -> String {
 }
 
 fn tool_activity_args_preview(tool: &ToolActivity) -> String {
-    if tool.name == "apply_patch" {
+    if tool.name == APPLY_PATCH_TOOL {
         apply_patch_text_from_args(&tool.args)
             .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
             .unwrap_or_else(|| tool.args_preview.clone())
@@ -379,7 +380,7 @@ fn tool_activity_args_preview(tool: &ToolActivity) -> String {
 }
 
 pub(crate) fn tool_args_preview(tool_name: &str, args: &Value) -> String {
-    if tool_name == "apply_patch" {
+    if tool_name == APPLY_PATCH_TOOL {
         apply_patch_text_from_args(args).unwrap_or_else(|| format_json(args))
     } else {
         format_json(args)

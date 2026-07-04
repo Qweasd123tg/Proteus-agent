@@ -134,6 +134,23 @@
     background: var(--accent-yellow);
 }
 
+/* Кликабельные бейджи в топбаре: реконнект и переход к ждущей сессии.
+   Сбрасываем габариты глобального button, чтобы бейдж не распухал. */
+button.status-badge {
+    min-height: 0;
+}
+
+/* Фоновая сессия ждёт доступа или ответа. */
+.status-badge.attention {
+    border-color: var(--accent-yellow-border);
+    color: var(--accent-yellow);
+}
+
+.status-badge.attention .dot {
+    animation: pulse 2s infinite;
+    background: var(--accent-yellow);
+}
+
 .status-badge.idle {
     border-color: var(--border-subtle);
     color: var(--text-faint);
@@ -466,16 +483,32 @@
     transform: translateY(-1px);
 }
 
-/* Бублик контекста в рейке инфо-панели. */
+/* Со счётчиком новых сообщений кнопка растягивается в пилюлю. */
+.jump-to-bottom.has-count {
+    width: auto;
+    min-width: 34px;
+    padding: 0 12px;
+    border-radius: 17px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* Бублик контекста в рейке инфо-панели. Без цифры — процент и токены в
+   title; критичная зона подсвечивается свечением дуги. */
 .context-ring {
     position: relative;
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 24px;
+    height: 24px;
     cursor: default;
+    transition: transform 0.12s;
+}
+
+.context-ring:hover {
+    transform: scale(1.12);
 }
 
 /* Дуга — два conic-слоя: нижний несёт круговой градиент (зелёный у нуля,
@@ -531,18 +564,9 @@
     pointer-events: none;
 }
 
-.context-ring-label {
-    position: relative;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1;
-}
-
-/* У красной зоны подкрашивается и цифра — сигнал виден без наведения. */
-.context-ring-crit .context-ring-label {
-    color: var(--accent-red);
+/* Красная зона: дуга светится — сигнал виден без наведения и без цифры. */
+.context-ring-crit::before {
+    filter: drop-shadow(0 0 3px var(--accent-red));
 }
 
 .input-question {

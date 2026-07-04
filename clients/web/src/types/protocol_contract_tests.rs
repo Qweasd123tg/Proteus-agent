@@ -294,15 +294,17 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
             effort: Some("high".to_owned()),
         },
     );
+    // «none» — валидное значение effort: выключает рассуждения (см.
+    // Runtime::set_reasoning_effort); отдельного /reasoning клиент не зовёт.
     assert_endpoint_body_matches_contract(
-        SetReasoningEnabledRequest {
-            id: Some("reasoning-1".to_owned()),
-            enabled: true,
+        SetReasoningEffortRequest {
+            id: Some("effort-2".to_owned()),
+            effort: Some("none".to_owned()),
             session_dir: None,
         },
-        contract_protocol::StdioRequest::SetReasoningEnabled {
-            id: Some("reasoning-1".to_owned()),
-            enabled: true,
+        contract_protocol::StdioRequest::SetReasoningEffort {
+            id: Some("effort-2".to_owned()),
+            effort: Some("none".to_owned()),
         },
     );
     assert_endpoint_body_matches_contract(

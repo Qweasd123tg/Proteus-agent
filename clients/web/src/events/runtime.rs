@@ -47,6 +47,7 @@ pub(crate) fn update_runtime_status_and_tools(
     stream_bindings: StreamFlushBindings,
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    active_session_dir: ReadSignal<Option<String>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
 ) {
     let Some(event) = envelope.get("event") else {
@@ -55,7 +56,7 @@ pub(crate) fn update_runtime_status_and_tools(
 
     if let Some(usage_event) = event.get("TokenUsageUpdated") {
         if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
-            save_context_usage(usage);
+            save_context_usage(active_session_dir.get_untracked().as_deref(), usage);
             set_context_usage.set(Some(usage));
         }
         return;

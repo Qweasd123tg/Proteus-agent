@@ -198,7 +198,8 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
 
 /// Бублик заполнения контекстного окна (рейка инфо-панели): дуга открывает
 /// круговой градиент зелёный → жёлтый → красный по мере наполнения, метка
-/// порога автокомпакта — приглушённый штрих на дуге, процент в центре.
+/// порога автокомпакта — приглушённый штрих на дуге; процент и токены — в
+/// title при наведении, в красной зоне дуга подсвечивается.
 /// На старте использует последний сохранённый снимок, если текущая сессия
 /// ещё не прислала свежий `TokenUsageUpdated`.
 #[component]
@@ -238,11 +239,8 @@ pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoV
             <div
                 class=class
                 style=style
-                title=title.clone()
                 aria-label=title
-            >
-                <span class="context-ring-label">{percent.to_string()}</span>
-            </div>
+            ></div>
         }
         .into_any()
     }

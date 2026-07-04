@@ -6,23 +6,26 @@ use serde_json::Value;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Event, EventSource, MessageEvent};
 
-use crate::actions::handle_command_response;
-use crate::api::{event_stream_url, get_json, js_error};
-use crate::app_helpers::{
-    apply_active_session_activity, load_sidebar_sessions, replace_transcript,
-};
 use self::runtime::{
     event_updates_visible_count, update_runtime_status_and_tools, update_session_labels,
 };
 pub(crate) use self::stream::BufferedStreamDeltas;
 use self::stream::{StreamFlushBindings, flush_stream_delta_buffer};
+use crate::actions::handle_command_response;
+use crate::api::{event_stream_url, get_json, js_error};
+use crate::app_helpers::{
+    apply_active_session_activity, load_sidebar_sessions, replace_transcript,
+};
 use crate::messages::{
     finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
     finish_streaming_assistant_message, push_assistant_message_if_missing, push_message,
     push_user_message_once,
 };
 use crate::types::*;
-use crate::ui_utils::output_text;
+use crate::ui_utils::{output_text, set_timeout};
+
+/// Сколько ждём авто-реконнект EventSource, прежде чем показать ошибку.
+const RECONNECT_GRACE_MS: i32 = 5000;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
@@ -103,7 +106,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
         }
         let was_disconnected = matches!(
             bindings.transport_status.get_untracked(),
-            TransportStatus::Error(_)
+            TransportStatus::Error(_) | TransportStatus::Reconnecting
         );
         bindings
             .set_transport_status
@@ -189,14 +192,40 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
     on_output.forget();
 
     let set_transport_status = bindings.set_transport_status;
+    let transport_status = bindings.transport_status;
     let transcript_generation = bindings.transcript_generation;
+    let error_source = source.clone();
     let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
         if transcript_generation.get_untracked() != stream_generation {
             return;
         }
-        set_transport_status.set(TransportStatus::Error(
-            "event stream disconnected".to_owned(),
-        ));
+        // Терминальный обрыв: браузер ретраить не будет (например, HTTP 4xx).
+        if error_source.ready_state() == EventSource::CLOSED {
+            set_transport_status.set(TransportStatus::Error(
+                "event stream disconnected".to_owned(),
+            ));
+            return;
+        }
+        // EventSource сам переподключается, onerror приходит на каждый
+        // ретрай. Ошибку показываем только если реконнект не удался за
+        // грейс-период — иначе бейдж и тост мигают при каждом коротком
+        // обрыве (переключение сессий, перезапуск runtime).
+        if matches!(
+            transport_status.get_untracked(),
+            TransportStatus::Connected | TransportStatus::Connecting
+        ) {
+            set_transport_status.set(TransportStatus::Reconnecting);
+            set_timeout(RECONNECT_GRACE_MS, move || {
+                if transcript_generation.get_untracked() != stream_generation {
+                    return;
+                }
+                if transport_status.get_untracked() == TransportStatus::Reconnecting {
+                    set_transport_status.set(TransportStatus::Error(
+                        "event stream disconnected".to_owned(),
+                    ));
+                }
+            });
+        }
     }));
     source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
     on_error.forget();
@@ -337,6 +366,7 @@ fn handle_app_event(
                 stream_bindings,
                 set_agent_status,
                 set_tool_activities,
+                active_session_dir,
                 set_context_usage,
             );
             update_session_labels(

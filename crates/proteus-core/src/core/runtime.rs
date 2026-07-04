@@ -377,7 +377,30 @@ impl AgentRuntime {
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) {
-        self.services.reasoning.write().await.effort = effort;
+        let mut reasoning = self.services.reasoning.write().await;
+        match effort.as_deref() {
+            // «none» — первоклассное значение effort: выключает рассуждения
+            // целиком. Веб-клиент шлёт его вместо пары /reasoning + /effort.
+            Some(value) if value.eq_ignore_ascii_case("none") => {
+                reasoning.effort = None;
+                reasoning.summary = false;
+                reasoning.budget_tokens = None;
+            }
+            // Конкретный effort включает рассуждения, даже если они были
+            // выключены: summary/budget возвращаются к дефолтам конфига.
+            Some(value) => {
+                if reasoning.effort.is_none()
+                    && !reasoning.summary
+                    && reasoning.budget_tokens.is_none()
+                {
+                    reasoning.summary = self.services.default_reasoning.summary;
+                    reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
+                }
+                reasoning.effort = Some(value.to_owned());
+            }
+            // null — «auto»: явного effort нет, остальное не трогаем.
+            None => reasoning.effort = None,
+        }
     }
 
     pub async fn reasoning(&self) -> ReasoningConfig {
