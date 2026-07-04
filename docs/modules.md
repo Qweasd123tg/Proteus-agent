@@ -67,7 +67,7 @@ executors, но external process modules и package manager ещё не реал
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite`/`sqlite_plugin` из `sqlite-memory`) |
 | Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, plugin-provided (`carry_forward` из `memory-pack`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
-| Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `allow_all` из `policy-pack`) |
+| Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, `dynamic`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
@@ -211,6 +211,8 @@ pipeline, но внешний slot остаётся тем же: runtime пол�
   `cwd`; в каждой директории берётся первый непустой файл из ordered списка
   (`AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules` или файлы из
   config), поэтому вложенные инструкции идут позже и перекрывают более общие;
+- `environment` - один `<environment_context>` chunk с os/arch/`sh`/cwd, чтобы
+  модель не гадала платформу и shell;
 - `manifest` - bounded чтение `Cargo.toml`, `package.json`, `pyproject.toml` и
   других manifest files из config;
 - `git_status` - краткий `git status --short --branch`, если `git` доступен;
@@ -234,7 +236,9 @@ UI/debug view “что занимает контекст”, но visual layer 
 `modules.context = "codex_context"` поставляется тем же `context-pack`, но
 собирает Codex-shaped context profile. Он использует тот же безопасный bounded
 read/search/memory/provider host boundary, но меняет порядок и defaults:
-сначала project instructions, затем `git_status`, `git_diff`, repo tree,
+сначала project instructions, затем `environment` (`<environment_context>` с
+os/arch/`sh`/cwd — parity с upstream Codex, который всегда сообщает модели
+окружение), `git_status`, `git_diff`, repo tree,
 manifest и targeted search. Дополнительный provider `git_diff` добавляет
 ограниченный `git diff --stat`, `git diff`, `git diff --cached --stat` и
 `git diff --cached` chunk с лимитом `git_diff_max_bytes`. Источники chunks
@@ -255,7 +259,7 @@ enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Четыре host-side capability остаются в ядре: `apply_patch`, `search`, `remember_fact`, user-input tool (`request_user_input`; Claude-compatible alias `AskUserQuestion`). Остальные базовые tools вынесены в плагины:
 
-- `file-tools` — `read_file`, `write_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace;
+- `file-tools` — `read_file`, `write_file`, `edit_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace; `edit_file` — точечная замена текста (opencode edit shape: `old_string` должен быть уникален, либо `replace_all`);
 - `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);
 - `shell-tool` — `shell`, `exec_command`, `write_stdin` (из
   `plugins/default/shell-tool/`); `exec_command`/`write_stdin` дают
@@ -360,6 +364,23 @@ named config `codex` (`codex.config.toml`): явный `deny` имеет при�
 `module_config.policy.codex_policy` в plugin как JSON.
 
 `allow_all` поставляется плагином `policy-pack` и разрешает все tool calls.
+
+`opencode_policy` тоже поставляется плагином `policy-pack` и предназначен для
+named config `opencode` (`opencode.config.toml`). Это порт permission engine
+из OpenCode: правила — упорядоченный список троек
+`(permission, pattern, action)` в `module_config.policy.opencode_policy.rules`,
+действует **последнее** совпавшее правило (last match wins), при отсутствии
+совпадений — `ask`. `permission` — это группа, а не имя tool-а: маппинг
+tool → группа задаётся в `groups` (например, `edit` покрывает
+`edit_file`/`write_file`), там же указываются `pattern_args` — ключи
+аргументов, из которых извлекается pattern (`command` для bash-группы,
+`path` для file-групп; составные команды при `split_commands = true`
+разбиваются по `&& || ; |` и матчатся по частям). Wildcard поддерживает `*`,
+`?` и upstream-спецслучай: pattern с хвостом `" *"` матчит и голый префикс
+(`"git push *"` матчит `"git push"`). Видимость: tool скрывается только если
+последнее совпавшее по permission правило — `deny` с pattern `*`; точечные
+deny по pattern оставляют tool видимым. Core не знает эту схему и передаёт
+config в plugin как JSON.
 
 ## Patch
 

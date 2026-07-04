@@ -27,6 +27,7 @@ use proteus_contracts::{
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod opencode_policy;
 pub mod request_permissions;
 
 #[derive(Default)]
@@ -166,25 +167,25 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
 }
 
 #[derive(Debug, Deserialize)]
-struct PolicyContextDto {
+pub(crate) struct PolicyContextDto {
     #[allow(dead_code)]
-    cwd: String,
-    tool_spec: Option<ToolSpec>,
+    pub(crate) cwd: String,
+    pub(crate) tool_spec: Option<ToolSpec>,
     #[serde(default)]
-    config: Value,
+    pub(crate) config: Value,
     /// Turn-scoped approval-gated гранты, которые ядро собрало из одобренных
     /// tool results (см. contracts `TurnPermissionGrants`).
     #[serde(default)]
-    granted_permissions: Vec<String>,
+    pub(crate) granted_permissions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct PolicyVisibilityContextDto {
+pub(crate) struct PolicyVisibilityContextDto {
     #[allow(dead_code)]
-    cwd: String,
-    tool_spec: ToolSpec,
+    pub(crate) cwd: String,
+    pub(crate) tool_spec: ToolSpec,
     #[serde(default)]
-    config: Value,
+    pub(crate) config: Value,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -324,14 +325,14 @@ fn evaluate_codex_tool_spec(config: &CodexPolicyConfig, tool_spec: &ToolSpec) ->
     evaluate_codex_call(config, &tool_spec.name, Some(tool_spec))
 }
 
-fn decision(decision: PolicyDecision) -> RResult<RString, PluginPolicyError> {
+pub(crate) fn decision(decision: PolicyDecision) -> RResult<RString, PluginPolicyError> {
     match serde_json::to_string(&decision) {
         Ok(body) => RResult::ROk(body.into()),
         Err(error) => policy_error(format!("failed to serialize PolicyDecision: {error}")),
     }
 }
 
-fn policy_error(message: String) -> RResult<RString, PluginPolicyError> {
+pub(crate) fn policy_error(message: String) -> RResult<RString, PluginPolicyError> {
     RResult::RErr(PluginPolicyError::new(message))
 }
 
@@ -363,6 +364,14 @@ extern "C" fn register_modules(
         return RResult::RErr(error);
     }
 
+    let opencode_policy: PolicyObject =
+        PluginApprovalPolicy_TO::from_value(opencode_policy::OpencodePolicyPlugin, TD_Opaque);
+    if let RResult::RErr(error) =
+        registry.register_approval_policy(AbiRString::from("opencode_policy"), opencode_policy)
+    {
+        return RResult::RErr(error);
+    }
+
     let request_permissions: PluginToolObject =
         PluginTool_TO::from_value(request_permissions::RequestPermissionsTool, TD_Opaque);
     registry.register_tool(request_permissions)
@@ -374,7 +383,7 @@ pub fn instantiate_root_module() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("policy-pack"),
         description: RStr::from_str(
-            "ApprovalPolicy plugins (allow_all, ask_write, codex_policy) plus the 'request_permissions' tool for turn-scoped escalation grants",
+            "ApprovalPolicy plugins (allow_all, ask_write, codex_policy, opencode_policy) plus the 'request_permissions' tool for turn-scoped escalation grants",
         ),
         register_modules,
     }

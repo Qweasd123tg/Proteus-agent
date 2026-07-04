@@ -306,6 +306,58 @@ Core учитывает `granted_permissions` только на approved-пут�
 
 `allow_all` разрешает все tool calls. Используйте его только для тестов или доверенного окружения.
 
+## opencode_policy
+
+`opencode_policy` поставляется тем же `policy-pack` и используется
+экспериментальным named config `opencode` (`opencode.config.toml`). Это порт
+permission engine из OpenCode (`permission/index.ts` + `util/wildcard.ts`).
+
+Порядок решения:
+
+1. tool маппится в permission-группу через
+   `module_config.policy.opencode_policy.groups` (например, `edit` покрывает
+   `edit_file`/`write_file`); без группы permission = имя tool-а;
+2. из аргументов вызова извлекаются patterns по `pattern_args` группы
+   (`command` для bash-группы, `path` для file-групп); при
+   `split_commands = true` составная команда разбивается по `&& || ; |`;
+   если извлечь нечего — pattern `*`;
+3. для каждого pattern берётся **последнее** правило из `rules`, совпавшее
+   wildcard-ом и по permission, и по pattern (last match wins); без
+   совпадений — `ask`;
+4. любой `deny` запрещает вызов; иначе любой `ask` требует approval; иначе
+   allow.
+
+Wildcard: `*` — любая подстрока, `?` — один символ, матч по всей строке;
+pattern с хвостом `" *"` матчит и голый префикс без аргументов
+(`"git push *"` матчит `"git push"`).
+
+Видимость tools: tool скрывается из surface только если последнее правило,
+совпавшее по его permission (pattern не учитывается), — `deny` с pattern `*`.
+Точечные deny по pattern оставляют tool видимым, запрет срабатывает на
+вызове.
+
+Пример (upstream build-агент: allow-by-default, точечные ask):
+
+```toml
+[module_config.policy.opencode_policy]
+rules = [
+  { permission = "*", action = "allow" },
+  { permission = "read", pattern = "*.env", action = "ask" },
+  { permission = "read", pattern = "*.env.example", action = "allow" },
+  { permission = "bash", pattern = "git push*", action = "ask" },
+]
+
+[module_config.policy.opencode_policy.groups.bash]
+tools = ["shell"]
+pattern_args = ["command"]
+split_commands = true
+```
+
+В отличие от `codex_policy` здесь нет sandbox-ветки и turn-scoped grants:
+эскалированные вызовы (`with_escalated_permissions`) оцениваются теми же
+правилами группы `bash`. Порядок правил значим — более специфичные правила
+ставьте ниже общих.
+
 ## Planned Rights Model
 
 Table-driven права tools/modules пока не реализованы. Целевая форма должна

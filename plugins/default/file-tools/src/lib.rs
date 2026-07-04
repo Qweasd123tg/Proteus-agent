@@ -26,6 +26,7 @@
 #![allow(non_camel_case_types)]
 #![allow(improper_ctypes_definitions)]
 
+mod edit;
 mod find;
 mod list;
 mod read;
@@ -48,8 +49,8 @@ use proteus_contracts::{
 };
 
 use crate::{
-    find::FindFilesTool, list::ListDirTool, read::ReadFileTool, read_many::ReadManyFilesTool,
-    search::GrepTool, write::WriteFileTool,
+    edit::EditFileTool, find::FindFilesTool, list::ListDirTool, read::ReadFileTool,
+    read_many::ReadManyFilesTool, search::GrepTool, write::WriteFileTool,
 };
 
 extern "C" fn register_modules(
@@ -62,6 +63,11 @@ extern "C" fn register_modules(
 
     let write: PluginToolObject = PluginTool_TO::from_value(WriteFileTool, TD_Opaque);
     if let RResult::RErr(err) = registry.register_tool(write) {
+        return RResult::RErr(err);
+    }
+
+    let edit: PluginToolObject = PluginTool_TO::from_value(EditFileTool, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_tool(edit) {
         return RResult::RErr(err);
     }
 
@@ -93,7 +99,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("file-tools"),
         description: RStr::from_str(
-            "Basic file tools: read_file, write_file, list_dir, grep, find_files, read_many_files",
+            "Basic file tools: read_file, write_file, edit_file, list_dir, grep, find_files, read_many_files",
         ),
         register_modules,
     }
@@ -212,6 +218,110 @@ mod tests {
             "hello"
         );
         assert_eq!(result["metadata"]["bytes_written"], 5);
+    }
+
+    #[test]
+    fn edit_file_replaces_unique_match() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("main.rs"), "fn main() {\n    old();\n}\n").expect("file");
+
+        let result = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({
+                "path": "main.rs",
+                "old_string": "    old();",
+                "new_string": "    new();"
+            }),
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["replacements"], 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("main.rs")).expect("edited"),
+            "fn main() {\n    new();\n}\n"
+        );
+    }
+
+    #[test]
+    fn edit_file_requires_unique_match_unless_replace_all() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("dup.txt"), "x\nx\n").expect("file");
+
+        let ambiguous = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "dup.txt", "old_string": "x", "new_string": "y" }),
+        );
+        assert_eq!(ambiguous["ok"], false);
+        assert!(
+            ambiguous["error"]
+                .as_str()
+                .unwrap()
+                .contains("matches 2 locations")
+        );
+
+        let replaced = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "dup.txt", "old_string": "x", "new_string": "y", "replace_all": true }),
+        );
+        assert_eq!(replaced["ok"], true);
+        assert_eq!(replaced["metadata"]["replacements"], 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("dup.txt")).expect("edited"),
+            "y\ny\n"
+        );
+    }
+
+    #[test]
+    fn edit_file_errors_when_old_string_is_missing_or_degenerate() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("a.txt"), "content\n").expect("file");
+
+        let not_found = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "a.txt", "old_string": "absent", "new_string": "x" }),
+        );
+        assert_eq!(not_found["ok"], false);
+        assert!(not_found["error"].as_str().unwrap().contains("not found"));
+
+        let identical = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "a.txt", "old_string": "content", "new_string": "content" }),
+        );
+        assert_eq!(identical["ok"], false);
+        assert!(identical["error"].as_str().unwrap().contains("identical"));
+
+        let empty = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "a.txt", "old_string": "", "new_string": "x" }),
+        );
+        assert_eq!(empty["ok"], false);
+        assert!(empty["error"].as_str().unwrap().contains("write_file"));
+    }
+
+    #[test]
+    fn edit_file_rejects_parent_escape_and_missing_file() {
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let escape = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "../secret.txt", "old_string": "a", "new_string": "b" }),
+        );
+        assert_eq!(escape["ok"], false);
+        assert!(escape["error"].as_str().unwrap().contains("canonicalize"));
+
+        let missing = invoke(
+            &EditFileTool,
+            dir.path(),
+            json!({ "path": "missing.txt", "old_string": "a", "new_string": "b" }),
+        );
+        assert_eq!(missing["ok"], false);
     }
 
     #[test]
