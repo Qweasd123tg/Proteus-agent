@@ -19,8 +19,9 @@ tools for common tasks. If you need a capability that is not currently \
 available, call proteus_tool_search with a natural-language query, then \
 proteus_tool_describe if you need the argument schema. If proteus_tool_call is \
 available, invoke a discovered tool with the discovered tool name and args. In \
-planning, use search/describe only. Do not guess hidden tool names unless they \
-were returned by search or describe.";
+planning, use search/describe only. Search may also return tools that are \
+already directly available; prefer calling those directly. Do not guess hidden \
+tool names unless they were returned by search or describe.";
 
 pub fn is_meta_tool(name: &str) -> bool {
     matches!(name, TOOL_SEARCH | TOOL_DESCRIBE | TOOL_CALL)
@@ -52,7 +53,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
     let mut tools = vec![
         ToolSpec::new(
             TOOL_SEARCH,
-            "Search hidden policy-visible Proteus tools by capability. Returns compact matches without full schemas.",
+            "Search all policy-visible Proteus tools by capability, including tools that are not in the current hot set. Returns compact matches without full schemas.",
             json!({
                 "type": "object",
                 "properties": {
@@ -79,7 +80,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
         })),
         ToolSpec::new(
             TOOL_DESCRIBE,
-            "Describe one hidden policy-visible Proteus tool, including its input schema.",
+            "Describe one policy-visible Proteus tool by exact name, including its input schema.",
             json!({
                 "type": "object",
                 "properties": {
@@ -103,7 +104,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
     tools.push(
         ToolSpec::new(
             TOOL_CALL,
-            "Invoke a hidden policy-visible Proteus tool through the normal policy, approval, validation, timeout, and event-log path.",
+            "Invoke a policy-visible Proteus tool that is not directly available through the normal policy, approval, validation, timeout, and event-log path.",
             json!({
                 "type": "object",
                 "properties": {
