@@ -13,6 +13,7 @@ mod history;
 mod host;
 mod metadata;
 mod output_text;
+mod scaffold;
 mod task_tool;
 mod token_accounting;
 mod validation;
@@ -51,9 +52,7 @@ use token_accounting::LastModelUsage;
 #[cfg(test)]
 use token_accounting::{estimate_message_tokens, request_token_usage_snapshot};
 
-use history::{
-    current_turn_start, persistent_messages_from_model_messages, replace_after_compaction,
-};
+use history::current_turn_start;
 use host::{
     build_context, complete_model, emit_event, execute_or_handle_tool, execute_tools,
     request_from_state, request_from_state_with_instruction_blocks,
@@ -62,6 +61,7 @@ use host::{
 use metadata::{insert_request_metadata_u32, prompt_cache_key};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
+use scaffold::{PersistentRepair, apply_compaction_report};
 use validation::validate_codex_model_response;
 use workflows::EmptyFinalResponseMode;
 pub use workflows::{
@@ -156,15 +156,16 @@ pub(crate) fn run_single_loop(
             "single_loop",
             last_usage.as_ref(),
         )?;
-        if let Some(report) = prepared.compaction.as_ref() {
-            compactions.push(report.clone());
-            if report.changed {
-                model_messages = prepared.request.messages.clone();
-                persistent_messages = persistent_messages_from_model_messages(&model_messages);
-                current_turn_messages_start =
-                    current_turn_start(&model_messages, current_user_message_id);
-                last_usage = None;
-            }
+        if apply_compaction_report(
+            prepared.compaction.as_ref(),
+            &prepared.request.messages,
+            &mut model_messages,
+            &mut persistent_messages,
+            (current_user_message_id, &mut current_turn_messages_start),
+            &mut compactions,
+            PersistentRepair::Rebuild,
+        )? {
+            last_usage = None;
         }
         let request = prepared.request;
         emit_event(
@@ -241,15 +242,15 @@ pub(crate) fn run_single_loop(
         "single_loop_final",
         last_usage.as_ref(),
     )?;
-    if let Some(report) = prepared.compaction.as_ref() {
-        compactions.push(report.clone());
-        if report.changed {
-            model_messages = prepared.request.messages.clone();
-            persistent_messages = persistent_messages_from_model_messages(&model_messages);
-            current_turn_messages_start =
-                current_turn_start(&model_messages, current_user_message_id);
-        }
-    }
+    apply_compaction_report(
+        prepared.compaction.as_ref(),
+        &prepared.request.messages,
+        &mut model_messages,
+        &mut persistent_messages,
+        (current_user_message_id, &mut current_turn_messages_start),
+        &mut compactions,
+        PersistentRepair::Rebuild,
+    )?;
     let mut request = prepared.request;
     request.tools.clear();
     request.tool_choice = ToolChoice::None;
@@ -353,20 +354,16 @@ pub(crate) fn run_codex_loop(
             "codex_loop",
             last_usage.as_ref(),
         )?;
-        if let Some(report) = prepared.compaction.as_ref() {
-            compactions.push(report.clone());
-            if report.changed {
-                replace_after_compaction(
-                    &prepared.request.messages,
-                    &mut model_messages,
-                    &mut persistent_messages,
-                    current_user_message_id,
-                    &[],
-                )?;
-                current_turn_messages_start =
-                    current_turn_start(&model_messages, current_user_message_id);
-                last_usage = None;
-            }
+        if apply_compaction_report(
+            prepared.compaction.as_ref(),
+            &prepared.request.messages,
+            &mut model_messages,
+            &mut persistent_messages,
+            (current_user_message_id, &mut current_turn_messages_start),
+            &mut compactions,
+            PersistentRepair::ReplaceAfter,
+        )? {
+            last_usage = None;
         }
         let request = prepared.request;
         emit_event(
@@ -500,15 +497,15 @@ pub(crate) fn run_plan_execute_review(
             "plan",
             None,
         )?;
-        if let Some(report) = prepared.compaction.as_ref() {
-            compactions.push(report.clone());
-            if report.changed {
-                model_messages = prepared.request.messages.clone();
-                persistent_messages = persistent_messages_from_model_messages(&model_messages);
-                current_turn_messages_start =
-                    current_turn_start(&model_messages, current_user_message_id);
-            }
-        }
+        apply_compaction_report(
+            prepared.compaction.as_ref(),
+            &prepared.request.messages,
+            &mut model_messages,
+            &mut persistent_messages,
+            (current_user_message_id, &mut current_turn_messages_start),
+            &mut compactions,
+            PersistentRepair::Rebuild,
+        )?;
         let mut plan_request = prepared.request;
         plan_request
             .tools
@@ -567,15 +564,15 @@ pub(crate) fn run_plan_execute_review(
             "execute",
             None,
         )?;
-        if let Some(report) = prepared.compaction.as_ref() {
-            compactions.push(report.clone());
-            if report.changed {
-                model_messages = prepared.request.messages.clone();
-                persistent_messages = persistent_messages_from_model_messages(&model_messages);
-                current_turn_messages_start =
-                    current_turn_start(&model_messages, current_user_message_id);
-            }
-        }
+        apply_compaction_report(
+            prepared.compaction.as_ref(),
+            &prepared.request.messages,
+            &mut model_messages,
+            &mut persistent_messages,
+            (current_user_message_id, &mut current_turn_messages_start),
+            &mut compactions,
+            PersistentRepair::Rebuild,
+        )?;
         let request = prepared.request;
         emit_event(
             host,
@@ -624,15 +621,15 @@ pub(crate) fn run_plan_execute_review(
         "review",
         None,
     )?;
-    if let Some(report) = prepared.compaction.as_ref() {
-        compactions.push(report.clone());
-        if report.changed {
-            model_messages = prepared.request.messages.clone();
-            persistent_messages = persistent_messages_from_model_messages(&model_messages);
-            current_turn_messages_start =
-                current_turn_start(&model_messages, current_user_message_id);
-        }
-    }
+    apply_compaction_report(
+        prepared.compaction.as_ref(),
+        &prepared.request.messages,
+        &mut model_messages,
+        &mut persistent_messages,
+        (current_user_message_id, &mut current_turn_messages_start),
+        &mut compactions,
+        PersistentRepair::Rebuild,
+    )?;
     let mut review_request = prepared.request.with_tool_choice(ToolChoice::None);
     review_request.tools.clear();
     emit_event(
