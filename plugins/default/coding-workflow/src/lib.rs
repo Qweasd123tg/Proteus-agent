@@ -71,6 +71,9 @@ const CODEX_LOOP_MODULE_ID: &str = "coding.codex_loop";
 const CODEX_LOOP_DIAGNOSTIC_MODULE_ID: &str = "coding.codex_loop_diagnostic";
 const PLAN_EXECUTE_REVIEW_MODULE_ID: &str = "coding.plan_execute_review";
 const MAX_TOOL_ROUNDS: usize = 8;
+/// Ограничение read-only tool loop в plan-фазе `coding.plan_execute_review`:
+/// план имеет право посмотреть код, но не должен превращаться в execute.
+const MAX_PLAN_TOOL_ROUNDS: usize = 3;
 const SYSTEM_INSTRUCTIONS: &str = "\
 You are running inside a modular v0 agent skeleton. Answer normal conversational \
 questions directly. Use tools only when they are necessary and only if they are \
@@ -483,44 +486,71 @@ pub(crate) fn run_plan_execute_review(
     }
     let mut current_turn_messages_start = model_messages.len();
 
-    let prepared = request_from_state(
-        &input,
-        host,
-        &model_messages,
-        PLAN_SYSTEM_INSTRUCTIONS,
-        Some(PLAN_DEVELOPER_INSTRUCTIONS),
-        "plan",
-        None,
-    )?;
-    if let Some(report) = prepared.compaction.as_ref() {
-        compactions.push(report.clone());
-        if report.changed {
-            model_messages = prepared.request.messages.clone();
-            persistent_messages = persistent_messages_from_model_messages(&model_messages);
-            current_turn_messages_start =
-                current_turn_start(&model_messages, current_user_message_id);
+    let mut plan_tool_rounds_used = 0usize;
+    for plan_round in 0..=MAX_PLAN_TOOL_ROUNDS {
+        let prepared = request_from_state(
+            &input,
+            host,
+            &model_messages,
+            PLAN_SYSTEM_INSTRUCTIONS,
+            Some(PLAN_DEVELOPER_INSTRUCTIONS),
+            "plan",
+            None,
+        )?;
+        if let Some(report) = prepared.compaction.as_ref() {
+            compactions.push(report.clone());
+            if report.changed {
+                model_messages = prepared.request.messages.clone();
+                persistent_messages = persistent_messages_from_model_messages(&model_messages);
+                current_turn_messages_start =
+                    current_turn_start(&model_messages, current_user_message_id);
+            }
+        }
+        let mut plan_request = prepared.request;
+        plan_request
+            .tools
+            .retain(|tool| matches!(tool.safety, ToolSafety::ReadOnly));
+        // Последняя итерация принудительно без tools: plan-фаза обязана
+        // закончиться текстовым планом, а не подвисшим tool call.
+        let forced_text_round = plan_round == MAX_PLAN_TOOL_ROUNDS;
+        if forced_text_round {
+            plan_request = plan_request.with_tool_choice(ToolChoice::None);
+            plan_request.tools.clear();
+        }
+        emit_event(
+            host,
+            &Event::ModelRequestPrepared {
+                model: plan_request.model.clone(),
+            },
+        )?;
+        let plan_response = complete_model(host, &plan_request, "plan")?;
+        emit_event(
+            host,
+            &Event::ModelResponseReceived {
+                finish_reason: plan_response.finish_reason.clone(),
+            },
+        )?;
+        let plan_message =
+            with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
+        model_messages.push(plan_message.clone());
+
+        let should_run_tools = plan_response.finish_reason == FinishReason::ToolCalls
+            && !plan_response.tool_calls.is_empty();
+        if forced_text_round || !should_run_tools {
+            break;
+        }
+        plan_tool_rounds_used += 1;
+        persistent_messages.push(plan_message);
+        for call in plan_response.tool_calls {
+            let result = execute_or_handle_tool(host, &input, &call, "plan")?;
+            let call_id = result.call_id.clone();
+            let tool_result_message =
+                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
+                    .with_tool_call_id(call_id);
+            model_messages.push(tool_result_message.clone());
+            persistent_messages.push(tool_result_message);
         }
     }
-    let mut plan_request = prepared.request;
-    plan_request
-        .tools
-        .retain(|tool| matches!(tool.safety, ToolSafety::ReadOnly));
-    emit_event(
-        host,
-        &Event::ModelRequestPrepared {
-            model: plan_request.model.clone(),
-        },
-    )?;
-    let plan_response = complete_model(host, &plan_request, "plan")?;
-    emit_event(
-        host,
-        &Event::ModelResponseReceived {
-            finish_reason: plan_response.finish_reason.clone(),
-        },
-    )?;
-    let plan_message =
-        with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
-    model_messages.push(plan_message.clone());
 
     let mut draft_finish_reason = None;
     let mut tool_round_limit_reached = true;
@@ -633,6 +663,8 @@ pub(crate) fn run_plan_execute_review(
                 "max_tool_rounds": MAX_TOOL_ROUNDS,
                 "tool_round_limit_reached": tool_round_limit_reached,
                 "draft_finish_reason": draft_finish_reason,
+                "max_plan_tool_rounds": MAX_PLAN_TOOL_ROUNDS,
+                "plan_tool_rounds_used": plan_tool_rounds_used,
                 "phases": ["plan", "execute", "review"],
             }),
         ),

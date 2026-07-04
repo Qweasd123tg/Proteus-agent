@@ -1281,3 +1281,130 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
             .any(|message| message_text(message) == "draft")
     );
 }
+
+#[test]
+fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let plan_call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+    let mut host = FakeHost::with_responses(vec![
+        tool_call_response(plan_call),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "plan"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "draft"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "final"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+    ])
+    .with_tools(vec![read_file.clone()], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json =
+        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    let executed = host.executed_calls.lock().expect("executed calls");
+    assert_eq!(executed.len(), 1);
+    assert_eq!(executed[0].name, "read_file");
+    drop(executed);
+
+    assert_eq!(output.output.text, "final");
+    assert_eq!(output.output.metadata["plan_tool_rounds_used"], json!(1));
+
+    // Tool result plan-фазы виден execute-фазе в следующем model request.
+    let requests = host.requests.lock().expect("requests");
+    assert_eq!(requests.len(), 4);
+    let execute_request = &requests[2];
+    assert!(
+        execute_request.messages.iter().any(|message| {
+            message.parts.iter().any(|part| {
+                matches!(
+                    part,
+                    ContentPart::ToolResult { result } if result.output.contains("read_file ok")
+                )
+            })
+        }),
+        "plan tool result must be visible to the execute phase"
+    );
+
+    // Plan tool call и его результат сохраняются в persistent messages.
+    assert!(
+        output
+            .messages
+            .iter()
+            .any(|message| message.role == MessageRole::Tool)
+    );
+}
+
+#[test]
+fn plan_execute_review_stops_plan_tool_loop_at_round_limit() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let mut responses = Vec::new();
+    for _ in 0..3 {
+        responses.push(tool_call_response(ToolCall::new(
+            new_call_id(),
+            "read_file",
+            json!({ "path": "src/lib.rs" }),
+        )));
+    }
+    responses.push(CanonicalModelResponse::new(
+        CanonicalMessage::text(MessageRole::Assistant, "forced plan"),
+        Vec::new(),
+        FinishReason::Stop,
+    ));
+    responses.push(CanonicalModelResponse::new(
+        CanonicalMessage::text(MessageRole::Assistant, "draft"),
+        Vec::new(),
+        FinishReason::Stop,
+    ));
+    responses.push(CanonicalModelResponse::new(
+        CanonicalMessage::text(MessageRole::Assistant, "final"),
+        Vec::new(),
+        FinishReason::Stop,
+    ));
+    let mut host =
+        FakeHost::with_responses(responses).with_tools(vec![read_file.clone()], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json =
+        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    // Максимум 3 tool-раунда в plan-фазе; последний plan-запрос идёт без tools.
+    let executed = host.executed_calls.lock().expect("executed calls");
+    assert_eq!(executed.len(), 3);
+    drop(executed);
+
+    let requests = host.requests.lock().expect("requests");
+    let last_plan_request = &requests[3];
+    assert_eq!(last_plan_request.tool_choice, ToolChoice::None);
+    assert!(last_plan_request.tools.is_empty());
+    drop(requests);
+
+    assert_eq!(output.output.metadata["plan_tool_rounds_used"], json!(3));
+    assert_eq!(output.output.text, "final");
+}
