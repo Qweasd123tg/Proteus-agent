@@ -43,6 +43,14 @@ profile/pack на выбранном для dogfood provider-е; agent boundary 
 `best-of` packs из лучших идей Codex/Claude/OpenCode/forgecode и web-client
 references.
 
+Состояние parity-паков: codex pack (named config `codex`, `codex_context` с
+provider `environment`, `codex_policy`, `codex`-compactor, `codex_dynamic`)
+и opencode pack (named config `opencode`, `opencode_policy` с
+last-match-wins wildcard permissions, `edit_file`, реюз codex-модулей)
+собраны и ставятся через `install.sh`; сравнение поведения при смене паков —
+основной инструмент поиска архитектурных проблем (см.
+`docs/pack-contracts.md`).
+
 Операционный критерий для ближайшего этапа вынесен в
 `docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop через
 текущий внешний клиент или app-server harness, который показывает, где ломается
@@ -134,8 +142,10 @@ plan/execute/review экспериментов.
 
 Важно: оба режима являются отдельными `Workflow`, а не расширением core.
 Базовая версия `coding.plan_execute_review` уже реализует фазы
-plan/execute/review; дальше нужно наращивать настройки фаз, diff/test tools и
-политику verification.
+plan/execute/review; plan-фаза ведёт bounded read-only tool loop (модель
+может читать код перед планом, write/shell вырезаются, последний plan-запрос
+принудительно без tools). Дальше нужно наращивать настройки фаз, diff/test
+tools и политику verification.
 
 ### v0.3: Control Plane
 
@@ -200,7 +210,7 @@ Scope:
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
   реально наполняется и recall попадает в context через plugin context builder
   `simple`.
-- ✅ Волна 3 (частично) — `read_file` / `write_file` / `list_dir` / `grep` /
+- ✅ Волна 3 (частично) — `read_file` / `write_file` / `edit_file` / `list_dir` / `grep` /
   `find_files` / `read_many_files` / `git_status` / `git_diff` / `shell` вынесены из ядра в плагины
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
@@ -208,12 +218,14 @@ Scope:
   `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и
   `coding.plan_execute_review` в `coding-workflow`.
   Context builders `simple`, `repo_aware` и `codex_context` вынесены в
-  `context-pack`,
+  `context-pack` (включая provider `environment` с `<environment_context>`),
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
   Codex-style tool exposure `codex_dynamic` вынесен в
-  `codex-tool-exposure`,
+  `codex-tool-exposure` (phase-aware, telemetry уходит в request metadata
+  `tool_exposure`),
   `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
-  `allow_all`/`ask_write`/`codex_policy` вынесены в `policy-pack`, `plain`/`statusline`
+  `allow_all`/`ask_write`/`codex_policy`/`opencode_policy` вынесены в
+  `policy-pack`, `plain`/`statusline`
   вынесены в `renderer-pack`.
   В ядре остались только slot-dependent tools: `apply_patch`, `search`,
   `remember_fact`, плюс безопасные stubs `workflow = "none"`,
