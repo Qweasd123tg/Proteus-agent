@@ -35,6 +35,7 @@ use proteus_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RStr, RString},
     },
+    domain::EXEC_SHELL,
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
         PluginTool_TO, PluginToolError, PluginToolObject,
@@ -479,7 +480,7 @@ fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
     args.extend([
         "--chdir".to_owned(),
         workdir.to_owned(),
-        "sh".to_owned(),
+        EXEC_SHELL.to_owned(),
         "-lc".to_owned(),
         command.to_owned(),
     ]);
@@ -499,7 +500,7 @@ fn spawn_shell(
             builder
         }
         None => {
-            let mut builder = Command::new("sh");
+            let mut builder = Command::new(EXEC_SHELL);
             builder.arg("-lc").arg(command);
             builder
         }

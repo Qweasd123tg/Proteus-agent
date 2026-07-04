@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    domain::MessageId,
+    domain::{CONTEXT_MESSAGE_NAME, MessageId},
     model_standard::{CanonicalMessage, ContentPart},
     plugin::PluginWorkflowError,
 };
@@ -72,7 +72,7 @@ pub(crate) fn replace_after_compaction(
 }
 
 fn is_ephemeral_context_message(message: &CanonicalMessage) -> bool {
-    message.name.as_deref() == Some("context")
+    message.name.as_deref() == Some(CONTEXT_MESSAGE_NAME)
         || message
             .parts
             .iter()

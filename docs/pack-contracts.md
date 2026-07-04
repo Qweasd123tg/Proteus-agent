@@ -1,0 +1,94 @@
+# Pack Contracts (черновик)
+
+Статус: research-заметка. Это инвентарь неявных контрактов между плагинами
+(packs) и направления, как снижать связанность. Документ дорабатывается по мере
+находок; он не вводит новых правил сам по себе.
+
+## Мотивирующий кейс
+
+Codex pack: `codex-compactor` бережно сохраняет user-message
+`<environment_context>` при компакции (parity-код из upstream Codex), но в
+стеке долго не было producer-а этого блока — ни один context builder его не
+эмитил. Модель не знала OS/shell и периодически галлюцинировала Windows `cmd`
+на Linux. Consumer без producer-а никем не detected: связка жила только в
+строковом префиксе.
+
+Вывод: при сборке пака по чужому agent-shape consumer-логика копируется легко,
+а producer-обязанность теряется молча. Такие связки нужно фиксировать явно.
+
+## Инвентарь неявных контрактов
+
+Форма связи почти всегда — строка (префикс текста, `name`, metadata key),
+проходящая через ABI/JSON границу без compile-time проверки.
+
+| Контракт | Producer | Consumer | Форма |
+| --- | --- | --- | --- |
+| `<environment_context>` блок | `context-pack` provider `environment` | `codex-compactor` (`is_generated_user_message`) | константа `ENVIRONMENT_CONTEXT_TAG` в contracts |
+| `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-compactor` | префикс текста |
+| `# AGENTS.md instructions` | нет в текущем стеке (upstream shape) | `codex-compactor` | префикс текста |
+| summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
+| `message.name == "context"` | `coding-workflow` | `codex-compactor`, `coding-workflow/history.rs`, token accounting | константа `CONTEXT_MESSAGE_NAME` в contracts |
+| chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
+| tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`), builtin `dynamic` selector | metadata JSON у tool spec |
+| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные |
+| `with_escalated_permissions` + `justification` | `shell-tool` (аргументы tool) | `policy-pack` (`allow_sandboxed`), core `tool_orchestrator` | имена аргументов tool call |
+| `request_permissions` → `granted_permissions` | `policy-pack` tool | core `PolicyContext`, `policy-pack` при следующих вызовах | имя tool + семантика grant scope |
+| `format = "codex_apply_patch"`, executor `handler = "apply_patch"` | named config | core patch handler | metadata key + имя native handler |
+| `approval.cache_scopes = ["workspace_write"]` | tool metadata в config | core `approval/cache` | metadata key + имя scope |
+| `<shell>sh</shell>` в environment chunk | `context-pack` | согласовано с `shell-tool` (`sh -lc`) | константа `EXEC_SHELL` в contracts |
+| opencode `groups.*.tools` (маппинг tool → permission-группа) | named config `opencode` | `policy-pack` (`opencode_policy`) | имена tools; `proteus doctor` проверяет вложенные `tools`-списки |
+| opencode `pattern_args` (`command`/`path`/`paths`) | named config `opencode` | `opencode_policy` читает эти ключи из `ToolCall.args` | имена аргументов tools из `shell-tool`/`file-tools`; при переименовании аргумента правила молча перестанут матчиться |
+| прогресс/финал-структура ответа | `prompts/opencode-default.md` | web-клиент рендерит транскрипт | текст промпта, контракта нет (полагаемся на модель) |
+
+## Почему так
+
+Строки и metadata через ABI-границу — сознательный trade-off: dylib-плагины не
+могут делить rich types без стабилизации ABI, а `proteus-contracts` должен
+оставаться узким. Проблема не в самих строках, а в том, что пары
+producer/consumer нигде не перечислены и не проверяются.
+
+## Направления снижения связанности
+
+Отсортировано от дешёвого к дорогому; начинать с первых.
+
+1. **Инвентарь (этот документ).** Любая новая межпаковая связка добавляется в
+   таблицу выше. При сборке нового пака (opencode) — сначала выписать все
+   consumer-ожидания, затем найти/создать producer-а для каждого.
+2. **[сделано] Константы в `proteus-contracts`.** Маркеры, которые используют
+   несколько crates, живут в `proteus_contracts::domain::markers`:
+   `CONTEXT_MESSAGE_NAME` (`coding-workflow` ↔ `codex-compactor`),
+   `ENVIRONMENT_CONTEXT_TAG` (`context-pack` ↔ `codex-compactor`),
+   `EXEC_SHELL` (`shell-tool` ↔ `context-pack`). Это не меняет ABI и убирает
+   дрейф написания; связка проверяется компилятором через общий crate.
+3. **[сделано] Проверки в `proteus doctor`.** Doctor warn-ит на имена tools в
+   `module_config.*` списках (`allow`, `allow_sandboxed`, `ask_before`,
+   `deny`, `always_include`, вложенные `tools` вроде opencode
+   permission groups), которых нет в собранном tool registry. Имена
+   `<server>__*` пропускаются, если MCP server сконфигурирован (discovery
+   может быть недоступен при doctor run). Ловит опечатки и мёртвые записи
+   после переименований.
+4. **Pack-pair тесты.** Focused-тесты на связку в named config: например,
+   «`codex_context` эмитит `<environment_context>` chunk, и
+   `codex-compactor` сохраняет его при компакции». Тест живёт рядом с
+   consumer-ом и падает, если producer пропал из профиля. Частично покрыто
+   общими константами из п.2: producer и consumer тестируют один маркер.
+5. **Декларации в `plugin.toml` (позже, если 1–4 не хватит).** Плагин
+   декларирует `produces`/`consumes` списком contract ids; loader/doctor
+   сверяет пары для активного профиля и предупреждает о consumer-ах без
+   producer-ов. Это самый тяжёлый вариант — вводить только когда инвентарь
+   покажет, что ручной учёт не масштабируется.
+6. **Typed message origin (отдельное решение).** Сниффинг префиксов текста в
+   compactor-е — следствие того, что у `CanonicalMessage` нет поля
+   «происхождение» (`user | generated:context | generated:summary | ...`).
+   Если появится второй compactor с той же логикой — рассмотреть typed
+   поле/enum в contracts вместо префиксов. До этого не трогать: одно
+   использование не оправдывает расширение DTO.
+
+## Не делать
+
+- Не типизировать все metadata keys подряд: string metadata остаётся ABI
+  trade-off (см. `slot-governance.md`).
+- Не строить validation framework до того, как doctor-проверки и pack-pair
+  тесты покажут свои пределы.
+- Не блокировать загрузку профиля из-за несшитых пар: сначала warnings,
+  видимость важнее строгости.

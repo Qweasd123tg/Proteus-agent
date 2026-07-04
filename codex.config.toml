@@ -124,7 +124,7 @@ max_hot_tools = 10
 always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "playwright__browser_navigate", "playwright__browser_snapshot"]
 
 [module_config.context.codex_context]
-providers = ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"]
+providers = ["project_instructions", "environment", "git_status", "git_diff", "repo_tree", "manifest", "search"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
 max_search_results = 40

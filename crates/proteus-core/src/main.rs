@@ -40,7 +40,8 @@ use cli_init::{parse_init_command, run_init};
 #[cfg(test)]
 use cli_doctor::{
     DoctorFindings, check_configured_tools, check_model_config, check_model_secret,
-    check_timeout_ms, command_resolves, config_root_for_doctor, format_timeout_ms,
+    check_module_config_tool_references, check_timeout_ms, command_resolves,
+    config_root_for_doctor, format_timeout_ms,
 };
 #[cfg(test)]
 use cli_init::{

@@ -22,6 +22,7 @@ use anyhow::{Context, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
+    domain::EXEC_SHELL,
     plugin::{PluginTool, PluginToolError},
 };
 use serde_json::{Value, json};
@@ -378,7 +379,7 @@ fn spawn_session(
             builder
         }
         None => {
-            let mut builder = CommandBuilder::new("sh");
+            let mut builder = CommandBuilder::new(EXEC_SHELL);
             builder.args(["-lc", command]);
             builder
         }

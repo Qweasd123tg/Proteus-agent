@@ -30,7 +30,9 @@ use proteus_contracts::{
 };
 use proteus_contracts::{
     contracts::SearchQuery,
-    domain::{ContextBundle, ContextChunk, MemoryItem, MemoryQuery},
+    domain::{
+        ContextBundle, ContextChunk, ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL, MemoryItem, MemoryQuery,
+    },
     plugin::{
         PluginContextBuilder, PluginContextBuilderHostMut, PluginContextBuilderInput,
         PluginContextError, PluginContextProviderInput,
@@ -172,6 +174,7 @@ fn build_repo_aware_context(
     for provider in &config.providers {
         match provider.as_str() {
             "project_instructions" => chunks.extend(project_instruction_chunks(&input, &config)?),
+            "environment" => chunks.extend(environment_chunks(&input)),
             "manifest" => chunks.extend(manifest_chunks(&input, &config)?),
             "git_status" => chunks.extend(git_status_chunks(&input)?),
             "repo_tree" => chunks.extend(repo_tree_chunks(&input, &config)?),
@@ -202,6 +205,7 @@ fn build_codex_context(
     for provider in &config.providers {
         let provider_chunks = match provider.as_str() {
             "project_instructions" => project_instruction_chunks(&input, &repo_config)?,
+            "environment" => environment_chunks(&input),
             "manifest" => manifest_chunks(&input, &repo_config)?,
             "git_status" => git_status_chunks(&input)?,
             "git_diff" => git_diff_chunks(&input, &config)?,
@@ -338,6 +342,23 @@ fn manifest_chunks(
         ));
     }
     Ok(chunks)
+}
+
+fn environment_chunks(input: &PluginContextBuilderInput) -> Vec<ContextChunk> {
+    let content = format!(
+        "{ENVIRONMENT_CONTEXT_TAG}\n  <cwd>{}</cwd>\n  <operating_system>{}</operating_system>\n  <architecture>{}</architecture>\n  <shell>{EXEC_SHELL}</shell>\n</environment_context>",
+        input.task.cwd.display(),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    );
+    vec![chunk(
+        "repo_aware:environment",
+        None,
+        content,
+        0.95,
+        "environment",
+        "runtime environment (os/arch/shell/cwd)",
+    )]
 }
 
 fn git_status_chunks(input: &PluginContextBuilderInput) -> anyhow::Result<Vec<ContextChunk>> {
@@ -866,6 +887,40 @@ mod tests {
         let root = project_instruction_root(&cwd).expect("instruction root");
 
         assert_eq!(root, dir.path().canonicalize().expect("canonical root"));
+    }
+
+    #[test]
+    fn environment_chunks_report_current_platform_and_sh() {
+        let input = PluginContextBuilderInput {
+            task: proteus_contracts::domain::AgentTask::new("task", PathBuf::from("/ws")),
+            config: Value::Null,
+        };
+
+        let chunks = environment_chunks(&input);
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].source, "repo_aware:environment");
+        let content = &chunks[0].content;
+        assert!(content.starts_with(ENVIRONMENT_CONTEXT_TAG), "{content}");
+        assert!(content.contains("<cwd>/ws</cwd>"), "{content}");
+        assert!(
+            content.contains(&format!(
+                "<operating_system>{}</operating_system>",
+                std::env::consts::OS
+            )),
+            "{content}"
+        );
+        assert!(
+            content.contains(&format!(
+                "<architecture>{}</architecture>",
+                std::env::consts::ARCH
+            )),
+            "{content}"
+        );
+        assert!(
+            content.contains(&format!("<shell>{EXEC_SHELL}</shell>")),
+            "{content}"
+        );
     }
 
     #[test]

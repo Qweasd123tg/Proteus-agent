@@ -24,7 +24,7 @@ use proteus_contracts::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RStr, RString},
     },
-    domain::{AgentOutput, Event, ToolChoice, ToolSafety},
+    domain::{AgentOutput, CONTEXT_MESSAGE_NAME, Event, ToolChoice, ToolSafety},
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginWorkflow_TO,
@@ -134,7 +134,7 @@ pub(crate) fn run_single_loop(
     for chunk in bundle.chunks {
         model_messages.push(
             CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name("context"),
+                .with_name(CONTEXT_MESSAGE_NAME),
         );
     }
     let mut current_turn_messages_start = model_messages.len();
@@ -329,7 +329,7 @@ pub(crate) fn run_codex_loop(
     for chunk in bundle.chunks {
         model_messages.push(
             CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name("context"),
+                .with_name(CONTEXT_MESSAGE_NAME),
         );
     }
     let mut current_turn_messages_start = model_messages.len();
@@ -478,7 +478,7 @@ pub(crate) fn run_plan_execute_review(
     for chunk in bundle.chunks {
         model_messages.push(
             CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                .with_name("context"),
+                .with_name(CONTEXT_MESSAGE_NAME),
         );
     }
     let mut current_turn_messages_start = model_messages.len();

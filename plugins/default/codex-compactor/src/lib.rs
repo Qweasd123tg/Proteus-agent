@@ -13,7 +13,7 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{CompactionInput, CompactionOutput},
-    domain::{CacheHints, ToolChoice},
+    domain::{CONTEXT_MESSAGE_NAME, CacheHints, ENVIRONMENT_CONTEXT_TAG, ToolChoice},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
         InstructionBlock, InstructionKind, MessageRole,
@@ -165,7 +165,7 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
     if message.role != MessageRole::User {
         return false;
     }
-    if message.name.as_deref() == Some("context") {
+    if message.name.as_deref() == Some(CONTEXT_MESSAGE_NAME) {
         return false;
     }
     let Some(text) = message_text(message) else {
@@ -176,7 +176,7 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
 
 fn is_generated_user_message(text: &str) -> bool {
     text.starts_with("# AGENTS.md instructions")
-        || text.starts_with("<environment_context>")
+        || text.starts_with(ENVIRONMENT_CONTEXT_TAG)
         || text.starts_with("<ENVIRONMENT_CONTEXT>")
         || text.starts_with("<turn_aborted>")
         || text.starts_with(SUMMARY_PREFIX)

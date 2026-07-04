@@ -401,6 +401,128 @@ fn doctor_flags_legacy_native_file_tool_handlers() {
 }
 
 #[test]
+fn doctor_flags_unknown_tool_names_in_module_config_lists() {
+    struct StaticTool(&'static str);
+
+    #[async_trait::async_trait]
+    impl proteus_core::contracts::Tool for StaticTool {
+        fn spec(&self) -> proteus_core::domain::ToolSpec {
+            proteus_core::domain::ToolSpec::new(
+                self.0,
+                "static test tool",
+                serde_json::json!({ "type": "object" }),
+                ToolSafety::ReadOnly,
+            )
+        }
+
+        async fn invoke(
+            &self,
+            _call: &proteus_core::domain::ToolCall,
+            _ctx: proteus_core::contracts::ToolContext,
+        ) -> anyhow::Result<proteus_core::domain::ToolResult> {
+            unreachable!("doctor check never invokes tools")
+        }
+    }
+
+    let mut registry = proteus_core::contracts::ToolRegistry::new();
+    registry
+        .register(StaticTool("read_file"))
+        .expect("register read_file");
+
+    let mut config = AppConfig::default();
+    config.tools.mcp_servers.push(
+        serde_json::from_value(serde_json::json!({
+            "name": "playwright",
+            "command": "npx",
+        }))
+        .expect("mcp server config"),
+    );
+    config.module_config.insert(
+        "policy".to_owned(),
+        std::collections::BTreeMap::from([(
+            "codex_policy".to_owned(),
+            serde_json::json!({
+                "allow": ["read_file", "misspelled_tool"],
+                "ask_before": ["playwright__browser_click", "ghost__tool"],
+            }),
+        )]),
+    );
+
+    let mut findings = DoctorFindings::default();
+    check_module_config_tool_references(&mut findings, &config, &registry);
+
+    assert!(!findings.has_errors());
+    let warnings = findings
+        .entries
+        .iter()
+        .filter(|entry| entry.level == "warn")
+        .map(|entry| entry.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        warnings,
+        vec![
+            "module_config.policy.codex_policy.allow references unknown tool 'misspelled_tool'",
+            "module_config.policy.codex_policy.ask_before references unknown tool 'ghost__tool'",
+        ]
+    );
+}
+
+#[test]
+fn doctor_counts_resolved_module_config_tool_references() {
+    let registry = proteus_core::contracts::ToolRegistry::new();
+    let mut config = AppConfig::default();
+    config.tools.mcp_servers.push(
+        serde_json::from_value(serde_json::json!({
+            "name": "playwright",
+            "command": "npx",
+        }))
+        .expect("mcp server config"),
+    );
+    config.module_config.insert(
+        "tool_exposure".to_owned(),
+        std::collections::BTreeMap::from([(
+            "codex_dynamic".to_owned(),
+            serde_json::json!({ "always_include": ["playwright__browser_navigate"] }),
+        )]),
+    );
+
+    let mut findings = DoctorFindings::default();
+    check_module_config_tool_references(&mut findings, &config, &registry);
+
+    assert!(!findings.has_errors());
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| entry.message == "module_config tool references: 1 resolved")
+    );
+}
+
+#[test]
+fn doctor_checks_nested_module_config_tool_lists() {
+    let registry = proteus_core::contracts::ToolRegistry::new();
+    let mut config = AppConfig::default();
+    config.module_config.insert(
+        "policy".to_owned(),
+        std::collections::BTreeMap::from([(
+            "opencode_policy".to_owned(),
+            serde_json::json!({
+                "groups": {
+                    "edit": { "tools": ["missing_edit_tool"], "pattern_args": ["path"] },
+                },
+            }),
+        )]),
+    );
+
+    let mut findings = DoctorFindings::default();
+    check_module_config_tool_references(&mut findings, &config, &registry);
+
+    assert!(findings.entries.iter().any(|entry| entry.level == "warn"
+        && entry.message
+            == "module_config.policy.opencode_policy.groups.edit.tools references unknown tool 'missing_edit_tool'"));
+}
+
+#[test]
 fn doctor_accepts_fake_model_without_secret() {
     let config = AppConfig::default();
     let catalog = BuiltinModuleCatalog::new();

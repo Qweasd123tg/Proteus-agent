@@ -98,7 +98,10 @@ pub(crate) async fn run_doctor(
     check_filesystem_paths(&mut findings, &config, cwd, effective_config);
 
     match super::build_tool_registry_for_listing(&config, cwd) {
-        Ok(registry) => findings.ok(format!("tool registry: {} tools", registry.entries().len())),
+        Ok(registry) => {
+            findings.ok(format!("tool registry: {} tools", registry.entries().len()));
+            check_module_config_tool_references(&mut findings, &config, &registry);
+        }
         Err(error) => findings.error(format!("tool registry failed: {error:#}")),
     }
 
@@ -303,6 +306,107 @@ fn check_selected_modules(
         } else {
             findings.error(format!("module {label} is not registered: {id}"));
         }
+    }
+}
+
+/// Ключи-списки имён tools внутри opaque `module_config.*` (policy allow/deny
+/// списки, tool exposure hot set, opencode permission groups). Core не знает
+/// схему plugin config-ов, но эти ключи — известные межпаковые contracts
+/// (см. docs/pack-contracts.md), и опечатка в имени tool-а иначе остаётся
+/// молчаливо мёртвой записью.
+const MODULE_CONFIG_TOOL_LIST_KEYS: [&str; 6] = [
+    "allow",
+    "allow_sandboxed",
+    "ask_before",
+    "deny",
+    "always_include",
+    "tools",
+];
+
+pub(crate) fn check_module_config_tool_references(
+    findings: &mut DoctorFindings,
+    config: &AppConfig,
+    registry: &proteus_core::contracts::ToolRegistry,
+) {
+    let known = registry
+        .entries()
+        .into_iter()
+        .map(|(_source, spec)| spec.name)
+        .collect::<std::collections::HashSet<_>>();
+    let mcp_servers = config
+        .tools
+        .mcp_servers
+        .iter()
+        .map(|server| server.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+
+    let mut checked = 0usize;
+    let mut unknown = Vec::new();
+    for (slot, modules) in &config.module_config {
+        for (module_id, module_value) in modules {
+            collect_unknown_tool_references(
+                module_value,
+                &format!("module_config.{slot}.{module_id}"),
+                &known,
+                &mcp_servers,
+                &mut checked,
+                &mut unknown,
+            );
+        }
+    }
+
+    if unknown.is_empty() {
+        if checked > 0 {
+            findings.ok(format!("module_config tool references: {checked} resolved"));
+        }
+        return;
+    }
+    for message in unknown {
+        findings.warn(message);
+    }
+}
+
+fn collect_unknown_tool_references(
+    value: &Value,
+    path: &str,
+    known: &std::collections::HashSet<String>,
+    mcp_servers: &std::collections::HashSet<&str>,
+    checked: &mut usize,
+    unknown: &mut Vec<String>,
+) {
+    let Some(object) = value.as_object() else {
+        return;
+    };
+    for (key, child) in object {
+        if MODULE_CONFIG_TOOL_LIST_KEYS.contains(&key.as_str()) {
+            let Some(names) = child.as_array() else {
+                continue;
+            };
+            for name in names.iter().filter_map(Value::as_str) {
+                *checked += 1;
+                if known.contains(name) {
+                    continue;
+                }
+                // MCP tools `<server>__<tool>` появляются после discovery;
+                // достаточно, что server сконфигурирован.
+                if name
+                    .split_once("__")
+                    .is_some_and(|(server, _)| mcp_servers.contains(server))
+                {
+                    continue;
+                }
+                unknown.push(format!("{path}.{key} references unknown tool '{name}'"));
+            }
+            continue;
+        }
+        collect_unknown_tool_references(
+            child,
+            &format!("{path}.{key}"),
+            known,
+            mcp_servers,
+            checked,
+            unknown,
+        );
     }
 }
 

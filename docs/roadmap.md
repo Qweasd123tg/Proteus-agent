@@ -354,6 +354,12 @@ Scope:
 
 ### Architecture Cleanup
 
+- Снижать неявную связанность между plugin packs: инвентарь межпаковых
+  contracts (строковые маркеры, metadata keys, tool-имена в config) и
+  направления фиксов живут в `docs/pack-contracts.md`. Перед сборкой нового
+  пака (opencode) сверяться с инвентарём: consumer-ожидания без producer-а —
+  главный источник тихих багов (кейс `<environment_context>`).
+
 - Свести topology slot metadata в единый `SlotDescriptor` source-of-truth:
   id, title, responsibility, required, render order и canonical runtime edges.
   Сейчас эти сведения частично дублируются между topology builder/render

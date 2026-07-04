@@ -157,6 +157,7 @@ fn default_repo_tree_max_depth() -> usize {
 fn default_codex_context_providers() -> Vec<String> {
     [
         "project_instructions",
+        "environment",
         "git_status",
         "git_diff",
         "repo_tree",
