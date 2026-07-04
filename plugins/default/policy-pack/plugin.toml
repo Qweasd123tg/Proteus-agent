@@ -1,3 +1,8 @@
 name = "policy-pack"
 version = "0.1.0"
 description = "ApprovalPolicy plugins: allow_all, ask_write, and codex_policy"
+[module_descriptions]
+allow_all = "Разрешает все tool-вызовы без вопросов. Только для доверенных сценариев."
+ask_write = "ReadOnly — allow; запись файлов, команды и сеть — ask; dangerous и неизвестные tools — deny. Списки allow/ask_before настраиваются."
+codex_policy = "Codex-подобная политика: списки allow/ask_before/deny (deny побеждает), sandboxed-вызовы allow, эскалация — ask или turn-грант через request_permissions; network по умолчанию deny."
+opencode_policy = "Порт permission-движка opencode: правила (permission, pattern, action), побеждает последнее совпавшее, дефолт — ask; bash-команды матчатся по подкомандам."

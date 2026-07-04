@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::types::*;
-use crate::ui_utils::short_path;
+use crate::ui_utils::{short_path, shorten_home};
 
 /// Read-only панели runtime/model/reasoning над builder-ом. Здесь только
 /// текущее runtime-состояние; всё редактируемое (modules, provider, mode,
@@ -9,11 +9,14 @@ use crate::ui_utils::short_path;
 #[component]
 pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
     let model_label = non_empty(summary.model.label.as_str(), "model не выбран");
-    let config_path = summary
+    let config_path_full = summary
         .config_path
         .as_deref()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "(default discovery / none)".to_owned());
+    let config_path = shorten_home(&config_path_full);
+    let cwd_full = summary.cwd.clone();
+    let cwd = shorten_home(non_empty(summary.cwd.as_str(), "-").as_str());
     let config_files = summary.config_files.clone();
     let reasoning_effort = summary
         .reasoning
@@ -41,11 +44,11 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
                 </div>
                 <div class="config-kv">
                     <span>"cwd"</span>
-                    <code>{non_empty(summary.cwd.as_str(), "-")}</code>
+                    <code title=cwd_full>{cwd}</code>
                 </div>
                 <div class="config-kv">
                     <span>"config"</span>
-                    <code>{config_path}</code>
+                    <code title=config_path_full>{config_path}</code>
                 </div>
                 <div class="config-kv">
                     <span>"mode"</span>

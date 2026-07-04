@@ -5,3 +5,6 @@ author = "proteus-core examples"
 tags = ["memory", "sqlite", "fts5"]
 library = "libsqlite_memory.so"
 requires_proteus_contracts = "0.1"
+[module_descriptions]
+sqlite = "Память в SQLite FTS5 (~/.proteus/memory-plugin.sqlite): prefix-поиск по токенам, ранжирование по релевантности."
+sqlite_plugin = "Legacy-псевдоним модуля sqlite: тот же файл и поиск."

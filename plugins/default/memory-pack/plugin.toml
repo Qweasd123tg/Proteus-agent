@@ -1,3 +1,6 @@
 name = "memory-pack"
 version = "0.1.0"
 description = "JSONL memory store and carry-forward memory policy"
+[module_descriptions]
+jsonl = "Append-only память в .proteus/memory.jsonl; recall — линейный скан с подстрочным совпадением."
+carry_forward = "После каждого хода сохраняет первые 500 символов последнего ответа ассистента как запись carry_forward:latest."

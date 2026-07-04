@@ -1870,11 +1870,18 @@ button.topbar-menu-item.danger:not(:disabled):hover {
 }
 
 .config-builder-target {
+    /* Строка target+save липнет к верху скролла: builder длинный, кнопка
+       «Сохранить» должна быть доступна без прокрутки назад. */
+    position: sticky;
+    z-index: 5;
+    top: 0;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: var(--space-3);
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--bg-panel);
     padding: var(--space-3) var(--space-4);
 }
 
@@ -2011,6 +2018,15 @@ button.topbar-menu-item.danger:not(:disabled):hover {
     display: grid;
     min-width: 0;
     gap: var(--space-2);
+}
+
+/* Описание выбранного модуля под select-ом. */
+.config-builder-module-note {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
 }
 
 .config-builder-modules .config-chip-row {

@@ -241,6 +241,13 @@ pub struct PluginManifest {
     /// проверка совместимости — через abi_stable layout check при load.
     #[serde(default)]
     pub requires_proteus_contracts: Option<String>,
+
+    /// Честные описания модулей плагина для UI/CLI: `module_id` (или
+    /// `slot/module_id`) → описание. ABI регистрации модулей не несёт
+    /// описаний, поэтому без этой таблицы модули получают шаблонный текст
+    /// вида "Workflow from plugin (module id: ...)".
+    #[serde(default)]
+    pub module_descriptions: std::collections::BTreeMap<String, String>,
 }
 
 pub fn load_plugins_from_dir(
@@ -499,6 +506,17 @@ fn load_one_plugin_inner(
     };
     match register_result {
         RResult::ROk(()) => {
+            // Описания из manifest применяем до снятия contributions, чтобы
+            // и catalog, и отчёт о плагине несли честный текст.
+            if let Some(manifest) = &manifest {
+                for key in
+                    catalog.apply_module_descriptions(&checkpoint, &manifest.module_descriptions)
+                {
+                    eprintln!(
+                        "warning: plugin '{name}' declares module_descriptions['{key}'] but no such module was registered"
+                    );
+                }
+            }
             let contributions = catalog.contributions_since(&checkpoint);
             // Важно: leak'аем RawLibrary только после успешной регистрации —
             // иначе при drop символы плагина станут dangling, а trait objects
@@ -555,6 +573,9 @@ author = "me"
 tags = ["demo", "test"]
 library = "libsample.so"
 requires_proteus_contracts = "^0.1"
+
+[module_descriptions]
+"coding.sample" = "Честное описание модуля."
 "#,
         )
         .unwrap();
@@ -565,6 +586,13 @@ requires_proteus_contracts = "^0.1"
         assert_eq!(manifest.description.as_deref(), Some("a sample plugin"));
         assert_eq!(manifest.tags, vec!["demo", "test"]);
         assert_eq!(manifest.library.as_deref(), Some("libsample.so"));
+        assert_eq!(
+            manifest
+                .module_descriptions
+                .get("coding.sample")
+                .map(String::as_str),
+            Some("Честное описание модуля.")
+        );
     }
 
     #[test]

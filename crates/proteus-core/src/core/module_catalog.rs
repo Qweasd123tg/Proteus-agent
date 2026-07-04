@@ -157,6 +157,35 @@ impl BuiltinModuleCatalog {
             .truncate(checkpoint.plugin_context_providers_len);
     }
 
+    /// Переопределяет описания модулей, зарегистрированных после checkpoint,
+    /// значениями из `plugin.toml [module_descriptions]`. Ключ — `module_id`
+    /// или `slot/module_id` (для редких коллизий id между slot-ами).
+    /// Возвращает ключи, не совпавшие ни с одним модулем плагина, — caller
+    /// логирует их как предупреждение, чтобы manifest не расходился с кодом.
+    pub(crate) fn apply_module_descriptions(
+        &mut self,
+        checkpoint: &ModuleCatalogCheckpoint,
+        descriptions: &std::collections::BTreeMap<String, String>,
+    ) -> Vec<String> {
+        let mut unmatched = Vec::new();
+        for (key, description) in descriptions {
+            let mut matched = false;
+            for ((slot, id), entry) in self.entries.iter_mut() {
+                if checkpoint.entry_keys.contains(&(slot.clone(), id.clone())) {
+                    continue;
+                }
+                if key == id || *key == format!("{slot}/{id}") {
+                    entry.manifest.description = Some(description.clone());
+                    matched = true;
+                }
+            }
+            if !matched {
+                unmatched.push(key.clone());
+            }
+        }
+        unmatched
+    }
+
     pub(crate) fn contributions_since(
         &self,
         checkpoint: &ModuleCatalogCheckpoint,
@@ -623,6 +652,72 @@ mod tests {
 
     fn plugin_tool(name: &'static str) -> PluginToolObject {
         PluginTool_TO::from_value(NoopPluginTool { name }, TD_Opaque)
+    }
+
+    #[test]
+    fn apply_module_descriptions_overrides_plugin_entries_only() {
+        let mut catalog = BuiltinModuleCatalog::new();
+        let checkpoint = catalog.checkpoint();
+
+        catalog
+            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .unwrap();
+
+        let descriptions = std::collections::BTreeMap::from([
+            (
+                "carry_forward".to_owned(),
+                "Переносит хвост ответа в память.".to_owned(),
+            ),
+            ("missing_module".to_owned(), "нет такого".to_owned()),
+            (
+                // Builtin из checkpoint не должен переопределяться.
+                "none".to_owned(),
+                "не должно примениться".to_owned(),
+            ),
+        ]);
+        let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
+
+        assert_eq!(unmatched, vec!["missing_module", "none"]);
+        assert_eq!(
+            catalog
+                .manifest(ModuleKind::MemoryPolicy, "carry_forward")
+                .and_then(|manifest| manifest.description.clone())
+                .as_deref(),
+            Some("Переносит хвост ответа в память.")
+        );
+        // Builtin "none" сохраняет своё описание.
+        assert_ne!(
+            catalog
+                .manifest(ModuleKind::MemoryPolicy, "none")
+                .and_then(|manifest| manifest.description.clone())
+                .as_deref(),
+            Some("не должно примениться")
+        );
+    }
+
+    #[test]
+    fn apply_module_descriptions_supports_slot_scoped_keys() {
+        let mut catalog = BuiltinModuleCatalog::new();
+        let checkpoint = catalog.checkpoint();
+
+        catalog
+            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .unwrap();
+
+        let descriptions = std::collections::BTreeMap::from([(
+            "memory_policy/carry_forward".to_owned(),
+            "Scoped описание.".to_owned(),
+        )]);
+        let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
+
+        assert!(unmatched.is_empty());
+        assert_eq!(
+            catalog
+                .manifest(ModuleKind::MemoryPolicy, "carry_forward")
+                .and_then(|manifest| manifest.description.clone())
+                .as_deref(),
+            Some("Scoped описание.")
+        );
     }
 
     #[test]

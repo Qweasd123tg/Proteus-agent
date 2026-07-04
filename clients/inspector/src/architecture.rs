@@ -18,7 +18,7 @@ use crate::architecture_model::{
     backend_views, module_source_label, non_empty, pipeline_steps, plugin_contributions, slot_views,
 };
 use crate::types::*;
-use crate::ui_utils::{compact_json, copy_to_clipboard};
+use crate::ui_utils::{compact_json, copy_to_clipboard, shorten_home};
 
 #[component]
 pub(crate) fn ArchitectureView() -> impl IntoView {
@@ -151,11 +151,14 @@ fn TopologySnapshotView(
         .and_then(|view| view.active_module.as_ref())
         .map(|module| module_source_label(&module.source))
         .unwrap_or_else(|| "-".to_owned());
-    let config_label = snapshot
+    let config_label_full = snapshot
         .config_path
         .as_deref()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "(default discovery / none)".to_owned());
+    let config_label = shorten_home(&config_label_full);
+    let cwd_full = snapshot.cwd.clone();
+    let cwd_label = shorten_home(&non_empty(&snapshot.cwd, "-"));
     let registered_tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
     let provided_only_count = snapshot.tools.len() - registered_tool_count;
     let loaded_plugin_count = snapshot
@@ -216,11 +219,11 @@ fn TopologySnapshotView(
                     </div>
                     <div class="config-kv">
                         <span>"cwd"</span>
-                        <code>{non_empty(&snapshot.cwd, "-")}</code>
+                        <code title=cwd_full>{cwd_label}</code>
                     </div>
                     <div class="config-kv">
                         <span>"config"</span>
-                        <code>{config_label}</code>
+                        <code title=config_label_full>{config_label}</code>
                     </div>
                     <div class="config-kv">
                         <span>"mode / epoch"</span>
@@ -439,12 +442,16 @@ fn TopologySnapshotView(
                                     let status = non_empty(&plugin.status, "unknown");
                                     let badge_class = plugin_badge_class(&status);
                                     let version = non_empty(&plugin.version, "-");
+                                    // Путь до .so — только в title: как текст он
+                                    // раздувает карточку и не заменяет описание.
+                                    let path_title = shorten_home(&plugin.path);
                                     let description = plugin
                                         .description
                                         .clone()
-                                        .unwrap_or_else(|| plugin.path.clone());
+                                        .filter(|description| !description.trim().is_empty())
+                                        .unwrap_or_else(|| "(описание не задано)".to_owned());
                                     view! {
-                                        <article class="topology-node-card plugin">
+                                        <article class="topology-node-card plugin" title=path_title>
                                             <div class="topology-node-head">
                                                 <div>
                                                     <span class="panel-kicker">"plugin"</span>

@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::api::{get_json, post_json};
 use crate::types::*;
+use crate::ui_utils::shorten_home;
 
 use super::DraftSetters;
 use super::module_config_editor::ModuleConfigEditor;
@@ -27,10 +28,11 @@ pub(super) fn ConfigBuilderView(
     let slots = builder.slots.clone();
     let tools = builder.tools.clone();
     let warnings = builder.warnings.clone();
-    let target_path = builder
+    let target_path_full = builder
         .target_path
         .clone()
         .unwrap_or_else(|| "(config path unavailable)".to_owned());
+    let target_path = shorten_home(&target_path_full);
     let writable = builder.writable;
 
     // Dirty-состояние: сравнение черновиков со snapshot-ом. Ложное
@@ -125,7 +127,7 @@ pub(super) fn ConfigBuilderView(
             </div>
             <div class="config-builder-target">
                 <span>"target"</span>
-                <code>{target_path}</code>
+                <code title=target_path_full>{target_path}</code>
                 <span class="topology-muted">
                     {move || if dirty.get() { "есть несохранённые изменения" } else { "" }}
                 </span>
@@ -277,11 +279,21 @@ fn BuilderSlotCard(
     let slot_id = slot.id.clone();
     let slot_id_for_select_value = slot_id.clone();
     let slot_id_for_select_change = slot_id.clone();
-    let slot_id_for_label = slot_id.clone();
     let modules_for_select = slot.modules.clone();
-    let modules_for_capabilities = slot.modules.clone();
-    let module_count = slot.modules.len();
-    let capabilities_slot_id = slot_id.clone();
+
+    // Выбранный модуль (реактивно по черновику): его описание и capabilities
+    // показываются под select-ом — карточка объясняет, что именно выбрано.
+    let modules_for_details = slot.modules.clone();
+    let details_slot_id = slot_id.clone();
+    let selected_module = Memo::new(move |_| {
+        let active = draft_modules
+            .with(|items| items.get(&details_slot_id).cloned())
+            .unwrap_or_default();
+        modules_for_details
+            .iter()
+            .find(|module| module.id == active)
+            .cloned()
+    });
 
     view! {
         <article class="config-builder-slot">
@@ -294,7 +306,7 @@ fn BuilderSlotCard(
             </div>
             <p>{slot.responsibility.clone()}</p>
             <label class="config-builder-field">
-                <span>{format!("{} module", slot_id_for_label)}</span>
+                <span>"module"</span>
                 <select
                     prop:value=move || {
                         draft_modules
@@ -325,23 +337,22 @@ fn BuilderSlotCard(
                     />
                 </select>
             </label>
-            <ModuleConfigEditor
-                slot_id=slot_id.clone()
-                draft_config_texts
-                set_draft_config_texts=drafts.config_texts
-            />
             <div class="config-builder-modules">
-                <span>{format!("{module_count} candidates")}</span>
+                <p class="config-builder-module-note">
+                    {move || {
+                        selected_module
+                            .get()
+                            .and_then(|module| module.description)
+                            .filter(|description| !description.trim().is_empty())
+                            .unwrap_or_else(|| "(описание модуля не задано)".to_owned())
+                    }}
+                </p>
                 <div class="config-chip-row">
                     <For
                         each=move || {
-                            let active = draft_modules
-                                .with(|items| items.get(&capabilities_slot_id).cloned())
-                                .unwrap_or_default();
-                            modules_for_capabilities
-                                .iter()
-                                .find(|module| module.id == active)
-                                .map(|module| module.capabilities.clone())
+                            selected_module
+                                .get()
+                                .map(|module| module.capabilities)
                                 .unwrap_or_default()
                         }
                         key=|capability| capability.clone()
@@ -349,6 +360,11 @@ fn BuilderSlotCard(
                     />
                 </div>
             </div>
+            <ModuleConfigEditor
+                slot_id=slot_id.clone()
+                draft_config_texts
+                set_draft_config_texts=drafts.config_texts
+            />
         </article>
     }
 }

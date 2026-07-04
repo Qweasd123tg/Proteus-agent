@@ -26,7 +26,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "fake",
             ModuleKind::Model,
             &["testing", "tools"],
-            "Fake model adapter for tests and local development.",
+            "Фейковая модель для тестов и локальной разработки: отвечает заглушками без сети.",
         ),
         build_fake_model_adapter,
     );
@@ -36,7 +36,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "openai",
             ModuleKind::Model,
             &["responses", "tools"],
-            "OpenAI Responses API adapter.",
+            "Адаптер OpenAI Responses API.",
         ),
         build_openai_model_adapter,
     );
@@ -46,7 +46,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "openai_compatible",
             ModuleKind::Model,
             &["responses", "tools", "custom_base_url"],
-            "OpenAI-compatible Responses API adapter.",
+            "Адаптер OpenAI-совместимых Responses API (кастомный base_url в provider_config).",
         ),
         build_openai_model_adapter,
     );
@@ -56,7 +56,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "anthropic",
             ModuleKind::Model,
             &["messages", "tools"],
-            "Anthropic Messages API adapter.",
+            "Адаптер Anthropic Messages API.",
         ),
         build_anthropic_model_adapter,
     );
@@ -69,7 +69,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "null",
             ModuleKind::Search,
             &["disabled"],
-            "No-op search backend.",
+            "Поиск отключён: всегда возвращает пустой результат.",
         ),
         build_null_search,
     );
@@ -81,7 +81,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "none",
             ModuleKind::Memory,
             &["disabled"],
-            "No-op memory store.",
+            "Память отключена: ничего не сохраняет и не вспоминает.",
         ),
         build_no_memory,
     );
@@ -93,7 +93,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "none",
             ModuleKind::MemoryPolicy,
             &["disabled"],
-            "No-op memory lifecycle policy.",
+            "После хода ничего не запоминает.",
         ),
         build_no_memory_policy,
     );
@@ -106,7 +106,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "none",
             ModuleKind::Context,
             &["disabled"],
-            "Empty context builder.",
+            "Не добавляет контекст: в модель уходит только задача и история.",
         ),
         build_empty_context,
     );
@@ -118,7 +118,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "deny_all",
             ModuleKind::Policy,
             &["disabled", "safe_default"],
-            "Deny all tool calls.",
+            "Запрещает все tool-вызовы. Безопасный дефолт, пока не выбрана policy.",
         ),
         build_deny_all_policy,
     );
@@ -131,7 +131,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "null",
             ModuleKind::Patch,
             &["disabled"],
-            "No-op patch applier.",
+            "Патчи отключены: apply возвращает неуспех с пометкой disabled.",
         ),
         build_null_patch,
     );
@@ -144,7 +144,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "none",
             ModuleKind::Compactor,
             &["disabled"],
-            "No-op request-time history compactor.",
+            "Без компакции: история уходит в модель как есть.",
         ),
         build_no_compactor,
     );
@@ -157,7 +157,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "all_visible",
             ModuleKind::ToolExposure,
             &["default"],
-            "Expose all policy-visible tools, optionally capped by request.",
+            "Показывает модели все policy-видимые tools (опциональный лимит из запроса workflow).",
         ),
         build_all_visible_tool_exposure,
     );
@@ -168,7 +168,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "dynamic",
             ModuleKind::ToolExposure,
             &["lexical", "token_savings"],
-            "Expose a small lexical-ranked hot toolset from policy-visible tools.",
+            "Лексический отбор небольшого hot-set из policy-видимых tools для экономии токенов.",
         ),
         build_dynamic_tool_exposure,
     );
@@ -181,7 +181,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "none",
             ModuleKind::Workflow,
             &["disabled"],
-            "No-op workflow placeholder.",
+            "Заглушка: вместо запуска агента отвечает подсказкой выбрать workflow-плагин.",
         ),
         build_no_workflow,
     );
@@ -194,7 +194,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "text",
             ModuleKind::Renderer,
             &["plain_text"],
-            "Render AgentOutput.text without decoration.",
+            "Выводит текст ответа без оформления.",
         ),
         build_text_renderer,
     );

@@ -1,3 +1,5 @@
 name = "codex-tool-exposure"
 version = "0.1.0"
 description = "Codex-shaped ToolExposure plugin (module id: codex_dynamic)"
+[module_descriptions]
+codex_dynamic = "Отбирает hot-set до 10 tools из policy-видимых: intent-эвристики, codex-приоритеты, лексический overlap; request_user_input и update_plan всегда включены; в plan-фазе только read-only."

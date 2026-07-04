@@ -2,3 +2,5 @@ name = "rg-search"
 version = "0.1.0"
 description = "Workspace SearchBackend backed by ripgrep (module id: rg)"
 capabilities = ["search"]
+[module_descriptions]
+rg = "Поиск по workspace внешним ripgrep (нужен rg в PATH): лимиты на размер файла и вывода, таймаут 60 с; строка совпадения — один context chunk."

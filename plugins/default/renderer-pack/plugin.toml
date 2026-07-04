@@ -1,3 +1,6 @@
 name = "renderer-pack"
 version = "0.1.0"
 description = "Renderer plugins: plain and statusline"
+[module_descriptions]
+plain = "Выводит текст ответа как есть, без оформления."
+statusline = "Текст ответа + статус-строка: модель, использование контекста, session id."

@@ -242,6 +242,14 @@ packaging всегда dylib. Manifest задаёт metadata (`name`, `version`,
 `description`, `author`, `tags`, `requires_proteus_contracts`) и optional
 `library` для выбора конкретной dylib внутри папки.
 
+Optional таблица `[module_descriptions]` даёт человекочитаемые описания
+модулей плагина для UI/CLI: ключ — `module_id` (или `slot/module_id`, если id
+повторяется в разных slots), значение — короткое честное описание поведения.
+ABI регистрации модулей описаний не несёт, поэтому без этой таблицы модуль
+получает шаблонный текст вида "Workflow from plugin (module id: ...)". Ключи,
+не совпавшие с фактически зарегистрированными модулями, логируются warning-ом
+при загрузке — таблица не должна расходиться с кодом плагина.
+
 YAML declarative tools и MCP wrappers не являются содержимым этой директории.
 Для них используются `tools.configured`, `tools.path` и `tools.mcp_servers` в
 основном config'е.
