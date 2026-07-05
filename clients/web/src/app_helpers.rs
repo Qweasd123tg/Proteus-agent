@@ -833,7 +833,13 @@ pub(crate) fn schedule_results_scroll(
     set_scroll_frame_pending: WriteSignal<bool>,
     set_last_results_scroll_top: WriteSignal<i32>,
 ) {
-    if scroll_frame_pending.get() {
+    // Untracked: это управляющий флаг «кадр уже запланирован», а не
+    // зависимость. Tracked-чтение подписывало вызывающий эффект автоскролла
+    // на сам флаг: set(true) → rerun, set(false) в rAF → rerun → новый кадр →
+    // set(true) → ... — вечный 60fps-цикл с принудительным reflow всей ленты
+    // (scroll_height) на каждом кадре, который и вешал вкладку на длинных
+    // транскриптах во время стрима.
+    if scroll_frame_pending.get_untracked() {
         return;
     }
     set_scroll_frame_pending.set(true);
@@ -851,8 +857,10 @@ fn scroll_results_to_bottom(
     stick_to_bottom: ReadSignal<bool>,
     set_last_results_scroll_top: WriteSignal<i32>,
 ) {
-    if let Some(results) = results_ref.get()
-        && stick_to_bottom.get()
+    // rAF-колбэк — не реактивный контекст: tracked-чтения здесь бессмысленны
+    // и в dev-сборке заваливают консоль предупреждениями reactive_graph.
+    if let Some(results) = results_ref.get_untracked()
+        && stick_to_bottom.get_untracked()
     {
         results.set_scroll_top(results.scroll_height());
         set_last_results_scroll_top.set(results.scroll_top());
