@@ -26,6 +26,7 @@ policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
+subagent = "sequential"
 renderer = "statusline"
 
 [tools]
@@ -118,6 +119,23 @@ deny = ["playwright__browser_run_code_unsafe"]
 
 [module_config.compactor.codex]
 trigger_fraction = 0.8
+
+[module_config.subagent.sequential]
+max_resumable = 8
+
+[[module_config.subagent.sequential.roles]]
+name = "explore"
+description = "Read-only codebase explorer for focused research questions (find definitions, trace call paths, map structure). Returns concise findings with file paths and line numbers."
+prompt = """You are a read-only codebase researcher inside the Proteus harness. Answer the specific question you were given — nothing more.
+
+Rules:
+- Inspect, never modify: you have only read/search tools.
+- Be fast and authoritative: prefer targeted search over broad reading.
+- Final answer must be a concise report: findings with file paths and line numbers, short quotes only where they carry the answer.
+- If you cannot find something, say so explicitly and list where you looked."""
+tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+max_iterations = 15
+max_summary_bytes = 8192
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
