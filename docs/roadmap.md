@@ -32,6 +32,17 @@ module implementations без переписывания core или форка 
 
 ## Direction Checkpoint
 
+Обновление на 2026-07-06: identity проекта зафиксирована как **платформа для
+себя** — идеальный личный конструктор, который позже можно превратить во что
+угодно. Практические следствия: dogfood и качество контрактов важнее внешней
+стабилизации ABI; distribution story (install для незнакомца, packaging)
+осознанно отложена; целевой сценарий — "clone pipeline": увидел приём в чужом
+агенте → скормил исходники и skills агенту → через час experimental plugin +
+profile на обкатку (цепочка зависимостей: dogfood → skills → plugin scaffold →
+A/B eval). Модель для dogfood на ближайший этап — OpenAI API (prompt caching
+экономически значим). Ошибаться в контрактах и чинить их нужно сейчас, пока
+все реализации живут в этом репозитории.
+
 Обновление на 2026-05-28: активный UI-путь переводится на Leptos web client.
 Текущий dogfood должен проверять app-server/client contract, а не локальные
 особенности конкретного renderer-а. Сначала нужно добиться качества
@@ -165,7 +176,17 @@ Scope:
 - explicit approval queue events;
 - session resume/restore;
 - durable task/session metadata;
-- event-log based debugging.
+- event-log based debugging. Аудит 2026-07-06: текущий `events.jsonl` — это
+  телеметрия, а не replay-лог. Для replay ("тот же вход, другой
+  модуль/промпт") критично не хватает: (a) полного `CanonicalModelRequest`
+  (instructions, context, tools, sampling) — `ModelRequestPrepared` несёт
+  только `ModelRef`, `ContextBuilt` — только счётчики; (b) config/profile
+  снапшота на момент turn (`session.json` хранит только id+workspace);
+  дополнительно: compaction перезаписывает до-compaction историю
+  (`replace_messages`), tool output усекается до записи в лог, ephemeral
+  context messages вырезаны из persistent history. Вывод: до реализации
+  replay-фичи нужно сначала начать персистить request-снапшот и
+  config-снапшот, иначе к моменту фичи данных не будет.
 - ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
   `StdioRequest::ReloadTools`, HTTP `POST /reload-tools` и событие
   `ModulesReloaded`, без выгрузки dylib и без in-place мутации активного
