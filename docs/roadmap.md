@@ -146,6 +146,20 @@ plan/execute/review экспериментов.
   контекстом, ролями из конфига/markdown, task-тулом в workflow, task_id-резюмом
   и событиями под child `ThreadId`. Интейк пересмотрен в slot-governance.md.
   Дальше — догфуд sequential, затем решение по parallel `spawn/wait/cancel`.
+  Развилка исполнения для parallel (зафиксирована 2026-07-06, решать по
+  dogfood-evidence): (A) in-process tokio tasks — дёшево стартует, но общие
+  registry/approvals/session и общий blast radius сбоев; (B) ребёнок =
+  отдельный процесс `proteus` (готовый `server stdio` интерфейс + generic
+  process host) — изоляция сбоев, cancel=kill, дороже старт, нужен форвардинг
+  событий ребёнка. Идея "роль = профиль": ребёнок запускается с собственным
+  named config — mini-сборка модулей под роль (`sub-explorer` read-only tools
+  + deny-write policy + memory/compactor none + дешёвая модель), безопасность
+  структурная через policy/tools, а не промптовая; профили детей тестируются
+  в dogfood отдельно. Путь B даёт это бесплатно, путь A требует эмуляции
+  фильтрами. Общие блокеры обоих путей: approval queue с атрибуцией к ребёнку
+  (v0.3), provider-neutral spawn/wait/cancel DTO (sequential и оба parallel —
+  реализации одного слота), budget/rate-limit учёт (`BudgetTracker`), UX
+  дерева параллельных потоков в клиенте.
 - ✅ Общий boilerplate трёх `run_*`-циклов вынесен в `TurnScaffold`
   (`coding-workflow/src/scaffold.rs`); фазовая логика осталась на call-site.
 
