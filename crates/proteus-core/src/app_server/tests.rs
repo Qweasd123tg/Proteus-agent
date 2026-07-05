@@ -885,3 +885,55 @@ args = ["ok"]
 
     handle.shutdown().await;
 }
+
+#[tokio::test]
+async fn runtime_forwarder_lag_emits_typed_event_stream_lagged() {
+    use crate::{
+        contracts::EventSink,
+        domain::{EventContext, new_thread_id, new_turn_id},
+    };
+
+    // Ring на 1 слот: подписываемся до отправки, затем переполняем канал —
+    // старые события безвозвратно выброшены, и форвардер обязан сообщить об
+    // этом типизированным EventStreamLagged (не Error: «ход упал» и «клиент
+    // отстал и должен пересинхронизироваться» — разные контракты).
+    let core_broadcast = Arc::new(BroadcastEventSink::new(1));
+    let lagging_rx = core_broadcast.subscribe();
+    let session_id = new_session_id();
+    let thread_id = new_thread_id();
+    for seq in 0..3_u64 {
+        core_broadcast
+            .append(EventEnvelope::new(
+                EventContext::new(session_id, thread_id, Some(new_turn_id())),
+                seq,
+                Event::TaskReceived {
+                    task: crate::domain::AgentTask::new(format!("event {seq}"), PathBuf::from(".")),
+                },
+            ))
+            .await
+            .expect("append to broadcast sink");
+    }
+
+    let (events, mut events_rx) = broadcast::channel(16);
+    spawn_runtime_event_forwarder_with_receiver(
+        lagging_rx,
+        events,
+        Arc::new(Mutex::new(TurnProgress::default())),
+    );
+
+    let first = tokio::time::timeout(Duration::from_secs(5), events_rx.recv())
+        .await
+        .expect("forwarder output before timeout")
+        .expect("forwarder event");
+    match first {
+        AppServerEvent::EventStreamLagged { count } => assert!(count > 0),
+        other => panic!("expected EventStreamLagged, got {other:?}"),
+    }
+
+    // После уведомления форвардер продолжает доставлять то, что уцелело.
+    let second = tokio::time::timeout(Duration::from_secs(5), events_rx.recv())
+        .await
+        .expect("runtime event before timeout")
+        .expect("runtime event");
+    assert!(matches!(second, AppServerEvent::Runtime { .. }));
+}

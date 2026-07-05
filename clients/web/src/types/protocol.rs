@@ -72,6 +72,11 @@ pub(crate) enum AppServerEvent {
     Error {
         message: String,
     },
+    /// Сервер потерял часть событий (переполнение broadcast ring): стрим-
+    /// состояние клиента невалидно, транскрипт и pending надо перечитать.
+    EventStreamLagged {
+        count: u64,
+    },
     Shutdown,
     #[serde(other)]
     Unknown,

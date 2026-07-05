@@ -314,7 +314,15 @@ turn асинхронно, поэтому UI может отправить `appr
 HTTP/SSE transport:
 
 - `GET /health` - healthcheck;
-- `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`;
+- `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`.
+  Доставка идёт через tokio broadcast ring: если клиент читает медленнее, чем
+  runtime производит события, старые события выбрасываются, а клиент получает
+  типизированный `AppServerEvent::EventStreamLagged { count }` (и по stdio
+  transport тоже). Получив его, клиент обязан считать стрим-состояние
+  невалидным и пересинхронизироваться: web-клиент перечитывает `/history` и
+  `/pending`, как после SSE reconnect — среди потерянных событий могли быть
+  `ToolFinished`/`TurnOutput`, без resync карточки остались бы «бегущими»
+  навсегда;
 - `GET /config` - текущий config summary, включая активный `session_dir`, если
   runtime подключён к session store;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;

@@ -157,6 +157,7 @@ fn web_decodes_contract_stdio_output_events() {
         contract_protocol::AppServerEvent::Error {
             message: "boom".to_owned(),
         },
+        contract_protocol::AppServerEvent::EventStreamLagged { count: 42 },
         contract_protocol::AppServerEvent::Shutdown,
     ];
 
@@ -220,6 +221,7 @@ fn web_decodes_contract_stdio_output_events() {
                 assert_eq!(activity.running_turns, 1);
             }
             AppServerEvent::Error { message } => assert_eq!(message, "boom"),
+            AppServerEvent::EventStreamLagged { count } => assert_eq!(count, 42),
             AppServerEvent::Shutdown => {}
             AppServerEvent::Unknown => {}
         }

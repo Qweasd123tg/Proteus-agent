@@ -174,6 +174,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.set_agent_status,
                     bindings.set_tool_activities,
                     bindings.set_context_usage,
+                    bindings.transcript_generation,
                     bindings.set_pending_approvals,
                     bindings.set_pending_user_inputs,
                     bindings.set_sidebar_sessions,
@@ -274,6 +275,7 @@ fn handle_app_output(
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
+    transcript_generation: ReadSignal<u64>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -304,6 +306,7 @@ fn handle_app_output(
                 set_agent_status,
                 set_tool_activities,
                 set_context_usage,
+                transcript_generation,
                 set_pending_approvals,
                 set_pending_user_inputs,
                 set_sidebar_sessions,
@@ -341,6 +344,7 @@ fn handle_app_event(
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
+    transcript_generation: ReadSignal<u64>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -525,6 +529,30 @@ fn handle_app_event(
                 MessageRole::System,
                 format!("AppServer error: {message}"),
             );
+        }
+        AppServerEvent::EventStreamLagged { count } => {
+            // Сервер выкинул часть событий (broadcast ring переполнился, пока
+            // клиент тормозил): среди потерянных могли быть ToolFinished и
+            // TurnOutput. Локальное стрим-состояние невалидно — перечитываем
+            // транскрипт и pending целиком, как после SSE reconnect.
+            web_sys::console::warn_1(&JsValue::from_str(&format!(
+                "event stream lagged by {count} events; resyncing transcript"
+            )));
+            stream_delta_buffer.set_value(BufferedStreamDeltas::default());
+            set_active_stream_message_id.set(None);
+            set_streamed_this_turn.set(false);
+            let expected_generation = transcript_generation.get_untracked();
+            replace_transcript(
+                set_messages,
+                transcript_generation,
+                expected_generation,
+                next_message_id,
+                set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                set_transport_status,
+            );
+            refresh_pending_control_plane(set_pending_approvals, set_pending_user_inputs);
         }
         AppServerEvent::Shutdown => {
             flush_stream_delta_buffer(stream_bindings);

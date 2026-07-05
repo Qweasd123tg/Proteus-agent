@@ -24,7 +24,7 @@ use crate::{
         list_workspace_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
         session_workspace_from_session_dir,
     },
-    domain::{AgentOutput, PermissionMode, new_thread_id},
+    domain::{AgentOutput, EventEnvelope, PermissionMode, new_thread_id},
 };
 
 mod approval_preview;
@@ -794,8 +794,18 @@ fn spawn_runtime_event_forwarder(
     events: broadcast::Sender<AppServerEvent>,
     turn_progress: Arc<Mutex<TurnProgress>>,
 ) {
+    let rx = core_broadcast.subscribe();
+    spawn_runtime_event_forwarder_with_receiver(rx, events, turn_progress);
+}
+
+/// Отделено от `spawn_runtime_event_forwarder`, чтобы lag-путь можно было
+/// детерминированно тестировать: receiver подписывается до переполнения.
+fn spawn_runtime_event_forwarder_with_receiver(
+    mut rx: broadcast::Receiver<EventEnvelope>,
+    events: broadcast::Sender<AppServerEvent>,
+    turn_progress: Arc<Mutex<TurnProgress>>,
+) {
     tokio::spawn(async move {
-        let mut rx = core_broadcast.subscribe();
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
@@ -805,9 +815,12 @@ fn spawn_runtime_event_forwarder(
                     });
                 }
                 Err(broadcast::error::RecvError::Lagged(count)) => {
-                    let _ = events.send(AppServerEvent::Error {
-                        message: format!("runtime event stream lagged by {count} events"),
-                    });
+                    // Часть runtime-событий потеряна (переполнение ring):
+                    // среди них могли быть ToolFinished/TurnFinished. Клиент
+                    // обязан пересинхронизироваться, а не жить со «вечно
+                    // бегущими» карточками — Error здесь не подходит, он
+                    // означает «ход упал».
+                    let _ = events.send(AppServerEvent::EventStreamLagged { count });
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }

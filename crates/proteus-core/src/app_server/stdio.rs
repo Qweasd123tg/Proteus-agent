@@ -49,13 +49,8 @@ pub async fn run_stdio_app_server(
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
                     let _ = event_tx
-                        .send(StdioOutput::Response {
-                            id: None,
-                            ok: false,
-                            output: None,
-                            error: Some(format!(
-                                "app-server event stream lagged by {count} events"
-                            )),
+                        .send(StdioOutput::Event {
+                            event: Box::new(AppServerEvent::EventStreamLagged { count }),
                         })
                         .await;
                 }

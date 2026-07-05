@@ -1,6 +1,5 @@
 use std::{convert::Infallible, time::Duration};
 
-use anyhow::anyhow;
 use async_stream::stream;
 use bytes::Bytes;
 use http_body_util::{BodyExt, StreamBody};
@@ -49,10 +48,12 @@ pub(super) async fn sse_response(state: HttpAppState) -> HttpResponse {
                             }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            let output = command_response(
-                                None,
-                                Err(anyhow!("app-server event stream lagged by {count} events")),
-                            );
+                            // Broadcast ring переполнился (клиент не успевал
+                            // читать): события потеряны безвозвратно. Клиент
+                            // должен пересинхронизировать transcript/pending.
+                            let output = StdioOutput::Event {
+                                event: Box::new(AppServerEvent::EventStreamLagged { count }),
+                            };
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -67,10 +68,9 @@ pub(super) async fn sse_response(state: HttpAppState) -> HttpResponse {
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            let output = command_response(
-                                None,
-                                Err(anyhow!("app-server activity stream lagged by {count} events")),
-                            );
+                            let output = StdioOutput::Event {
+                                event: Box::new(AppServerEvent::EventStreamLagged { count }),
+                            };
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
