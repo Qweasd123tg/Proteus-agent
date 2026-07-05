@@ -67,17 +67,18 @@ pub(crate) fn SubagentCard(
     // Пока субагент работает, карточка раскрыта и показывает живой прогресс;
     // после завершения сворачивается сама (как reasoning-блок) — в ленте
     // остаётся компактная строка со статусом, итерациями и длительностью.
-    let (last_running, set_last_running) = signal(running);
-    Effect::new(move |_| {
+    // Прошлое состояние живёт в возврате эффекта: писать его в сигнал,
+    // который эффект сам же читает, — это лишний цикл уведомлений.
+    Effect::new(move |prev_running: Option<bool>| {
         let running_now = header.with(|header| {
             header
                 .as_ref()
                 .is_some_and(SubagentHeader::is_running)
         });
-        if last_running.get() && !running_now {
+        if prev_running == Some(true) && !running_now {
             set_expanded.set(false);
         }
-        set_last_running.set(running_now);
+        running_now
     });
     // Вложенные tool-карточки стартуют свёрнутыми независимо от глобального
     // дефолта: раскрытый субагент и так занимает место, детали каждого вызова

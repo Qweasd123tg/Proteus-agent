@@ -64,10 +64,30 @@ pub(crate) fn MessageView(
     messages: ReadSignal<Vec<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    // Ищем своё сообщение прямо в Vec: раньше между сигналом и карточками
-    // стоял Memo<HashMap>, который на каждый event клонировал и глубоко
-    // сравнивал весь транскрипт — на длинных сессиях это вешало браузер.
-    let message = Memo::new(move |_| current_message(messages, message_id));
+    // Двухступенчатая подписка. Каждое обновление ленты будит memos всех
+    // карточек; если бы карточка сразу клонировала своё сообщение, каждый
+    // event стоил бы клон+глубокое сравнение всего транскрипта (карточка
+    // субагента с вложенными выводами — сотни килобайт), что вешало браузер.
+    // Первая ступень — копеечный fingerprint (id найден, version, streaming,
+    // длина текста): O(scan) целочисленной работы на event. Вторая клонирует
+    // сообщение только когда fingerprint реально изменился.
+    let fingerprint = Memo::new(move |_| {
+        messages.with(|items| {
+            items
+                .iter()
+                .find(|message| message.id == message_id)
+                .map(|message| (message.version, message.streaming, message.text.len()))
+        })
+    });
+    let message = Memo::new(move |_| {
+        fingerprint.track();
+        messages.with_untracked(|items| {
+            items
+                .iter()
+                .find(|message| message.id == message_id)
+                .cloned()
+        })
+    });
     let kind = Memo::new(move |_| current_message_kind(message));
 
     view! {
@@ -193,16 +213,16 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
                 .is_some_and(|message| message.streaming)
         })
     };
-    let streaming = message
-        .with_untracked(|message| message.as_ref().is_some_and(|message| message.streaming));
     let (expanded, set_expanded) = signal(false);
-    let (last_streaming, set_last_streaming) = signal(streaming);
-    Effect::new(move |_| {
+    // Прошлое streaming-состояние — в возврате эффекта, не в сигнале,
+    // который эффект сам читает и пишет (лишний цикл уведомлений на каждый
+    // event ленты).
+    Effect::new(move |prev_streaming: Option<bool>| {
         let streaming = message_is_streaming();
-        if last_streaming.get() && !streaming {
+        if prev_streaming == Some(true) && !streaming {
             set_expanded.set(false);
         }
-        set_last_streaming.set(streaming);
+        streaming
     });
     view! {
         <article class="task-card running agent-turn-item reasoning-turn">
@@ -243,15 +263,6 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
         </article>
     }
     .into_any()
-}
-
-fn current_message(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<Message> {
-    messages.with(|items| {
-        items
-            .iter()
-            .find(|message| message.id == message_id)
-            .cloned()
-    })
 }
 
 fn current_message_kind(message: Memo<Option<Message>>) -> MessageViewKind {
