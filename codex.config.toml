@@ -1,4 +1,21 @@
-include = "proteus.provider.example.toml"
+# Провайдер восстановлен из a18b3e1 (Track codex runtime config in repo):
+# gpt-5.5 через личный прокси. Ключ И base_url живут per-PC в
+# secrets/openai.json — в git только пути, ни ключа, ни хоста.
+active_provider = "openai"
+
+[providers.openai]
+provider = "openai"
+model = "gpt-5.5"
+stream = true
+api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+api_key_json_key = "openai_api_key"
+base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+base_url_json_key = "base_url"
+max_input_tokens = 400000
+
+[providers.openai.reasoning]
+effort = "high"
+summary = true
 
 # Base prompt: адаптированный upstream Codex base prompt
 # (codex-rs/protocol/src/prompts/base_instructions/default.md из исходников
