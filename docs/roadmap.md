@@ -321,6 +321,18 @@ Scope:
 - Усилить `coding.plan_execute_review`: phase settings, auto-verify,
   configurable test runner, compact phase/debug report и настройку token budget
   по фазам.
+- LSP-интеграция (решение 2026-07-06: делать после dogfood, мотивация —
+  экономия токенов через короткую петлю обратной связи). Раскладка без нового
+  slot-а: diagnostics-after-edit → context provider или обогащение результата
+  write/patch tools (агент видит сломанные типы за секунды вместо цикла
+  "правка → shell cargo check"); `goto_definition`/`find_references` → обычные
+  tools вместо grep-гаданий; семантический поиск → вторая реализация
+  `SearchBackend` рядом с `rg`. Клиент болтливее MCP (didOpen/didChange
+  зеркалирование документов, capabilities, сервер на язык), но lifecycle
+  переиспользует тот же паттерн persistent stdio JSON-RPC host, что MCP
+  executor — третий аргумент вынести общий process-host из `tools/` (см.
+  Architecture Cleanup). Порядок: сначала dogfood измеряет, сколько уходит на
+  цикл проверки правок, затем решение об объёме.
 
 ### Token / Context Discipline
 
