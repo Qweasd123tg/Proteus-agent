@@ -142,15 +142,6 @@ pub(crate) fn App() -> impl IntoView {
     let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
     let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
     let activity_tick_pending = StoredValue::new_local(false);
-    let messages_by_id = Memo::new(move |_| {
-        messages.with(|items| {
-            items
-                .iter()
-                .cloned()
-                .map(|message| (message.id, message))
-                .collect::<HashMap<_, _>>()
-        })
-    });
     // Список моих сообщений (id + короткий текст) для миникарты MessageNav.
     let user_messages = Memo::new(move |_| {
         messages.with(|items| {
@@ -861,7 +852,6 @@ pub(crate) fn App() -> impl IntoView {
                                 user_messages
                                 set_active_user_message
                                 messages
-                                messages_by_id
                                 activity_now_ms
                                 pending_approvals
                                 pending_user_inputs

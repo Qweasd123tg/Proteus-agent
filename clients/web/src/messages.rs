@@ -5,6 +5,14 @@ use crate::types::{
     Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity,
     ToolActivityStatus, TransportStatus,
 };
+use crate::ui_utils::compact_text;
+
+/// Потолок превью результата для вызовов внутри карточки субагента. Вложенные
+/// карточки живут в одном Message: каждый его апдейт клонируется и глубоко
+/// сравнивается реактивной лентой, поэтому полные выводы child tools раздували
+/// карточку до мегабайтов и подвешивали браузер. Полный вывод всё равно уходит
+/// только дочерней модели — в UI хватает усечённого превью.
+pub(crate) const NESTED_TOOL_PREVIEW_CHAR_LIMIT: usize = 10_000;
 
 pub(crate) fn report_error(
     set_messages: WriteSignal<Vec<Message>>,
@@ -421,7 +429,8 @@ pub(crate) fn update_tool_status(
                 return;
             }
             // Tool-вызовы дочернего цикла лежат внутри карточки субагента —
-            // Approval*/ToolFinished находят их по тому же call_id.
+            // Approval*/ToolFinished находят их по тому же call_id. Превью
+            // результата усечено (см. NESTED_TOOL_PREVIEW_CHAR_LIMIT).
             if let Some(subagent) = message.subagent.as_mut()
                 && let Some(tool) = subagent
                     .tools
@@ -432,8 +441,9 @@ pub(crate) fn update_tool_status(
                 if let Some(finished_at_ms) = finished_at_ms {
                     tool.finished_at_ms = Some(finished_at_ms);
                 }
-                if let Some(result_preview) = result_preview.clone() {
-                    tool.result_preview = Some(result_preview);
+                if let Some(result_preview) = result_preview.as_deref() {
+                    tool.result_preview =
+                        Some(compact_text(result_preview, NESTED_TOOL_PREVIEW_CHAR_LIMIT));
                 }
                 message.version += 1;
                 nested = true;
@@ -544,6 +554,11 @@ pub(crate) fn push_subagent_tool(
                 .iter()
                 .any(|item| item.call_id == tool.call_id)
             {
+                let mut tool = tool;
+                if let Some(result_preview) = tool.result_preview.as_deref() {
+                    tool.result_preview =
+                        Some(compact_text(result_preview, NESTED_TOOL_PREVIEW_CHAR_LIMIT));
+                }
                 subagent.tools.push(tool);
             }
             message.version += 1;

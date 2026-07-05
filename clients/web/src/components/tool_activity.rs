@@ -106,26 +106,30 @@ pub(crate) fn ToolActivityCard(
                 // Терминальный статус (готово/ошибка/отклонено) несёт цветная
                 // точка на рейке — дублировать его текстом на карточке незачем.
                 {move || {
-                    let Some(tool) = current_tool(message) else {
+                    let Some(status) = current_tool_status(message) else {
                         return ().into_any();
                     };
-                    if !matches!(
-                        tool.status,
-                        ToolActivityStatus::Running
-                            | ToolActivityStatus::WaitingApproval
-                            | ToolActivityStatus::Approved
-                    ) {
+                    if status.is_terminal() {
                         return ().into_any();
                     }
                     view! {
-                        <span class=tool.status.badge_class()>
+                        <span class=status.badge_class()>
                             <span class="spinner-dot"></span>
                             {move || current_tool_status_label(message, activity_now_ms)}
                         </span>
                     }
                     .into_any()
                 }}
-                <strong>{move || current_tool(message).map(|tool| tool.name).unwrap_or_else(|| "tool".to_owned())}</strong>
+                <strong>{move || {
+                    message
+                        .with(|message| {
+                            message
+                                .as_ref()
+                                .and_then(|message| message.tool.as_ref())
+                                .map(|tool| tool.name.clone())
+                        })
+                        .unwrap_or_else(|| "tool".to_owned())
+                }}</strong>
                 // Сводку в строке показываем только пока карточка свёрнута —
                 // в раскрытом виде те же файлы/аргументы есть ниже, дубль не нужен.
                 {move || {
@@ -142,16 +146,30 @@ pub(crate) fn ToolActivityCard(
                 // Длительность завершённого вызова; у бегущих время тикает в
                 // бейдже статуса, у восстановленных из истории границ нет.
                 {move || {
-                    current_tool(message)
-                        .filter(|tool| tool.status.is_terminal())
-                        .and_then(|tool| tool.duration_ms())
+                    message
+                        .with(|message| {
+                            message
+                                .as_ref()
+                                .and_then(|message| message.tool.as_ref())
+                                .filter(|tool| tool.status.is_terminal())
+                                .and_then(|tool| tool.duration_ms())
+                        })
                         .map(|duration_ms| {
                             view! { <span class="tool-card-duration">{format_duration_ms(duration_ms)}</span> }
                                 .into_any()
                         })
                         .unwrap_or_else(|| ().into_any())
                 }}
-                <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
+                <code>{move || {
+                    message
+                        .with(|message| {
+                            message
+                                .as_ref()
+                                .and_then(|message| message.tool.as_ref())
+                                .map(|tool| short_id(&tool.call_id).to_owned())
+                        })
+                        .unwrap_or_default()
+                }}</code>
                 <span class="tool-card-caret" aria-hidden="true">"▸"</span>
             </button>
             {move || {
@@ -308,8 +326,20 @@ fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
     }
 }
 
+/// Владельная копия tool — для memos, которым нужен весь ToolActivity
+/// (args/result превью). Горячие closures шапки читают точечно через
+/// `message.with`, не клонируя args и полный вывод.
 pub(crate) fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
-    message.get().and_then(|message| message.tool)
+    message.with(|message| message.as_ref().and_then(|message| message.tool.clone()))
+}
+
+fn current_tool_status(message: Memo<Option<Message>>) -> Option<ToolActivityStatus> {
+    message.with(|message| {
+        message
+            .as_ref()
+            .and_then(|message| message.tool.as_ref())
+            .map(|tool| tool.status)
+    })
 }
 
 fn tool_display(tool: &ToolActivity) -> ToolDisplay {
@@ -587,26 +617,26 @@ fn current_tool_status_label(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> String {
-    let Some(tool) = current_tool(message) else {
+    let Some((status, started_at_ms)) = message.with(|message| {
+        message
+            .as_ref()
+            .and_then(|message| message.tool.as_ref())
+            .map(|tool| (tool.status, tool.started_at_ms))
+    }) else {
         return "tool".to_owned();
     };
-    if matches!(
-        tool.status,
-        ToolActivityStatus::Running
-            | ToolActivityStatus::WaitingApproval
-            | ToolActivityStatus::Approved
-    ) {
+    if !status.is_terminal() {
         let elapsed_seconds = activity_now_ms
             .get()
-            .saturating_sub(tool.started_at_ms)
+            .saturating_sub(started_at_ms)
             .saturating_div(1000);
         format!(
             "{} · {}",
-            tool.status.label(),
+            status.label(),
             format_elapsed_seconds(elapsed_seconds)
         )
     } else {
-        tool.status.label().to_owned()
+        status.label().to_owned()
     }
 }
 

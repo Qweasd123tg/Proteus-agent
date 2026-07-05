@@ -1,14 +1,11 @@
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
 use leptos::prelude::*;
 
-use super::{
-    SubagentCard, ToolActivityCard, current_subagent, current_tool, subagent_turn_card_class,
-    tool_turn_card_class,
-};
+use super::{SubagentCard, ToolActivityCard, subagent_turn_card_class, tool_turn_card_class};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{compact_text, copy_to_clipboard, set_timeout};
@@ -64,9 +61,12 @@ where
 #[component]
 pub(crate) fn MessageView(
     message_id: u64,
-    messages: Memo<HashMap<u64, Message>>,
+    messages: ReadSignal<Vec<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
+    // Ищем своё сообщение прямо в Vec: раньше между сигналом и карточками
+    // стоял Memo<HashMap>, который на каждый event клонировал и глубоко
+    // сравнивал весь транскрипт — на длинных сессиях это вешало браузер.
     let message = Memo::new(move |_| current_message(messages, message_id));
     let kind = Memo::new(move |_| current_message_kind(message));
 
@@ -93,7 +93,11 @@ fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -
     view! {
         <article class=turn_class>
             <div class="task-card-header">
-                <span class="assistant-role">{move || message.get().map(|message| message.role.label()).unwrap_or("Сообщение")}</span>
+                <span class="assistant-role">{move || {
+                    message
+                        .with(|message| message.as_ref().map(|message| message.role.label()))
+                        .unwrap_or("Сообщение")
+                }}</span>
                 <div class="message-actions">
                     <CopyButton
                         text=move || current_message_text(message)
@@ -114,8 +118,15 @@ fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -
 fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal<u64>) -> AnyView {
     view! {
         <article class=move || {
-            current_tool(message)
-                .map(|tool| tool_turn_card_class(tool.status))
+            // Точечное чтение статуса: клонировать весь ToolActivity (args +
+            // полный вывод) на каждый event слишком дорого.
+            message
+                .with(|message| {
+                    message
+                        .as_ref()
+                        .and_then(|message| message.tool.as_ref())
+                        .map(|tool| tool_turn_card_class(tool.status))
+                })
                 .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
         }>
             <ToolActivityCard message activity_now_ms />
@@ -130,8 +141,13 @@ fn subagent_message_view(
 ) -> AnyView {
     view! {
         <article class=move || {
-            current_subagent(message)
-                .map(|subagent| subagent_turn_card_class(&subagent.status))
+            message
+                .with(|message| {
+                    message
+                        .as_ref()
+                        .and_then(|message| message.subagent.as_ref())
+                        .map(|subagent| subagent_turn_card_class(&subagent.status))
+                })
                 .unwrap_or_else(|| "task-card agent-turn-item subagent-turn-item".to_owned())
         }>
             <SubagentCard message activity_now_ms />
@@ -148,7 +164,11 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
         // id="msg-{id}" — якорь для быстрого перехода из MessageNav.
         <article
             class="user-turn"
-            id=move || message.get().map(|message| format!("msg-{}", message.id)).unwrap_or_default()
+            id=move || {
+                message
+                    .with(|message| message.as_ref().map(|message| format!("msg-{}", message.id)))
+                    .unwrap_or_default()
+            }
         >
             <div class="user-bubble">
                 <CopyButton
@@ -166,13 +186,19 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
 /// Reasoning-поток всегда начинается свёрнутым: длинное thinking-содержимое не
 /// должно блокировать scroll/render основного ответа.
 fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
+    let message_is_streaming = move || {
+        message.with(|message| {
+            message
+                .as_ref()
+                .is_some_and(|message| message.streaming)
+        })
+    };
     let streaming = message
-        .get_untracked()
-        .is_some_and(|message| message.streaming);
+        .with_untracked(|message| message.as_ref().is_some_and(|message| message.streaming));
     let (expanded, set_expanded) = signal(false);
     let (last_streaming, set_last_streaming) = signal(streaming);
     Effect::new(move |_| {
-        let streaming = message.get().is_some_and(|message| message.streaming);
+        let streaming = message_is_streaming();
         if last_streaming.get() && !streaming {
             set_expanded.set(false);
         }
@@ -186,14 +212,14 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >
                 <span class=move || {
-                    if message.get().is_some_and(|message| message.streaming) {
+                    if message_is_streaming() {
                         "status-badge running"
                     } else {
                         "status-badge idle"
                     }
                 }>
                     {move || {
-                        if message.get().is_some_and(|message| message.streaming) {
+                        if message_is_streaming() {
                             view! { <span class="spinner-dot"></span> }.into_any()
                         } else {
                             view! { <span class="dot"></span> }.into_any()
@@ -219,26 +245,33 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
     .into_any()
 }
 
-fn current_message(messages: Memo<HashMap<u64, Message>>, message_id: u64) -> Option<Message> {
-    messages.with(|items| items.get(&message_id).cloned())
+fn current_message(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Option<Message> {
+    messages.with(|items| {
+        items
+            .iter()
+            .find(|message| message.id == message_id)
+            .cloned()
+    })
 }
 
 fn current_message_kind(message: Memo<Option<Message>>) -> MessageViewKind {
-    let Some(message) = message.get() else {
-        return MessageViewKind::Missing;
-    };
-    if message.subagent.is_some() {
-        return MessageViewKind::Subagent;
-    }
-    if message.tool.is_some() {
-        return MessageViewKind::Tool;
-    }
-    match message.role {
-        MessageRole::User => MessageViewKind::User,
-        MessageRole::Assistant => MessageViewKind::Assistant,
-        MessageRole::System => MessageViewKind::System,
-        MessageRole::Reasoning => MessageViewKind::Reasoning,
-    }
+    message.with(|message| {
+        let Some(message) = message.as_ref() else {
+            return MessageViewKind::Missing;
+        };
+        if message.subagent.is_some() {
+            return MessageViewKind::Subagent;
+        }
+        if message.tool.is_some() {
+            return MessageViewKind::Tool;
+        }
+        match message.role {
+            MessageRole::User => MessageViewKind::User,
+            MessageRole::Assistant => MessageViewKind::Assistant,
+            MessageRole::System => MessageViewKind::System,
+            MessageRole::Reasoning => MessageViewKind::Reasoning,
+        }
+    })
 }
 
 fn current_message_text(message: Memo<Option<Message>>) -> String {
@@ -290,22 +323,25 @@ fn render_message_html(message: &Message) -> String {
 }
 
 fn current_reasoning_html(message: Memo<Option<Message>>) -> String {
-    let Some(message) = message.get() else {
-        return String::new();
-    };
-    plain_text_html(&compact_text(&message.text, REASONING_RENDER_LIMIT))
+    message.with(|message| {
+        message
+            .as_ref()
+            .map(|message| plain_text_html(&compact_text(&message.text, REASONING_RENDER_LIMIT)))
+            .unwrap_or_default()
+    })
 }
 
 fn current_message_content_class(message: Memo<Option<Message>>) -> String {
     message
-        .get()
-        .map(|message| {
-            let message_class = message.role.message_class();
-            if message.streaming {
-                format!("{message_class} streaming-message")
-            } else {
-                message_class.to_owned()
-            }
+        .with(|message| {
+            message.as_ref().map(|message| {
+                let message_class = message.role.message_class();
+                if message.streaming {
+                    format!("{message_class} streaming-message")
+                } else {
+                    message_class.to_owned()
+                }
+            })
         })
         .unwrap_or_else(|| "message system-message".to_owned())
 }

@@ -642,6 +642,17 @@ fn transcript_subagent_activity(subagent: TranscriptSubagent) -> SubagentActivit
             .tools
             .into_iter()
             .map(transcript_tool_activity)
+            .map(|mut tool| {
+                // Тот же потолок, что у live-пути: восстановленная карточка
+                // не должна снова раздуться до мегабайтов.
+                if let Some(result_preview) = tool.result_preview.as_deref() {
+                    tool.result_preview = Some(compact_text(
+                        result_preview,
+                        crate::messages::NESTED_TOOL_PREVIEW_CHAR_LIMIT,
+                    ));
+                }
+                tool
+            })
             .collect(),
     }
 }

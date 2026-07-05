@@ -21,7 +21,6 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     user_messages: Memo<Vec<(u64, String)>>,
     set_active_user_message: WriteSignal<Option<u64>>,
     messages: ReadSignal<Vec<Message>>,
-    messages_by_id: Memo<HashMap<u64, Message>>,
     activity_now_ms: ReadSignal<u64>,
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
@@ -106,7 +105,7 @@ where
                 children=move |message_id| view! {
                     <MessageView
                         message_id
-                        messages=messages_by_id
+                        messages
                         activity_now_ms
                     />
                 }

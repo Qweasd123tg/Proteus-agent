@@ -23,8 +23,8 @@ pub(crate) use message::MessageView;
 pub(crate) use resume::ResumeView;
 pub(crate) use settings::SettingsView;
 pub(crate) use sidebar::SidebarView;
-pub(crate) use subagent::{SubagentCard, current_subagent, subagent_turn_card_class};
+pub(crate) use subagent::{SubagentCard, subagent_turn_card_class};
 pub(crate) use tool_activity::{
-    ToolActivityCard, ToolCardsCollapsed, ToolPreview, current_tool, format_duration_ms,
+    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms,
     format_elapsed_seconds, tool_args_preview, tool_turn_card_class,
 };
