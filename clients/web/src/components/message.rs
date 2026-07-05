@@ -64,30 +64,7 @@ pub(crate) fn MessageView(
     messages: ReadSignal<Vec<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    // Двухступенчатая подписка. Каждое обновление ленты будит memos всех
-    // карточек; если бы карточка сразу клонировала своё сообщение, каждый
-    // event стоил бы клон+глубокое сравнение всего транскрипта (карточка
-    // субагента с вложенными выводами — сотни килобайт), что вешало браузер.
-    // Первая ступень — копеечный fingerprint (id найден, version, streaming,
-    // длина текста): O(scan) целочисленной работы на event. Вторая клонирует
-    // сообщение только когда fingerprint реально изменился.
-    let fingerprint = Memo::new(move |_| {
-        messages.with(|items| {
-            items
-                .iter()
-                .find(|message| message.id == message_id)
-                .map(|message| (message.version, message.streaming, message.text.len()))
-        })
-    });
-    let message = Memo::new(move |_| {
-        fingerprint.track();
-        messages.with_untracked(|items| {
-            items
-                .iter()
-                .find(|message| message.id == message_id)
-                .cloned()
-        })
-    });
+    let message = message_memo(messages, message_id);
     let kind = Memo::new(move |_| current_message_kind(message));
 
     view! {
@@ -106,6 +83,39 @@ pub(crate) fn MessageView(
             }
         }}
     }
+}
+
+/// Двухступенчатая подписка карточки на ленту. Каждое обновление ленты будит
+/// memos всех карточек; если бы карточка сразу клонировала своё сообщение,
+/// каждый event стоил бы клон+глубокое сравнение всего транскрипта (карточка
+/// субагента с вложенными выводами — сотни килобайт), что вешало браузер.
+/// Первая ступень — копеечный fingerprint (id найден, version, streaming,
+/// длина текста): O(scan) целочисленной работы на event. Вторая клонирует
+/// сообщение только когда fingerprint реально изменился.
+///
+/// Fingerprint обязательно ЧИТАЕТСЯ (`get`), а не только `track()`:
+/// подписка на никем не читаемый memo оставляет его невычисленным, и
+/// инвалидация от сигнала ленты через него не доходит до подписчиков —
+/// карточка навсегда застревала в «выполняется» при живом состоянии
+/// (см. two_stage_message_memo_pushes_version_bump_to_subscribers).
+fn message_memo(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Memo<Option<Message>> {
+    let fingerprint = Memo::new(move |_| {
+        messages.with(|items| {
+            items
+                .iter()
+                .find(|message| message.id == message_id)
+                .map(|message| (message.version, message.streaming, message.text.len()))
+        })
+    });
+    Memo::new(move |_| {
+        let _ = fingerprint.get();
+        messages.with_untracked(|items| {
+            items
+                .iter()
+                .find(|message| message.id == message_id)
+                .cloned()
+        })
+    })
 }
 
 fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -> AnyView {
@@ -354,6 +364,8 @@ fn current_message_content_class(message: Memo<Option<Message>>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     #[test]
@@ -369,5 +381,73 @@ mod tests {
         });
 
         assert!(html.contains("<strong>live</strong>"));
+    }
+
+    fn running_tool_message(id: u64) -> Message {
+        Message {
+            id,
+            version: 0,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: Some(ToolActivity {
+                call_id: "call-1".to_owned(),
+                name: "shell".to_owned(),
+                args: serde_json::Value::Null,
+                args_preview: String::new(),
+                started_at_ms: 0,
+                finished_at_ms: None,
+                status: ToolActivityStatus::Running,
+                result_preview: None,
+            }),
+            subagent: None,
+            streaming: false,
+        }
+    }
+
+    /// Регрессия на двухступенчатую подписку MessageView: version bump
+    /// (например, ToolFinished) обязан доехать до подписчиков memo сообщения,
+    /// иначе карточка навсегда остаётся «выполняется» при живом состоянии.
+    #[tokio::test]
+    async fn two_stage_message_memo_pushes_version_bump_to_subscribers() {
+        _ = any_spawner::Executor::init_tokio();
+        let owner = Owner::new();
+        let (set_messages, message, seen) = owner.with(|| {
+            let (messages, set_messages) = signal(vec![running_tool_message(1)]);
+            let message = message_memo(messages, 1);
+
+            let seen = Arc::new(Mutex::new(Vec::<ToolActivityStatus>::new()));
+            let sink = seen.clone();
+            Effect::new_isomorphic(move |_| {
+                let status = message.with(|message| {
+                    message
+                        .as_ref()
+                        .and_then(|message| message.tool.as_ref())
+                        .map(|tool| tool.status)
+                });
+                if let Some(status) = status {
+                    sink.lock().expect("seen lock").push(status);
+                }
+            });
+            (set_messages, message, seen)
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(
+            seen.lock().expect("seen lock").as_slice(),
+            &[ToolActivityStatus::Running]
+        );
+
+        set_messages.update(|items| {
+            let tool = items[0].tool.as_mut().expect("tool");
+            tool.status = ToolActivityStatus::Done;
+            items[0].version += 1;
+        });
+        tokio::task::yield_now().await;
+
+        let _ = message;
+        assert_eq!(
+            seen.lock().expect("seen lock").last(),
+            Some(&ToolActivityStatus::Done),
+            "version bump must reach message memo subscribers"
+        );
     }
 }

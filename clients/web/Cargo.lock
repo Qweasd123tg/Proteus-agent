@@ -76,6 +76,7 @@ checksum = "1384d3fe1eecb464229fcf6eebb72306591c56bf27b373561489458a7c73027d"
 dependencies = [
  "futures",
  "thiserror 2.0.18",
+ "tokio",
  "wasm-bindgen-futures",
 ]
 
@@ -1338,6 +1339,7 @@ dependencies = [
 name = "proteus-web"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "console_error_panic_hook",
  "js-sys",
  "leptos",
@@ -1345,6 +1347,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1881,6 +1884,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
 dependencies = [
  "pin-project-lite",
+ "tokio-macros",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
