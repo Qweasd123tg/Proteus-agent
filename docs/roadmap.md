@@ -182,6 +182,10 @@ Scope:
 - добавить HTTP/SSE/WebSocket adapter поверх той же app-server boundary;
 - добавить protocol tests;
 - описать commands/events как client contract;
+- при проектировании DTO оценить parts-модель сообщений (typed parts:
+  text/reasoning/tool со state transitions, как в opencode) против текущего
+  плоского event stream: решение принять на этапе стабилизации, а не после;
+  вход — TUI/protocol research по opencode sources;
 - оставить `crates/proteus-core/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
@@ -379,6 +383,24 @@ Scope:
 
 ### Architecture Cleanup
 
+- Modularity debt: production-файлы за лимитом 500-700 строк (замер 2026-07):
+  `core/subagent.rs` 1433, `core/config.rs` 1200, `clients/web/src/messages.rs`
+  1165, `clients/web/src/app_helpers.rs` 1117, `shell-tool/src/lib.rs` 1000,
+  `adapters/anthropic.rs` 973, `clients/web/src/components/context_map.rs` 959,
+  `app_server.rs` 957, `context-pack/src/lib.rs` 946, `clients/web/src/app.rs`
+  938, `core/runtime.rs` 937, `contracts/plugin.rs` 916, `main.rs` 911,
+  `clients/web/src/components/tool_activity.rs` 900, `module_catalog.rs` 830,
+  `session_store.rs` 823, `codex-compactor/src/lib.rs` 803. Правило:
+  оппортунистический разрез (тронул файл — сначала выдели связный блок), без
+  отдельного big-bang рефакторинга. Приоритет: `core/subagent.rs` (слот
+  выделен, реализация не порезана) и пятёрка web client.
+- Watch-сигналы распухания workflow slot (сам contract узкий, следить за
+  реализациями): (a) дублирование одинаковых блоков между workflow-модулями —
+  сначала extract в scaffold/lib внутри пака, при 2-3 правдоподобных
+  реализациях — intake по slot-governance (прецедент: subagent); (b)
+  feature-specific методы в `PluginWorkflowHost` — красный флаг раньше любого
+  размера; (c) `token_accounting.rs` в coding-workflow — первый кандидат на
+  выход в `BudgetTracker`, когда учёт понадобится второму потребителю.
 - Снижать неявную связанность между plugin packs: инвентарь межпаковых
   contracts (строковые маркеры, metadata keys, tool-имена в config) и
   направления фиксов живут в `docs/pack-contracts.md`. Перед сборкой нового

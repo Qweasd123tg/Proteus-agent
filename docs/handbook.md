@@ -165,6 +165,15 @@ key, swap test, docs, минимум две реализации).
 swap/boundary test если slot → `docs/modules.md` (+`configuration.md`) →
 `cargo test` → отдельный git commit.
 
+**Чеклист поверхностей фичи**: агентная фича уровня продукта почти всегда
+мажется по пяти поверхностям — protocol (endpoint/event/DTO), client (render +
+state), module (плагин/adapter), config (key + example), docs. Фича считается
+сделанной, когда закрыты все пять или явно записано, какие отложены и где
+(урок subagent: slot есть, а web UI handoff висел отдельным долгом). Толстых
+файлов это тоже касается: размазанность вместо толщины — цена модульности,
+следи за лимитом 500-700 строк на каждой поверхности (актуальный список
+должников — roadmap, Architecture Cleanup).
+
 ## 10. Проверка
 
 - Минимум для docs-правок: `cargo test`. Для архитектурных — убедиться, что
@@ -214,3 +223,7 @@ swap/boundary test если slot → `docs/modules.md` (+`configuration.md`) →
 - Правки в `docs/MODULAR_PROTEUS_SPEC_RU.md` обязаны разделять `implemented` и
   `planned` — не превращать vision в описание факта.
 - Research-код не попадает в root workspace, `install.sh` и default profile.
+- Гравитационные колодцы (куда фичи оседают сами собой): app-server protocol
+  (endpoint+event на каждую UI-фичу, DTO до v0.4 не стабилизирован), web
+  client файлы, реализации workflow (watch-сигналы — roadmap, Architecture
+  Cleanup). Contract-ы узкие, распухают реализации.
