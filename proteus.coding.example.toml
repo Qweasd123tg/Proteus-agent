@@ -42,6 +42,8 @@ always_include = ["request_user_input"]
 
 # [module_config.subagent.sequential]
 # max_depth = 1
+# roles_dir = ".proteus/agents"
+# max_resumable = 8
 #
 # [[module_config.subagent.sequential.roles]]
 # name = "explore"

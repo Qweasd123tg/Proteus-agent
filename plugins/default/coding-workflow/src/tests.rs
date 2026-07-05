@@ -1057,6 +1057,19 @@ fn task_tool_spec_is_generated_only_when_roles_exist() {
         spec.input_schema["required"],
         json!(["prompt", "agent_type"])
     );
+    let required = spec.input_schema["required"].as_array().unwrap();
+    assert!(
+        !required
+            .iter()
+            .any(|value| value.as_str() == Some("task_id"))
+    );
+    assert_eq!(spec.input_schema["properties"]["task_id"]["type"], "string");
+    assert!(
+        spec.input_schema["properties"]["task_id"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Resume a previous subagent task")
+    );
     assert!(
         spec.input_schema["properties"]["agent_type"]["description"]
             .as_str()
@@ -1094,20 +1107,21 @@ fn single_loop_adds_task_tool_when_subagent_roles_available() {
 #[test]
 fn task_tool_call_runs_subagent_and_records_request() {
     let input = workflow_input("inspect task");
+    let child_thread_id = new_thread_id();
     let call = ToolCall::new(
         new_call_id(),
         task_tool::TASK_TOOL,
         json!({
             "agent_type": "explore",
             "prompt": "Find callers of run_subagent_json",
-            "description": "find subagent callers"
+            "description": "find subagent callers",
+            "task_id": "previous-subagent-task"
         }),
     );
-    let mut host = FakeHost::default().with_subagent_results(vec![SubagentResult::new(
-        "found host.rs:1",
-        SubagentStatus::Completed,
-        2,
-    )]);
+    let mut host = FakeHost::default().with_subagent_results(vec![
+        SubagentResult::new("found host.rs:1", SubagentStatus::Completed, 2)
+            .with_child_thread_id(child_thread_id),
+    ]);
     let mut host_to: PluginWorkflowHostMut<'_> =
         PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
 
@@ -1116,9 +1130,17 @@ fn task_tool_call_runs_subagent_and_records_request() {
 
     assert!(result.ok);
     assert_eq!(result.call_id, call.id);
-    assert_eq!(result.output, "found host.rs:1");
+    assert_eq!(
+        result.output,
+        format!("found host.rs:1\n\n[task_id: {child_thread_id}]")
+    );
+    assert!(result.output.contains("[task_id:"));
     assert_eq!(result.metadata["status"], "completed");
     assert_eq!(result.metadata["iterations"], 2);
+    assert_eq!(
+        result.metadata["child_thread_id"],
+        json!(child_thread_id.to_string())
+    );
     assert!(
         host.executed_calls
             .lock()
@@ -1134,7 +1156,43 @@ fn task_tool_call_runs_subagent_and_records_request() {
         requests[0].description.as_deref(),
         Some("find subagent callers")
     );
+    assert_eq!(
+        requests[0].metadata["task_id"],
+        json!("previous-subagent-task")
+    );
     assert_eq!(requests[0].task.text, input.task.text);
+}
+
+#[test]
+fn task_tool_call_rejects_non_string_task_id() {
+    let input = workflow_input("inspect task");
+    let call = ToolCall::new(
+        new_call_id(),
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "explore",
+            "prompt": "Find callers of run_subagent_json",
+            "task_id": 123
+        }),
+    );
+    let mut host = FakeHost::default();
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = task_tool::handle_task_tool_call(&mut host_to, &input, &call).unwrap();
+    drop(host_to);
+
+    assert!(!result.ok);
+    assert_eq!(
+        result.error.as_deref(),
+        Some("task arg 'task_id' must be a string when provided")
+    );
+    assert!(
+        host.subagent_requests
+            .lock()
+            .expect("subagent requests")
+            .is_empty()
+    );
 }
 
 #[test]

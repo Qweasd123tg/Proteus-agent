@@ -27,7 +27,14 @@ pub fn task_tool_spec(roles: &[SubagentRoleSpec]) -> Option<ToolSpec> {
     Some(
         ToolSpec::new(
             TASK_TOOL,
-            "Delegate a focused task to an isolated Proteus subagent role and return its summary.",
+            "Delegate a focused task to an isolated Proteus subagent role and return its summary.\n\
+The subagent starts with a FRESH context, so include all necessary background in the prompt; parent history is not passed.\n\
+The subagent's work is NOT visible to the user: its summary comes back only to you, and you must relay important findings in your reply.\n\
+Reuse task_id from a previous task result to continue that subagent with its accumulated context instead of starting fresh.\n\
+Delegate when a subtask is self-contained and its full trace would pollute your context, such as research, verification, or broad searches.\n\
+Choose the role that best matches the delegated work and keep the prompt specific.\n\
+Do the work yourself when it needs your accumulated context, close supervision, or tight iteration with the user.\n\
+Tasks run sequentially; start another task only after the current delegated work has returned.",
             json!({
                 "type": "object",
                 "properties": {
@@ -42,6 +49,10 @@ pub fn task_tool_spec(roles: &[SubagentRoleSpec]) -> Option<ToolSpec> {
                     "agent_type": {
                         "type": "string",
                         "description": format!("Subagent role to use. Available roles:\n{role_description}")
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Resume a previous subagent task with its accumulated context instead of starting fresh. Use the task_id from a previous task result."
                     }
                 },
                 "required": ["prompt", "agent_type"]
@@ -97,10 +108,23 @@ pub fn handle_task_tool_call(
         }
         None => None,
     };
+    let task_id = match args.get("task_id") {
+        Some(Value::String(task_id)) => Some(task_id.clone()),
+        Some(_) => {
+            return Ok(ToolResult::error(
+                call.id.clone(),
+                "task arg 'task_id' must be a string when provided",
+            ));
+        }
+        None => None,
+    };
 
     let mut request = SubagentRequest::new(agent_type, prompt, input.task.clone());
     if let Some(description) = description {
         request = request.with_description(description);
+    }
+    if let Some(task_id) = task_id {
+        request = request.with_metadata(json!({ "task_id": task_id }));
     }
 
     let result = match run_subagent(host, &request) {
@@ -117,7 +141,18 @@ pub fn handle_task_tool_call(
 }
 
 fn result_to_tool_result(call: &ToolCall, result: SubagentResult) -> ToolResult {
-    ToolResult::ok(call.id.clone(), result.summary).with_metadata(json!({
+    let mut output = result.summary;
+    if let Some(task_id) = result.child_thread_id.as_ref().and_then(|child_thread_id| {
+        serde_json::to_value(child_thread_id)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+    }) {
+        output.push_str("\n\n[task_id: ");
+        output.push_str(&task_id);
+        output.push(']');
+    }
+
+    ToolResult::ok(call.id.clone(), output).with_metadata(json!({
         "status": result.status,
         "iterations": result.iterations,
         "child_thread_id": result.child_thread_id,

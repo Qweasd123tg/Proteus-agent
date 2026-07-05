@@ -6,7 +6,13 @@
 //! свой отбор tools по фазе роли. Tool calls ребёнка идут через тот же
 //! `ToolOrchestrator` (policy/approval-контур), что и родительские.
 
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
@@ -20,7 +26,7 @@ use crate::{
         SubagentRunner, SubagentStatus, ToolExposureInput, ToolExposureRequest,
     },
     core::ToolOrchestrator,
-    domain::{Event, ToolSpec, new_thread_id},
+    domain::{Event, SessionId, ThreadId, ToolSpec, new_thread_id},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, MessageRole,
         TokenUsage,
@@ -36,15 +42,21 @@ const TASK_TOOL_NAME: &str = "task";
 struct SequentialSubagentConfig {
     #[serde(default)]
     roles: Vec<SequentialRoleConfig>,
+    #[serde(default)]
+    roles_dir: Option<PathBuf>,
     #[serde(default = "default_max_depth")]
     max_depth: u64,
+    #[serde(default = "default_max_resumable")]
+    max_resumable: usize,
 }
 
 impl Default for SequentialSubagentConfig {
     fn default() -> Self {
         Self {
             roles: Vec::new(),
+            roles_dir: None,
             max_depth: default_max_depth(),
+            max_resumable: default_max_resumable(),
         }
     }
 }
@@ -71,16 +83,102 @@ fn default_max_depth() -> u64 {
     1
 }
 
+fn default_max_resumable() -> usize {
+    8
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MarkdownRoleFrontmatter {
+    description: String,
+    #[serde(default)]
+    exposure_phase: Option<String>,
+    #[serde(default)]
+    tools: Option<Vec<String>>,
+    #[serde(default)]
+    max_iterations: Option<u32>,
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+    #[serde(default)]
+    max_summary_bytes: Option<usize>,
+}
+
+#[derive(Debug, Default)]
+struct ResumableStore {
+    snapshots: HashMap<String, ResumableSnapshot>,
+    clock: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ResumableSnapshot {
+    session_id: SessionId,
+    role_name: String,
+    history: Vec<CanonicalMessage>,
+    last_used: u64,
+}
+
+impl ResumableStore {
+    fn get(&mut self, task_id: &str) -> Option<ResumableSnapshot> {
+        self.clock = self.clock.saturating_add(1);
+        let snapshot = self.snapshots.get_mut(task_id)?;
+        snapshot.last_used = self.clock;
+        Some(snapshot.clone())
+    }
+
+    fn save(
+        &mut self,
+        key: String,
+        session_id: SessionId,
+        role_name: String,
+        history: Vec<CanonicalMessage>,
+        max_resumable: usize,
+    ) -> bool {
+        if max_resumable == 0 {
+            self.snapshots.remove(&key);
+            return false;
+        }
+
+        self.clock = self.clock.saturating_add(1);
+        self.snapshots.insert(
+            key,
+            ResumableSnapshot {
+                session_id,
+                role_name,
+                history,
+                last_used: self.clock,
+            },
+        );
+        while self.snapshots.len() > max_resumable {
+            let Some(evicted_key) = self
+                .snapshots
+                .iter()
+                .min_by_key(|(_, snapshot)| snapshot.last_used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            self.snapshots.remove(&evicted_key);
+        }
+        true
+    }
+}
+
 #[derive(Debug)]
 pub struct SequentialSubagentRunner {
     roles: Vec<SubagentRoleSpec>,
     max_depth: u64,
+    max_resumable: usize,
+    resumable: Mutex<ResumableStore>,
 }
 
 impl SequentialSubagentRunner {
     /// Строит runner из значения `module_config.subagent.sequential`.
     /// `Null` (конфига нет) — валидно: ролей нет, делегирование выключено.
     pub fn from_config(config: Value) -> Result<Self> {
+        let cwd = std::env::current_dir().context("failed to resolve process cwd")?;
+        Self::from_config_with_cwd(config, &cwd)
+    }
+
+    pub fn from_config_with_cwd(config: Value, cwd: &Path) -> Result<Self> {
         let parsed: SequentialSubagentConfig = if config.is_null() {
             SequentialSubagentConfig::default()
         } else {
@@ -88,8 +186,13 @@ impl SequentialSubagentRunner {
                 .context("failed to parse module_config.subagent.sequential")?
         };
 
-        let mut roles: Vec<SubagentRoleSpec> = Vec::with_capacity(parsed.roles.len());
-        for role in parsed.roles {
+        let mut role_configs = parsed.roles;
+        if let Some(roles_dir) = parsed.roles_dir.as_ref() {
+            role_configs.extend(load_markdown_roles(roles_dir, cwd)?);
+        }
+
+        let mut roles: Vec<SubagentRoleSpec> = Vec::with_capacity(role_configs.len());
+        for role in role_configs {
             if role.name.trim().is_empty() {
                 bail!("subagent role name must not be empty");
             }
@@ -116,8 +219,116 @@ impl SequentialSubagentRunner {
         Ok(Self {
             roles,
             max_depth: parsed.max_depth,
+            max_resumable: parsed.max_resumable,
+            resumable: Mutex::new(ResumableStore::default()),
         })
     }
+
+    fn resumable_snapshot(&self, task_id: &str) -> Result<Option<ResumableSnapshot>> {
+        Ok(self
+            .resumable
+            .lock()
+            .map_err(|_| anyhow!("subagent resumable store lock poisoned"))?
+            .get(task_id))
+    }
+
+    fn save_resumable_snapshot(
+        &self,
+        child_thread_id: ThreadId,
+        session_id: SessionId,
+        role_name: String,
+        history: Vec<CanonicalMessage>,
+    ) -> Result<bool> {
+        Ok(self
+            .resumable
+            .lock()
+            .map_err(|_| anyhow!("subagent resumable store lock poisoned"))?
+            .save(
+                child_thread_id.to_string(),
+                session_id,
+                role_name,
+                history,
+                self.max_resumable,
+            ))
+    }
+}
+
+fn load_markdown_roles(roles_dir: &Path, cwd: &Path) -> Result<Vec<SequentialRoleConfig>> {
+    let dir = if roles_dir.is_absolute() {
+        roles_dir.to_path_buf()
+    } else {
+        cwd.join(roles_dir)
+    };
+    let mut markdown_files = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("failed to read subagent roles_dir {}", dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|extension| extension == "md") {
+            markdown_files.push(path);
+        }
+    }
+    markdown_files.sort();
+
+    markdown_files
+        .into_iter()
+        .map(|path| {
+            parse_markdown_role(&path)
+                .with_context(|| format!("failed to parse subagent role file {}", path.display()))
+        })
+        .collect()
+}
+
+fn parse_markdown_role(path: &Path) -> Result<SequentialRoleConfig> {
+    let name = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| anyhow!("markdown role file name must be valid UTF-8 with non-empty stem"))?
+        .to_owned();
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read markdown role file {}", path.display()))?;
+    let mut lines = content.lines();
+    let Some(first) = lines.next() else {
+        bail!("missing YAML frontmatter");
+    };
+    if first.trim() != "---" {
+        bail!("missing opening YAML frontmatter marker");
+    }
+
+    let mut yaml = String::new();
+    let mut body = Vec::new();
+    let mut closed = false;
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            closed = true;
+            break;
+        }
+        yaml.push_str(line);
+        yaml.push('\n');
+    }
+    if !closed {
+        bail!("missing closing YAML frontmatter marker");
+    }
+    body.extend(lines);
+
+    let frontmatter: MarkdownRoleFrontmatter =
+        serde_yaml::from_str(&yaml).context("invalid YAML frontmatter")?;
+    if frontmatter.description.trim().is_empty() {
+        bail!("markdown role description must not be empty");
+    }
+
+    Ok(SequentialRoleConfig {
+        name,
+        description: frontmatter.description,
+        prompt: body.join("\n").trim().to_owned(),
+        exposure_phase: frontmatter.exposure_phase,
+        tools: frontmatter.tools,
+        max_iterations: frontmatter.max_iterations,
+        timeout_ms: frontmatter.timeout_ms,
+        max_summary_bytes: frontmatter.max_summary_bytes,
+    })
 }
 
 #[async_trait]
@@ -146,7 +357,39 @@ impl SubagentRunner for SequentialSubagentRunner {
             );
         }
 
-        let child_thread_id = new_thread_id();
+        let resume_task_id = request.metadata.get("task_id").and_then(Value::as_str);
+        let (child_thread_id, history) = if let Some(task_id) = resume_task_id {
+            let snapshot = self
+                .resumable_snapshot(task_id)?
+                .ok_or_else(|| anyhow!("unknown task_id (expired or from another session)"))?;
+            if snapshot.session_id != ctx.session_id {
+                bail!("unknown task_id (expired or from another session)");
+            }
+            if snapshot.role_name != request.role {
+                bail!(
+                    "task_id belongs to subagent role {}, but request role is {}",
+                    snapshot.role_name,
+                    request.role
+                );
+            }
+            let child_thread_id = task_id
+                .parse::<ThreadId>()
+                .with_context(|| format!("invalid task_id for resumable subagent: {task_id}"))?;
+            let mut history = snapshot.history;
+            history.push(CanonicalMessage::text(
+                MessageRole::User,
+                request.prompt.clone(),
+            ));
+            (child_thread_id, history)
+        } else {
+            (
+                new_thread_id(),
+                vec![
+                    CanonicalMessage::text(MessageRole::System, role.prompt.clone()),
+                    CanonicalMessage::text(MessageRole::User, request.prompt.clone()),
+                ],
+            )
+        };
         let mut child_ctx = ctx.clone();
         child_ctx.thread_id = child_thread_id;
 
@@ -162,10 +405,7 @@ impl SubagentRunner for SequentialSubagentRunner {
         // Ребёнок не наследует родительские ctx.instructions: system-слой —
         // только prompt роли.
         let mut state = ChildLoopState {
-            history: vec![
-                CanonicalMessage::text(MessageRole::System, role.prompt.clone()),
-                CanonicalMessage::text(MessageRole::User, request.prompt.clone()),
-            ],
+            history,
             iterations: 0,
             last_text: None,
             usage: None,
@@ -214,7 +454,8 @@ impl SubagentRunner for SequentialSubagentRunner {
             }
 
             let mut result = SubagentResult::new(summary, status, state.iterations)
-                .with_child_thread_id(child_thread_id);
+                .with_child_thread_id(child_thread_id)
+                .with_metadata(json!({ "resumable": false }));
             if let Some(usage) = state.usage.clone() {
                 result = result.with_usage(usage);
             }
@@ -223,7 +464,17 @@ impl SubagentRunner for SequentialSubagentRunner {
         .await;
 
         match body_result {
-            Ok((result, status)) => {
+            Ok((mut result, status)) => {
+                let resumable = matches!(
+                    result.status,
+                    SubagentStatus::Completed | SubagentStatus::MaxIterationsReached
+                ) && self.save_resumable_snapshot(
+                    child_thread_id,
+                    ctx.session_id,
+                    role.name.clone(),
+                    state.history.clone(),
+                )?;
+                result.metadata = json!({ "resumable": resumable });
                 ctx.emit(Event::SubagentFinished {
                     role: role.name.clone(),
                     status,
@@ -432,7 +683,7 @@ fn subagent_status_label(status: SubagentStatus) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex as StdMutex};
 
     use serde_json::json;
 
@@ -496,6 +747,51 @@ mod tests {
             >,
         > {
             Err(anyhow!("model stream boom"))
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingFakeModelClient {
+        inner: FakeModelClient,
+        histories: StdMutex<Vec<Vec<CanonicalMessage>>>,
+    }
+
+    impl RecordingFakeModelClient {
+        fn histories(&self) -> Vec<Vec<CanonicalMessage>> {
+            self.histories.lock().expect("histories lock").clone()
+        }
+    }
+
+    #[async_trait]
+    impl ModelClient for RecordingFakeModelClient {
+        fn id(&self) -> std::borrow::Cow<'static, str> {
+            self.inner.id()
+        }
+
+        fn capabilities(&self, model: &ModelRef) -> crate::model_standard::ModelCapabilities {
+            self.inner.capabilities(model)
+        }
+
+        async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+            self.histories
+                .lock()
+                .expect("histories lock")
+                .push(request.messages.clone());
+            self.inner.complete(request).await
+        }
+
+        async fn stream(
+            &self,
+            request: CanonicalModelRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures_util::Stream<Item = Result<crate::model_standard::ModelStreamEvent>>
+                        + Send,
+                >,
+            >,
+        > {
+            self.inner.stream(request).await
         }
     }
 
@@ -611,6 +907,99 @@ mod tests {
         }))
         .unwrap_err();
         assert!(error.to_string().contains("duplicate subagent role"));
+    }
+
+    #[test]
+    fn markdown_role_is_loaded_from_roles_dir() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let roles_dir = workspace.path().join("roles");
+        std::fs::create_dir(&roles_dir).expect("roles dir");
+        std::fs::write(
+            roles_dir.join("markdown.md"),
+            "---\n\
+description: Markdown role\n\
+exposure_phase: md_phase\n\
+tools:\n\
+  - remember_fact\n\
+max_iterations: 3\n\
+timeout_ms: 42\n\
+max_summary_bytes: 7\n\
+---\n\
+\n\
+Markdown prompt.\n",
+        )
+        .expect("role file");
+
+        let runner = SequentialSubagentRunner::from_config_with_cwd(
+            json!({ "roles_dir": "roles" }),
+            workspace.path(),
+        )
+        .unwrap();
+        let roles = runner.roles();
+
+        assert_eq!(roles.len(), 1);
+        let role = &roles[0];
+        assert_eq!(role.name, "markdown");
+        assert_eq!(role.description, "Markdown role");
+        assert_eq!(role.prompt, "Markdown prompt.");
+        assert_eq!(role.limits.max_iterations, 3);
+        assert_eq!(role.limits.timeout_ms, Some(42));
+        assert_eq!(role.limits.max_summary_bytes, Some(7));
+        assert_eq!(role.effective_exposure_phase(), "md_phase");
+        assert_eq!(
+            role.config.get("tools").and_then(Value::as_array).unwrap(),
+            &vec![json!("remember_fact")]
+        );
+    }
+
+    #[test]
+    fn invalid_markdown_frontmatter_is_rejected_with_file_name() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let roles_dir = workspace.path().join("roles");
+        std::fs::create_dir(&roles_dir).expect("roles dir");
+        std::fs::write(
+            roles_dir.join("bad.md"),
+            "---\ndescription: [\n---\nPrompt\n",
+        )
+        .expect("role file");
+
+        let error = SequentialSubagentRunner::from_config_with_cwd(
+            json!({ "roles_dir": "roles" }),
+            workspace.path(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("bad.md"), "{error:#}");
+    }
+
+    #[test]
+    fn markdown_role_duplicate_with_inline_role_is_rejected() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let roles_dir = workspace.path().join("roles");
+        std::fs::create_dir(&roles_dir).expect("roles dir");
+        std::fs::write(
+            roles_dir.join("explore.md"),
+            "---\ndescription: Markdown role\n---\nMarkdown prompt\n",
+        )
+        .expect("role file");
+
+        let error = SequentialSubagentRunner::from_config_with_cwd(
+            json!({
+                "roles": [
+                    { "name": "explore", "description": "Inline", "prompt": "prompt" }
+                ],
+                "roles_dir": "roles"
+            }),
+            workspace.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("duplicate subagent role: explore"),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
@@ -854,5 +1243,191 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn resumable_task_id_round_trips_history_and_thread_id() {
+        let runner = SequentialSubagentRunner::from_config(json!({
+            "roles": [
+                {
+                    "name": "explore",
+                    "description": "Explore",
+                    "prompt": "prompt",
+                    "max_iterations": 5,
+                    "tools": ["remember_fact"]
+                }
+            ]
+        }))
+        .unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let model = Arc::new(RecordingFakeModelClient::default());
+        let ctx = test_runtime_context_with_model(events.clone(), model.clone());
+        let parent_thread_id = ctx.thread_id;
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        let first = runner
+            .run(
+                SubagentRequest::new("explore", "first prompt", task.clone()),
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status, SubagentStatus::Completed);
+        assert_eq!(first.iterations, 1);
+        assert_eq!(first.metadata["resumable"], json!(true));
+        let child_thread_id = first.child_thread_id.expect("child thread id");
+
+        let second = runner
+            .run(
+                SubagentRequest::new("explore", "remember_fact resumed fact", task)
+                    .with_metadata(json!({ "task_id": child_thread_id.to_string() })),
+                ctx,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(second.child_thread_id, Some(child_thread_id));
+        assert_eq!(second.status, SubagentStatus::Completed);
+        assert_eq!(second.iterations, 2);
+        assert!(
+            second
+                .summary
+                .contains("Fake final answer after tool result")
+        );
+        assert_eq!(second.metadata["resumable"], json!(true));
+
+        let histories = model.histories();
+        assert_eq!(histories.len(), 3);
+        assert_eq!(histories[0].len(), 2);
+        assert_eq!(histories[1].len(), 4);
+        assert_eq!(histories[1][0].role, MessageRole::System);
+        assert_eq!(histories[1][1].role, MessageRole::User);
+        assert_eq!(histories[1][2].role, MessageRole::Assistant);
+        assert_eq!(histories[1][3].role, MessageRole::User);
+
+        let envelopes = events.envelopes().await;
+        let started_with_child = envelopes
+            .iter()
+            .filter(|envelope| match &envelope.event {
+                Event::SubagentStarted {
+                    child_thread_id: event_child,
+                    ..
+                } => {
+                    assert_eq!(envelope.thread_id, parent_thread_id);
+                    *event_child == child_thread_id
+                }
+                _ => false,
+            })
+            .count();
+        assert_eq!(started_with_child, 2);
+        assert!(
+            envelopes.iter().any(|envelope| {
+                envelope.thread_id == child_thread_id
+                    && matches!(envelope.event, Event::ToolCallRequested { .. })
+            }),
+            "expected resumed tool event under original child thread"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_task_id_is_rejected() {
+        let runner = SequentialSubagentRunner::from_config(explorer_config()).unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let ctx = test_runtime_context(events);
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        let error = runner
+            .run(
+                SubagentRequest::new("explore", "look", task)
+                    .with_metadata(json!({ "task_id": new_thread_id().to_string() })),
+                ctx,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown task_id (expired or from another session)"),
+            "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_id_from_another_session_is_rejected() {
+        let runner = SequentialSubagentRunner::from_config(explorer_config()).unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let ctx = test_runtime_context(events.clone());
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        let first = runner
+            .run(SubagentRequest::new("explore", "first", task.clone()), ctx)
+            .await
+            .unwrap();
+        let task_id = first.child_thread_id.expect("child thread id").to_string();
+
+        let other_ctx = test_runtime_context(events);
+        let error = runner
+            .run(
+                SubagentRequest::new("explore", "second", task)
+                    .with_metadata(json!({ "task_id": task_id })),
+                other_ctx,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown task_id (expired or from another session)"),
+            "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn resumable_store_evicts_least_recently_used_snapshot() {
+        let runner = SequentialSubagentRunner::from_config(json!({
+            "roles": [
+                { "name": "explore", "description": "Explore", "prompt": "prompt" }
+            ],
+            "max_resumable": 1
+        }))
+        .unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let ctx = test_runtime_context(events.clone());
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        let first = runner
+            .run(SubagentRequest::new("explore", "first", task.clone()), ctx)
+            .await
+            .unwrap();
+        let first_task_id = first.child_thread_id.expect("child thread id").to_string();
+
+        let ctx = test_runtime_context(events.clone());
+        runner
+            .run(SubagentRequest::new("explore", "second", task.clone()), ctx)
+            .await
+            .unwrap();
+
+        let ctx = test_runtime_context(events);
+        let error = runner
+            .run(
+                SubagentRequest::new("explore", "resume first", task)
+                    .with_metadata(json!({ "task_id": first_task_id })),
+                ctx,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown task_id (expired or from another session)"),
+            "{error:#}"
+        );
     }
 }

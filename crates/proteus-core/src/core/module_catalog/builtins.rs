@@ -318,7 +318,9 @@ fn build_sequential_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Sub
     let config = ctx
         .config
         .module_config_value(ModuleKind::Subagent, "sequential");
-    Ok(Arc::new(SequentialSubagentRunner::from_config(config)?))
+    Ok(Arc::new(SequentialSubagentRunner::from_config_with_cwd(
+        config, ctx.cwd,
+    )?))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

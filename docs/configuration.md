@@ -533,6 +533,8 @@ subagent = "sequential"
 
 [module_config.subagent.sequential]
 max_depth = 1
+# roles_dir = ".proteus/agents"
+# max_resumable = 8
 
 [[module_config.subagent.sequential.roles]]
 name = "explore"
@@ -547,11 +549,24 @@ max_iterations = 15
 
 Workflow-плагины получают роли через `subagent_roles_json()` и запускают ребёнка
 через `run_subagent_json(SubagentRequest)`. В `coding-workflow` это surface tool
-`task` с аргументами `agent_type`, `prompt` и optional `description`.
+`task` с аргументами `agent_type`, `prompt`, optional `description` и optional
+`task_id`.
 У роли можно задать `tools = [...]`: после общего `ToolExposure` дочерний цикл
 оставит только перечисленные имена. `exposure_phase` помогает только с
 phase-aware exposure модулем; `all_visible` фазу не учитывает, поэтому per-role
 allowlist остаётся страховкой для ограниченных ролей.
+
+Результат `task` может вернуть маркер `[task_id: ...]`; его можно передать в
+следующий вызов `task`, чтобы продолжить тот же дочерний контекст, а не начинать
+с нуля. Sequential runner держит resumable-контексты только in-memory, ограничен
+`max_resumable`, сохраняет для resume только завершившиеся статусы `Completed` и
+`MaxIterationsReached` и не переживает restart процесса.
+
+Кроме inline `roles`, sequential runner может читать Markdown-роли из
+`roles_dir`. У каждого файла имя без расширения становится именем роли, YAML
+frontmatter обязан содержать `description` и может задавать `exposure_phase`,
+`tools`, `max_iterations`, `timeout_ms`, `max_summary_bytes`; тело Markdown-файла
+используется как prompt роли.
 
 ## Renderer
 
