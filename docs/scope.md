@@ -48,7 +48,8 @@ Research-код не считается production/default pack:
 - tool-output artifacts;
 - best-of agent packs;
 - Cursor-like dynamic context experiments;
-- subagents / multi-agent DAG;
+- multi-agent DAG (sequential subagents выпущены как slot `subagent` после
+  пересмотра интейка, см. slot-governance.md; parallel-вариант — planned);
 - `SkillCatalog`;
 - `BudgetTracker` / `UsageMeter`;
 - `ArtifactStore`;

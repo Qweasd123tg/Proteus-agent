@@ -22,9 +22,9 @@ Proteus — Rust-first harness для coding-агента: **инструмен�
 ```
 
 - **Ядро** (`crates/proteus-core`) тонкое: session/turn lifecycle, event store
-  (JSONL), session store (resume), unified registry с 12 слотами (model, search,
+  (JSONL), session store (resume), unified registry с 13 слотами (model, search,
   memory, memory_policy, context, tool, policy, patch, compactor, tool_exposure,
-  workflow, renderer).
+  workflow, renderer, subagent).
 - **Contracts** (`crates/proteus-contracts`) — публичные trait'ы и DTO; и
   плагины, и клиенты зависят сюда.
 - **Плагины** — нативные dylib через `abi_stable`, лежат в `~/.proteus/plugins/`

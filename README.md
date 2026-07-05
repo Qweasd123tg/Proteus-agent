@@ -52,9 +52,9 @@ docs/                  — architecture, plugin-architecture, configuration, mem
 
 **Ядро:**
 - Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
-- Unified registry с открытым `SlotId`, 12 slot'ов (model, search, memory,
+- Unified registry с открытым `SlotId`, 13 slot'ов (model, search, memory,
   memory_policy, context, tool, policy, patch, compactor, tool_exposure,
-  workflow, renderer).
+  workflow, renderer, subagent).
 - Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
   anthropic models, `null` search fallback, `none` memory, `none` memory
   policy, `none` context, `deny_all` policy, `null` patch fallback,

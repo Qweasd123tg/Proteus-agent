@@ -131,6 +131,13 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 пустого финального ответа и `coding.plan_execute_review` для staged
 plan/execute/review экспериментов.
 
+- ✅ Slot `subagent` (13-й): sequential дочерний цикл с изолированным
+  контекстом, ролями из конфига/markdown, task-тулом в workflow, task_id-резюмом
+  и событиями под child `ThreadId`. Интейк пересмотрен в slot-governance.md.
+  Дальше — догфуд sequential, затем решение по parallel `spawn/wait/cancel`.
+- ✅ Общий boilerplate трёх `run_*`-циклов вынесен в `TurnScaffold`
+  (`coding-workflow/src/scaffold.rs`); фазовая логика осталась на call-site.
+
 Поведение должно настраиваться config-ом:
 
 - когда планировать, а когда делать сразу;

@@ -39,7 +39,9 @@ prototype-2: stable core invariants + dylib plugin boundary
 `compactor`, `tool_exposure`, `repo_aware` `context_provider` и plugin
 `workflow` (`coding.single_loop`, `coding.codex_loop`,
 `coding.codex_loop_diagnostic`, `coding.plan_execute_review`). Но это ещё не marketplace, не package manager, не
-полный MCP provider для resources/prompts/subscriptions и не multi-agent runtime.
+полный MCP provider для resources/prompts/subscriptions и не multi-agent
+runtime (slot `subagent` даёт in-turn делегирование дочерним циклам, но
+параллельный multi-agent runtime остаётся вне v0).
 
 Стабильные инварианты:
 
