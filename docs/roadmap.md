@@ -159,7 +159,12 @@ plan/execute/review экспериментов.
   фильтрами. Общие блокеры обоих путей: approval queue с атрибуцией к ребёнку
   (v0.3), provider-neutral spawn/wait/cancel DTO (sequential и оба parallel —
   реализации одного слота), budget/rate-limit учёт (`BudgetTracker`), UX
-  дерева параллельных потоков в клиенте.
+  дерева параллельных потоков в клиенте. Стратегия записи (2026-07-06):
+  этап 1 — параллельны только read-only роли (deny-write policy у детей),
+  пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
+  Code worktrees, Codex cloud isolation), worktree lifecycle — оркестрация
+  родительского workflow/tools, не слот; merge результатов — отдельная
+  роль/фаза, конфликты — штатный случай.
 - ✅ Общий boilerplate трёх `run_*`-циклов вынесен в `TurnScaffold`
   (`coding-workflow/src/scaffold.rs`); фазовая логика осталась на call-site.
 
