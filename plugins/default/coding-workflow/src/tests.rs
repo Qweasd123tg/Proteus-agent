@@ -1164,6 +1164,70 @@ fn task_tool_call_runs_subagent_and_records_request() {
 }
 
 #[test]
+fn execute_task_tool_emits_live_tool_events() {
+    let input = workflow_input("inspect task");
+    let child_thread_id = new_thread_id();
+    let call = ToolCall::new(
+        "task-call-1",
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "explore",
+            "prompt": "Find callers of run_subagent_json",
+        }),
+    );
+    let mut host = FakeHost::default().with_subagent_results(vec![
+        SubagentResult::new("found host.rs:1", SubagentStatus::Completed, 2)
+            .with_child_thread_id(child_thread_id),
+    ]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = execute_or_handle_tool(&mut host_to, &input, &call, "test").unwrap();
+    drop(host_to);
+
+    assert!(result.ok);
+    let events = host.events.lock().expect("events");
+    assert!(matches!(
+        events.first(),
+        Some(Event::ToolCallRequested { call: emitted }) if emitted.id == call.id && emitted.name == task_tool::TASK_TOOL
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(Event::ToolFinished { result: emitted }) if emitted.call_id == call.id && emitted.ok
+    ));
+}
+
+#[test]
+fn execute_task_tool_emits_finished_event_for_failed_subagent_run() {
+    let input = workflow_input("inspect task");
+    let call = ToolCall::new(
+        "task-call-1",
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "explore",
+            "prompt": "Find callers of run_subagent_json",
+        }),
+    );
+    let mut host = FakeHost::default();
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = execute_or_handle_tool(&mut host_to, &input, &call, "test").unwrap();
+    drop(host_to);
+
+    assert!(!result.ok);
+    let events = host.events.lock().expect("events");
+    assert!(matches!(
+        events.first(),
+        Some(Event::ToolCallRequested { call: emitted }) if emitted.id == call.id
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(Event::ToolFinished { result: emitted }) if emitted.call_id == call.id && !emitted.ok
+    ));
+}
+
+#[test]
 fn task_tool_call_rejects_non_string_task_id() {
     let input = workflow_input("inspect task");
     let call = ToolCall::new(

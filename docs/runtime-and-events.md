@@ -168,6 +168,14 @@ Web-клиент рендерит `SubagentStarted` как отдельную к
 `ToolResult` вызова `task`; streaming text дочернего цикла не является частью
 текущего client contract-а.
 
+Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
+и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как
+опциональное поле `subagent` у transcript message, поэтому клиент после F5
+восстанавливает карточку субагента и nested tool-состояние до завершения хода.
+Сам workflow-owned вызов `task` также испускает live `ToolCallRequested` и
+`ToolFinished`, хотя не является registry tool: это synthetic tool
+`coding-workflow`, который вручную имитирует события orchestrator-а для UI.
+
 `TokenUsageUpdated` испускается workflow-плагином после каждого model request.
 Событие содержит оценку input tokens по категориям (`instructions`, `messages`,
 `context`, `tool_calls`, `tool_results`, `files`, `patches`, `tool_schemas`) и

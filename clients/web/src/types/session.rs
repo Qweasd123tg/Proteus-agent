@@ -33,6 +33,8 @@ pub(crate) struct TranscriptMessage {
     pub(crate) text: String,
     #[serde(default)]
     pub(crate) tool: Option<TranscriptTool>,
+    #[serde(default)]
+    pub(crate) subagent: Option<TranscriptSubagent>,
     /// Хвост незавершённого хода: текст ещё стримится, клиент должен сделать
     /// это сообщение целью для последующих SSE-дельт.
     #[serde(default)]
@@ -48,4 +50,17 @@ pub(crate) struct TranscriptTool {
     pub(crate) status: String,
     #[serde(default)]
     pub(crate) result: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct TranscriptSubagent {
+    pub(crate) child_thread_id: String,
+    pub(crate) role: String,
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) iterations: Option<u32>,
+    #[serde(default)]
+    pub(crate) tools: Vec<TranscriptTool>,
 }

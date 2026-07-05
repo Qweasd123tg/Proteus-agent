@@ -799,7 +799,7 @@ fn spawn_runtime_event_forwarder(
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
-                    turn_progress.lock().await.apply(&envelope.event);
+                    turn_progress.lock().await.apply(&envelope);
                     let _ = events.send(AppServerEvent::Runtime {
                         envelope: Box::new(envelope),
                     });

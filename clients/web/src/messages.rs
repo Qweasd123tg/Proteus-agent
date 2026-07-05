@@ -234,6 +234,13 @@ fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
                 .is_some_and(|tool| tool.call_id == live_tool.call_id)
         });
     }
+    if let Some(live_subagent) = &live.subagent {
+        return transcript.iter().any(|hist| {
+            hist.subagent.as_ref().is_some_and(|subagent| {
+                subagent.child_thread_id == live_subagent.child_thread_id
+            })
+        });
+    }
     if live.text.trim().is_empty() || live.streaming {
         return false;
     }
@@ -973,6 +980,40 @@ mod tests {
             let subagent = items[1].subagent.as_ref().expect("subagent card");
             assert_eq!(subagent.tools.len(), 1);
             assert_eq!(subagent.tools[0].call_id, "call-7");
+        });
+    }
+
+    #[test]
+    fn prepend_history_messages_drops_live_subagent_duplicated_by_history_snapshot() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let live = subagent_message(
+                1,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+            let (messages, set_messages) = signal(vec![live]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (_, set_active_stream_message_id) = signal(None::<u64>);
+            let (_, set_streamed_this_turn) = signal(false);
+            let history_subagent = subagent_message(
+                1,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+            let transcript = vec![history_message(1, MessageRole::User, "вопрос"), history_subagent];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].text, "вопрос");
+            assert!(items[1].subagent.is_some());
         });
     }
 

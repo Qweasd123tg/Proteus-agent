@@ -5,6 +5,10 @@
 дочернего цикла группируются по `EventEnvelope.thread_id == child_thread_id`,
 документация и тесты обновлены.
 
+Последующий допил также выполнен: workflow-owned вызов `task` испускает live
+`ToolCallRequested`/`ToolFinished`, а `TurnProgress` восстанавливает subagent
+activity и nested tools через `/history` после reload посреди turn.
+
 Ниже оставлен исторический план handoff-а, по которому выполнялась работа.
 
 ## Задача
@@ -18,7 +22,7 @@
    `envelope.thread_id == child_thread_id`.
 
 Вариант 3 (эмит `ToolCallRequested`/`ToolFinished` для самого вызова `task` на
-стороне workflow) — отложен, см. «Отложено».
+стороне workflow) был выполнен последующим допилом.
 
 ## Диагноз (проверен)
 
@@ -185,15 +189,17 @@ Wasm-сборку клиента (trunk/wasm-pack — посмотреть READM
 возможности. После зелёных тестов — отдельный git commit (правило из
 AGENTS.md).
 
-## Отложено (зафиксировать в roadmap)
+## Исторически отложенное
 
 1. **Вариант 3**: эмит `ToolCallRequested`/`ToolFinished` для самого вызова
    `task` в coding-workflow (`host.rs:179-180` обходит оркестратор) — чтобы
-   live-вид совпадал с восстановлением из истории.
+   live-вид совпадал с восстановлением из истории. Выполнено последующим
+   допилом.
 2. **Mid-turn reload**: `app_server/turn_progress.rs:18-51` игнорирует
    Subagent*-события — после F5 посреди работы субагента карточка не
    восстанавливается (появится только summary task из committed history).
-   Нужна серверная правка TurnProgress + перенос в transcript.
+   Серверная правка TurnProgress + перенос в transcript выполнены последующим
+   допилом.
 3. **Текст ребёнка не виден**: дочерний цикл использует `complete`, не
    `stream` (`core/subagent.rs:558-566`) — стриминг текста субагента в UI
    потребует правок в core.

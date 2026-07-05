@@ -11,6 +11,8 @@ pub struct AppTranscriptMessage {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<AppTranscriptTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<AppTranscriptSubagent>,
     /// Текст ещё стримится: сообщение — живой прогресс незавершённого хода
     /// (см. turn_progress), клиент продолжает дописывать в него дельты.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -25,6 +27,19 @@ pub struct AppTranscriptTool {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppTranscriptSubagent {
+    pub child_thread_id: String,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<AppTranscriptTool>,
 }
 
 pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTranscriptMessage> {
@@ -62,6 +77,7 @@ fn append_transcript_message(
                         status: "running".to_owned(),
                         result: None,
                     }),
+                    subagent: None,
                     streaming: false,
                 });
             }
@@ -87,6 +103,7 @@ fn flush_transcript_text(
         role: role.to_owned(),
         text: text_parts.join("\n\n"),
         tool: None,
+        subagent: None,
         streaming: false,
     });
     text_parts.clear();
@@ -116,6 +133,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
             status,
             result: Some(result_text),
         }),
+        subagent: None,
         streaming: false,
     });
 }

@@ -251,13 +251,14 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         .enumerate()
         .map(|(index, item)| {
             let tool = item.tool.map(transcript_tool_activity);
+            let subagent = item.subagent.map(transcript_subagent_activity);
             Message {
                 id: index as u64 + 1,
                 version: 0,
                 role: message_role_from_wire(&item.role),
                 text: item.text,
                 tool,
-                subagent: None,
+                subagent,
                 streaming: item.streaming,
             }
         })
@@ -511,6 +512,32 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
         started_at_ms,
         status,
         result_preview: tool.result,
+    }
+}
+
+fn transcript_subagent_activity(subagent: TranscriptSubagent) -> SubagentActivity {
+    let status = if subagent.status == "running" {
+        SubagentActivityStatus::Running
+    } else {
+        SubagentActivityStatus::Finished(subagent.status)
+    };
+    let started_at_ms = if matches!(status, SubagentActivityStatus::Running) {
+        js_sys::Date::now().max(0.0) as u64
+    } else {
+        0
+    };
+    SubagentActivity {
+        child_thread_id: subagent.child_thread_id,
+        role: subagent.role,
+        description: subagent.description,
+        status,
+        iterations: subagent.iterations,
+        started_at_ms,
+        tools: subagent
+            .tools
+            .into_iter()
+            .map(transcript_tool_activity)
+            .collect(),
     }
 }
 
@@ -806,6 +833,7 @@ mod tests {
                 status: "done".to_owned(),
                 result: Some("line 1\nline 2".to_owned()),
             }),
+            subagent: None,
             streaming: false,
         }]);
 
@@ -816,5 +844,45 @@ mod tests {
         assert_eq!(tool.args_preview, "{\n  \"path\": \"src/lib.rs\"\n}");
         assert_eq!(tool.status, ToolActivityStatus::Done);
         assert_eq!(tool.result_preview.as_deref(), Some("line 1\nline 2"));
+    }
+
+    #[test]
+    fn transcript_messages_restore_subagent_activity_cards() {
+        let messages = transcript_messages(vec![TranscriptMessage {
+            role: "system".to_owned(),
+            text: String::new(),
+            tool: None,
+            subagent: Some(TranscriptSubagent {
+                child_thread_id: "child-thread".to_owned(),
+                role: "reviewer".to_owned(),
+                description: Some("check patch".to_owned()),
+                status: "completed".to_owned(),
+                iterations: Some(2),
+                tools: vec![TranscriptTool {
+                    call_id: "call-child".to_owned(),
+                    name: "read_file".to_owned(),
+                    args: serde_json::json!({"path": "src/lib.rs"}),
+                    status: "done".to_owned(),
+                    result: Some("contents".to_owned()),
+                }],
+            }),
+            streaming: false,
+        }]);
+
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].tool.is_none());
+        let subagent = messages[0].subagent.as_ref().expect("subagent activity");
+        assert_eq!(subagent.child_thread_id, "child-thread");
+        assert_eq!(subagent.role, "reviewer");
+        assert_eq!(subagent.description.as_deref(), Some("check patch"));
+        assert_eq!(
+            subagent.status,
+            SubagentActivityStatus::Finished("completed".to_owned())
+        );
+        assert_eq!(subagent.iterations, Some(2));
+        assert_eq!(subagent.tools.len(), 1);
+        assert_eq!(subagent.tools[0].call_id, "call-child");
+        assert_eq!(subagent.tools[0].status, ToolActivityStatus::Done);
+        assert_eq!(subagent.tools[0].result_preview.as_deref(), Some("contents"));
     }
 }

@@ -177,7 +177,23 @@ pub(super) fn execute_or_handle_tool(
     if dynamic_tools::is_meta_tool(&call.name) {
         dynamic_tools::handle_meta_tool_call(host, input, call, phase)
     } else if task_tool::is_task_tool(&call.name) {
-        task_tool::handle_task_tool_call(host, input, call)
+        emit_event(host, &Event::ToolCallRequested { call: call.clone() })?;
+        let result = match task_tool::handle_task_tool_call(host, input, call) {
+            Ok(result) => result,
+            Err(error) => {
+                let failed = ToolResult::error(call.id.clone(), error.message.as_str())
+                    .with_metadata(json!({ "tool": task_tool::TASK_TOOL }));
+                let _ = emit_event(host, &Event::ToolFinished { result: failed });
+                return Err(error);
+            }
+        };
+        emit_event(
+            host,
+            &Event::ToolFinished {
+                result: result.clone(),
+            },
+        )?;
+        Ok(result)
     } else {
         execute_tool(host, input, call)
     }
