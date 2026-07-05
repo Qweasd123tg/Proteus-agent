@@ -4,8 +4,8 @@ use serde_json::Value;
 use super::stream::{StreamFlushBindings, flush_stream_delta_buffer, queue_assistant_delta};
 use crate::app_helpers::save_context_usage;
 use crate::messages::{
-    finish_active_streaming_assistant_message, finish_streaming_reasoning, push_message,
-    push_tool_message, update_tool_status,
+    finish_active_streaming_assistant_message, finish_streaming_reasoning, finish_subagent_message,
+    push_message, push_subagent_message, push_subagent_tool, push_tool_message, update_tool_status,
 };
 use crate::types::*;
 use crate::ui_utils::{compact_text, format_json, short_id, short_path};
@@ -53,6 +53,9 @@ pub(crate) fn update_runtime_status_and_tools(
     let Some(event) = envelope.get("event") else {
         return;
     };
+    // thread_id конверта: события дочернего цикла субагента приходят под его
+    // child_thread_id — по нему tool-вызовы вкладываются в карточку субагента.
+    let envelope_thread_id = envelope.get("thread_id").and_then(Value::as_str);
 
     if let Some(usage_event) = event.get("TokenUsageUpdated") {
         if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
@@ -125,7 +128,6 @@ pub(crate) fn update_runtime_status_and_tools(
         // final answer.
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         flush_stream_delta_buffer(stream_bindings);
-        set_agent_status.set("запускает tool".to_owned());
         finish_active_streaming_assistant_message(
             set_messages,
             stream_bindings.active_stream_message_id,
@@ -154,12 +156,23 @@ pub(crate) fn update_runtime_status_and_tools(
                 status: ToolActivityStatus::Running,
                 result_preview: None,
             };
-            push_tool_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                tool.clone(),
-            );
+            // Tool дочернего цикла уходит внутрь карточки субагента, а не в
+            // общую ленту; рейка активности показывает его в обоих случаях.
+            let nested = envelope_thread_id
+                .is_some_and(|thread_id| push_subagent_tool(set_messages, thread_id, tool.clone()));
+            set_agent_status.set(if nested {
+                "субагент запускает tool".to_owned()
+            } else {
+                "запускает tool".to_owned()
+            });
+            if !nested {
+                push_tool_message(
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    tool.clone(),
+                );
+            }
             set_tool_activities.update(|items| {
                 if !items.iter().any(|item| item.call_id == call_id) {
                     items.push(tool);
@@ -221,6 +234,39 @@ pub(crate) fn update_runtime_status_and_tools(
                 Some(preview),
             );
         }
+    } else if let Some(subagent_event) = event.get("SubagentStarted") {
+        flush_stream_delta_buffer(stream_bindings);
+        finish_active_streaming_assistant_message(
+            set_messages,
+            stream_bindings.active_stream_message_id,
+            stream_bindings.set_active_stream_message_id,
+        );
+        finish_streaming_reasoning(set_messages);
+        if let Some(activity) =
+            subagent_started_activity(subagent_event, js_sys::Date::now().max(0.0) as u64)
+        {
+            set_agent_status.set(format!("субагент {} работает", activity.role));
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                activity,
+            );
+        }
+    } else if let Some(subagent_event) = event.get("SubagentFinished") {
+        if let Some(finished) = subagent_finished_update(subagent_event) {
+            set_agent_status.set(format!(
+                "субагент {}: {}",
+                finished.role,
+                finished.status.label()
+            ));
+            finish_subagent_message(
+                set_messages,
+                &finished.child_thread_id,
+                finished.status,
+                finished.iterations,
+            );
+        }
     } else if event.get("TurnFinished").is_some() {
         flush_stream_delta_buffer(stream_bindings);
         finish_streaming_reasoning(set_messages);
@@ -235,6 +281,56 @@ fn runtime_event_is_stream_delta(envelope: &Value) -> bool {
         return false;
     };
     event.get("AssistantTextDelta").is_some() || event.get("AssistantReasoningDelta").is_some()
+}
+
+/// Карточка субагента из payload `SubagentStarted`. Без child_thread_id
+/// карточку не к чему привязать — событие игнорируется.
+fn subagent_started_activity(event: &Value, started_at_ms: u64) -> Option<SubagentActivity> {
+    let child_thread_id = event.get("child_thread_id").and_then(Value::as_str)?;
+    Some(SubagentActivity {
+        child_thread_id: child_thread_id.to_owned(),
+        role: event
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("subagent")
+            .to_owned(),
+        description: event
+            .get("description")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        status: SubagentActivityStatus::Running,
+        iterations: None,
+        started_at_ms,
+        tools: Vec::new(),
+    })
+}
+
+struct SubagentFinishedUpdate {
+    child_thread_id: String,
+    role: String,
+    status: SubagentActivityStatus,
+    iterations: Option<u32>,
+}
+
+fn subagent_finished_update(event: &Value) -> Option<SubagentFinishedUpdate> {
+    let child_thread_id = event.get("child_thread_id").and_then(Value::as_str)?;
+    let status = event
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("completed");
+    Some(SubagentFinishedUpdate {
+        child_thread_id: child_thread_id.to_owned(),
+        role: event
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("subagent")
+            .to_owned(),
+        status: SubagentActivityStatus::Finished(status.to_owned()),
+        iterations: event
+            .get("iterations")
+            .and_then(Value::as_u64)
+            .map(|iterations| iterations.min(u64::from(u32::MAX)) as u32),
+    })
 }
 
 /// Снимок заполнения контекста: за «использовано» берём реальный замер
@@ -365,6 +461,7 @@ fn compaction_report_text(report: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use proteus_contracts::domain as contract_domain;
     use serde_json::json;
 
     use super::*;
@@ -399,5 +496,106 @@ mod tests {
         assert!(rendered.contains("\"b\": ["));
         assert!(rendered.contains("fifth"));
         assert!(!rendered.contains("..."));
+    }
+
+    #[test]
+    fn subagent_started_activity_parses_payload() {
+        let event = json!({
+            "role": "reviewer",
+            "description": "check the implementation",
+            "child_thread_id": "child-thread",
+        });
+
+        let activity = subagent_started_activity(&event, 42).expect("subagent activity");
+
+        assert_eq!(activity.child_thread_id, "child-thread");
+        assert_eq!(activity.role, "reviewer");
+        assert_eq!(
+            activity.description.as_deref(),
+            Some("check the implementation")
+        );
+        assert_eq!(activity.status, SubagentActivityStatus::Running);
+        assert_eq!(activity.iterations, None);
+        assert_eq!(activity.started_at_ms, 42);
+        assert!(activity.tools.is_empty());
+    }
+
+    #[test]
+    fn subagent_started_activity_requires_child_thread_id() {
+        let event = json!({
+            "role": "reviewer",
+            "description": "check the implementation",
+        });
+
+        assert!(subagent_started_activity(&event, 42).is_none());
+    }
+
+    #[test]
+    fn subagent_finished_update_parses_payload() {
+        let event = json!({
+            "role": "reviewer",
+            "status": "max_iterations_reached",
+            "iterations": 5,
+            "child_thread_id": "child-thread",
+        });
+
+        let update = subagent_finished_update(&event).expect("subagent finish");
+
+        assert_eq!(update.child_thread_id, "child-thread");
+        assert_eq!(update.role, "reviewer");
+        assert_eq!(
+            update.status,
+            SubagentActivityStatus::Finished("max_iterations_reached".to_owned())
+        );
+        assert_eq!(update.iterations, Some(5));
+    }
+
+    #[test]
+    fn subagent_finished_update_caps_iterations_and_requires_child_thread_id() {
+        let event = json!({
+            "role": "reviewer",
+            "status": "completed",
+            "iterations": u64::MAX,
+            "child_thread_id": "child-thread",
+        });
+        let missing_child = json!({
+            "role": "reviewer",
+            "status": "completed",
+            "iterations": 1,
+        });
+
+        let update = subagent_finished_update(&event).expect("subagent finish");
+
+        assert_eq!(update.iterations, Some(u32::MAX));
+        assert!(subagent_finished_update(&missing_child).is_none());
+    }
+
+    #[test]
+    fn contract_subagent_started_envelope_matches_runtime_parser() {
+        let session_id = contract_domain::new_session_id();
+        let thread_id = contract_domain::new_thread_id();
+        let child_thread_id = contract_domain::new_thread_id();
+        let envelope = contract_domain::EventEnvelope::new(
+            contract_domain::EventContext::new(session_id, thread_id, None),
+            1,
+            contract_domain::Event::SubagentStarted {
+                role: "reviewer".to_owned(),
+                description: Some("check the implementation".to_owned()),
+                child_thread_id,
+            },
+        );
+        let value = serde_json::to_value(envelope).expect("contract envelope JSON");
+        let payload = value
+            .pointer("/event/SubagentStarted")
+            .expect("SubagentStarted payload");
+
+        let activity = subagent_started_activity(payload, 42).expect("subagent activity");
+
+        assert_eq!(activity.role, "reviewer");
+        assert_eq!(activity.child_thread_id, child_thread_id.to_string());
+        assert_eq!(
+            activity.description.as_deref(),
+            Some("check the implementation")
+        );
     }
 }

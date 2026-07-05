@@ -1,6 +1,9 @@
 use leptos::prelude::*;
 
-use crate::types::{Message, MessageRole, ToolActivity, ToolActivityStatus, TransportStatus};
+use crate::types::{
+    Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity,
+    ToolActivityStatus, TransportStatus,
+};
 
 pub(crate) fn report_error(
     set_messages: WriteSignal<Vec<Message>>,
@@ -37,6 +40,7 @@ pub(crate) fn push_message(
             role,
             text: text.into(),
             tool: None,
+            subagent: None,
             streaming: false,
         });
     });
@@ -64,6 +68,7 @@ pub(crate) fn push_user_message_once(
             role: MessageRole::User,
             text,
             tool: None,
+            subagent: None,
             streaming: false,
         });
         pushed = true;
@@ -95,6 +100,7 @@ pub(crate) fn push_assistant_message_once(
             role: MessageRole::Assistant,
             text,
             tool: None,
+            subagent: None,
             streaming: false,
         });
         pushed = true;
@@ -129,6 +135,7 @@ pub(crate) fn push_assistant_message_if_missing(
             role: MessageRole::Assistant,
             text,
             tool: None,
+            subagent: None,
             streaming: false,
         });
         pushed = true;
@@ -187,6 +194,23 @@ pub(crate) fn prepend_history_messages(
         if history_has_streaming_tail {
             items.retain(|live| {
                 !(live.role == MessageRole::Assistant && live.streaming && live.tool.is_none())
+            });
+        }
+        // Если /history пришёл после live SSE дочернего цикла, TurnProgress
+        // может отдать тот же child tool как плоскую карточку. Live-карточка
+        // субагента информативнее: сохраняем её и выкидываем плоский дубль.
+        let nested_live_call_ids = items
+            .iter()
+            .filter_map(|message| message.subagent.as_ref())
+            .flat_map(|subagent| subagent.tools.iter().map(|tool| tool.call_id.clone()))
+            .collect::<Vec<_>>();
+        if !nested_live_call_ids.is_empty() {
+            transcript.retain(|hist| {
+                !hist.tool.as_ref().is_some_and(|tool| {
+                    nested_live_call_ids
+                        .iter()
+                        .any(|call_id| call_id == &tool.call_id)
+                })
             });
         }
         // Если ход успел завершиться, пока /history был в пути, живые
@@ -248,6 +272,7 @@ pub(crate) fn push_tool_message(
             role: MessageRole::System,
             text: String::new(),
             tool: Some(tool),
+            subagent: None,
             streaming: false,
         });
     });
@@ -283,6 +308,7 @@ pub(crate) fn append_streaming_assistant_delta(
                 role: MessageRole::Assistant,
                 text: text.to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: true,
             });
         });
@@ -359,27 +385,134 @@ pub(crate) fn update_tool_status(
         }
     });
     set_messages.update(|items| {
-        if let Some(message) = items.iter_mut().find(|message| {
-            message
+        for message in items.iter_mut() {
+            if let Some(tool) = message
                 .tool
-                .as_ref()
-                .is_some_and(|tool| tool.call_id == call_id)
+                .as_mut()
+                .filter(|tool| tool.call_id == call_id)
+            {
+                tool.status = status;
+                if let Some(result_preview) = result_preview.clone() {
+                    tool.result_preview = Some(result_preview);
+                }
+                message.version += 1;
+                return;
+            }
+            // Tool-вызовы дочернего цикла лежат внутри карточки субагента —
+            // Approval*/ToolFinished находят их по тому же call_id.
+            if let Some(subagent) = message.subagent.as_mut()
+                && let Some(tool) = subagent
+                    .tools
+                    .iter_mut()
+                    .find(|tool| tool.call_id == call_id)
+            {
+                tool.status = status;
+                if let Some(result_preview) = result_preview.clone() {
+                    tool.result_preview = Some(result_preview);
+                }
+                message.version += 1;
+                return;
+            }
+        }
+    });
+}
+
+/// Карточка субагента по `SubagentStarted`. Повтор события для уже бегущего
+/// child_thread_id не создаёт дубль; resume завершённой задачи (тот же
+/// thread) — создаёт новую карточку.
+pub(crate) fn push_subagent_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    next_message_id: ReadSignal<u64>,
+    set_next_message_id: WriteSignal<u64>,
+    activity: SubagentActivity,
+) {
+    let id = next_message_id.get();
+    let mut pushed = false;
+    set_messages.update(|items| {
+        if items.iter().any(|message| {
+            message.subagent.as_ref().is_some_and(|subagent| {
+                subagent.child_thread_id == activity.child_thread_id && subagent.is_running()
+            })
         }) {
-            let Some(tool) = message.tool.as_mut() else {
+            return;
+        }
+        items.push(Message {
+            id,
+            version: 0,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: None,
+            subagent: Some(activity),
+            streaming: false,
+        });
+        pushed = true;
+    });
+    if pushed {
+        set_next_message_id.set(id + 1);
+    }
+}
+
+/// Закрывает карточку субагента по `SubagentFinished`. Если карточки нет
+/// (страница открылась посреди работы субагента), событие игнорируется —
+/// итог всё равно виден в summary tool-вызова `task` из истории.
+pub(crate) fn finish_subagent_message(
+    set_messages: WriteSignal<Vec<Message>>,
+    child_thread_id: &str,
+    status: SubagentActivityStatus,
+    iterations: Option<u32>,
+) {
+    set_messages.update(|items| {
+        if let Some(message) = items.iter_mut().rev().find(|message| {
+            message.subagent.as_ref().is_some_and(|subagent| {
+                subagent.child_thread_id == child_thread_id && subagent.is_running()
+            })
+        }) {
+            let Some(subagent) = message.subagent.as_mut() else {
                 return;
             };
-            tool.status = status;
-            if let Some(result_preview) = result_preview {
-                tool.result_preview = Some(result_preview);
-            }
+            subagent.status = status;
+            subagent.iterations = iterations;
             message.version += 1;
         }
     });
 }
 
+/// Вкладывает tool-вызов дочернего цикла в бегущую карточку субагента с тем
+/// же thread_id. Возвращает false, если подходящей карточки нет — вызывающий
+/// рисует обычную плоскую карточку.
+pub(crate) fn push_subagent_tool(
+    set_messages: WriteSignal<Vec<Message>>,
+    thread_id: &str,
+    tool: ToolActivity,
+) -> bool {
+    let mut nested = false;
+    set_messages.update(|items| {
+        if let Some(message) = items.iter_mut().rev().find(|message| {
+            message.subagent.as_ref().is_some_and(|subagent| {
+                subagent.child_thread_id == thread_id && subagent.is_running()
+            })
+        }) {
+            let Some(subagent) = message.subagent.as_mut() else {
+                return;
+            };
+            if !subagent
+                .tools
+                .iter()
+                .any(|item| item.call_id == tool.call_id)
+            {
+                subagent.tools.push(tool);
+            }
+            message.version += 1;
+            nested = true;
+        }
+    });
+    nested
+}
+
 #[cfg(test)]
 mod tests {
     use leptos::prelude::Owner;
+    use serde_json::Value;
 
     use super::*;
 
@@ -393,6 +526,7 @@ mod tests {
                 role: MessageRole::Assistant,
                 text: "**ready**".to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: true,
             }]);
             let (active_stream_message_id, set_active_stream_message_id) = signal(Some(1));
@@ -420,6 +554,7 @@ mod tests {
                 role: MessageRole::Assistant,
                 text: "pre-tool note".to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: false,
             }]);
             let (next_message_id, set_next_message_id) = signal(2);
@@ -446,6 +581,46 @@ mod tests {
             role,
             text: text.to_owned(),
             tool: None,
+            subagent: None,
+            streaming: false,
+        }
+    }
+
+    fn tool_activity(call_id: &str, status: ToolActivityStatus) -> ToolActivity {
+        ToolActivity {
+            call_id: call_id.to_owned(),
+            name: "shell".to_owned(),
+            args: Value::Null,
+            args_preview: String::new(),
+            started_at_ms: 0,
+            status,
+            result_preview: None,
+        }
+    }
+
+    fn subagent_activity(
+        child_thread_id: &str,
+        status: SubagentActivityStatus,
+    ) -> SubagentActivity {
+        SubagentActivity {
+            child_thread_id: child_thread_id.to_owned(),
+            role: "reviewer".to_owned(),
+            description: Some("check the implementation".to_owned()),
+            status,
+            iterations: None,
+            started_at_ms: 10,
+            tools: Vec::new(),
+        }
+    }
+
+    fn subagent_message(id: u64, activity: SubagentActivity) -> Message {
+        Message {
+            id,
+            version: 0,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: None,
+            subagent: Some(activity),
             streaming: false,
         }
     }
@@ -461,6 +636,7 @@ mod tests {
                 role: MessageRole::Assistant,
                 text: "хвост стрима".to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: true,
             }]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
@@ -498,6 +674,143 @@ mod tests {
     }
 
     #[test]
+    fn push_subagent_tool_nests_by_thread_id_and_reports_miss() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(vec![subagent_message(
+                1,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            )]);
+
+            let nested = push_subagent_tool(
+                set_messages,
+                "child-thread",
+                tool_activity("call-1", ToolActivityStatus::Running),
+            );
+            let missing = push_subagent_tool(
+                set_messages,
+                "other-thread",
+                tool_activity("call-2", ToolActivityStatus::Running),
+            );
+
+            let items = messages.get_untracked();
+            assert!(nested);
+            assert!(!missing);
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].version, 1);
+            let subagent = items[0].subagent.as_ref().expect("subagent card");
+            assert_eq!(subagent.tools.len(), 1);
+            assert_eq!(subagent.tools[0].call_id, "call-1");
+        });
+    }
+
+    #[test]
+    fn update_tool_status_updates_nested_subagent_tool() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut activity = subagent_activity("child-thread", SubagentActivityStatus::Running);
+            activity
+                .tools
+                .push(tool_activity("call-1", ToolActivityStatus::Running));
+            let (tool_activities, set_tool_activities) = signal(vec![tool_activity(
+                "call-1",
+                ToolActivityStatus::Running,
+            )]);
+            let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
+
+            update_tool_status(
+                set_tool_activities,
+                set_messages,
+                "call-1",
+                ToolActivityStatus::Done,
+                Some("ok".to_owned()),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items[0].version, 1);
+            let tool = &items[0]
+                .subagent
+                .as_ref()
+                .expect("subagent card")
+                .tools[0];
+            assert_eq!(tool.status, ToolActivityStatus::Done);
+            assert_eq!(tool.result_preview.as_deref(), Some("ok"));
+
+            let rail_items = tool_activities.get_untracked();
+            assert_eq!(rail_items[0].status, ToolActivityStatus::Done);
+            assert_eq!(rail_items[0].result_preview.as_deref(), Some("ok"));
+        });
+    }
+
+    #[test]
+    fn finish_subagent_message_closes_running_card() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(vec![subagent_message(
+                1,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            )]);
+
+            finish_subagent_message(
+                set_messages,
+                "child-thread",
+                SubagentActivityStatus::Finished("completed".to_owned()),
+                Some(3),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items[0].version, 1);
+            let subagent = items[0].subagent.as_ref().expect("subagent card");
+            assert_eq!(
+                subagent.status,
+                SubagentActivityStatus::Finished("completed".to_owned())
+            );
+            assert_eq!(subagent.iterations, Some(3));
+        });
+    }
+
+    #[test]
+    fn push_subagent_message_dedups_running_child_thread_id() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let (messages, set_messages) = signal(Vec::<Message>::new());
+            let (next_message_id, set_next_message_id) = signal(1);
+
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+
+            assert_eq!(messages.get_untracked().len(), 1);
+            assert_eq!(next_message_id.get_untracked(), 2);
+
+            finish_subagent_message(
+                set_messages,
+                "child-thread",
+                SubagentActivityStatus::Finished("completed".to_owned()),
+                Some(1),
+            );
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+
+            assert_eq!(messages.get_untracked().len(), 2);
+            assert_eq!(next_message_id.get_untracked(), 3);
+        });
+    }
+
+    #[test]
     fn prepend_history_messages_adopts_history_streaming_tail() {
         let owner = Owner::new();
         owner.with(|| {
@@ -510,6 +823,7 @@ mod tests {
                 role: MessageRole::Assistant,
                 text: "хвост после переподключения".to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: true,
             }]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
@@ -596,6 +910,7 @@ mod tests {
                 role: MessageRole::System,
                 text: String::new(),
                 tool: Some(live_tool.clone()),
+                subagent: None,
                 streaming: false,
             }]);
             let (next_message_id, set_next_message_id) = signal(2_u64);
@@ -625,6 +940,43 @@ mod tests {
     }
 
     #[test]
+    fn prepend_history_messages_drops_flat_history_tool_duplicated_by_nested_subagent_tool() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let nested_tool = tool_activity("call-7", ToolActivityStatus::Running);
+            let mut activity = subagent_activity("child-thread", SubagentActivityStatus::Running);
+            activity.tools.push(nested_tool.clone());
+            let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
+            let (next_message_id, set_next_message_id) = signal(2_u64);
+            let (_, set_active_stream_message_id) = signal(None::<u64>);
+            let (_, set_streamed_this_turn) = signal(false);
+            let mut history_tool_message = history_message(1, MessageRole::System, "");
+            history_tool_message.tool = Some(nested_tool);
+            let transcript = vec![
+                history_message(1, MessageRole::User, "вопрос"),
+                history_tool_message,
+            ];
+
+            prepend_history_messages(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+                transcript,
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].text, "вопрос");
+            assert!(items[1].tool.is_none());
+            let subagent = items[1].subagent.as_ref().expect("subagent card");
+            assert_eq!(subagent.tools.len(), 1);
+            assert_eq!(subagent.tools[0].call_id, "call-7");
+        });
+    }
+
+    #[test]
     fn push_assistant_message_if_missing_skips_existing_final_output() {
         let owner = Owner::new();
         owner.with(|| {
@@ -634,6 +986,7 @@ mod tests {
                 role: MessageRole::Assistant,
                 text: "final answer".to_owned(),
                 tool: None,
+                subagent: None,
                 streaming: false,
             }]);
             let (next_message_id, set_next_message_id) = signal(2);

@@ -1,4 +1,4 @@
-use super::ToolActivity;
+use super::{SubagentActivity, ToolActivity};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageRole {
@@ -36,6 +36,8 @@ pub(crate) struct Message {
     pub(crate) role: MessageRole,
     pub(crate) text: String,
     pub(crate) tool: Option<ToolActivity>,
+    /// Карточка субагента: live-события дочернего цикла группируются здесь.
+    pub(crate) subagent: Option<SubagentActivity>,
     pub(crate) streaming: bool,
 }
 

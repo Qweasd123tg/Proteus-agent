@@ -84,6 +84,7 @@ pub(crate) fn App() -> impl IntoView {
                 role: MessageRole::System,
                 text: message,
                 tool: None,
+                subagent: None,
                 streaming: false,
             }]);
             SessionToken::missing()

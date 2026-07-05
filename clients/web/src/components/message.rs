@@ -5,7 +5,10 @@ use std::{
 
 use leptos::prelude::*;
 
-use super::{ToolActivityCard, current_tool, tool_turn_card_class};
+use super::{
+    SubagentCard, ToolActivityCard, current_subagent, current_tool, subagent_turn_card_class,
+    tool_turn_card_class,
+};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{compact_text, copy_to_clipboard, set_timeout};
@@ -25,6 +28,7 @@ struct RenderedMessageCache {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum MessageViewKind {
     Missing,
+    Subagent,
     Tool,
     User,
     Reasoning,
@@ -69,6 +73,7 @@ pub(crate) fn MessageView(
     view! {
         {move || match kind.get() {
             MessageViewKind::Missing => ().into_any(),
+            MessageViewKind::Subagent => subagent_message_view(message, activity_now_ms),
             MessageViewKind::Tool => tool_message_view(message, activity_now_ms),
             MessageViewKind::User => user_message_view(message),
             MessageViewKind::Reasoning => reasoning_message_view(message),
@@ -114,6 +119,22 @@ fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal
                 .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
         }>
             <ToolActivityCard message activity_now_ms />
+        </article>
+    }
+    .into_any()
+}
+
+fn subagent_message_view(
+    message: Memo<Option<Message>>,
+    activity_now_ms: ReadSignal<u64>,
+) -> AnyView {
+    view! {
+        <article class=move || {
+            current_subagent(message)
+                .map(|subagent| subagent_turn_card_class(&subagent.status))
+                .unwrap_or_else(|| "task-card agent-turn-item subagent-turn-item".to_owned())
+        }>
+            <SubagentCard message activity_now_ms />
         </article>
     }
     .into_any()
@@ -206,6 +227,9 @@ fn current_message_kind(message: Memo<Option<Message>>) -> MessageViewKind {
     let Some(message) = message.get() else {
         return MessageViewKind::Missing;
     };
+    if message.subagent.is_some() {
+        return MessageViewKind::Subagent;
+    }
     if message.tool.is_some() {
         return MessageViewKind::Tool;
     }
@@ -298,6 +322,7 @@ mod tests {
             role: MessageRole::Assistant,
             text: "**live** markdown".to_owned(),
             tool: None,
+            subagent: None,
             streaming: true,
         });
 

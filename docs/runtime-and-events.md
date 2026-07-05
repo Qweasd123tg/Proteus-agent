@@ -144,12 +144,29 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 - `ApprovalRequested`;
 - `ApprovalResolved`;
 - `ToolFinished`;
+- `SubagentStarted`;
+- `SubagentFinished`;
 - `TurnFinished`;
 - `Error`.
 
 `PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 `MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
+
+`SubagentStarted` и `SubagentFinished` описывают live-работу slot-а
+`subagent`: роль, краткое описание, статус, число итераций и
+`child_thread_id`. Эти события приходят в envelope родительского `thread_id`,
+потому что пользовательский turn остаётся родительским. Tool-события
+дочернего цикла (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
+приходят отдельными envelope с `thread_id = child_thread_id`.
+
+Web-клиент рендерит `SubagentStarted` как отдельную карточку субагента и
+закрывает её по `SubagentFinished`. Чтобы вложить tool-вызовы ребёнка внутрь
+этой карточки, клиент сравнивает `EventEnvelope.thread_id` у tool-событий с
+`child_thread_id` активных карточек. Если совпадения нет, tool-вызов
+показывается обычной плоской tool-карточкой. Summary ребёнка остаётся обычным
+`ToolResult` вызова `task`; streaming text дочернего цикла не является частью
+текущего client contract-а.
 
 `TokenUsageUpdated` испускается workflow-плагином после каждого model request.
 Событие содержит оценку input tokens по категориям (`instructions`, `messages`,

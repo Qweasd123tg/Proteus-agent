@@ -343,6 +343,17 @@ Scope:
 - Hot-swap/reload для config-defined tools и MCP discovery: агент может
   добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
   snapshot видит discovered tools, старые turns доживают на прежнем snapshot.
+- Subagent UI follow-up после первого client render:
+  - emitting `ToolCallRequested`/`ToolFinished` для самого workflow-owned
+    вызова `task`, потому что текущий path в `coding-workflow` вызывает
+    `SubagentRunner` напрямую и live-вид отличается от восстановленного
+    transcript summary;
+  - mid-turn reload для subagent activity: `TurnProgress` должен учитывать
+    `SubagentStarted`/`SubagentFinished`, переносить состояние в transcript и
+    восстанавливать карточку после reload во время работы ребёнка;
+  - опциональный streaming текста дочернего цикла: текущий sequential runner
+    использует `complete`, поэтому UI видит tool activity и итоговый summary,
+    но не текстовые deltas ребёнка.
 - UX backlog для web-клиента. Сделано: очередь composer requests во время
   running turn (несколько карточек, ручная отправка), persistent layout sizes
   для sidebar/composer, message copy/collapse, streaming transcript по deltas,

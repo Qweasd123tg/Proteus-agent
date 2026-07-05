@@ -690,7 +690,7 @@ fn hidden_tool_lines_label(hidden_lines: usize) -> String {
     format!("ещё {hidden_lines} {form}")
 }
 
-fn format_elapsed_seconds(seconds: u64) -> String {
+pub(crate) fn format_elapsed_seconds(seconds: u64) -> String {
     if seconds < 60 {
         format!("{seconds}s")
     } else {

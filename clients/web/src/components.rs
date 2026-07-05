@@ -8,6 +8,7 @@ mod message;
 mod resume;
 mod settings;
 mod sidebar;
+mod subagent;
 mod tool_activity;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
@@ -22,7 +23,8 @@ pub(crate) use message::MessageView;
 pub(crate) use resume::ResumeView;
 pub(crate) use settings::SettingsView;
 pub(crate) use sidebar::SidebarView;
+pub(crate) use subagent::{SubagentCard, current_subagent, subagent_turn_card_class};
 pub(crate) use tool_activity::{
-    ToolActivityCard, ToolCardsCollapsed, ToolPreview, current_tool, tool_args_preview,
-    tool_turn_card_class,
+    ToolActivityCard, ToolCardsCollapsed, ToolPreview, current_tool, format_elapsed_seconds,
+    tool_args_preview, tool_turn_card_class,
 };

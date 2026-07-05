@@ -257,6 +257,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
                 role: message_role_from_wire(&item.role),
                 text: item.text,
                 tool,
+                subagent: None,
                 streaming: item.streaming,
             }
         })

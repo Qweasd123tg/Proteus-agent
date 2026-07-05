@@ -5,6 +5,7 @@ mod protocol;
 mod requests;
 mod session;
 mod settings;
+mod subagent;
 mod tool;
 
 pub(crate) use context::*;
@@ -14,6 +15,7 @@ pub(crate) use protocol::*;
 pub(crate) use requests::*;
 pub(crate) use session::*;
 pub(crate) use settings::*;
+pub(crate) use subagent::*;
 pub(crate) use tool::*;
 
 #[cfg(test)]
