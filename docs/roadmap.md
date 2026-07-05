@@ -207,6 +207,18 @@ Scope:
   text/reasoning/tool со state transitions, как в opencode) против текущего
   плоского event stream: решение принять на этапе стабилизации, а не после;
   вход — TUI/protocol research по opencode sources;
+- storage engine review (решается вместе с parts-моделью, не отдельно):
+  jsonl-canonical + derived rebuildable SQLite index (codex-паттерн) vs
+  sql-native state store с event-sourced проекторами (opencode-стиль).
+  Контекст: `EventStore`/`SessionStore` core-owned, без внешнего ABI —
+  миграция хранилища остаётся внутренним рефакторингом. До решения jsonl
+  остаётся единственной правдой; при ранней боли со списками сессий допустим
+  промежуточный шаг — derived index, перестраиваемый из jsonl. Мотивация
+  sql-native: session listing без live-summary синтеза, versioned rows вместо
+  разрушающего `replace_messages` при compaction, инкрементальная
+  персистенция стрима, part lifecycle. Цена: потеря tail/rg/jq дебаг-UX,
+  rusqlite как core-зависимость, churn по event_store/session_store/eval/
+  resume/docs;
 - оставить `crates/proteus-core/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
