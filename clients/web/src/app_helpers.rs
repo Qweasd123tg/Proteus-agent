@@ -257,7 +257,10 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
     let mut messages: Vec<Message> = Vec::with_capacity(items.len());
     let mut synthetic: Vec<Option<SubagentActivity>> = Vec::with_capacity(items.len());
     for item in items {
-        let candidate = item.tool.as_ref().and_then(subagent_from_task_transcript_tool);
+        let candidate = item
+            .tool
+            .as_ref()
+            .and_then(subagent_from_task_transcript_tool);
         let tool = item.tool.map(transcript_tool_activity);
         let subagent = item.subagent.map(transcript_subagent_activity);
         if let Some(activity) = subagent {
@@ -329,7 +332,10 @@ fn subagent_from_task_transcript_tool(tool: &TranscriptTool) -> Option<SubagentA
     if tool.name != TASK_TOOL {
         return None;
     }
-    let child_thread_id = tool.metadata.get("child_thread_id").and_then(Value::as_str)?;
+    let child_thread_id = tool
+        .metadata
+        .get("child_thread_id")
+        .and_then(Value::as_str)?;
     let status = tool
         .metadata
         .get("status")
@@ -664,6 +670,7 @@ fn tool_status_from_wire(status: &str) -> ToolActivityStatus {
         "denied" => ToolActivityStatus::Denied,
         "done" => ToolActivityStatus::Done,
         "failed" => ToolActivityStatus::Failed,
+        "interrupted" => ToolActivityStatus::Interrupted,
         _ => ToolActivityStatus::Running,
     }
 }
@@ -1019,7 +1026,10 @@ mod tests {
         assert_eq!(subagent.iterations, Some(3));
         // Итог виден через result_preview слитой tool-карточки.
         assert_eq!(
-            messages[0].tool.as_ref().and_then(|tool| tool.result_preview.as_deref()),
+            messages[0]
+                .tool
+                .as_ref()
+                .and_then(|tool| tool.result_preview.as_deref()),
             Some("summary text")
         );
     }
@@ -1112,6 +1122,9 @@ mod tests {
         assert_eq!(subagent.tools.len(), 1);
         assert_eq!(subagent.tools[0].call_id, "call-child");
         assert_eq!(subagent.tools[0].status, ToolActivityStatus::Done);
-        assert_eq!(subagent.tools[0].result_preview.as_deref(), Some("contents"));
+        assert_eq!(
+            subagent.tools[0].result_preview.as_deref(),
+            Some("contents")
+        );
     }
 }

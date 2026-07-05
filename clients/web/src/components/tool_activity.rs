@@ -757,6 +757,7 @@ pub(crate) fn tool_turn_card_class(status: ToolActivityStatus) -> String {
         | ToolActivityStatus::Approved => "running",
         ToolActivityStatus::Done => "success",
         ToolActivityStatus::Denied | ToolActivityStatus::Failed => "error",
+        ToolActivityStatus::Interrupted => "idle",
     };
     format!(
         "task-card {state_class} agent-turn-item tool-turn-item status-{}",

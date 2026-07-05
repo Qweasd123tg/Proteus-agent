@@ -1,7 +1,10 @@
 use leptos::prelude::*;
 use serde_json::Value;
 
-use super::stream::{StreamFlushBindings, flush_stream_delta_buffer, queue_assistant_delta};
+use super::stream::{
+    StreamFlushBindings, flush_stream_delta_buffer, queue_assistant_delta, set_stream_turn_thread,
+    stream_delta_is_foreign,
+};
 use crate::app_helpers::save_context_usage;
 use crate::messages::{
     finish_active_streaming_assistant_message, finish_streaming_reasoning, finish_subagent_message,
@@ -69,6 +72,7 @@ pub(crate) fn update_runtime_status_and_tools(
         flush_stream_delta_buffer(stream_bindings);
         stream_bindings.set_streamed_this_turn.set(false);
         stream_bindings.set_active_stream_message_id.set(None);
+        set_stream_turn_thread(stream_bindings, envelope_thread_id);
         finish_streaming_reasoning(set_messages);
         set_agent_status.set("начинает".to_owned());
     } else if event.get("TaskReceived").is_some() {
@@ -115,6 +119,12 @@ pub(crate) fn update_runtime_status_and_tools(
     } else if event.get("ModelRequestPrepared").is_some() {
         set_agent_status.set("думает".to_owned());
     } else if let Some(delta_event) = event.get("AssistantTextDelta") {
+        // Дельты чужих threads (стрим дочернего цикла субагента из стороннего
+        // runner-а) в основной транскрипт не попадают: их «срезала» бы
+        // перезапись финальным текстом родительского хода.
+        if stream_delta_is_foreign(stream_bindings, envelope_thread_id) {
+            return;
+        }
         if !stream_bindings.streamed_this_turn.get_untracked() {
             set_agent_status.set("пишет".to_owned());
         }
@@ -260,16 +270,10 @@ pub(crate) fn update_runtime_status_and_tools(
             stream_bindings.set_active_stream_message_id,
         );
         finish_streaming_reasoning(set_messages);
-        if let Some(activity) =
-            subagent_started_activity(subagent_event, crate::ui_utils::now_ms())
+        if let Some(activity) = subagent_started_activity(subagent_event, crate::ui_utils::now_ms())
         {
             set_agent_status.set(format!("субагент {} работает", activity.role));
-            push_subagent_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                activity,
-            );
+            push_subagent_message(set_messages, next_message_id, set_next_message_id, activity);
         }
     } else if let Some(subagent_event) = event.get("SubagentFinished") {
         if let Some(finished) = subagent_finished_update(subagent_event) {

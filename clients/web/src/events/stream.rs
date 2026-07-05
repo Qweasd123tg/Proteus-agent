@@ -10,6 +10,39 @@ const STREAM_DELTA_FLUSH_MS: i32 = 80;
 pub(crate) struct BufferedStreamDeltas {
     assistant: String,
     flush_scheduled: bool,
+    /// Thread бегущего хода (envelope TurnStarted). Text-дельты чужих threads
+    /// (стрим дочернего цикла субагента) не относятся к родительскому
+    /// транскрипту: без фильтра они доклеивались бы в сообщение ассистента и
+    /// «срезались» при перезаписи финальным текстом хода.
+    turn_thread_id: Option<String>,
+}
+
+/// Запоминает thread нового хода: с этого момента в транскрипт идут только
+/// его text-дельты.
+pub(crate) fn set_stream_turn_thread(bindings: StreamFlushBindings, thread_id: Option<&str>) {
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.turn_thread_id = thread_id.map(ToOwned::to_owned);
+    });
+}
+
+/// true, если дельта пришла из другого thread (например, от дочернего цикла
+/// субагента) и не должна попадать в основной транскрипт. Неизвестный root
+/// (страница открылась посреди хода) — принимаем всё, как раньше.
+pub(crate) fn stream_delta_is_foreign(
+    bindings: StreamFlushBindings,
+    envelope_thread_id: Option<&str>,
+) -> bool {
+    let Some(envelope_thread_id) = envelope_thread_id else {
+        return false;
+    };
+    let mut foreign = false;
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        foreign = buffer
+            .turn_thread_id
+            .as_deref()
+            .is_some_and(|turn_thread_id| turn_thread_id != envelope_thread_id);
+    });
+    foreign
 }
 
 #[derive(Clone, Copy)]

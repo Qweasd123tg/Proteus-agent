@@ -35,12 +35,18 @@ pub(crate) enum ToolActivityStatus {
     Denied,
     Done,
     Failed,
+    /// Ход закончился (или история восстановлена без результата), а
+    /// терминального события у вызова нет — спиннер не должен жить вечно.
+    Interrupted,
 }
 
 impl ToolActivityStatus {
     /// Терминальный статус: карточка больше не изменит состояние сама.
     pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Done | Self::Failed | Self::Denied)
+        matches!(
+            self,
+            Self::Done | Self::Failed | Self::Denied | Self::Interrupted
+        )
     }
 
     pub(crate) fn key(self) -> &'static str {
@@ -51,6 +57,7 @@ impl ToolActivityStatus {
             Self::Denied => "denied",
             Self::Done => "done",
             Self::Failed => "failed",
+            Self::Interrupted => "interrupted",
         }
     }
 
@@ -62,6 +69,7 @@ impl ToolActivityStatus {
             Self::Denied => "отклонено",
             Self::Done => "готово",
             Self::Failed => "ошибка",
+            Self::Interrupted => "прервано",
         }
     }
 
@@ -70,6 +78,7 @@ impl ToolActivityStatus {
             Self::Running | Self::WaitingApproval | Self::Approved => "status-badge running",
             Self::Done => "status-badge completed",
             Self::Denied | Self::Failed => "status-badge failed",
+            Self::Interrupted => "status-badge idle",
         }
     }
 }

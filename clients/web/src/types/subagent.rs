@@ -52,6 +52,7 @@ impl SubagentActivityStatus {
                 "timed_out" => "таймаут".to_owned(),
                 "max_iterations_reached" => "лимит итераций".to_owned(),
                 "errored" => "ошибка".to_owned(),
+                "interrupted" => "прервано".to_owned(),
                 other => other.replace('_', " "),
             },
         }
@@ -107,7 +108,10 @@ mod tests {
 
     #[test]
     fn turn_state_class_reflects_outcome() {
-        assert_eq!(SubagentActivityStatus::Running.turn_state_class(), "running");
+        assert_eq!(
+            SubagentActivityStatus::Running.turn_state_class(),
+            "running"
+        );
         assert_eq!(
             SubagentActivityStatus::Finished("completed".to_owned()).turn_state_class(),
             "success"

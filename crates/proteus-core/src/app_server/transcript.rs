@@ -52,6 +52,20 @@ pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTrans
     for message in messages {
         append_transcript_message(&mut transcript, message);
     }
+    // Закоммиченная история пишется только по завершении хода: ToolCall без
+    // парного ToolResult — прерванный/потерянный вызов, а не бегущий. Отдать
+    // его как "running" — значит навсегда крутящийся спиннер у клиента
+    // (терминального события для него уже не будет). Живые бегущие вызовы
+    // приходят не отсюда, а из turn_progress-хвоста.
+    for message in &mut transcript {
+        if let Some(tool) = message
+            .tool
+            .as_mut()
+            .filter(|tool| tool.status == "running")
+        {
+            tool.status = "interrupted".to_owned();
+        }
+    }
     transcript
 }
 
@@ -162,6 +176,24 @@ mod tests {
 
     use super::*;
     use crate::domain::ToolCall;
+
+    #[test]
+    fn committed_tool_call_without_result_becomes_interrupted() {
+        // Закоммиченная история пишется в конце хода: вызов без результата —
+        // прерванный, а не бегущий; "running" дал бы вечный спиннер в UI.
+        let call = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall {
+                call: ToolCall::new("call-1", "shell", json!({ "command": "ls" })),
+            }],
+        );
+
+        let transcript = transcript_messages(&[call]);
+
+        assert_eq!(transcript.len(), 1);
+        let tool = transcript[0].tool.as_ref().expect("tool card");
+        assert_eq!(tool.status, "interrupted");
+    }
 
     #[test]
     fn tool_result_metadata_passes_through_to_transcript_card() {

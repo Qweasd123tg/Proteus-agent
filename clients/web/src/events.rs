@@ -17,9 +17,9 @@ use crate::app_helpers::{
     apply_active_session_activity, load_sidebar_sessions, replace_transcript,
 };
 use crate::messages::{
-    finish_active_streaming_assistant_message, finish_all_streaming_assistant_messages,
-    finish_streaming_assistant_message, push_assistant_message_if_missing, push_message,
-    push_user_message_once,
+    finalize_running_activity, finish_active_streaming_assistant_message,
+    finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
+    push_assistant_message_if_missing, push_message, push_user_message_once,
 };
 use crate::types::*;
 use crate::ui_utils::{output_text, set_timeout};
@@ -387,6 +387,9 @@ fn handle_app_event(
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
+            // Ход закончился: терминальных событий для ещё «бегущих» карточек
+            // больше не будет — закрываем их как прерванные.
+            finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
             let final_text = non_empty_output_text(&output);
             if streamed_this_turn.get() {
                 match (active_stream_message_id.get(), final_text) {
@@ -514,6 +517,7 @@ fn handle_app_event(
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ошибка".to_owned());
+            finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
             push_message(
                 set_messages,
                 next_message_id,
@@ -528,6 +532,7 @@ fn handle_app_event(
             set_active_turn_id.set(None);
             set_agent_status.set("остановлено".to_owned());
             set_transport_status.set(TransportStatus::Shutdown);
+            finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
             push_message(
                 set_messages,
                 next_message_id,

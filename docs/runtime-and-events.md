@@ -158,7 +158,14 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 `child_thread_id`. Эти события приходят в envelope родительского `thread_id`,
 потому что пользовательский turn остаётся родительским. Tool-события
 дочернего цикла (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
-приходят отдельными envelope с `thread_id = child_thread_id`.
+приходят отдельными envelope с `thread_id = child_thread_id`. Streaming
+text-дельты дочернего цикла builtin runner (`sequential`) подавляются через
+request metadata `suppress_stream_deltas`: delta-контекст `ModelService`
+указывает на родительский ход, и без подавления стрим ребёнка попадал бы в
+родительский транскрипт как обычный `AssistantTextDelta`. Дополнительно и
+`TurnProgress`, и web-клиент фильтруют `AssistantTextDelta` по `thread_id`
+хода (запомненному из envelope `TurnStarted`) — дельты чужих threads в
+основной текст не подмешиваются.
 
 Web-клиент рендерит работу субагента одной карточкой: `SubagentStarted`
 прикрепляет активность к бегущей tool-карточке `task` (карточка вызова и
@@ -186,6 +193,15 @@ streaming text дочернего цикла не является частью 
 Сам workflow-owned вызов `task` также испускает live `ToolCallRequested` и
 `ToolFinished`, хотя не является registry tool: это synthetic tool
 `coding-workflow`, который вручную имитирует события orchestrator-а для UI.
+
+Статус tool-карточки в `/history` терминализуется на границах: в committed
+history `ToolCall` без парного `ToolResult` отдаётся как `interrupted`
+(история пишется в конце хода — «running» там означал бы вечный спиннер у
+клиента), живые бегущие вызовы приходят только из `TurnProgress`-хвоста.
+Симметрично web-клиент на `TurnOutput`/`Error`/`Shutdown` закрывает все ещё
+нетерминальные tool- и subagent-карточки статусом «прервано»: терминальное
+событие после конца хода уже не придёт (пропущенный `ToolFinished`, обрыв
+SSE между `/history` и подпиской).
 
 `TokenUsageUpdated` испускается workflow-плагином после каждого model request.
 Событие содержит оценку input tokens по категориям (`instructions`, `messages`,

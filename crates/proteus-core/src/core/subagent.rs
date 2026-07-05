@@ -555,10 +555,17 @@ async fn run_child_loop(
             return Ok(SubagentStatus::Cancelled);
         }
 
+        // Delta-события ModelService эмитятся с контекстом родительского
+        // хода (set_event_context ставит runtime до запуска workflow), то
+        // есть стрим ребёнка утёк бы в родительский транскрипт как обычный
+        // AssistantTextDelta и «переписался» финальным текстом родителя в
+        // конце хода. Пока у карточки субагента нет собственного stream-slot,
+        // дельты ребёнка глушим — итог приходит через SubagentResult.
         let model_request =
             CanonicalModelRequest::new(ctx.model_ref.clone(), state.history.clone())
                 .with_tools(tools.to_vec())
-                .with_reasoning(ctx.reasoning.clone());
+                .with_reasoning(ctx.reasoning.clone())
+                .with_metadata(json!({ "suppress_stream_deltas": true }));
         let response = match complete_model(ctx, model_request).await {
             Ok(response) => response,
             Err(_) if ctx.is_cancelled() => return Ok(SubagentStatus::Cancelled),
@@ -754,11 +761,16 @@ mod tests {
     struct RecordingFakeModelClient {
         inner: FakeModelClient,
         histories: StdMutex<Vec<Vec<CanonicalMessage>>>,
+        metadatas: StdMutex<Vec<Value>>,
     }
 
     impl RecordingFakeModelClient {
         fn histories(&self) -> Vec<Vec<CanonicalMessage>> {
             self.histories.lock().expect("histories lock").clone()
+        }
+
+        fn metadatas(&self) -> Vec<Value> {
+            self.metadatas.lock().expect("metadatas lock").clone()
         }
     }
 
@@ -777,6 +789,10 @@ mod tests {
                 .lock()
                 .expect("histories lock")
                 .push(request.messages.clone());
+            self.metadatas
+                .lock()
+                .expect("metadatas lock")
+                .push(request.metadata.clone());
             self.inner.complete(request).await
         }
 
@@ -1243,6 +1259,31 @@ Markdown prompt.\n",
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn child_loop_model_requests_suppress_stream_deltas() {
+        let runner = SequentialSubagentRunner::from_config(explorer_config()).unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let model = Arc::new(RecordingFakeModelClient::default());
+        let ctx = test_runtime_context_with_model(events, model.clone());
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        runner
+            .run(SubagentRequest::new("explore", "look around", task), ctx)
+            .await
+            .unwrap();
+
+        // Delta-контекст ModelService указывает на родительский ход: без
+        // подавления стрим ребёнка утёк бы в родительский транскрипт.
+        let metadatas = model.metadatas();
+        assert!(!metadatas.is_empty());
+        assert!(
+            metadatas
+                .iter()
+                .all(|metadata| metadata["suppress_stream_deltas"] == json!(true))
+        );
     }
 
     #[tokio::test]

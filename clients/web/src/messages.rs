@@ -245,9 +245,9 @@ fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
     }
     if let Some(live_subagent) = &live.subagent {
         return transcript.iter().any(|hist| {
-            hist.subagent.as_ref().is_some_and(|subagent| {
-                subagent.child_thread_id == live_subagent.child_thread_id
-            })
+            hist.subagent
+                .as_ref()
+                .is_some_and(|subagent| subagent.child_thread_id == live_subagent.child_thread_id)
         });
     }
     if live.text.trim().is_empty() || live.streaming {
@@ -413,11 +413,7 @@ pub(crate) fn update_tool_status(
     let mut nested = false;
     set_messages.update(|items| {
         for message in items.iter_mut() {
-            if let Some(tool) = message
-                .tool
-                .as_mut()
-                .filter(|tool| tool.call_id == call_id)
-            {
+            if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == call_id) {
                 tool.status = status;
                 if let Some(finished_at_ms) = finished_at_ms {
                     tool.finished_at_ms = Some(finished_at_ms);
@@ -454,6 +450,53 @@ pub(crate) fn update_tool_status(
     nested
 }
 
+/// Финализация на границе хода (TurnOutput/Error/Shutdown): все ещё бегущие
+/// tool- и subagent-карточки принудительно закрываются статусом «прервано».
+/// Терминальное событие после конца хода уже не придёт (пропущенный
+/// ToolFinished, обрыв SSE, упавший ход) — без этого спиннеры и таймеры
+/// крутились бы вечно.
+pub(crate) fn finalize_running_activity(
+    set_tool_activities: WriteSignal<Vec<ToolActivity>>,
+    set_messages: WriteSignal<Vec<Message>>,
+    now_ms: u64,
+) {
+    set_tool_activities.update(|items| {
+        for tool in items.iter_mut() {
+            interrupt_tool(tool, now_ms);
+        }
+    });
+    set_messages.update(|items| {
+        for message in items.iter_mut() {
+            let mut changed = false;
+            if let Some(tool) = message.tool.as_mut() {
+                changed |= interrupt_tool(tool, now_ms);
+            }
+            if let Some(subagent) = message.subagent.as_mut() {
+                if subagent.is_running() {
+                    subagent.status = SubagentActivityStatus::Finished("interrupted".to_owned());
+                    subagent.finished_at_ms = Some(now_ms);
+                    changed = true;
+                }
+                for tool in subagent.tools.iter_mut() {
+                    changed |= interrupt_tool(tool, now_ms);
+                }
+            }
+            if changed {
+                message.version += 1;
+            }
+        }
+    });
+}
+
+fn interrupt_tool(tool: &mut ToolActivity, now_ms: u64) -> bool {
+    if tool.status.is_terminal() {
+        return false;
+    }
+    tool.status = ToolActivityStatus::Interrupted;
+    tool.finished_at_ms = Some(now_ms);
+    true
+}
+
 /// Карточка субагента по `SubagentStarted`. Если в ленте бежит вызов `task`
 /// (workflow эмитит его ToolCallRequested перед запуском субагента),
 /// активность прикрепляется к нему — одна карточка вместо дубля «task +
@@ -479,9 +522,10 @@ pub(crate) fn push_subagent_message(
         }
         if let Some(message) = items.iter_mut().rev().find(|message| {
             message.subagent.is_none()
-                && message.tool.as_ref().is_some_and(|tool| {
-                    tool.name == TASK_TOOL && !tool.status.is_terminal()
-                })
+                && message
+                    .tool
+                    .as_ref()
+                    .is_some_and(|tool| tool.name == TASK_TOOL && !tool.status.is_terminal())
         }) {
             message.subagent = Some(activity);
             message.version += 1;
@@ -773,10 +817,8 @@ mod tests {
             activity
                 .tools
                 .push(tool_activity("call-1", ToolActivityStatus::Running));
-            let (tool_activities, set_tool_activities) = signal(vec![tool_activity(
-                "call-1",
-                ToolActivityStatus::Running,
-            )]);
+            let (tool_activities, set_tool_activities) =
+                signal(vec![tool_activity("call-1", ToolActivityStatus::Running)]);
             let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
 
             let nested = update_tool_status(
@@ -791,11 +833,7 @@ mod tests {
             let items = messages.get_untracked();
             assert!(nested);
             assert_eq!(items[0].version, 1);
-            let tool = &items[0]
-                .subagent
-                .as_ref()
-                .expect("subagent card")
-                .tools[0];
+            let tool = &items[0].subagent.as_ref().expect("subagent card").tools[0];
             assert_eq!(tool.status, ToolActivityStatus::Done);
             assert_eq!(tool.result_preview.as_deref(), Some("ok"));
             // Терминальный статус фиксирует момент завершения для duration.
@@ -1042,8 +1080,7 @@ mod tests {
             let (next_message_id, set_next_message_id) = signal(2_u64);
             let (_, set_active_stream_message_id) = signal(None::<u64>);
             let (_, set_streamed_this_turn) = signal(false);
-            let mut history_tool_message =
-                history_message(1, MessageRole::System, "");
+            let mut history_tool_message = history_message(1, MessageRole::System, "");
             history_tool_message.tool = Some(live_tool);
             let transcript = vec![
                 history_message(1, MessageRole::User, "вопрос"),
@@ -1118,7 +1155,10 @@ mod tests {
                 1,
                 subagent_activity("child-thread", SubagentActivityStatus::Running),
             );
-            let transcript = vec![history_message(1, MessageRole::User, "вопрос"), history_subagent];
+            let transcript = vec![
+                history_message(1, MessageRole::User, "вопрос"),
+                history_subagent,
+            ];
 
             prepend_history_messages(
                 set_messages,
@@ -1133,6 +1173,61 @@ mod tests {
             assert_eq!(items.len(), 2);
             assert_eq!(items[0].text, "вопрос");
             assert!(items[1].subagent.is_some());
+        });
+    }
+
+    #[test]
+    fn finalize_running_activity_interrupts_tools_and_subagents() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut running_subagent =
+                subagent_activity("child-thread", SubagentActivityStatus::Running);
+            running_subagent
+                .tools
+                .push(tool_activity("call-nested", ToolActivityStatus::Running));
+            let mut flat_tool_message = history_message(2, MessageRole::System, "");
+            flat_tool_message.tool = Some(tool_activity(
+                "call-flat",
+                ToolActivityStatus::WaitingApproval,
+            ));
+            let mut done_tool_message = history_message(3, MessageRole::System, "");
+            done_tool_message.tool = Some(tool_activity("call-done", ToolActivityStatus::Done));
+            let (messages, set_messages) = signal(vec![
+                subagent_message(1, running_subagent),
+                flat_tool_message,
+                done_tool_message,
+            ]);
+            let (tool_activities, set_tool_activities) = signal(vec![
+                tool_activity("call-flat", ToolActivityStatus::Running),
+                tool_activity("call-done", ToolActivityStatus::Done),
+            ]);
+
+            finalize_running_activity(set_tool_activities, set_messages, 99);
+
+            let items = messages.get_untracked();
+            let subagent = items[0].subagent.as_ref().expect("subagent card");
+            assert_eq!(
+                subagent.status,
+                SubagentActivityStatus::Finished("interrupted".to_owned())
+            );
+            assert_eq!(subagent.finished_at_ms, Some(99));
+            assert_eq!(subagent.tools[0].status, ToolActivityStatus::Interrupted);
+            assert_eq!(items[0].version, 1);
+            assert_eq!(
+                items[1].tool.as_ref().expect("flat tool").status,
+                ToolActivityStatus::Interrupted
+            );
+            assert_eq!(items[1].version, 1);
+            // Уже терминальная карточка не трогается и не будит подписчиков.
+            assert_eq!(
+                items[2].tool.as_ref().expect("done tool").status,
+                ToolActivityStatus::Done
+            );
+            assert_eq!(items[2].version, 0);
+
+            let rail = tool_activities.get_untracked();
+            assert_eq!(rail[0].status, ToolActivityStatus::Interrupted);
+            assert_eq!(rail[1].status, ToolActivityStatus::Done);
         });
     }
 

@@ -1,4 +1,4 @@
-use crate::domain::{Event, EventEnvelope, ToolCall};
+use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 
@@ -10,6 +10,10 @@ use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscri
 #[derive(Default)]
 pub(super) struct TurnProgress {
     messages: Vec<AppTranscriptMessage>,
+    /// Thread бегущего хода (из envelope TurnStarted). Text-дельты других
+    /// threads (например, стрим дочернего цикла субагента из плагинного
+    /// runner-а) не подмешиваются в родительский текст.
+    turn_thread_id: Option<ThreadId>,
 }
 
 impl TurnProgress {
@@ -18,8 +22,18 @@ impl TurnProgress {
     pub(super) fn apply(&mut self, envelope: &EventEnvelope) {
         let event = &envelope.event;
         match event {
-            Event::TurnStarted { .. } => self.messages.clear(),
-            Event::AssistantTextDelta { text } => self.append_text(text),
+            Event::TurnStarted { .. } => {
+                self.messages.clear();
+                self.turn_thread_id = Some(envelope.thread_id);
+            }
+            Event::AssistantTextDelta { text } => {
+                if self
+                    .turn_thread_id
+                    .is_none_or(|thread_id| thread_id == envelope.thread_id)
+                {
+                    self.append_text(text);
+                }
+            }
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
@@ -284,6 +298,32 @@ mod tests {
             snapshot[1].tool.as_ref().map(|tool| tool.status.as_str()),
             Some("running")
         );
+    }
+
+    #[test]
+    fn child_thread_text_deltas_do_not_pollute_parent_progress() {
+        let mut progress = TurnProgress::default();
+        apply(
+            &mut progress,
+            Event::TurnStarted {
+                session_id: new_session_id(),
+                thread_id: root_thread_id(),
+                turn_id: new_turn_id(),
+            },
+        );
+        apply(&mut progress, delta("родительский текст"));
+        // Стрим дочернего цикла под child thread не должен доклеиваться к
+        // родительскому сегменту (и не должен создавать свой).
+        progress.apply(&envelope(
+            child_thread_id(),
+            Event::AssistantTextDelta {
+                text: "детский стрим".to_owned(),
+            },
+        ));
+
+        let snapshot = progress.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].text, "родительский текст");
     }
 
     #[test]
