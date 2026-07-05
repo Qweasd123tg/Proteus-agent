@@ -25,6 +25,6 @@ pub(crate) use settings::SettingsView;
 pub(crate) use sidebar::SidebarView;
 pub(crate) use subagent::{SubagentCard, subagent_turn_card_class};
 pub(crate) use tool_activity::{
-    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms,
-    format_elapsed_seconds, tool_args_preview, tool_turn_card_class,
+    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms, format_elapsed_seconds,
+    tool_args_preview, tool_turn_card_class,
 };

@@ -206,13 +206,8 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
 /// Reasoning-поток всегда начинается свёрнутым: длинное thinking-содержимое не
 /// должно блокировать scroll/render основного ответа.
 fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
-    let message_is_streaming = move || {
-        message.with(|message| {
-            message
-                .as_ref()
-                .is_some_and(|message| message.streaming)
-        })
-    };
+    let message_is_streaming =
+        move || message.with(|message| message.as_ref().is_some_and(|message| message.streaming));
     let (expanded, set_expanded) = signal(false);
     // Прошлое streaming-состояние — в возврате эффекта, не в сигнале,
     // который эффект сам читает и пишет (лишний цикл уведомлений на каждый

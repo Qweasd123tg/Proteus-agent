@@ -621,7 +621,8 @@ mod tests {
 
     #[test]
     fn highlight_preview_colors_git_status_codes() {
-        let html = highlight_preview("## main...origin/main\n M src/lib.rs\n?? new.rs\nA  staged.rs");
+        let html =
+            highlight_preview("## main...origin/main\n M src/lib.rs\n?? new.rs\nA  staged.rs");
 
         assert!(html.contains("<span class=\"tk-git-branch\">## main...origin/main</span>"));
         assert!(html.contains("<span class=\"tk-git-untracked\">??</span>"));

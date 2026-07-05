@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 
 use super::{
-    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms,
-    format_elapsed_seconds, tool_turn_card_class,
+    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms, format_elapsed_seconds,
+    tool_turn_card_class,
 };
 use crate::types::{Message, MessageRole, SubagentActivityStatus};
 use crate::ui_utils::{compact_text, short_id};
@@ -56,11 +56,8 @@ pub(crate) fn SubagentCard(
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
     let header = Memo::new(move |_| subagent_header(message));
-    let running = header.with_untracked(|header| {
-        header
-            .as_ref()
-            .is_some_and(SubagentHeader::is_running)
-    });
+    let running =
+        header.with_untracked(|header| header.as_ref().is_some_and(SubagentHeader::is_running));
     let collapsed_default =
         use_context::<ToolCardsCollapsed>().is_some_and(|cards| cards.0.get_untracked());
     let (expanded, set_expanded) = signal(running || !collapsed_default);
@@ -70,11 +67,8 @@ pub(crate) fn SubagentCard(
     // Прошлое состояние живёт в возврате эффекта: писать его в сигнал,
     // который эффект сам же читает, — это лишний цикл уведомлений.
     Effect::new(move |prev_running: Option<bool>| {
-        let running_now = header.with(|header| {
-            header
-                .as_ref()
-                .is_some_and(SubagentHeader::is_running)
-        });
+        let running_now =
+            header.with(|header| header.as_ref().is_some_and(SubagentHeader::is_running));
         if prev_running == Some(true) && !running_now {
             set_expanded.set(false);
         }
@@ -368,6 +362,9 @@ mod tests {
             child_short_id: "abcd1234".to_owned(),
         };
 
-        assert_eq!(header.summary(), "map the crate · 3 вызова · 2 итерации · 2.3s");
+        assert_eq!(
+            header.summary(),
+            "map the crate · 3 вызова · 2 итерации · 2.3s"
+        );
     }
 }
