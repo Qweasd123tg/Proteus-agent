@@ -50,6 +50,10 @@ pub(crate) struct TranscriptTool {
     pub(crate) status: String,
     #[serde(default)]
     pub(crate) result: Option<String>,
+    /// `ToolResult.metadata` как есть — из неё клиент строит спец-рендеры
+    /// (карточка субагента по результату `task`).
+    #[serde(default)]
+    pub(crate) metadata: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

@@ -8,8 +8,23 @@ pub(crate) struct ToolActivity {
     pub(crate) args: Value,
     pub(crate) args_preview: String,
     pub(crate) started_at_ms: u64,
+    /// Момент терминального статуса (done/failed/denied) — для duration в
+    /// карточке. None у бегущих и у восстановленных из истории (там момента
+    /// старта нет, duration не считается).
+    pub(crate) finished_at_ms: Option<u64>,
     pub(crate) status: ToolActivityStatus,
     pub(crate) result_preview: Option<String>,
+}
+
+impl ToolActivity {
+    /// Длительность выполнения в миллисекундах, если известны обе границы.
+    pub(crate) fn duration_ms(&self) -> Option<u64> {
+        if self.started_at_ms == 0 {
+            return None;
+        }
+        self.finished_at_ms
+            .map(|finished| finished.saturating_sub(self.started_at_ms))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,6 +38,11 @@ pub(crate) enum ToolActivityStatus {
 }
 
 impl ToolActivityStatus {
+    /// Терминальный статус: карточка больше не изменит состояние сама.
+    pub(crate) fn is_terminal(self) -> bool {
+        matches!(self, Self::Done | Self::Failed | Self::Denied)
+    }
+
     pub(crate) fn key(self) -> &'static str {
         match self {
             Self::Running => "running",

@@ -5,6 +5,7 @@ use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
 use crate::api::{encode_query_component, get_json};
 use crate::messages::{adopt_streaming_tail, prepend_history_messages, report_error};
+use crate::tool_names::TASK_TOOL;
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
@@ -245,24 +246,125 @@ pub(crate) fn load_transcript(
     });
 }
 
+/// Транскрипт с сервера → сообщения ленты. Два subagent-шва повторяют
+/// live-путь, чтобы вид после reload совпадал с живым:
+/// - снапшот прогресса шлёт карточку субагента отдельным сообщением сразу
+///   после его вызова `task` — сливаем в одну карточку (как SubagentStarted
+///   прикрепляется к бегущей task-карточке);
+/// - committed history карточек субагента не хранит — восстанавливаем вид из
+///   завершённого вызова `task` (args + metadata результата).
 fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
-    items
-        .into_iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let tool = item.tool.map(transcript_tool_activity);
-            let subagent = item.subagent.map(transcript_subagent_activity);
-            Message {
-                id: index as u64 + 1,
+    let mut messages: Vec<Message> = Vec::with_capacity(items.len());
+    let mut synthetic: Vec<Option<SubagentActivity>> = Vec::with_capacity(items.len());
+    for item in items {
+        let candidate = item.tool.as_ref().and_then(subagent_from_task_transcript_tool);
+        let tool = item.tool.map(transcript_tool_activity);
+        let subagent = item.subagent.map(transcript_subagent_activity);
+        if let Some(activity) = subagent {
+            if item.text.trim().is_empty()
+                && tool.is_none()
+                && let Some(previous) = messages.last_mut()
+                && previous.subagent.is_none()
+                && previous
+                    .tool
+                    .as_ref()
+                    .is_some_and(|tool| tool.name == TASK_TOOL)
+            {
+                previous.subagent = Some(activity);
+                continue;
+            }
+            messages.push(Message {
+                id: 0,
                 version: 0,
                 role: message_role_from_wire(&item.role),
                 text: item.text,
                 tool,
-                subagent,
+                subagent: Some(activity),
                 streaming: item.streaming,
-            }
+            });
+            synthetic.push(None);
+            continue;
+        }
+        messages.push(Message {
+            id: 0,
+            version: 0,
+            role: message_role_from_wire(&item.role),
+            text: item.text,
+            tool,
+            subagent: None,
+            streaming: item.streaming,
+        });
+        synthetic.push(candidate);
+    }
+    // Настоящая карточка (из событий) авторитетнее реконструкции: synthetic
+    // не ставим, если тот же child_thread_id уже есть в ленте.
+    let known: Vec<String> = messages
+        .iter()
+        .filter_map(|message| {
+            message
+                .subagent
+                .as_ref()
+                .map(|subagent| subagent.child_thread_id.clone())
         })
-        .collect()
+        .collect();
+    for (message, candidate) in messages.iter_mut().zip(synthetic) {
+        if message.subagent.is_none()
+            && let Some(candidate) = candidate
+            && !known.contains(&candidate.child_thread_id)
+        {
+            message.subagent = Some(candidate);
+        }
+    }
+    for (index, message) in messages.iter_mut().enumerate() {
+        message.id = index as u64 + 1;
+    }
+    messages
+}
+
+/// Реконструкция карточки субагента из завершённого вызова `task`:
+/// роль/описание — из args, статус и итерации — из metadata результата
+/// (форма `SubagentResult`, см. task_tool в coding-workflow). Без
+/// child_thread_id в metadata (ошибка, бегущий вызов) карточки нет.
+fn subagent_from_task_transcript_tool(tool: &TranscriptTool) -> Option<SubagentActivity> {
+    if tool.name != TASK_TOOL {
+        return None;
+    }
+    let child_thread_id = tool.metadata.get("child_thread_id").and_then(Value::as_str)?;
+    let status = tool
+        .metadata
+        .get("status")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            if tool.status == "done" {
+                "completed".to_owned()
+            } else {
+                "errored".to_owned()
+            }
+        });
+    Some(SubagentActivity {
+        child_thread_id: child_thread_id.to_owned(),
+        role: tool
+            .args
+            .get("agent_type")
+            .and_then(Value::as_str)
+            .unwrap_or("subagent")
+            .to_owned(),
+        description: tool
+            .args
+            .get("description")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        status: SubagentActivityStatus::Finished(status),
+        iterations: tool
+            .metadata
+            .get("iterations")
+            .and_then(Value::as_u64)
+            .map(|iterations| iterations.min(u64::from(u32::MAX)) as u32),
+        started_at_ms: 0,
+        finished_at_ms: None,
+        tools: Vec::new(),
+    })
 }
 
 pub(crate) fn sidebar_session_title(session: &SessionSummary) -> String {
@@ -500,7 +602,7 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
             | ToolActivityStatus::WaitingApproval
             | ToolActivityStatus::Approved
     ) {
-        js_sys::Date::now().max(0.0) as u64
+        crate::ui_utils::now_ms()
     } else {
         0
     };
@@ -510,6 +612,8 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
         args: tool.args.clone(),
         args_preview: format_json(&tool.args),
         started_at_ms,
+        // Истории момент старта неизвестен — duration не восстанавливаем.
+        finished_at_ms: None,
         status,
         result_preview: tool.result,
     }
@@ -522,7 +626,7 @@ fn transcript_subagent_activity(subagent: TranscriptSubagent) -> SubagentActivit
         SubagentActivityStatus::Finished(subagent.status)
     };
     let started_at_ms = if matches!(status, SubagentActivityStatus::Running) {
-        js_sys::Date::now().max(0.0) as u64
+        crate::ui_utils::now_ms()
     } else {
         0
     };
@@ -533,6 +637,7 @@ fn transcript_subagent_activity(subagent: TranscriptSubagent) -> SubagentActivit
         status,
         iterations: subagent.iterations,
         started_at_ms,
+        finished_at_ms: None,
         tools: subagent
             .tools
             .into_iter()
@@ -822,6 +927,117 @@ mod tests {
     }
 
     #[test]
+    fn transcript_messages_merge_progress_subagent_into_preceding_task_card() {
+        // Снапшот прогресса: карточка бегущего task + отдельное
+        // subagent-сообщение сразу за ней — как шлёт turn_progress.
+        let messages = transcript_messages(vec![
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: Some(TranscriptTool {
+                    call_id: "call-task".to_owned(),
+                    name: "task".to_owned(),
+                    args: serde_json::json!({"agent_type": "explore", "prompt": "look around"}),
+                    status: "running".to_owned(),
+                    result: None,
+                    metadata: Value::Null,
+                }),
+                subagent: None,
+                streaming: false,
+            },
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: None,
+                subagent: Some(TranscriptSubagent {
+                    child_thread_id: "child-thread".to_owned(),
+                    role: "explore".to_owned(),
+                    description: None,
+                    status: "running".to_owned(),
+                    iterations: None,
+                    tools: Vec::new(),
+                }),
+                streaming: false,
+            },
+        ]);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, 1);
+        let tool = messages[0].tool.as_ref().expect("task tool");
+        assert_eq!(tool.call_id, "call-task");
+        let subagent = messages[0].subagent.as_ref().expect("merged subagent");
+        assert_eq!(subagent.child_thread_id, "child-thread");
+        assert!(subagent.is_running());
+    }
+
+    #[test]
+    fn transcript_messages_reconstruct_subagent_from_committed_task_result() {
+        // Committed history: карточек субагента нет, но у результата task
+        // есть metadata SubagentResult — карточка восстанавливается из неё.
+        let messages = transcript_messages(vec![TranscriptMessage {
+            role: "system".to_owned(),
+            text: String::new(),
+            tool: Some(TranscriptTool {
+                call_id: "call-task".to_owned(),
+                name: "task".to_owned(),
+                args: serde_json::json!({
+                    "agent_type": "explore",
+                    "description": "map the crate",
+                    "prompt": "look around"
+                }),
+                status: "done".to_owned(),
+                result: Some("summary text".to_owned()),
+                metadata: serde_json::json!({
+                    "status": "completed",
+                    "iterations": 3,
+                    "child_thread_id": "child-thread"
+                }),
+            }),
+            subagent: None,
+            streaming: false,
+        }]);
+
+        assert_eq!(messages.len(), 1);
+        let subagent = messages[0].subagent.as_ref().expect("synthetic subagent");
+        assert_eq!(subagent.role, "explore");
+        assert_eq!(subagent.description.as_deref(), Some("map the crate"));
+        assert_eq!(
+            subagent.status,
+            SubagentActivityStatus::Finished("completed".to_owned())
+        );
+        assert_eq!(subagent.iterations, Some(3));
+        // Итог виден через result_preview слитой tool-карточки.
+        assert_eq!(
+            messages[0].tool.as_ref().and_then(|tool| tool.result_preview.as_deref()),
+            Some("summary text")
+        );
+    }
+
+    #[test]
+    fn transcript_messages_skip_reconstruction_for_failed_task_without_metadata() {
+        let messages = transcript_messages(vec![TranscriptMessage {
+            role: "system".to_owned(),
+            text: String::new(),
+            tool: Some(TranscriptTool {
+                call_id: "call-task".to_owned(),
+                name: "task".to_owned(),
+                args: serde_json::json!({"agent_type": "explore", "prompt": "look"}),
+                status: "failed".to_owned(),
+                result: Some("boom".to_owned()),
+                metadata: serde_json::json!({"tool": "task"}),
+            }),
+            subagent: None,
+            streaming: false,
+        }]);
+
+        // Без child_thread_id карточку не к чему привязать — остаётся
+        // обычная tool-карточка с ошибкой.
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].subagent.is_none());
+        assert!(messages[0].tool.is_some());
+    }
+
+    #[test]
     fn transcript_messages_restore_tool_activity_cards() {
         let messages = transcript_messages(vec![TranscriptMessage {
             role: "system".to_owned(),
@@ -832,6 +1048,7 @@ mod tests {
                 args: serde_json::json!({"path": "src/lib.rs"}),
                 status: "done".to_owned(),
                 result: Some("line 1\nline 2".to_owned()),
+                metadata: Value::Null,
             }),
             subagent: None,
             streaming: false,
@@ -864,6 +1081,7 @@ mod tests {
                     args: serde_json::json!({"path": "src/lib.rs"}),
                     status: "done".to_owned(),
                     result: Some("contents".to_owned()),
+                    metadata: Value::Null,
                 }],
             }),
             streaming: false,

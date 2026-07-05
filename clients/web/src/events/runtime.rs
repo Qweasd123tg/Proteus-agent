@@ -152,7 +152,8 @@ pub(crate) fn update_runtime_status_and_tools(
                 name,
                 args,
                 args_preview,
-                started_at_ms: js_sys::Date::now().max(0.0) as u64,
+                started_at_ms: crate::ui_utils::now_ms(),
+                finished_at_ms: None,
                 status: ToolActivityStatus::Running,
                 result_preview: None,
             };
@@ -181,15 +182,22 @@ pub(crate) fn update_runtime_status_and_tools(
             });
         }
     } else if let Some(approval_event) = event.get("ApprovalRequested") {
-        set_agent_status.set("ждёт доступ".to_owned());
         if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
-            update_tool_status(
+            let nested = update_tool_status(
                 set_tool_activities,
                 set_messages,
                 call_id,
                 ToolActivityStatus::WaitingApproval,
                 None,
+                crate::ui_utils::now_ms(),
             );
+            set_agent_status.set(if nested {
+                "субагент ждёт доступ".to_owned()
+            } else {
+                "ждёт доступ".to_owned()
+            });
+        } else {
+            set_agent_status.set("ждёт доступ".to_owned());
         }
     } else if let Some(approval_event) = event.get("ApprovalResolved") {
         let approved = approval_event
@@ -212,17 +220,17 @@ pub(crate) fn update_runtime_status_and_tools(
                     ToolActivityStatus::Denied
                 },
                 None,
+                crate::ui_utils::now_ms(),
             );
         }
     } else if let Some(tool_event) = event.get("ToolFinished") {
-        set_agent_status.set("tool завершён".to_owned());
         if let Some(result) = tool_event.get("result") {
             let Some(call_id) = result.get("call_id").and_then(Value::as_str) else {
                 return;
             };
             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
             let preview = tool_result_text(result);
-            update_tool_status(
+            let nested = update_tool_status(
                 set_tool_activities,
                 set_messages,
                 call_id,
@@ -232,7 +240,17 @@ pub(crate) fn update_runtime_status_and_tools(
                     ToolActivityStatus::Failed
                 },
                 Some(preview),
+                crate::ui_utils::now_ms(),
             );
+            // Между tool-вызовами ребёнок думает — «tool завершён» звучал бы
+            // как конец работы субагента, хотя цикл продолжается.
+            set_agent_status.set(if nested {
+                "субагент работает".to_owned()
+            } else {
+                "tool завершён".to_owned()
+            });
+        } else {
+            set_agent_status.set("tool завершён".to_owned());
         }
     } else if let Some(subagent_event) = event.get("SubagentStarted") {
         flush_stream_delta_buffer(stream_bindings);
@@ -243,7 +261,7 @@ pub(crate) fn update_runtime_status_and_tools(
         );
         finish_streaming_reasoning(set_messages);
         if let Some(activity) =
-            subagent_started_activity(subagent_event, js_sys::Date::now().max(0.0) as u64)
+            subagent_started_activity(subagent_event, crate::ui_utils::now_ms())
         {
             set_agent_status.set(format!("субагент {} работает", activity.role));
             push_subagent_message(
@@ -265,6 +283,7 @@ pub(crate) fn update_runtime_status_and_tools(
                 &finished.child_thread_id,
                 finished.status,
                 finished.iterations,
+                crate::ui_utils::now_ms(),
             );
         }
     } else if event.get("TurnFinished").is_some() {
@@ -301,6 +320,7 @@ fn subagent_started_activity(event: &Value, started_at_ms: u64) -> Option<Subage
         status: SubagentActivityStatus::Running,
         iterations: None,
         started_at_ms,
+        finished_at_ms: None,
         tools: Vec::new(),
     })
 }

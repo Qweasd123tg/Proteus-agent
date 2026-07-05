@@ -160,18 +160,29 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 дочернего цикла (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
 приходят отдельными envelope с `thread_id = child_thread_id`.
 
-Web-клиент рендерит `SubagentStarted` как отдельную карточку субагента и
-закрывает её по `SubagentFinished`. Чтобы вложить tool-вызовы ребёнка внутрь
-этой карточки, клиент сравнивает `EventEnvelope.thread_id` у tool-событий с
+Web-клиент рендерит работу субагента одной карточкой: `SubagentStarted`
+прикрепляет активность к бегущей tool-карточке `task` (карточка вызова и
+карточка субагента не дублируются), а если workflow вызвал `SubagentRunner`
+без tool `task` — создаёт отдельную карточку; закрывается она по
+`SubagentFinished`. Чтобы вложить tool-вызовы ребёнка внутрь этой карточки,
+клиент сравнивает `EventEnvelope.thread_id` у tool-событий с
 `child_thread_id` активных карточек. Если совпадения нет, tool-вызов
 показывается обычной плоской tool-карточкой. Summary ребёнка остаётся обычным
-`ToolResult` вызова `task`; streaming text дочернего цикла не является частью
-текущего client contract-а.
+`ToolResult` вызова `task` и виден в развёрнутой карточке секцией «итог»;
+streaming text дочернего цикла не является частью текущего client contract-а.
+Пока субагент работает, карточка раскрыта и показывает живой прогресс; после
+`SubagentFinished` она сворачивается в строку со статусом, числом вызовов,
+итерациями и длительностью.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как
-опциональное поле `subagent` у transcript message, поэтому клиент после F5
-восстанавливает карточку субагента и nested tool-состояние до завершения хода.
+опциональное поле `subagent` у transcript message; клиент сливает такое
+сообщение с предшествующей карточкой `task` (тот же вид, что live) и
+восстанавливает nested tool-состояние до завершения хода. Committed history
+карточек субагента не хранит: transcript-карточка tool несёт `metadata`
+результата (`ToolResult.metadata` как есть — core имён tools не знает), и
+клиент реконструирует карточку субагента из `metadata` результата `task`
+(статус, итерации, `child_thread_id`) без списка вложенных вызовов.
 Сам workflow-owned вызов `task` также испускает live `ToolCallRequested` и
 `ToolFinished`, хотя не является registry tool: это synthetic tool
 `coding-workflow`, который вручную имитирует события orchestrator-а для UI.

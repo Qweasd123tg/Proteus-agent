@@ -24,15 +24,20 @@ impl TurnProgress {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
             Event::ApprovalRequested { call_id, .. } => {
-                self.set_tool_status(call_id, "waiting_approval", None);
+                self.set_tool_status(call_id, "waiting_approval", None, None);
             }
             Event::ApprovalResolved { call_id, approved } => {
                 let status = if *approved { "approved" } else { "denied" };
-                self.set_tool_status(call_id, status, None);
+                self.set_tool_status(call_id, status, None, None);
             }
             Event::ToolFinished { result } => {
                 let status = if result.ok { "done" } else { "failed" };
-                self.set_tool_status(&result.call_id, status, Some(result.text_or_status()));
+                self.set_tool_status(
+                    &result.call_id,
+                    status,
+                    Some(result.text_or_status()),
+                    Some(&result.metadata),
+                );
             }
             Event::SubagentStarted {
                 role,
@@ -118,6 +123,7 @@ impl TurnProgress {
                     args: call.args.clone(),
                     status: "running".to_owned(),
                     result: None,
+                    metadata: serde_json::Value::Null,
                 });
             }
             return;
@@ -132,18 +138,28 @@ impl TurnProgress {
                 args: call.args.clone(),
                 status: "running".to_owned(),
                 result: None,
+                metadata: serde_json::Value::Null,
             }),
             subagent: None,
             streaming: false,
         });
     }
 
-    fn set_tool_status(&mut self, call_id: &str, status: &str, result: Option<String>) {
+    fn set_tool_status(
+        &mut self,
+        call_id: &str,
+        status: &str,
+        result: Option<String>,
+        metadata: Option<&serde_json::Value>,
+    ) {
         for message in self.messages.iter_mut().rev() {
             if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == call_id) {
                 tool.status = status.to_owned();
                 if let Some(result) = result {
                     tool.result = Some(result);
+                }
+                if let Some(metadata) = metadata {
+                    tool.metadata = metadata.clone();
                 }
                 return;
             }
@@ -156,6 +172,9 @@ impl TurnProgress {
                 tool.status = status.to_owned();
                 if let Some(result) = result {
                     tool.result = Some(result);
+                }
+                if let Some(metadata) = metadata {
+                    tool.metadata = metadata.clone();
                 }
                 return;
             }

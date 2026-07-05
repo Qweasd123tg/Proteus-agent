@@ -13,3 +13,8 @@ pub(crate) const UPDATE_PLAN_TOOL: &str = "update_plan";
 
 /// Тул патчей: диф-рендер вместо JSON-аргументов.
 pub(crate) const APPLY_PATCH_TOOL: &str = "apply_patch";
+
+/// Тул субагентов coding-workflow: live-карточка `task` сливается с карточкой
+/// субагента (`SubagentStarted` прикрепляется к бегущему вызову `task`, а не
+/// создаёт вторую карточку рядом).
+pub(crate) const TASK_TOOL: &str = "task";

@@ -27,6 +27,11 @@ pub struct AppTranscriptTool {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    /// Metadata результата как есть (`ToolResult.metadata`): core не знает
+    /// конкретных tools, а клиенты по ней строят спец-рендеры (например,
+    /// карточку субагента из результата `task`).
+    #[serde(skip_serializing_if = "Value::is_null")]
+    pub metadata: Value,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -76,6 +81,7 @@ fn append_transcript_message(
                         args: call.args.clone(),
                         status: "running".to_owned(),
                         result: None,
+                        metadata: Value::Null,
                     }),
                     subagent: None,
                     streaming: false,
@@ -120,6 +126,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
     {
         tool.status = status;
         tool.result = Some(result_text);
+        tool.metadata = result.metadata.clone();
         return;
     }
 
@@ -132,6 +139,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
             args: Value::Null,
             status,
             result: Some(result_text),
+            metadata: result.metadata.clone(),
         }),
         subagent: None,
         streaming: false,
@@ -145,5 +153,42 @@ fn transcript_role(role: &MessageRole) -> &'static str {
         MessageRole::Assistant => "assistant",
         MessageRole::Tool => "system",
         _ => "system",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::ToolCall;
+
+    #[test]
+    fn tool_result_metadata_passes_through_to_transcript_card() {
+        let call = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall {
+                call: ToolCall::new("call-1", "task", json!({ "agent_type": "explore" })),
+            }],
+        );
+        let result = CanonicalMessage::new(
+            MessageRole::Tool,
+            vec![ContentPart::ToolResult {
+                result: ToolResult::ok("call-1".to_owned(), "summary").with_metadata(json!({
+                    "status": "completed",
+                    "child_thread_id": "child-thread",
+                })),
+            }],
+        );
+
+        let transcript = transcript_messages(&[call, result]);
+
+        assert_eq!(transcript.len(), 1);
+        let tool = transcript[0].tool.as_ref().expect("tool card");
+        assert_eq!(tool.status, "done");
+        // Metadata результата не теряется на границе /history: клиент строит
+        // по ней карточку субагента, core имён tools не знает.
+        assert_eq!(tool.metadata["child_thread_id"], "child-thread");
+        assert_eq!(tool.metadata["status"], "completed");
     }
 }

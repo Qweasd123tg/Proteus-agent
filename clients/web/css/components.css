@@ -941,6 +941,20 @@ button.status-badge {
     font-size: 11px;
 }
 
+/* Длительность завершённого вызова: прижимается вправо перед id; если она
+   есть, id теряет свой auto-отступ и встаёт рядом. */
+.tool-card-duration {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tool-card-duration + code {
+    margin-left: 0;
+}
+
 .tool-card-details {
     display: grid;
     gap: var(--space-2);

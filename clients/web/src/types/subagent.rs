@@ -12,12 +12,24 @@ pub(crate) struct SubagentActivity {
     /// Число итераций дочернего цикла из `SubagentFinished`.
     pub(crate) iterations: Option<u32>,
     pub(crate) started_at_ms: u64,
+    /// Момент `SubagentFinished` — для итоговой длительности. None у бегущих
+    /// и восстановленных из истории карточек (там старт неизвестен).
+    pub(crate) finished_at_ms: Option<u64>,
     pub(crate) tools: Vec<ToolActivity>,
 }
 
 impl SubagentActivity {
     pub(crate) fn is_running(&self) -> bool {
         matches!(self.status, SubagentActivityStatus::Running)
+    }
+
+    /// Полная длительность работы, если известны обе границы.
+    pub(crate) fn duration_ms(&self) -> Option<u64> {
+        if self.started_at_ms == 0 {
+            return None;
+        }
+        self.finished_at_ms
+            .map(|finished| finished.saturating_sub(self.started_at_ms))
     }
 }
 

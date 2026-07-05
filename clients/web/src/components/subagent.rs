@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 
 use super::{
-    ToolActivityCard, ToolCardsCollapsed, format_elapsed_seconds, tool_turn_card_class,
+    ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms,
+    format_elapsed_seconds, tool_turn_card_class,
 };
 use crate::types::{Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity};
 use crate::ui_utils::{compact_text, short_id};
@@ -15,6 +16,22 @@ pub(crate) fn SubagentCard(
     let collapsed_default =
         use_context::<ToolCardsCollapsed>().is_some_and(|cards| cards.0.get_untracked());
     let (expanded, set_expanded) = signal(running || !collapsed_default);
+    // Пока субагент работает, карточка раскрыта и показывает живой прогресс;
+    // после завершения сворачивается сама (как reasoning-блок) — в ленте
+    // остаётся компактная строка со статусом, итерациями и длительностью.
+    let (last_running, set_last_running) = signal(running);
+    Effect::new(move |_| {
+        let running_now = current_subagent(message).is_some_and(|subagent| subagent.is_running());
+        if last_running.get() && !running_now {
+            set_expanded.set(false);
+        }
+        set_last_running.set(running_now);
+    });
+    // Вложенные tool-карточки стартуют свёрнутыми независимо от глобального
+    // дефолта: раскрытый субагент и так занимает место, детали каждого вызова
+    // раскрываются точечно.
+    let (nested_collapsed, _) = signal(true);
+    provide_context(ToolCardsCollapsed(nested_collapsed));
     let call_ids = Memo::new(move |_| {
         current_subagent(message)
             .map(|subagent| {
@@ -24,6 +41,21 @@ pub(crate) fn SubagentCard(
                     .map(|tool| tool.call_id)
                     .collect::<Vec<_>>()
             })
+            .unwrap_or_default()
+    });
+    // Итог субагента: summary из результата слитой task-карточки. Виден
+    // только после завершения — пока цикл бежит, результата ещё нет.
+    let outcome_text = Memo::new(move |_| {
+        message
+            .get()
+            .filter(|message| {
+                message
+                    .subagent
+                    .as_ref()
+                    .is_some_and(|subagent| !subagent.is_running())
+            })
+            .and_then(|message| message.tool)
+            .and_then(|tool| tool.result_preview)
             .unwrap_or_default()
     });
 
@@ -68,21 +100,31 @@ pub(crate) fn SubagentCard(
                                     })
                                     .unwrap_or_else(|| ().into_any())
                             }}
-                            <div class="subagent-tool-list">
-                                <For
-                                    each=move || call_ids.get()
-                                    key=|call_id| call_id.clone()
-                                    children=move |call_id| {
-                                        view! {
-                                            <NestedSubagentToolCard
-                                                parent_message=message
-                                                call_id
-                                                activity_now_ms
-                                            />
-                                        }
-                                    }
-                                />
-                            </div>
+                            {move || {
+                                if call_ids.get().is_empty() {
+                                    return ().into_any();
+                                }
+                                view! {
+                                    <div class="subagent-tool-list">
+                                        <div class="tool-preview-caption">"вызовы"</div>
+                                        <For
+                                            each=move || call_ids.get()
+                                            key=|call_id| call_id.clone()
+                                            children=move |call_id| {
+                                                view! {
+                                                    <NestedSubagentToolCard
+                                                        parent_message=message
+                                                        call_id
+                                                        activity_now_ms
+                                                    />
+                                                }
+                                            }
+                                        />
+                                    </div>
+                                }
+                                .into_any()
+                            }}
+                            <ToolPreview text=outcome_text caption="итог" />
                         </div>
                     }
                     .into_any()
@@ -188,19 +230,39 @@ fn current_subagent_title(message: Memo<Option<Message>>) -> String {
         .unwrap_or_else(|| "субагент".to_owned())
 }
 
+/// Сводка в свёрнутой строке: описание задачи, число вложенных вызовов,
+/// итерации и итоговая длительность — всё, что есть на текущий момент.
 fn current_subagent_summary(message: Memo<Option<Message>>) -> Option<String> {
     let subagent = current_subagent(message)?;
     let mut parts = Vec::new();
     if let Some(description) = subagent
         .description
+        .as_deref()
         .filter(|description| !description.trim().is_empty())
     {
-        parts.push(compact_text(&description, 120));
+        parts.push(compact_text(description, 120));
+    }
+    if !subagent.tools.is_empty() {
+        parts.push(call_count_label(subagent.tools.len()));
     }
     if let Some(iterations) = subagent.iterations {
         parts.push(iteration_count_label(iterations));
     }
+    if let Some(duration_ms) = subagent.duration_ms() {
+        parts.push(format_duration_ms(duration_ms));
+    }
     Some(parts.join(" · "))
+}
+
+fn call_count_label(count: usize) -> String {
+    let form = match (count % 10, count % 100) {
+        (1, 11) => "вызовов",
+        (1, _) => "вызов",
+        (2..=4, 12..=14) => "вызовов",
+        (2..=4, _) => "вызова",
+        _ => "вызовов",
+    };
+    format!("{count} {form}")
 }
 
 fn iteration_count_label(iterations: u32) -> String {
@@ -212,4 +274,19 @@ fn iteration_count_label(iterations: u32) -> String {
         _ => "итераций",
     };
     format!("{iterations} {form}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_labels_use_russian_forms() {
+        assert_eq!(call_count_label(1), "1 вызов");
+        assert_eq!(call_count_label(3), "3 вызова");
+        assert_eq!(call_count_label(11), "11 вызовов");
+        assert_eq!(iteration_count_label(1), "1 итерация");
+        assert_eq!(iteration_count_label(2), "2 итерации");
+        assert_eq!(iteration_count_label(5), "5 итераций");
+    }
 }

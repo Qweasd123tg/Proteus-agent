@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+use crate::tool_names::TASK_TOOL;
 use crate::types::{
     Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity,
     ToolActivityStatus, TransportStatus,
@@ -376,21 +377,32 @@ pub(crate) fn finish_streaming_assistant_message(
     }
 }
 
+/// Обновляет статус tool-вызова в рейке активности и в ленте (плоская
+/// карточка или вложенный в субагента вызов). Терминальный статус фиксирует
+/// `finished_at_ms = now_ms` для duration. Возвращает true, если вызов найден
+/// внутри карточки субагента — статусная строка говорит о субагенте, а не о
+/// родителе.
 pub(crate) fn update_tool_status(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_messages: WriteSignal<Vec<Message>>,
     call_id: &str,
     status: ToolActivityStatus,
     result_preview: Option<String>,
-) {
+    now_ms: u64,
+) -> bool {
+    let finished_at_ms = status.is_terminal().then_some(now_ms);
     set_tool_activities.update(|items| {
         if let Some(item) = items.iter_mut().find(|item| item.call_id == call_id) {
             item.status = status;
+            if let Some(finished_at_ms) = finished_at_ms {
+                item.finished_at_ms = Some(finished_at_ms);
+            }
             if let Some(result_preview) = result_preview.clone() {
                 item.result_preview = Some(result_preview);
             }
         }
     });
+    let mut nested = false;
     set_messages.update(|items| {
         for message in items.iter_mut() {
             if let Some(tool) = message
@@ -399,6 +411,9 @@ pub(crate) fn update_tool_status(
                 .filter(|tool| tool.call_id == call_id)
             {
                 tool.status = status;
+                if let Some(finished_at_ms) = finished_at_ms {
+                    tool.finished_at_ms = Some(finished_at_ms);
+                }
                 if let Some(result_preview) = result_preview.clone() {
                     tool.result_preview = Some(result_preview);
                 }
@@ -414,19 +429,28 @@ pub(crate) fn update_tool_status(
                     .find(|tool| tool.call_id == call_id)
             {
                 tool.status = status;
+                if let Some(finished_at_ms) = finished_at_ms {
+                    tool.finished_at_ms = Some(finished_at_ms);
+                }
                 if let Some(result_preview) = result_preview.clone() {
                     tool.result_preview = Some(result_preview);
                 }
                 message.version += 1;
+                nested = true;
                 return;
             }
         }
     });
+    nested
 }
 
-/// Карточка субагента по `SubagentStarted`. Повтор события для уже бегущего
-/// child_thread_id не создаёт дубль; resume завершённой задачи (тот же
-/// thread) — создаёт новую карточку.
+/// Карточка субагента по `SubagentStarted`. Если в ленте бежит вызов `task`
+/// (workflow эмитит его ToolCallRequested перед запуском субагента),
+/// активность прикрепляется к нему — одна карточка вместо дубля «task +
+/// субагент», как и в снапшоте turn progress. Иначе — отдельная карточка
+/// (другой workflow может звать SubagentRunner без tool `task`). Повтор
+/// события для уже бегущего child_thread_id игнорируется; resume завершённой
+/// задачи (тот же thread, новый вызов task) — новая карточка.
 pub(crate) fn push_subagent_message(
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
@@ -441,6 +465,16 @@ pub(crate) fn push_subagent_message(
                 subagent.child_thread_id == activity.child_thread_id && subagent.is_running()
             })
         }) {
+            return;
+        }
+        if let Some(message) = items.iter_mut().rev().find(|message| {
+            message.subagent.is_none()
+                && message.tool.as_ref().is_some_and(|tool| {
+                    tool.name == TASK_TOOL && !tool.status.is_terminal()
+                })
+        }) {
+            message.subagent = Some(activity);
+            message.version += 1;
             return;
         }
         items.push(Message {
@@ -459,14 +493,16 @@ pub(crate) fn push_subagent_message(
     }
 }
 
-/// Закрывает карточку субагента по `SubagentFinished`. Если карточки нет
-/// (страница открылась посреди работы субагента), событие игнорируется —
-/// итог всё равно виден в summary tool-вызова `task` из истории.
+/// Закрывает карточку субагента по `SubagentFinished`; `now_ms` фиксирует
+/// длительность. Если карточки нет (страница открылась посреди работы
+/// субагента), событие игнорируется — итог всё равно виден в summary
+/// tool-вызова `task` из истории.
 pub(crate) fn finish_subagent_message(
     set_messages: WriteSignal<Vec<Message>>,
     child_thread_id: &str,
     status: SubagentActivityStatus,
     iterations: Option<u32>,
+    now_ms: u64,
 ) {
     set_messages.update(|items| {
         if let Some(message) = items.iter_mut().rev().find(|message| {
@@ -479,6 +515,7 @@ pub(crate) fn finish_subagent_message(
             };
             subagent.status = status;
             subagent.iterations = iterations;
+            subagent.finished_at_ms = Some(now_ms);
             message.version += 1;
         }
     });
@@ -600,6 +637,7 @@ mod tests {
             args: Value::Null,
             args_preview: String::new(),
             started_at_ms: 0,
+            finished_at_ms: None,
             status,
             result_preview: None,
         }
@@ -616,6 +654,7 @@ mod tests {
             status,
             iterations: None,
             started_at_ms: 10,
+            finished_at_ms: None,
             tools: Vec::new(),
         }
     }
@@ -725,15 +764,17 @@ mod tests {
             )]);
             let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
 
-            update_tool_status(
+            let nested = update_tool_status(
                 set_tool_activities,
                 set_messages,
                 "call-1",
                 ToolActivityStatus::Done,
                 Some("ok".to_owned()),
+                42,
             );
 
             let items = messages.get_untracked();
+            assert!(nested);
             assert_eq!(items[0].version, 1);
             let tool = &items[0]
                 .subagent
@@ -742,6 +783,8 @@ mod tests {
                 .tools[0];
             assert_eq!(tool.status, ToolActivityStatus::Done);
             assert_eq!(tool.result_preview.as_deref(), Some("ok"));
+            // Терминальный статус фиксирует момент завершения для duration.
+            assert_eq!(tool.finished_at_ms, Some(42));
 
             let rail_items = tool_activities.get_untracked();
             assert_eq!(rail_items[0].status, ToolActivityStatus::Done);
@@ -763,6 +806,7 @@ mod tests {
                 "child-thread",
                 SubagentActivityStatus::Finished("completed".to_owned()),
                 Some(3),
+                110,
             );
 
             let items = messages.get_untracked();
@@ -773,6 +817,64 @@ mod tests {
                 SubagentActivityStatus::Finished("completed".to_owned())
             );
             assert_eq!(subagent.iterations, Some(3));
+            // started_at_ms = 10 в хелпере: длительность 100ms.
+            assert_eq!(subagent.duration_ms(), Some(100));
+        });
+    }
+
+    #[test]
+    fn push_subagent_message_attaches_to_running_task_tool_card() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut task_tool = tool_activity("call-task", ToolActivityStatus::Running);
+            task_tool.name = TASK_TOOL.to_owned();
+            let mut task_message = history_message(1, MessageRole::System, "");
+            task_message.tool = Some(task_tool);
+            let (messages, set_messages) = signal(vec![task_message]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+
+            // Активность прикрепилась к task-карточке: дубль не создан.
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].version, 1);
+            assert!(items[0].tool.is_some());
+            let subagent = items[0].subagent.as_ref().expect("attached subagent");
+            assert_eq!(subagent.child_thread_id, "child-thread");
+            assert_eq!(next_message_id.get_untracked(), 2);
+        });
+    }
+
+    #[test]
+    fn push_subagent_message_skips_finished_task_card_and_falls_back_to_standalone() {
+        let owner = Owner::new();
+        owner.with(|| {
+            // Завершённый прошлый task не должен получить чужую активность.
+            let mut task_tool = tool_activity("call-task", ToolActivityStatus::Done);
+            task_tool.name = TASK_TOOL.to_owned();
+            let mut task_message = history_message(1, MessageRole::System, "");
+            task_message.tool = Some(task_tool);
+            let (messages, set_messages) = signal(vec![task_message]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 2);
+            assert!(items[0].subagent.is_none());
+            assert!(items[1].subagent.is_some());
+            assert_eq!(next_message_id.get_untracked(), 3);
         });
     }
 
@@ -804,6 +906,7 @@ mod tests {
                 "child-thread",
                 SubagentActivityStatus::Finished("completed".to_owned()),
                 Some(1),
+                50,
             );
             push_subagent_message(
                 set_messages,
@@ -908,6 +1011,7 @@ mod tests {
                 args: serde_json::Value::Null,
                 args_preview: String::new(),
                 started_at_ms: 0,
+                finished_at_ms: None,
                 status: ToolActivityStatus::Done,
                 result_preview: None,
             };

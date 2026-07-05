@@ -355,10 +355,12 @@ Scope:
   ленты (правый «пузырь» пользователя, hover-only actions, fade-in ввода),
   streaming caret, reasoning-summary отдельным сворачиваемым блоком, markdown
   code block copy + language label + wrap toggle, LaTeX styling, восстановление
-  pending approvals/user-input после SSE reconnect через `/pending`. Осталось:
+  pending approvals/user-input после SSE reconnect через `/pending`, duration в
+  tool cards (live-вызовы; у восстановленных из истории границ времени нет),
+  единая карточка «task + субагент» с вложенными вызовами, итогом и
+  авто-сворачиванием после завершения. Осталось:
   - message actions: retry/continue;
   - compact typed controls и sticky latest controls для approval/user-input/plan;
-  - tool call rendering: duration в tool cards;
   - авто-отправка очереди после завершения turn (сейчас ручная кнопка);
   - composer polish: разгрузить нижнюю панель (настройки/стата/кнопки);
   - визуальный backlog: легенда карты topology, `:focus-visible` для кнопок,

@@ -139,6 +139,18 @@ pub(crate) fn ToolActivityCard(
                         .map(|summary| view! { <span class="tool-card-summary-meta">{summary}</span> }.into_any())
                         .unwrap_or_else(|| ().into_any())
                 }}
+                // Длительность завершённого вызова; у бегущих время тикает в
+                // бейдже статуса, у восстановленных из истории границ нет.
+                {move || {
+                    current_tool(message)
+                        .filter(|tool| tool.status.is_terminal())
+                        .and_then(|tool| tool.duration_ms())
+                        .map(|duration_ms| {
+                            view! { <span class="tool-card-duration">{format_duration_ms(duration_ms)}</span> }
+                                .into_any()
+                        })
+                        .unwrap_or_else(|| ().into_any())
+                }}
                 <code>{move || current_tool(message).map(|tool| short_id(&tool.call_id).to_owned()).unwrap_or_default()}</code>
                 <span class="tool-card-caret" aria-hidden="true">"▸"</span>
             </button>
@@ -698,6 +710,16 @@ pub(crate) fn format_elapsed_seconds(seconds: u64) -> String {
     }
 }
 
+/// Человекочитаемая длительность: короткие вызовы — с десятыми («0.4s»),
+/// длинные — как elapsed-таймер («12s», «1m 05s»).
+pub(crate) fn format_duration_ms(duration_ms: u64) -> String {
+    if duration_ms < 10_000 {
+        format!("{:.1}s", duration_ms as f64 / 1000.0)
+    } else {
+        format_elapsed_seconds(duration_ms / 1000)
+    }
+}
+
 pub(crate) fn tool_turn_card_class(status: ToolActivityStatus) -> String {
     let state_class = match status {
         ToolActivityStatus::Running
@@ -720,6 +742,14 @@ mod tests {
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
         assert_eq!(format_elapsed_seconds(9), "9s");
         assert_eq!(format_elapsed_seconds(65), "1m 05s");
+    }
+
+    #[test]
+    fn format_duration_ms_shows_decimals_only_for_short_calls() {
+        assert_eq!(format_duration_ms(400), "0.4s");
+        assert_eq!(format_duration_ms(2_340), "2.3s");
+        assert_eq!(format_duration_ms(12_000), "12s");
+        assert_eq!(format_duration_ms(65_000), "1m 05s");
     }
 
     #[test]
@@ -800,6 +830,7 @@ mod tests {
             args: args.clone(),
             args_preview: format_json(&args),
             started_at_ms: 0,
+            finished_at_ms: None,
             status: ToolActivityStatus::Done,
             result_preview: None,
         });
@@ -825,6 +856,7 @@ mod tests {
             args: args.clone(),
             args_preview: format_json(&args),
             started_at_ms: 0,
+            finished_at_ms: None,
             status: ToolActivityStatus::Done,
             result_preview: None,
         });

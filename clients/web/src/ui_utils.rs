@@ -29,11 +29,24 @@ pub(crate) fn compact_text(text: &str, limit: usize) -> String {
     }
 }
 
+/// Текущее время в ms. На native (unit-тесты) js_sys недоступен — время
+/// детерминированно нулевое, duration в тестах не считается.
+pub(crate) fn now_ms() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now().max(0.0) as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
 pub(crate) fn relative_time_from_now(timestamp_ms: Option<u64>) -> String {
     let Some(timestamp_ms) = timestamp_ms else {
         return "давно".to_owned();
     };
-    let now_ms = js_sys::Date::now().max(0.0) as u64;
+    let now_ms = now_ms();
     let elapsed_seconds = now_ms.saturating_sub(timestamp_ms) / 1000;
 
     if elapsed_seconds < 60 {
