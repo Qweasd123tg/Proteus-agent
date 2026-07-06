@@ -85,9 +85,12 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
 - (отложено) verification discipline в промпте («останавливайся на самом
   дешёвом достаточном сигнале; установка софта ради проверки — только
   спросив») — сначала посмотреть dogfood без always-visible браузера.
-- (отложено) качество ошибки `write_stdin` по умершей сессии: сейчас пустой
-  `exit 1` без объяснения, модель делает слепые повторы; нужно явное
-  «session N завершилась, вывод недоступен».
+- (закрыто) качество результата `write_stdin` по умершей сессии: пустой
+  `exit 1` с `ok: false` читался моделью как сбой инструмента (слепые
+  повторы). Выяснилось, что upstream `ExecCommandToolOutput` всегда отдаёт
+  success, а exit code — данные в тексте; `exec_command`/`write_stdin`
+  приведены к parity: `ok: true` всегда, «Process exited with code N» /
+  «Process running with session ID N».
 - (отложено) sandbox/permission инфа в `<environment_context>`: изначальная
   гипотеза «parity gap: Codex кладёт sandbox_mode/network_access» устарела —
   upstream main убрал эти поля и теперь рендерит `<filesystem>` permission
@@ -208,10 +211,11 @@ plan/execute/review экспериментов.
   (e) дочерний цикл исполняет tool calls последовательно — конкурентное
   исполнение read-only пачки (как в host `execute_tools_json`) — кандидат;
   (f) немота ребёнка (подавленные дельты) усиливает ощущение зависания —
-  плюс к child streaming; (g) отдельно от субагентов: агент воевал с git
+  плюс к child streaming; (g) (закрыто 2026-07-06) агент воевал с git
   pager-ом (повисший `git diff`, ручной `q`, три попытки отключить) — exec
-  env должен нейтрализовать интерактивность (`GIT_PAGER=cat`, `PAGER=cat`,
-  `TERM=dumb`), но сначала свериться с upstream codex exec env (parity rule).
+  env теперь нейтрализует интерактивность: `shell-tool` применяет копию
+  `UNIFIED_EXEC_ENV` upstream Codex (`PAGER`/`GIT_PAGER`/`GH_PAGER=cat`,
+  `TERM=dumb`, `NO_COLOR=1`, locale `C.UTF-8`, `PROTEUS_CI=1`).
 - ✅ Общий boilerplate трёх `run_*`-циклов вынесен в `TurnScaffold`
   (`coding-workflow/src/scaffold.rs`); фазовая логика осталась на call-site.
 

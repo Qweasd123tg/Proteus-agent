@@ -455,6 +455,23 @@ fn sandbox_kind(_cwd: &str) -> Option<SandboxKind> {
     available.then_some(SandboxKind::Bwrap)
 }
 
+/// Env запускаемых команд: нейтрализует интерактивность (pagers), цвет и
+/// локаль, чтобы `git diff`/`gh` и подобные не повисали на pager-е и не
+/// мусорили escape-кодами. Копия `UNIFIED_EXEC_ENV` из upstream Codex;
+/// брендовый маркер `CODEX_CI` заменён на `PROTEUS_CI`.
+pub(crate) const EXEC_COMMAND_ENV: [(&str, &str); 10] = [
+    ("NO_COLOR", "1"),
+    ("TERM", "dumb"),
+    ("LANG", "C.UTF-8"),
+    ("LC_CTYPE", "C.UTF-8"),
+    ("LC_ALL", "C.UTF-8"),
+    ("COLORTERM", ""),
+    ("PAGER", "cat"),
+    ("GIT_PAGER", "cat"),
+    ("GH_PAGER", "cat"),
+    ("PROTEUS_CI", "1"),
+];
+
 /// argv для bwrap: read-only корень, rw-bind workspace (и workdir, если он
 /// вне workspace), без сети, свежие /dev,/proc,/tmp.
 fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
@@ -509,6 +526,9 @@ fn spawn_shell(
         .current_dir(workdir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for (key, value) in EXEC_COMMAND_ENV {
+        command_builder.env(key, value);
+    }
 
     #[cfg(unix)]
     unsafe {
@@ -759,6 +779,19 @@ mod tests {
         assert_eq!(result["output"], "problem");
         assert_eq!(result["error"], "process exited with code 7");
         assert_eq!(result["metadata"]["exit_code"], 7);
+    }
+
+    #[test]
+    fn shell_neutralizes_interactive_env() {
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let result = invoke(
+            dir.path(),
+            "printf '%s|%s|%s' \"$TERM\" \"$GIT_PAGER\" \"$PAGER\"",
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["output"], "dumb|cat|cat");
     }
 
     #[test]

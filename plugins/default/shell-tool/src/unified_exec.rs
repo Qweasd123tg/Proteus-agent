@@ -27,7 +27,9 @@ use proteus_contracts::{
 };
 use serde_json::{Value, json};
 
-use crate::{SandboxKind, bwrap_args, omitted_marker, resolve_workdir, sandbox_kind};
+use crate::{
+    EXEC_COMMAND_ENV, SandboxKind, bwrap_args, omitted_marker, resolve_workdir, sandbox_kind,
+};
 
 const DEFAULT_EXEC_YIELD_MS: u64 = 10_000;
 const DEFAULT_WRITE_YIELD_MS: u64 = 250;
@@ -385,6 +387,9 @@ fn spawn_session(
         }
     };
     builder.cwd(workdir);
+    for (key, value) in EXEC_COMMAND_ENV {
+        builder.env(key, value);
+    }
 
     let mut child = pair
         .slave
@@ -522,13 +527,11 @@ fn render_result(
     let mut sections = vec![format!("Wall time: {:.4} seconds", wall_time.as_secs_f64())];
     if collected.exited {
         match collected.exit_code {
-            Some(code) => sections.push(format!("Exit code: {code}")),
+            Some(code) => sections.push(format!("Process exited with code {code}")),
             None => sections.push("Process terminated without exit code".to_owned()),
         }
     } else {
-        sections.push(format!(
-            "Session ID: {session_id} (process is still running; interact via write_stdin)"
-        ));
+        sections.push(format!("Process running with session ID {session_id}"));
     }
     if collected.dropped_bytes > 0 {
         sections.push(format!(
@@ -537,16 +540,6 @@ fn render_result(
         ));
     }
     sections.push(format!("Output:\n{text}"));
-
-    let (ok, error_msg) = if collected.exited {
-        match collected.exit_code {
-            Some(0) => (true, None),
-            Some(code) => (false, Some(format!("process exited with code {code}"))),
-            None => (false, Some("process terminated by signal".to_owned())),
-        }
-    } else {
-        (true, None)
-    };
 
     if let Some(map) = metadata.as_object_mut() {
         map.insert(
@@ -568,12 +561,16 @@ fn render_result(
         map.insert("truncated".to_owned(), json!(truncated));
     }
 
+    // Parity с upstream Codex (`ExecCommandToolOutput`): unified exec всегда
+    // отдаёт success — exit code процесса это данные в тексте/metadata, а не
+    // сбой tool-а. Иначе Ctrl-C или опрос умершей сессии выглядят для модели
+    // как ошибка write_stdin (dogfood 2026-07-06: слепые повторы).
     json!({
         "call_id": call_id,
-        "ok": ok,
+        "ok": true,
         "output": sections.join("\n"),
         "content": [],
-        "error": error_msg,
+        "error": Value::Null,
         "metadata": metadata
     })
     .to_string()
@@ -643,10 +640,23 @@ mod tests {
         assert_eq!(result["ok"], true);
         let output = result["output"].as_str().expect("output");
         assert!(output.contains("marker42"), "{output}");
-        assert!(output.contains("Exit code: 0"), "{output}");
+        assert!(output.contains("Process exited with code 0"), "{output}");
         assert_eq!(result["metadata"]["exited"], true);
         assert_eq!(result["metadata"]["exit_code"], 0);
         assert_eq!(result["metadata"]["session_id"], Value::Null);
+    }
+
+    #[test]
+    fn exec_command_neutralizes_interactive_env() {
+        let dir = tempfile::tempdir().expect("workspace");
+
+        let result = exec_command(
+            dir.path(),
+            json!({ "cmd": "printf '%s|%s|%s' \"$TERM\" \"$GIT_PAGER\" \"$PAGER\"" }),
+        );
+
+        let output = result["output"].as_str().expect("output");
+        assert!(output.contains("dumb|cat|cat"), "{output}");
     }
 
     #[test]
@@ -663,7 +673,7 @@ mod tests {
             started["output"]
                 .as_str()
                 .expect("output")
-                .contains(&format!("Session ID: {session_id}"))
+                .contains(&format!("Process running with session ID {session_id}"))
         );
 
         let echoed = write_stdin(json!({
@@ -743,14 +753,17 @@ mod tests {
     }
 
     #[test]
-    fn exec_command_reports_nonzero_exit() {
+    fn exec_command_reports_nonzero_exit_as_data_not_tool_failure() {
         let dir = tempfile::tempdir().expect("workspace");
 
         let result = exec_command(dir.path(), json!({ "cmd": "exit 7" }));
 
-        assert_eq!(result["ok"], false);
-        assert_eq!(result["error"], "process exited with code 7");
+        // Parity с upstream: exit code — данные в тексте/metadata, ok=true.
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["error"], Value::Null);
         assert_eq!(result["metadata"]["exit_code"], 7);
+        let output = result["output"].as_str().expect("output");
+        assert!(output.contains("Process exited with code 7"), "{output}");
     }
 
     #[test]

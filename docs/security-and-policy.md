@@ -274,6 +274,13 @@ OS-песочницу, если в системе доступен `bwrap` (bubb
 исполняет команды вне песочницы. Metadata результата (`sandbox`, `escalated`)
 отражают фактический режим запуска.
 
+Независимо от песочницы все команды `shell`/`exec_command` получают
+env-нейтрализацию интерактивности: `PAGER`/`GIT_PAGER`/`GH_PAGER=cat`,
+`TERM=dumb`, `NO_COLOR=1`, `COLORTERM=""`, `LANG`/`LC_CTYPE`/`LC_ALL=C.UTF-8`
+и маркер `PROTEUS_CI=1`. Это копия `UNIFIED_EXEC_ENV` из upstream Codex
+(брендовый `CODEX_CI` заменён на `PROTEUS_CI`): без неё `git diff`/`gh`
+повисают на интерактивном pager-е внутри PTY-сессии.
+
 Upstream Codex использует другой механизм (seatbelt/landlock+seccomp), где
 сервер в песочнице просто не может забиндиться — ошибка громкая. Наш
 bwrap-путь допускает тихий старт сервера в изолированной сети, поэтому

@@ -266,7 +266,13 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   `plugins/default/shell-tool/`); `exec_command`/`write_stdin` дают
   персистентные интерактивные PTY-сессии в духе Codex unified exec: команда
   живёт между tool-вызовами, модель докидывает stdin (включая Ctrl-C/Ctrl-D)
-  и забирает свежий вывод;
+  и забирает свежий вывод. Все команды получают env-нейтрализацию
+  интерактивности (`PAGER`/`GIT_PAGER`/`GH_PAGER=cat`, `TERM=dumb`,
+  `NO_COLOR=1`, `LANG`/`LC_*=C.UTF-8`, `PROTEUS_CI=1`) — копия
+  `UNIFIED_EXEC_ENV` upstream Codex. Результат `exec_command`/`write_stdin`
+  всегда `ok: true`: exit code процесса — данные в тексте/metadata, а не сбой
+  tool-а (parity с upstream `ExecCommandToolOutput`); one-shot `shell`
+  сохраняет `ok: false` при ненулевом exit;
 - `policy-pack` — `request_permissions` (из `plugins/default/policy-pack/`):
   turn-scoped эскалация через approval-gated grants, см.
   `docs/security-and-policy.md`.
