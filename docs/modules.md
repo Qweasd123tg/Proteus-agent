@@ -536,6 +536,15 @@ max_iterations = 15
 после exposure-фильтра runner оставит только перечисленные tools. Это особенно
 важно при `tool_exposure = "all_visible"`, где `exposure_phase` игнорируется.
 
+Model-запросы дочернего цикла включают prompt cache: `CacheHints(true, true)`
+и стабильный `prompt_cache_key` вида
+`proteus:subagent:<provider>:<model>:<child_thread_id>` — история ребёнка
+append-only, поэтому ключ на child thread даёт консистентный prefix-cache
+routing между итерациями и продолжается после resume по `task_id`. Ребёнок
+наследует модель и reasoning-настройки родителя; per-role model/effort пока
+не поддерживается (зафиксировано в roadmap как evidence для parallel/profile
+дизайна).
+
 ## Workflow
 
 Core не содержит production workflow. `modules.workflow = "none"` — inert

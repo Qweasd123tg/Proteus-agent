@@ -26,7 +26,7 @@ use crate::{
         SubagentRunner, SubagentStatus, ToolExposureInput, ToolExposureRequest,
     },
     core::ToolOrchestrator,
-    domain::{Event, SessionId, ThreadId, ToolSpec, new_thread_id},
+    domain::{CacheHints, Event, ModelRef, SessionId, ThreadId, ToolSpec, new_thread_id},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, MessageRole,
         TokenUsage,
@@ -565,7 +565,11 @@ async fn run_child_loop(
             CanonicalModelRequest::new(ctx.model_ref.clone(), state.history.clone())
                 .with_tools(tools.to_vec())
                 .with_reasoning(ctx.reasoning.clone())
-                .with_metadata(json!({ "suppress_stream_deltas": true }));
+                .with_cache(CacheHints::new(true, true))
+                .with_metadata(json!({
+                    "suppress_stream_deltas": true,
+                    "prompt_cache_key": child_prompt_cache_key(&ctx.model_ref, ctx.thread_id),
+                }));
         let response = match complete_model(ctx, model_request).await {
             Ok(response) => response,
             Err(_) if ctx.is_cancelled() => return Ok(SubagentStatus::Cancelled),
@@ -599,6 +603,43 @@ async fn run_child_loop(
         }
     }
     Ok(SubagentStatus::MaxIterationsReached)
+}
+
+/// Стабильный prompt-cache ключ дочернего цикла. История ребёнка растёт
+/// append-only, поэтому ключа на `(provider, model, child_thread_id)`
+/// достаточно для консистентного prefix-cache routing между итерациями;
+/// resume по `task_id` переиспользует тот же `child_thread_id`, так что кеш
+/// продолжается и после resume. Схема согласована с workflow-ключом
+/// (`proteus:{provider}:{model}:...`), но с явным пространством `subagent`,
+/// чтобы дочерние префиксы не смешивались с родительскими.
+fn child_prompt_cache_key(model_ref: &ModelRef, thread_id: ThreadId) -> String {
+    format!(
+        "proteus:subagent:{}:{}:{}",
+        sanitize_cache_key_component(&model_ref.provider),
+        sanitize_cache_key_component(&model_ref.model),
+        thread_id
+    )
+}
+
+/// Копия sanitize-правила workflow-ключа: ASCII alnum/-/_/. остаются,
+/// остальное заменяется на `_`, компонент обрезается до 64 символов.
+fn sanitize_cache_key_component(value: &str) -> String {
+    let mut out = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    out.truncate(64);
+    if out.is_empty() {
+        "model".to_owned()
+    } else {
+        out
+    }
 }
 
 /// Model call с таймаутом родительского runtime и отменой через
@@ -762,6 +803,7 @@ mod tests {
         inner: FakeModelClient,
         histories: StdMutex<Vec<Vec<CanonicalMessage>>>,
         metadatas: StdMutex<Vec<Value>>,
+        caches: StdMutex<Vec<CacheHints>>,
     }
 
     impl RecordingFakeModelClient {
@@ -771,6 +813,10 @@ mod tests {
 
         fn metadatas(&self) -> Vec<Value> {
             self.metadatas.lock().expect("metadatas lock").clone()
+        }
+
+        fn caches(&self) -> Vec<CacheHints> {
+            self.caches.lock().expect("caches lock").clone()
         }
     }
 
@@ -793,6 +839,10 @@ mod tests {
                 .lock()
                 .expect("metadatas lock")
                 .push(request.metadata.clone());
+            self.caches
+                .lock()
+                .expect("caches lock")
+                .push(request.cache.clone());
             self.inner.complete(request).await
         }
 
@@ -1284,6 +1334,54 @@ Markdown prompt.\n",
                 .iter()
                 .all(|metadata| metadata["suppress_stream_deltas"] == json!(true))
         );
+    }
+
+    /// Дочерние запросы должны включать prompt cache: append-only история
+    /// ребёнка без cache hints и стабильного ключа перепрефилливалась почти
+    /// по полной цене на каждой итерации (dogfood-находка 2026-07-06).
+    #[tokio::test]
+    async fn child_loop_model_requests_enable_prompt_cache() {
+        let runner = SequentialSubagentRunner::from_config(explorer_config()).unwrap();
+        let events = Arc::new(InMemoryEventStore::new());
+        let model = Arc::new(RecordingFakeModelClient::default());
+        let ctx = test_runtime_context_with_model(events, model.clone());
+        let cwd = tempfile::tempdir().expect("workspace");
+        let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+        runner
+            .run(SubagentRequest::new("explore", "look around", task), ctx)
+            .await
+            .unwrap();
+
+        let metadatas = model.metadatas();
+        assert!(!metadatas.is_empty());
+        let first_key = metadatas[0]["prompt_cache_key"]
+            .as_str()
+            .expect("prompt_cache_key present");
+        assert!(first_key.starts_with("proteus:subagent:"));
+        assert!(
+            metadatas
+                .iter()
+                .all(|metadata| metadata["prompt_cache_key"].as_str() == Some(first_key)),
+            "cache key must be stable across child iterations"
+        );
+
+        let caches = model.caches();
+        assert!(!caches.is_empty());
+        assert!(
+            caches
+                .iter()
+                .all(|cache| cache.cache_instructions && cache.cache_context)
+        );
+    }
+
+    #[test]
+    fn child_prompt_cache_key_is_stable_and_sanitized() {
+        let model_ref = ModelRef::new("open ai", "gpt/5.5");
+        let thread_id = new_thread_id();
+        let key = child_prompt_cache_key(&model_ref, thread_id);
+        assert_eq!(key, format!("proteus:subagent:open_ai:gpt_5.5:{thread_id}"));
+        assert_eq!(key, child_prompt_cache_key(&model_ref, thread_id));
     }
 
     #[tokio::test]
