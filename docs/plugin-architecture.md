@@ -206,7 +206,7 @@ Contracts вынесены в отдельный crate `proteus-contracts`. Он
   Они лежат в contracts crate намеренно, чтобы default/behavior packs не
   копировали path-safety и ABI serialization вручную.
 
-Ядро (`proteus-core`) depends на `proteus-contracts`. Каждый плагин - отдельный Cargo project - тоже depends на `proteus-contracts`, но **не на `proteus-core`**. Это архитектурная граница: плагин не может случайно дотянуться до внутренностей ядра.
+Ядро (`proteus-core`) depends на `proteus-contracts`. Каждый плагин - отдельный Cargo project - тоже depends на `proteus-contracts` и может зависеть от утилитарных крейтов без ABI-типов (сейчас `proteus-process-host`), но **не на `proteus-core`**. Это архитектурная граница: плагин не может случайно дотянуться до внутренностей ядра.
 
 Версия `proteus-contracts` следует semver. Плагин в своём `Cargo.toml` указывает минимальную совместимую версию: `proteus-contracts = "^0.1"`. Cargo валидирует совместимость на уровне сборки. `abi_stable` добавляет runtime-check через checksum при загрузке dylib.
 
@@ -278,8 +278,9 @@ proteus-core/              # root workspace
 ```
 
 Каждый плагин - отдельный Cargo project, который не зависит от `proteus-core`;
-contract boundary задаёт `proteus-contracts`, а ABI glue может использовать
-`abi_stable`.
+contract boundary задаёт `proteus-contracts`, ABI glue может использовать
+`abi_stable`, а общая stdio/process сантехника может браться из
+`proteus-process-host`, потому что крейт не вводит ABI-типов.
 
 Миграция на standalone repositories для плагинов произойдёт, когда появятся внешние (не собственные) плагины.
 
@@ -451,7 +452,7 @@ Stdio MCP server процессы изолированы через границ
 - Async ModelAdapter plugins — отложено до Волны 4. Workflow уже вынесен
   через sync plugin ABI + host callbacks.
 - Migration shim'ы для несовместимых ABI версий (пересборка плагина дешевле).
-- Plugin dependencies (плагин depends только на proteus-contracts).
+- Произвольные plugin dependencies; разрешены `proteus-contracts` и узкие utility-крейты без ABI-типов (сейчас `proteus-process-host`).
 - **YAML declarative плагины как отдельный loader** — отменено. `ConfiguredProcessTool` в ядре + dylib-плагины покрывают все кейсы.
 
 ---

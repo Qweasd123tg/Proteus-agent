@@ -171,6 +171,12 @@ pipeline) почти бесплатно.
 По правилу «contract после второго use case» абстракция созрела: выделить
 process host как named задачу до LSP и parallel subagents — обе дешевеют.
 
+**Реализовано частично:** общий sync process host выделен в
+`crates/proteus-process-host` (framing, request/response, notifications,
+kill-on-timeout, lazy restart). Первый потребитель — будущий LSP-плагин;
+миграция существующего MCP stdio host из core оставлена отдельным отложенным
+шагом.
+
 ### Кластер 4: ABI-стена для runtime-фактов
 
 Permission mode заворачивается в `ModeAwarePolicy` при создании runtime
@@ -211,7 +217,8 @@ slot-governance назрел.
    (`messages.pre-compaction.N.jsonl`) — дешёвый шаг для replay/eval/clone-pipeline.
 2. Единое решение по данным (parts + storage engine + replay) до
    eval runner-а.
-3. Process host как named задача — до LSP и parallel subagents.
+3. ✅ Реализовано в части крейта: `proteus-process-host` выделен как named
+   sync utility; подключение LSP-плагина и миграция MCP — отдельные шаги.
 4. Parallel subagents — только после v0.3 approval queue с атрибуцией
    (для пути B — плюс стабилизация protocol v0.4).
 

@@ -8,6 +8,7 @@ exclude = [
 members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
+    "crates/proteus-process-host",
     "plugins/default/file-tools",
     "plugins/default/git-tools",
     "plugins/default/sqlite-memory",

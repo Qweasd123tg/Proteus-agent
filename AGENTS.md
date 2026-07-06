@@ -45,6 +45,7 @@ rendering, UI state, tests и provider/module-specific детали.
 crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
     proteus-core/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
+    proteus-process-host/ - утилитарный крейт: lifecycle persistent stdio child-процессов (framing, request/response, restart)
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
@@ -65,7 +66,7 @@ plugins/
         renderer-pack/       - Renderer плагины "plain" и "statusline"
 ```
 
-Плагины живут в `~/.proteus/plugins/` и не зависят от `proteus-core`; граница проходит через `proteus-contracts` и ABI glue на `abi_stable`. Детали — `docs/plugin-architecture.md`.
+Плагины живут в `~/.proteus/plugins/` и не зависят от `proteus-core`; граница проходит через `proteus-contracts` и ABI glue на `abi_stable`. Допустимы зависимости от утилитарных крейтов без ABI-типов (сейчас `proteus-process-host`). Детали — `docs/plugin-architecture.md`.
 
 ## Что Нельзя Ломать
 
@@ -92,7 +93,7 @@ plugins/
 5. Добавить тест на заменяемость, если модуль относится к slot.
 6. Обновить `docs/modules.md` и при необходимости `docs/configuration.md`.
 
-Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.proteus/plugins/`, depends только на `proteus-contracts`. См. `docs/plugin-architecture.md`.
+Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.proteus/plugins/`, depends на `proteus-contracts` и, при необходимости, утилитарные крейты без ABI-типов (сейчас `proteus-process-host`). См. `docs/plugin-architecture.md`.
 
 Для v0 модульность означает либо выбор встроенной реализации через config, либо загрузку dylib-плагина. Marketplace, WASM runtime, hot-reload и sandbox не являются текущей целью.
 

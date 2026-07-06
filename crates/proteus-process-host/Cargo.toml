@@ -1,0 +1,13 @@
+[package]
+name = "proteus-process-host"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+
+[[test]]
+name = "session"
+path = "tests/session.rs"
+harness = false
