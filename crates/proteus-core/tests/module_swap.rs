@@ -1669,6 +1669,7 @@ done
         protocol_version: "2025-06-18".to_owned(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
+        max_response_bytes: None,
         metadata: json!({ "scope": "test" }),
     });
 
@@ -1777,6 +1778,7 @@ done
             args: vec![server.to_string_lossy().to_string()],
             tool: "remote_echo".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
+            max_response_bytes: None,
         },
     });
     let registry = registry_from_test_config(&config, dir.path());
@@ -1865,6 +1867,7 @@ done
             args: vec![server.to_string_lossy().to_string()],
             tool: "counter".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
+            max_response_bytes: None,
         },
     });
     let registry = registry_from_test_config(&config, dir.path());
@@ -1920,6 +1923,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
             args: vec!["-c".to_owned(), "exit 99".to_owned()],
             tool: "remote".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
+            max_response_bytes: None,
         },
     });
     let registry = registry_from_test_config(&config, dir.path());

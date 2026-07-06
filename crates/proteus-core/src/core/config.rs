@@ -547,6 +547,8 @@ pub enum ConfiguredToolExecutorConfig {
         tool: String,
         #[serde(default = "default_mcp_protocol_version")]
         protocol_version: String,
+        #[serde(default)]
+        max_response_bytes: Option<usize>,
     },
 }
 
@@ -562,6 +564,12 @@ pub struct ConfiguredMcpServerConfig {
     pub safety: crate::domain::ToolSafety,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
+    /// Максимальный размер одной JSON-строки ответа сервера в байтах.
+    /// По умолчанию — общий `DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES` (20 000);
+    /// серверы с крупными payload-ами (browser snapshots и т.п.) могут
+    /// поднять лимит per-server.
+    #[serde(default)]
+    pub max_response_bytes: Option<usize>,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }

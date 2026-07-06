@@ -611,7 +611,8 @@ builtin/configured tool, это считается ошибкой конфигу
 `find_files` из `file-tools` ищет пути через `rg --files --glob` и принимает
 `pattern`, optional `path`, `exclude` и `max_results`. `read_many_files`
 читает несколько UTF-8 файлов за один вызов и ограничивает вывод через общий
-`max_bytes_total`, per-file `max_bytes_per_file` и максимум 20 paths.
+`max_bytes_total` (default 122880, cap 204800), per-file `max_bytes_per_file`
+и максимум 20 paths.
 
 `git_status` и `git_diff` из `git-tools` запускают фиксированные read-only
 git-команды в workspace. `git_diff` отключает external diff/textconv и
@@ -694,8 +695,10 @@ args = ["tools/echo_args.py"]
 
 Для `native` executor указывается `handler`, например
 `handler = "apply_patch"`. Для inline `mcp` executor указываются `command`,
-optional `args`, optional `server`, remote `tool` и optional
-`protocol_version`.
+optional `args`, optional `server`, remote `tool`, optional
+`protocol_version` и optional `max_response_bytes` (лимит одной JSON-строки
+ответа сервера; default 20000 байт — тот же ключ доступен и в
+`[[tools.mcp_servers]]`).
 
 Сейчас поддержаны executors `native`, `process` и `mcp`.
 
@@ -723,6 +726,9 @@ command = "node"
 args = ["./mcp-docs-server.js"]
 safety = "RunsCommands"
 timeout_ms = 30000
+# Максимум байт на одну JSON-строку ответа сервера; default 20000.
+# Серверы с крупными payload-ами (browser snapshots) могут поднять лимит.
+# max_response_bytes = 100000
 metadata = { scope = "documentation" }
 ```
 

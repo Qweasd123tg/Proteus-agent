@@ -9,11 +9,16 @@ use serde_json::Value;
 #[cfg(test)]
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
+#[cfg(test)]
 use crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES;
 
+#[cfg(test)]
 const MCP_STDIO_RESPONSE_LIMIT_BYTES: usize = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES;
 
-pub(super) fn spawn_sync_json_line_reader<R>(reader: R) -> Receiver<Result<Value>>
+pub(super) fn spawn_sync_json_line_reader<R>(
+    reader: R,
+    max_response_bytes: usize,
+) -> Receiver<Result<Value>>
 where
     R: std::io::Read + Send + 'static,
 {
@@ -21,7 +26,7 @@ where
     std::thread::spawn(move || {
         let mut reader = StdBufReader::new(reader);
         loop {
-            let value = sync_read_json_line(&mut reader);
+            let value = sync_read_json_line(&mut reader, max_response_bytes);
             let done = value.is_err();
             if tx.send(value).is_err() || done {
                 break;
@@ -88,11 +93,11 @@ where
     Ok(())
 }
 
-fn sync_read_json_line<R>(reader: &mut R) -> Result<Value>
+fn sync_read_json_line<R>(reader: &mut R, max_response_bytes: usize) -> Result<Value>
 where
     R: BufRead,
 {
-    let mut line = Vec::with_capacity(MCP_STDIO_RESPONSE_LIMIT_BYTES.min(8192));
+    let mut line = Vec::with_capacity(max_response_bytes.min(8192));
     loop {
         let buffer = reader.fill_buf()?;
         if buffer.is_empty() {
@@ -106,8 +111,8 @@ where
             .iter()
             .position(|byte| *byte == b'\n')
             .map_or(buffer.len(), |position| position + 1);
-        if line.len().saturating_add(bytes_to_take) > MCP_STDIO_RESPONSE_LIMIT_BYTES {
-            bail!("MCP response exceeded {MCP_STDIO_RESPONSE_LIMIT_BYTES} bytes before newline");
+        if line.len().saturating_add(bytes_to_take) > max_response_bytes {
+            bail!("MCP response exceeded {max_response_bytes} bytes before newline");
         }
 
         line.extend_from_slice(&buffer[..bytes_to_take]);
@@ -229,13 +234,30 @@ mod tests {
         let response = vec![b' '; MCP_STDIO_RESPONSE_LIMIT_BYTES + 1];
         let mut stdout = StdBufReader::new(&response[..]);
 
-        let error =
-            sync_read_json_line(&mut stdout).expect_err("oversized MCP response should fail");
+        let error = sync_read_json_line(&mut stdout, MCP_STDIO_RESPONSE_LIMIT_BYTES)
+            .expect_err("oversized MCP response should fail");
 
         assert!(
             error
                 .to_string()
                 .contains("MCP response exceeded 20000 bytes before newline")
         );
+    }
+
+    /// Per-server `max_response_bytes` поднимает лимит: ответ больше
+    /// дефолтных 20 000 байт читается целиком при увеличенном лимите.
+    #[test]
+    fn sync_mcp_json_line_honors_custom_limit() {
+        let payload = "x".repeat(MCP_STDIO_RESPONSE_LIMIT_BYTES + 1);
+        let response = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"{payload}\"}}\n");
+        let mut stdout = StdBufReader::new(response.as_bytes());
+
+        let value = sync_read_json_line(&mut stdout, 100_000)
+            .expect("custom limit should accept larger response");
+        assert_eq!(value["id"], 1);
+
+        let mut stdout = StdBufReader::new(response.as_bytes());
+        sync_read_json_line(&mut stdout, MCP_STDIO_RESPONSE_LIMIT_BYTES)
+            .expect_err("default limit should still reject the same response");
     }
 }

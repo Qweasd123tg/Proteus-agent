@@ -94,10 +94,12 @@ pub(super) struct McpStdioHost {
     protocol_version: String,
     cwd: PathBuf,
     timeout: Duration,
+    max_response_bytes: usize,
     session: Mutex<Option<McpStdioSession>>,
 }
 
 impl McpStdioHost {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         server_name: String,
         command: String,
@@ -105,6 +107,7 @@ impl McpStdioHost {
         protocol_version: String,
         cwd: PathBuf,
         timeout: Duration,
+        max_response_bytes: usize,
     ) -> Self {
         Self {
             server_name,
@@ -113,6 +116,7 @@ impl McpStdioHost {
             protocol_version,
             cwd,
             timeout,
+            max_response_bytes,
             session: Mutex::new(None),
         }
     }
@@ -162,6 +166,7 @@ impl McpStdioHost {
                 &self.protocol_version,
                 &self.cwd,
                 self.timeout,
+                self.max_response_bytes,
             )?);
         }
         Ok(())
@@ -175,6 +180,7 @@ pub(super) fn configured_mcp_inline_host(
     protocol_version: String,
     cwd: &Path,
     timeout_ms: u64,
+    max_response_bytes: Option<usize>,
 ) -> Arc<McpStdioHost> {
     Arc::new(McpStdioHost::new(
         server_name,
@@ -183,6 +189,8 @@ pub(super) fn configured_mcp_inline_host(
         protocol_version,
         cwd.to_path_buf(),
         Duration::from_millis(timeout_ms),
+        max_response_bytes
+            .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
     ))
 }
 
@@ -218,6 +226,9 @@ fn configured_mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) ->
         server.protocol_version.clone(),
         cwd.to_path_buf(),
         Duration::from_millis(server.timeout_ms.unwrap_or(30_000)),
+        server
+            .max_response_bytes
+            .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
     ))
 }
 
@@ -245,6 +256,7 @@ mod tests {
     fn mcp_discovery_times_out_when_server_is_silent() {
         let cwd = tempfile::tempdir().expect("temp dir");
         let server = ConfiguredMcpServerConfig {
+            max_response_bytes: None,
             name: "silent".to_owned(),
             command: "sh".to_owned(),
             args: vec!["-c".to_owned(), "sleep 5".to_owned()],

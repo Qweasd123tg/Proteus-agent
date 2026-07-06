@@ -40,6 +40,7 @@ impl McpStdioSession {
         protocol_version: &str,
         cwd: &Path,
         timeout: Duration,
+        max_response_bytes: usize,
     ) -> Result<Self> {
         let mut child = StdCommand::new(command)
             .args(args)
@@ -56,7 +57,7 @@ impl McpStdioSession {
             .stdout
             .take()
             .ok_or_else(|| anyhow!("failed to open MCP server stdout"))?;
-        let stdout_rx = spawn_sync_json_line_reader(stdout);
+        let stdout_rx = spawn_sync_json_line_reader(stdout, max_response_bytes);
 
         let mut session = Self {
             server_name: server_name.to_owned(),

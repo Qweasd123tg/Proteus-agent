@@ -154,6 +154,7 @@ pub fn register_configured_tools(
                 args,
                 tool,
                 protocol_version,
+                max_response_bytes,
             } => {
                 let host = configured_mcp_inline_host(
                     server.clone().unwrap_or_else(|| command.clone()),
@@ -162,6 +163,7 @@ pub fn register_configured_tools(
                     protocol_version.clone(),
                     cwd,
                     configured.timeout_ms.unwrap_or(30_000),
+                    *max_response_bytes,
                 );
                 registry.register_with_source(
                     source,
