@@ -119,18 +119,25 @@ harness и недеструктивная компакция — потреби�
 - компакция необратимо стирает историю: `replace_messages`
   (`core/session_store.rs:162`) переписывает `messages.jsonl` без архива;
   единственный вызов — `core/runtime.rs:316`;
+  **реализовано:** перед replace текущая history архивируется как
+  `messages.pre-compaction.N.jsonl`;
 - event log — телеметрия, не запись: `ContextBuilt {chunks,
   token_estimate}`, `ModelRequestPrepared {ModelRef}`
   (`contracts/domain/events.rs:229`); tool output усекается до записи в
   durable log (`core/tool_orchestrator.rs:215`), оригинал теряется; дельты
   в durable log по умолчанию не пишутся;
-- `session.json` хранит только id+workspace, config/profile снапшота нет.
+  **реализовано частично:** полный shaped `CanonicalModelRequest` пишется в
+  session-local `requests.jsonl` вне event enum;
+- `session.json` хранит только id+workspace, config/profile снапшота нет —
+  **реализовано:** session-local `config_snapshot.json` фиксирует последний
+  resolved startup/persist snapshot.
 
-Дешёвый ранний ход: `CanonicalModelRequest` уже полностью
-serde-сериализуем (`model_standard/canonical_request.rs:11`) — можно
-начать персистить request+config снапшоты и архивировать до-компакционную
-историю (rename вместо перезаписи) до любых решений по storage engine. Это
-разблокирует replay/eval/A-B (clone pipeline) почти бесплатно.
+Дешёвый ранний ход реализован: `CanonicalModelRequest` уже полностью
+serde-сериализуем (`model_standard/canonical_request.rs:11`), поэтому core
+теперь персистит request snapshots (`requests.jsonl`), config snapshots
+(`config_snapshot.json`) и архивирует до-компакционную историю rename-ом до
+любых решений по storage engine. Это разблокирует replay/eval/A-B (clone
+pipeline) почти бесплатно.
 
 ### Кластер 2: изоляция subagent — иллюзия; parallel гейтится на control plane
 
@@ -199,8 +206,9 @@ slot-governance назрел.
 
 ### Рекомендованный порядок
 
-1. Снапшоты request+config в event log + архив до-компакционной истории —
-   дёшево, разблокирует replay/eval/clone-pipeline.
+1. ✅ Реализовано: session-local снапшоты request/config (`requests.jsonl`,
+   `config_snapshot.json`) + архив до-компакционной истории
+   (`messages.pre-compaction.N.jsonl`) — дешёвый шаг для replay/eval/clone-pipeline.
 2. Единое решение по данным (parts + storage engine + replay) до
    eval runner-а.
 3. Process host как named задача — до LSP и parallel subagents.

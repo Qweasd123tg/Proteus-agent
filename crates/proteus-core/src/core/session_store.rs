@@ -16,6 +16,9 @@ use crate::{
 };
 
 const SESSION_METADATA_FILE: &str = "session.json";
+const MESSAGES_FILE: &str = "messages.jsonl";
+const PRE_COMPACTION_PREFIX: &str = "messages.pre-compaction.";
+const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
 
 #[derive(Debug, Clone)]
 pub struct SessionStore {
@@ -58,7 +61,7 @@ impl SessionStore {
             .join("sessions")
             .join(workspace)
             .join(session_name);
-        let messages_path = session_dir.join("messages.jsonl");
+        let messages_path = session_dir.join(MESSAGES_FILE);
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
         let lock = lock_for_messages_path(&messages_path);
         Self {
@@ -72,7 +75,7 @@ impl SessionStore {
     }
 
     pub fn from_session_dir(session_dir: PathBuf) -> Self {
-        let messages_path = session_dir.join("messages.jsonl");
+        let messages_path = session_dir.join(MESSAGES_FILE);
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
         let lock = lock_for_messages_path(&messages_path);
         Self {
@@ -183,6 +186,9 @@ impl SessionStore {
         tokio::fs::write(&tmp_path, content)
             .await
             .with_context(|| format!("failed to write {}", tmp_path.display()))?;
+
+        self.archive_messages_before_compaction().await?;
+
         tokio::fs::rename(&tmp_path, &self.messages_path)
             .await
             .with_context(|| {
@@ -190,6 +196,33 @@ impl SessionStore {
                     "failed to replace {} with {}",
                     self.messages_path.display(),
                     tmp_path.display()
+                )
+            })?;
+        Ok(())
+    }
+
+    async fn archive_messages_before_compaction(&self) -> Result<()> {
+        match tokio::fs::metadata(&self.messages_path).await {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("failed to inspect {}", self.messages_path.display())
+                });
+            }
+        }
+
+        let seq = next_pre_compaction_archive_seq(&self.session_dir).await?;
+        let archive_path = self.session_dir.join(format!(
+            "{PRE_COMPACTION_PREFIX}{seq}{PRE_COMPACTION_SUFFIX}"
+        ));
+        tokio::fs::rename(&self.messages_path, &archive_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to archive {} as {} before compaction",
+                    self.messages_path.display(),
+                    archive_path.display()
                 )
             })?;
         Ok(())
@@ -344,7 +377,7 @@ pub async fn delete_workspace_session(
 }
 
 pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
-    if session_path.file_name().and_then(|name| name.to_str()) == Some("messages.jsonl") {
+    if session_path.file_name().and_then(|name| name.to_str()) == Some(MESSAGES_FILE) {
         return session_path
             .parent()
             .map(PathBuf::from)
@@ -392,8 +425,8 @@ fn session_summary_from_dir(session_dir: PathBuf) -> Result<SessionSummary> {
         .as_ref()
         .and_then(|metadata| metadata.workspace_path.clone())
         .or_else(|| infer_workspace_path_from_session_dir(&session_dir));
-    let (message_count, preview) = messages_summary(&session_dir.join("messages.jsonl"))?;
-    let updated_at_ms = session_updated_at_ms(&session_dir.join("messages.jsonl"))
+    let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
+    let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE))
         .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
 
     Ok(SessionSummary {
@@ -470,6 +503,31 @@ fn session_updated_at_ms(path: &Path) -> Option<u64> {
         .duration_since(UNIX_EPOCH)
         .ok()
         .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
+}
+
+async fn next_pre_compaction_archive_seq(session_dir: &Path) -> Result<u64> {
+    let mut max_seq = 0_u64;
+    let mut entries = tokio::fs::read_dir(session_dir)
+        .await
+        .with_context(|| format!("failed to read {}", session_dir.display()))?;
+    while let Some(entry) = entries.next_entry().await? {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(seq) = pre_compaction_archive_seq(&name) else {
+            continue;
+        };
+        max_seq = max_seq.max(seq);
+    }
+    Ok(max_seq.saturating_add(1))
+}
+
+fn pre_compaction_archive_seq(file_name: &str) -> Option<u64> {
+    file_name
+        .strip_prefix(PRE_COMPACTION_PREFIX)?
+        .strip_suffix(PRE_COMPACTION_SUFFIX)?
+        .parse::<u64>()
+        .ok()
 }
 
 fn read_session_metadata(session_dir: &Path) -> Result<Option<SessionMetadata>> {
@@ -669,6 +727,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replace_messages_archives_pre_compaction_history_with_incrementing_seq() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let store = SessionStore::from_session_dir(dir.path().join("session"));
+        let first = vec![CanonicalMessage::text(MessageRole::User, "before first")];
+        let second = vec![CanonicalMessage::text(
+            MessageRole::Assistant,
+            "after first",
+        )];
+        let third = vec![CanonicalMessage::text(MessageRole::User, "after second")];
+
+        store.append_messages(&first).await.expect("seed messages");
+        store
+            .replace_messages(&second)
+            .await
+            .expect("first replace");
+        store
+            .replace_messages(&third)
+            .await
+            .expect("second replace");
+
+        let archive_one = store.session_dir().join("messages.pre-compaction.1.jsonl");
+        let archive_two = store.session_dir().join("messages.pre-compaction.2.jsonl");
+        assert!(archive_one.exists());
+        assert!(archive_two.exists());
+        assert_eq!(read_messages_file(&archive_one), first);
+        assert_eq!(read_messages_file(&archive_two), second);
+        assert_eq!(store.load_messages().expect("load current"), third);
+    }
+
+    #[test]
+    fn load_messages_ignores_pre_compaction_archives() {
+        let dir = tempfile::tempdir().expect("session dir");
+        let session_dir = dir.path().join("session");
+        std::fs::create_dir_all(&session_dir).expect("create session dir");
+        let archived = CanonicalMessage::text(MessageRole::User, "archived only");
+        let mut line = serde_json::to_vec(&archived).expect("archive json");
+        line.push(b'\n');
+        std::fs::write(session_dir.join("messages.pre-compaction.1.jsonl"), line)
+            .expect("write archive");
+
+        let store = SessionStore::from_session_dir(session_dir);
+        let loaded = store.load_messages().expect("load messages");
+
+        assert!(loaded.is_empty());
+    }
+
+    #[tokio::test]
     async fn append_writes_session_metadata_for_new_store() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
@@ -819,5 +924,13 @@ mod tests {
         let inferred = infer_workspace_path_from_session_dir(&session_dir);
 
         assert_eq!(inferred.as_deref(), Some(workspace.as_path()));
+    }
+
+    fn read_messages_file(path: &Path) -> Vec<CanonicalMessage> {
+        std::fs::read_to_string(path)
+            .expect("read messages file")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("message json"))
+            .collect()
     }
 }

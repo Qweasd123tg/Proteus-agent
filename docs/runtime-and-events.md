@@ -131,6 +131,34 @@ config запросил такой режим через provider profile `reaso
 chain-of-thought и без `event_log.persist_deltas = true` не восстанавливается
 после restart/resume.
 
+## Session Store И Durable Snapshots
+
+Если runtime запущен с config path, рядом с config root создаётся дерево
+`sessions/<workspace>/<session>/`. Основной файл истории остаётся
+`messages.jsonl`: в него пишутся только committed `CanonicalMessage`, без
+эфемерных context chunks.
+
+Перед заменой истории после компакции текущий `messages.jsonl`
+переименовывается в `messages.pre-compaction.N.jsonl` в той же директории
+сессии, где `N` — следующий номер по уже существующим архивам. Это именно
+`rename`, не копирование; если исходного `messages.jsonl` нет, архив не
+создаётся. Resume/list читают только текущий `messages.jsonl` и не подхватывают
+архивы как активную history.
+
+`requests.jsonl` содержит снапшоты полных `CanonicalModelRequest` после
+`RequestShaper` и перед вызовом provider adapter. Каждая строка — JSON object:
+`schema_version`, `ts` (Unix ms), `thread_id`, `request`. Это не event log и не
+новый contract: файл нужен для replay/eval/debug и может быть отключён через
+`runtime.persist_request_snapshots = false`.
+
+`config_snapshot.json` — последний startup/persist snapshot resolved runtime
+config для этой сессии. Он перезаписывается при открытии существующей сессии и
+при первой материализации новой сессии. В snapshot входят profile name, active
+provider, active model ref, reasoning config, выбранные module ids, список
+зарегистрированных tools с source/spec и default permission mode. Изменения
+посреди session (например смена model из UI) остаются событиями runtime и не
+дублируются в этом файле.
+
 Ключевые события текущего workflow:
 
 - `SessionStarted`;

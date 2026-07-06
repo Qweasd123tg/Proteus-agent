@@ -6,6 +6,7 @@ use futures_util::StreamExt;
 
 use crate::{
     contracts::{EventEmitter, ModelAdapter, ModelClient, ModelEventStream},
+    core::RequestSnapshotWriter,
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -25,6 +26,7 @@ pub struct DeltaEventContext {
     pub session_id: Option<SessionId>,
     pub thread_id: Option<ThreadId>,
     pub turn_id: Option<TurnId>,
+    pub request_snapshot_writer: Option<Arc<RequestSnapshotWriter>>,
 }
 
 pub struct ModelService {
@@ -81,6 +83,12 @@ impl ModelClient for ModelService {
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let capabilities = self.adapter.capabilities(&request.model);
         let request = self.shaper.shape(request, &capabilities)?;
+        let ctx = self.snapshot_context();
+        if let (Some(writer), Some(thread_id)) = (&ctx.request_snapshot_writer, ctx.thread_id)
+            && let Err(error) = writer.append(thread_id, &request).await
+        {
+            eprintln!("warning: failed to persist model request snapshot: {error:#}");
+        }
         self.adapter.stream(request).await
     }
 
@@ -356,6 +364,7 @@ mod tests {
             session_id: Some(new_session_id()),
             thread_id: Some(new_thread_id()),
             turn_id: Some(new_turn_id()),
+            ..DeltaEventContext::default()
         });
 
         let _ = service.complete(sample_request()).await.unwrap();
@@ -391,6 +400,7 @@ mod tests {
             session_id: Some(new_session_id()),
             thread_id: Some(new_thread_id()),
             turn_id: Some(new_turn_id()),
+            ..DeltaEventContext::default()
         });
 
         let request = sample_request().with_metadata(serde_json::json!({

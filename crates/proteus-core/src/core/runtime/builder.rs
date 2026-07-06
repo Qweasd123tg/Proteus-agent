@@ -10,7 +10,8 @@ use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, UserInputTransport},
     core::{
         AppConfig, BuiltinModuleCatalog, BuiltinRegistry, CachedApprovalTransport,
-        HeadlessApprovalTransport, HeadlessUserInputTransport, JsonlEventStore, SessionStore,
+        HeadlessApprovalTransport, HeadlessUserInputTransport, JsonlEventStore,
+        RequestSnapshotWriter, SessionConfigSnapshot, SessionStore, write_config_snapshot,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
 };
@@ -157,6 +158,20 @@ impl AgentRuntimeBuilder {
                 .map(config_store_root)
                 .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id))
         };
+        let config_snapshot = session_store.as_ref().map(|_| {
+            SessionConfigSnapshot::from_runtime_config(&config, &registry, permission_mode)
+        });
+        if resume_history
+            && let (Some(session_store), Some(snapshot)) = (&session_store, &config_snapshot)
+            && session_store.session_dir().exists()
+            && let Err(error) = write_config_snapshot(session_store.session_dir(), snapshot)
+        {
+            eprintln!("warning: failed to persist session config snapshot: {error:#}");
+        }
+        let request_snapshot_writer = session_store
+            .as_ref()
+            .filter(|_| config.runtime.persist_request_snapshots)
+            .map(|store| Arc::new(RequestSnapshotWriter::new(store.session_dir())));
         let history = if resume_history {
             session_store
                 .as_ref()
@@ -179,6 +194,8 @@ impl AgentRuntimeBuilder {
                 events,
                 approval,
                 user_input,
+                request_snapshot_writer,
+                config_snapshot,
                 permission_mode: RwLock::new(permission_mode),
                 model_ref: RwLock::new(model_ref),
                 reasoning: RwLock::new(reasoning),

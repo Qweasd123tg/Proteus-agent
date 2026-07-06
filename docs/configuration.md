@@ -842,7 +842,8 @@ user-input requests пустым ответом.
   "runtime": {
     "model_timeout_ms": 10800000,
     "context_timeout_ms": 30000,
-    "workflow_timeout_ms": 14400000
+    "workflow_timeout_ms": 14400000,
+    "persist_request_snapshots": true
   }
 }
 ```
@@ -859,6 +860,12 @@ model request. `runtime.workflow_timeout_ms` ограничивает весь w
 Значение `0` у `runtime.model_timeout_ms` или `runtime.workflow_timeout_ms`
 отключает соответствующий timeout. Дефолты рассчитаны на медленные reasoning
 модели: 3 часа на один model request и 4 часа на весь workflow turn.
+
+`runtime.persist_request_snapshots` по умолчанию `true`: core пишет полный
+shaped `CanonicalModelRequest` каждого provider-вызова в session-local
+`requests.jsonl`. Это durable debug/replay/eval snapshot, не runtime event.
+При `false` файл `requests.jsonl` не создаётся; event log продолжает писать
+обычные telemetry-события вроде `ModelRequestPrepared`.
 
 ## Policy
 

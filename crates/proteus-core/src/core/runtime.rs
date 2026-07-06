@@ -13,7 +13,9 @@ use crate::{
         ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput,
         ToolSource, UserInputTransport,
     },
-    core::{AppConfig, BuiltinRegistry, SessionStore},
+    core::{
+        AppConfig, BuiltinRegistry, RequestSnapshotWriter, SessionConfigSnapshot, SessionStore,
+    },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig,
         SessionId, ThreadId, ToolSpec, new_turn_id,
@@ -78,6 +80,8 @@ struct RuntimeServices {
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
+    request_snapshot_writer: Option<Arc<RequestSnapshotWriter>>,
+    config_snapshot: Option<SessionConfigSnapshot>,
     permission_mode: RwLock<PermissionMode>,
     model_ref: RwLock<ModelRef>,
     reasoning: RwLock<ReasoningConfig>,
@@ -218,6 +222,7 @@ impl AgentRuntime {
                 session_id: Some(self.session.session_id),
                 thread_id: Some(self.session.thread_id),
                 turn_id: Some(turn_id),
+                request_snapshot_writer: self.services.request_snapshot_writer.clone(),
             });
         }
         let permission_mode = *self.services.permission_mode.read().await;
@@ -337,6 +342,7 @@ impl AgentRuntime {
             session_store
                 .append_messages(std::slice::from_ref(user_message))
                 .await?;
+            self.persist_config_snapshot_for_session();
         }
         Ok(previous_history)
     }
@@ -476,6 +482,20 @@ impl AgentRuntime {
         Ok(())
     }
 
+    fn persist_config_snapshot_for_session(&self) {
+        let (Some(session_store), Some(snapshot)) = (
+            self.session.session_store.as_ref(),
+            self.services.config_snapshot.as_ref(),
+        ) else {
+            return;
+        };
+        if let Err(error) =
+            crate::core::write_config_snapshot(session_store.session_dir(), snapshot)
+        {
+            eprintln!("warning: failed to persist session config snapshot: {error:#}");
+        }
+    }
+
     pub async fn render(&self, output: &AgentOutput) -> Result<String> {
         let json =
             proteus_contracts::abi_stable::std_types::RString::from(serde_json::to_string(output)?);
@@ -552,7 +572,7 @@ mod tests {
         contracts::{RuntimeContext, Workflow, WorkflowOutput},
         core::{BuiltinModuleCatalog, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
         domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
-        model_standard::{CanonicalMessage, MessageRole},
+        model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
     };
 
     fn test_catalog() -> BuiltinModuleCatalog {
@@ -615,6 +635,7 @@ mod tests {
     struct CompactingWorkflow;
     struct HangingWorkflow;
     struct DelayedWorkflow;
+    struct ModelCallingWorkflow;
     struct SnapshotProbeWorkflow {
         wait_once: Arc<AtomicBool>,
         started: Arc<tokio::sync::Notify>,
@@ -698,6 +719,28 @@ mod tests {
         ) -> Result<WorkflowOutput> {
             tokio::time::sleep(Duration::from_millis(20)).await;
             Ok(successful_messages(history, task, "done"))
+        }
+    }
+
+    #[async_trait]
+    impl Workflow for ModelCallingWorkflow {
+        async fn run(
+            &self,
+            task: AgentTask,
+            history: Vec<CanonicalMessage>,
+            ctx: RuntimeContext,
+        ) -> Result<WorkflowOutput> {
+            let new_messages_start = history.len();
+            let mut messages = history;
+            messages.push(CanonicalMessage::text(MessageRole::User, task.text));
+            let request = CanonicalModelRequest::new(ctx.model_ref.clone(), messages.clone())
+                .with_instructions(ctx.instructions.clone())
+                .with_tools(ctx.tools.specs())
+                .with_reasoning(ctx.reasoning.clone());
+            let response = ctx.model.complete(request).await?;
+            messages.push(response.message);
+            Ok(WorkflowOutput::new(AgentOutput::text("done"), messages)
+                .with_new_messages_start(new_messages_start))
         }
     }
 
@@ -840,6 +883,73 @@ mod tests {
             .load_messages()
             .expect("load replaced messages");
         assert_eq!(stored, history);
+    }
+
+    #[tokio::test]
+    async fn disabled_request_snapshots_do_not_create_requests_jsonl() {
+        let config_root = tempfile::tempdir().expect("config root");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let config_path = config_root.path().join("configs").join("config.toml");
+        let mut config = AppConfig::default();
+        config.runtime.persist_request_snapshots = false;
+        config.modules.patch = "null".to_owned();
+        let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+            .with_config_path(Some(&config_path))
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+        replace_workflow_for_test(&runtime, Arc::new(ModelCallingWorkflow)).await;
+
+        runtime.run("snapshot off".to_owned()).await.unwrap();
+
+        let requests_path = runtime
+            .session_dir()
+            .expect("session dir")
+            .join(crate::core::REQUEST_SNAPSHOTS_FILE);
+        assert!(!requests_path.exists());
+    }
+
+    #[tokio::test]
+    async fn runtime_writes_config_snapshot_when_session_is_persisted() {
+        let config_root = tempfile::tempdir().expect("config root");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let config_path = config_root.path().join("configs").join("config.toml");
+        let mut config = AppConfig::default();
+        config.profile.name = "snapshot-profile".to_owned();
+        config.permissions.mode = PermissionMode::Auto;
+        config.modules.workflow = "coding.plan_execute_review".to_owned();
+        config.modules.context = "simple".to_owned();
+        config.modules.policy = "ask_write".to_owned();
+        config.modules.compactor = "none".to_owned();
+        config.modules.tool_exposure = "all_visible".to_owned();
+        let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+            .with_config_path(Some(&config_path))
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime");
+        runtime.start_session().await.expect("start session");
+        assert!(!runtime.session_dir().expect("session dir").exists());
+        replace_workflow_for_test(&runtime, Arc::new(DelayedWorkflow)).await;
+        runtime.run("persist session".to_owned()).await.unwrap();
+
+        let snapshot_path = runtime
+            .session_dir()
+            .expect("session dir")
+            .join(crate::core::CONFIG_SNAPSHOT_FILE);
+        let value: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(snapshot_path).expect("read config snapshot"),
+        )
+        .expect("config snapshot json");
+
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["profile_name"], "snapshot-profile");
+        assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
+        assert_eq!(value["modules"]["context"], "simple");
+        assert_eq!(value["modules"]["policy"], "ask_write");
+        assert_eq!(value["modules"]["compactor"], "none");
+        assert_eq!(value["modules"]["tool_exposure"], "all_visible");
+        assert_eq!(value["permission_mode_default"], "auto");
+        assert!(value["tools"].as_array().is_some());
     }
 
     #[tokio::test]
