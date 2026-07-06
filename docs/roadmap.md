@@ -165,6 +165,22 @@ plan/execute/review экспериментов.
   Code worktrees, Codex cloud isolation), worktree lifecycle — оркестрация
   родительского workflow/tools, не слот; merge результатов — отдельная
   роль/фаза, конфликты — штатный случай.
+  Dogfood-evidence по sequential (первые прогоны, 2026-07-06):
+  (a) ребёнок читал файлы по одному `read_file` на итерацию при доступном
+  `read_many_files` — промпт роли `explore` дополнен требованиями "map before
+  reading" и батчинга (configs поправлены); (b) дочерние model-запросы шли
+  без cache hints и `prompt_cache_key` — исправлено в `core/subagent.rs`
+  (стабильный ключ на child thread); (c) ребёнок унаследовал reasoning=high
+  родителя для чтения конфигов — per-role model/effort override нужен,
+  аргумент к пути B/"роль = профиль"; (d) cancel родительского turn теряет
+  всю частичную работу ребёнка (summary и task_id-маркер не доставляются);
+  (e) дочерний цикл исполняет tool calls последовательно — конкурентное
+  исполнение read-only пачки (как в host `execute_tools_json`) — кандидат;
+  (f) немота ребёнка (подавленные дельты) усиливает ощущение зависания —
+  плюс к child streaming; (g) отдельно от субагентов: агент воевал с git
+  pager-ом (повисший `git diff`, ручной `q`, три попытки отключить) — exec
+  env должен нейтрализовать интерактивность (`GIT_PAGER=cat`, `PAGER=cat`,
+  `TERM=dumb`), но сначала свериться с upstream codex exec env (parity rule).
 - ✅ Общий boilerplate трёх `run_*`-циклов вынесен в `TurnScaffold`
   (`coding-workflow/src/scaffold.rs`); фазовая логика осталась на call-site.
 
