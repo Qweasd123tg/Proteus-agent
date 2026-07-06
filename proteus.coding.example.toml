@@ -48,7 +48,7 @@ always_include = ["request_user_input"]
 # [[module_config.subagent.sequential.roles]]
 # name = "explore"
 # description = "Read-only codebase explorer that returns paths and line numbers."
-# prompt = "You are a read-only codebase researcher. Inspect the repository without modifying files. Return concise findings with file paths and line numbers."
+# prompt = "You are a read-only codebase researcher. Inspect the repository without modifying files. Map structure with list_dir/find_files before reading, batch several tool calls per response (prefer read_many_files over one read_file at a time). Return concise findings with file paths and line numbers."
 # max_iterations = 15
 # # all_visible ignores exposure_phase; use tools as a per-role safety allowlist.
 # exposure_phase = "subagent:explore"
