@@ -26,14 +26,14 @@ impl TurnProgress {
                 self.messages.clear();
                 self.turn_thread_id = Some(envelope.thread_id);
             }
-            Event::AssistantTextDelta { text } => {
+            Event::AssistantTextDelta { text }
                 if self
                     .turn_thread_id
-                    .is_none_or(|thread_id| thread_id == envelope.thread_id)
-                {
-                    self.append_text(text);
-                }
+                    .is_none_or(|thread_id| thread_id == envelope.thread_id) =>
+            {
+                self.append_text(text);
             }
+            Event::AssistantTextDelta { .. } => {}
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
