@@ -10,7 +10,7 @@ use crate::util::{
     err_result, ok_result, optional_positive_usize, parse_call, plugin_error, workspace_path,
 };
 
-const DEFAULT_MAX_BYTES_TOTAL: usize = 60 * 1024;
+const DEFAULT_MAX_BYTES_TOTAL: usize = 120 * 1024;
 const MAX_MAX_BYTES_TOTAL: usize = 200 * 1024;
 const DEFAULT_MAX_BYTES_PER_FILE: usize = 40 * 1024;
 const MAX_MAX_BYTES_PER_FILE: usize = 100 * 1024;
@@ -34,7 +34,7 @@ impl PluginTool for ReadManyFilesTool {
                     "max_bytes_total": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Total output byte budget. Defaults to 61440 and is capped at 204800."
+                        "description": "Total output byte budget. Defaults to 122880 and is capped at 204800."
                     },
                     "max_bytes_per_file": {
                         "type": "integer",
