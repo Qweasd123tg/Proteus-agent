@@ -101,6 +101,112 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   умирает в `ModeAwarePolicy` на сборке registry) — контрактная правка через
   ABI границу, делать по второй реальной боли, не спекулятивно.
 
+## Аудит Связности И Дыр (2026-07-06)
+
+Срез по коду, не по докам: системные связности, подтверждённые дыры и
+задачи, которые будут дороги в реализации. Ссылки на код — состояние на
+дату аудита.
+
+### Кластер 1: данные turn-а — одно решение, а не четыре задачи
+
+Replay (v0.3), storage review v0.4 (parts-модель + jsonl vs sqlite), eval
+harness и недеструктивная компакция — потребители одного вопроса «что есть
+каноническая запись turn-а». Решать по отдельности — платить за миграцию
+хранилища несколько раз.
+
+Подтверждённые дыры:
+
+- компакция необратимо стирает историю: `replace_messages`
+  (`core/session_store.rs:162`) переписывает `messages.jsonl` без архива;
+  единственный вызов — `core/runtime.rs:316`;
+- event log — телеметрия, не запись: `ContextBuilt {chunks,
+  token_estimate}`, `ModelRequestPrepared {ModelRef}`
+  (`contracts/domain/events.rs:229`); tool output усекается до записи в
+  durable log (`core/tool_orchestrator.rs:215`), оригинал теряется; дельты
+  в durable log по умолчанию не пишутся;
+- `session.json` хранит только id+workspace, config/profile снапшота нет.
+
+Дешёвый ранний ход: `CanonicalModelRequest` уже полностью
+serde-сериализуем (`model_standard/canonical_request.rs:11`) — можно
+начать персистить request+config снапшоты и архивировать до-компакционную
+историю (rename вместо перезаписи) до любых решений по storage engine. Это
+разблокирует replay/eval/A-B (clone pipeline) почти бесплатно.
+
+### Кластер 2: изоляция subagent — иллюзия; parallel гейтится на control plane
+
+- `child_ctx = ctx.clone()` со сменой только `thread_id`
+  (`core/subagent.rs:393`): ребёнок делит с родителем registry, policy,
+  approval transport, event emitter, session и `turn_grants` —
+  `escalated_exec` родителя протекает в ребёнка. Изоляция — только фильтр
+  tools по роли, т.е. не структурная.
+- Cancel: ребёнок сидит на родительском `CancellationToken`; resumable
+  snapshot пишется только при `Completed | MaxIterationsReached`
+  (`core/subagent.rs:468`) — отменённый ребёнок теряет всю работу.
+- Следствие для порядка работ: parallel subagents требуют per-child
+  cancellation, approval queue с атрибуцией (v0.3) и бюджетов — control
+  plane идёт раньше фичи.
+- Хорошая новость: stdio-протокол (`Send{id}` / `Cancel{target_id}` /
+  `Approval`, `app_server/stdio.rs:98-229`) уже достаточен для пути B
+  «ребёнок = процесс proteus».
+
+### Кластер 3: generic process host — три потребителя, задача не названа
+
+Паттерн «persistent child process + line protocol + lifecycle
+(spawn/lazy-restart/kill-on-timeout)» повторяется:
+
+1. MCP stdio (`tools/configured/mcp/session.rs`; host/session/protocol
+   слои уже почти self-contained, к core привязаны только регистрацией и
+   config-типами);
+2. будущий LSP host (didOpen/didChange, persistent JSON-RPC);
+3. путь B субагентов (`proteus server stdio` ребёнок + форвардинг
+   событий).
+
+По правилу «contract после второго use case» абстракция созрела: выделить
+process host как named задачу до LSP и parallel subagents — обе дешевеют.
+
+### Кластер 4: ABI-стена для runtime-фактов
+
+Permission mode заворачивается в `ModeAwarePolicy` при создании runtime
+context (`core/registry.rs:160`) и не попадает в `RuntimeContext` — модель
+узнаёт о read-only режиме только по отказам tools. Та же труба
+(`RuntimeContext → ContextBuildInput → PluginContextBuilderInput`) нужна
+`<filesystem>`-блоку environment_context, LSP diagnostics-after-edit и
+бюджетам. Каждая новая потребность будет упираться в ту же границу;
+решить один раз: расширяемый контейнер runtime-фактов vs типизированные
+поля по одному.
+
+### Кластер 5: учёт токенов рассыпан, бюджета нет
+
+Четыре независимых счётчика: chars/4-оценка
+(`coding-workflow/src/token_accounting.rs`), суммация `TokenUsage` в
+`core/subagent.rs:682`, агрегация в `core/eval_report.rs`, парсеры в
+provider adapters. Контракта `BudgetTracker` нет; субагенты не ограничены
+по токенам вовсе. Второй-третий потребитель уже есть — интейк по
+slot-governance назрел.
+
+### Мелкие подтверждённые дыры
+
+- межпаковые строковые контракты без producer-проверки — инвентарь в
+  `docs/pack-contracts.md`;
+- session dir: 10-значный numeric basename с возможными коллизиями;
+- recovery пустого streaming-ответа живёт в generic `ModelService` вместо
+  provider adapter — может сработать не для того провайдера;
+- live session summary синтезируется в HTTP transport и может разъехаться
+  с persistent summaries;
+- web client: O(N²) fingerprint-скан ленты на событие + полный
+  markdown-рендер истории при mount — повиснет на длинных сессиях
+  (детали в UX/перф backlog ниже).
+
+### Рекомендованный порядок
+
+1. Снапшоты request+config в event log + архив до-компакционной истории —
+   дёшево, разблокирует replay/eval/clone-pipeline.
+2. Единое решение по данным (parts + storage engine + replay) до
+   eval runner-а.
+3. Process host как named задача — до LSP и parallel subagents.
+4. Parallel subagents — только после v0.3 approval queue с атрибуцией
+   (для пути B — плюс стабилизация protocol v0.4).
+
 ## Этапы
 
 ### v0: Healthy Core
