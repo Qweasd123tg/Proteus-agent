@@ -53,7 +53,7 @@ impl PluginTool for ExecCommandTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "exec_command",
-            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Commands run in the same sandbox as `shell` (no network, read-only outside the workspace) when available. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
+            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Commands run in the same sandbox as `shell` (no network, read-only outside the workspace) when available. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {

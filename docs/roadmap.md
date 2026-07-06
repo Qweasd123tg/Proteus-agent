@@ -67,6 +67,37 @@ last-match-wins wildcard permissions, `edit_file`, реюз codex-модулей
 текущий внешний клиент или app-server harness, который показывает, где ломается
 стек, а не новый набор feature packs или большой UI rewrite.
 
+Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped профиль,
+задача «поднять dev-сервер проекта»; задача выполнена, но ~2/3 turn-ов ушло
+на борьбу со средой):
+
+- (закрыто) модель не знала, что bwrap-песочница даёт каждому вызову свой
+  network namespace: сервер, поднятый одним `exec_command`, невидим из других
+  вызовов; ~60 сообщений реверс-инжиниринга среды. Фикс: per-command изоляция
+  описана в описаниях `shell`/`exec_command` и в секции «Sandbox and
+  escalation» `codex-default.md`; поведение задокументировано в
+  `docs/security-and-policy.md` (divergence от seccomp-пути upstream).
+- (закрыто) неуместный «браузерный перфекционизм»: HTTP 200 уже подтверждал
+  запуск, но модель ещё ~35 сообщений ставила Firefox ради визуальной проверки,
+  которую никто не просил. Провокатором были `playwright__browser_navigate`/
+  `playwright__browser_snapshot` в `always_include` codex/glm конфигов —
+  убраны; браузерные tools остаются доступными через dynamic exposure.
+- (отложено) verification discipline в промпте («останавливайся на самом
+  дешёвом достаточном сигнале; установка софта ради проверки — только
+  спросив») — сначала посмотреть dogfood без always-visible браузера.
+- (отложено) качество ошибки `write_stdin` по умершей сессии: сейчас пустой
+  `exit 1` без объяснения, модель делает слепые повторы; нужно явное
+  «session N завершилась, вывод недоступен».
+- (отложено) sandbox/permission инфа в `<environment_context>`: изначальная
+  гипотеза «parity gap: Codex кладёт sandbox_mode/network_access» устарела —
+  upstream main убрал эти поля и теперь рендерит `<filesystem>` permission
+  profile + `<network>` из managed-permissions системы, которой у нас нет.
+  Если возвращаться: правильная форма — `<filesystem>`-блок из фактического
+  bwrap-профиля, а plumbing требует расширения `RuntimeContext` →
+  `ContextBuildInput` → `PluginContextBuilderInput` (permission mode сейчас
+  умирает в `ModeAwarePolicy` на сборке registry) — контрактная правка через
+  ABI границу, делать по второй реальной боли, не спекулятивно.
+
 ## Этапы
 
 ### v0: Healthy Core

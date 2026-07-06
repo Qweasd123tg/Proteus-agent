@@ -202,7 +202,7 @@ For casual greetings, acknowledgements, or other one-off conversational messages
 
 # Sandbox and escalation
 
-Shell commands run inside a sandbox: no network access, and the filesystem outside the workspace is read-only. If a command genuinely needs the network or must write outside the workspace (e.g. installing dependencies), re-run it with `with_escalated_permissions: true` and include a one-sentence `justification`; the user will be asked to approve it. Do not request escalation preemptively — try the sandboxed run first unless the command obviously requires it.
+Shell commands run inside a sandbox: no network access, and the filesystem outside the workspace is read-only. The sandbox network is isolated per command: each call runs in its own private network namespace, so a localhost server started by one sandboxed call is unreachable from every other call and from the user's machine, even though it appears to start successfully. If a command genuinely needs the network, must write outside the workspace (e.g. installing dependencies), or starts a server that must stay reachable, re-run it with `with_escalated_permissions: true` and include a one-sentence `justification`; the user will be asked to approve it. Do not request escalation preemptively — try the sandboxed run first unless the command obviously requires it.
 
 # Tool Guidelines
 

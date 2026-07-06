@@ -3329,12 +3329,16 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "request_user_input")
     );
+    // Браузерные MCP tools не должны быть always-visible: они остаются
+    // доступными через dynamic exposure, когда задача реально про браузер
+    // (dogfood 2026-07-06: always-visible браузер провоцировал непрошеную
+    // «визуальную верификацию»).
     assert!(
-        codex_dynamic["always_include"]
+        !codex_dynamic["always_include"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|tool| tool == "playwright__browser_snapshot")
+            .any(|tool| tool.as_str().is_some_and(|t| t.starts_with("playwright__")))
     );
 
     let codex_policy = config.module_config_value(ModuleKind::Policy, "codex_policy");

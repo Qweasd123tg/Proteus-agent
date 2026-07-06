@@ -159,7 +159,7 @@ max_summary_bytes = 8192
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "playwright__browser_navigate", "playwright__browser_snapshot"]
+always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin"]
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "environment", "git_status", "git_diff", "repo_tree", "manifest", "search"]

@@ -10,10 +10,12 @@ Security v0 держится на четырёх уровнях:
 Этот документ описывает текущую реализацию v0. Более гибкая config-editable
 модель прав остаётся planned и кратко описана в конце.
 
-В v0 нет полноценного OS sandbox. Текущая защита держится на workspace
-boundary, safety classes, permission mode и approval policy. Отдельный sandbox,
-network gate, protected paths и secrets policy являются следующими слоями, а не
-заменой текущего `ToolOrchestrator`.
+В v0 нет универсального OS sandbox для всех tools. Текущая защита держится на
+workspace boundary, safety classes, permission mode и approval policy; для
+`shell`/`exec_command` плагин `shell-tool` дополнительно использует
+bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общий network gate,
+protected paths и secrets policy являются следующими слоями, а не заменой
+текущего `ToolOrchestrator`.
 
 ## App-Server HTTP Boundary
 
@@ -248,6 +250,35 @@ model request, а не делать эвристический fallback к др�
 Core не валидирует внутреннюю схему `ask_write`: значение
 `module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Имена в
 `allow`/`ask_before` влияют только на реально зарегистрированные tools.
+
+## Exec Sandbox В shell-tool
+
+Плагин `shell-tool` (tools `shell`, `exec_command`) сам заворачивает команды в
+OS-песочницу, если в системе доступен `bwrap` (bubblewrap):
+
+- `--unshare-net`: у каждой команды собственный network namespace, внешней сети
+  нет. Важное следствие: localhost-сервер, поднятый одним sandboxed-вызовом,
+  недостижим из любого другого вызова и с машины пользователя, хотя сам процесс
+  стартует успешно. Серверы, к которым нужен доступ, должны запускаться с
+  `with_escalated_permissions: true`. Это поведение задокументировано для модели
+  в описаниях tools и в секции «Sandbox and escalation» prompt-профиля
+  `codex-default.md`.
+- корень ФС монтируется read-only, workspace (и внешний `workdir`, если задан)
+  — read-write, `/tmp` — свежий tmpfs, `/dev` и `/proc` — новые;
+- `--die-with-parent`: команда умирает вместе с host-процессом.
+
+Вызов с `with_escalated_permissions: true` исполняется без песочницы и проходит
+через approval (см. `codex_policy` ниже). Если `bwrap` недоступен или выставлен
+`PROTEUS_SHELL_SANDBOX=0`, команды исполняются без песочницы, а политика
+по-прежнему решает visibility/approval. Путь внешнего терминала (Ptyxis) также
+исполняет команды вне песочницы. Metadata результата (`sandbox`, `escalated`)
+отражают фактический режим запуска.
+
+Upstream Codex использует другой механизм (seatbelt/landlock+seccomp), где
+сервер в песочнице просто не может забиндиться — ошибка громкая. Наш
+bwrap-путь допускает тихий старт сервера в изолированной сети, поэтому
+per-command изоляция описана модели явно; это задокументированная divergence
+поведения exec-песочницы, а не workflow/policy контрактов.
 
 ## codex_policy
 
