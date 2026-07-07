@@ -35,6 +35,21 @@ pub(crate) struct ApprovalRequestInfo {
     pub(crate) tool_spec: Option<Value>,
     #[serde(default)]
     pub(crate) preview: Option<ApprovalPreviewInfo>,
+    /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
+    /// Отсутствует у старых серверов.
+    #[serde(default)]
+    pub(crate) origin: Option<ApprovalOriginInfo>,
+    /// Порядковый номер в очереди approvals; `0` у старых серверов.
+    #[serde(default)]
+    pub(crate) seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct ApprovalOriginInfo {
+    pub(crate) thread_id: String,
+    pub(crate) turn_id: String,
+    #[serde(default)]
+    pub(crate) label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

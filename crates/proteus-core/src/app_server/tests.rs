@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
 use super::*;
 use crate::{
+    app_server::approval_preview::approval_preview_for,
     contracts::{ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest},
     core::{PendingApproval, PendingUserInput, SessionStore},
     domain::{Event, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id},
@@ -48,20 +49,31 @@ fn test_catalog() -> BuiltinModuleCatalog {
     catalog
 }
 
-fn pending_approval_entry(
+fn test_approval_request(approval_id: &str) -> AppApprovalRequest {
+    AppApprovalRequest::new(
+        approval_id.to_owned(),
+        ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
+        PathBuf::from("."),
+        "test approval".to_owned(),
+        None,
+    )
+}
+
+/// Регистрирует pending approval так же, как это делает forwarder:
+/// запись в map + watcher, владеющий responder-ом.
+async fn register_test_approval(
+    pending_approvals: &PendingApprovalResponders,
+    events: &broadcast::Sender<AppServerEvent>,
     approval_id: &str,
     responder: oneshot::Sender<ApprovalResponse>,
-) -> PendingApprovalEntry {
-    PendingApprovalEntry {
-        request: AppApprovalRequest::new(
-            approval_id.to_owned(),
-            ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
-            PathBuf::from("."),
-            "test approval".to_owned(),
-            None,
-        ),
+) {
+    approvals::register_pending_approval(
+        pending_approvals,
+        events,
+        test_approval_request(approval_id),
         responder,
-    }
+    )
+    .await;
 }
 
 fn pending_user_input_entry(
@@ -226,7 +238,7 @@ async fn approval_forwarder_keeps_request_when_no_client_can_receive_event() {
     let (approval_tx, approval_rx) = mpsc::channel(1);
     let (events, _) = broadcast::channel(1);
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    spawn_approval_forwarder(
+    approvals::spawn_approval_forwarder(
         approval_rx,
         events,
         pending_approvals.clone(),
@@ -259,7 +271,7 @@ async fn approval_forwarder_denies_when_client_does_not_answer_before_timeout() 
     let (events, _) = broadcast::channel(8);
     let mut event_rx = events.subscribe();
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    spawn_approval_forwarder(
+    approvals::spawn_approval_forwarder(
         approval_rx,
         events,
         pending_approvals.clone(),
@@ -322,7 +334,7 @@ async fn approval_forwarder_waits_without_timeout_when_timeout_is_zero() {
     let (events, _) = broadcast::channel(8);
     let mut event_rx = events.subscribe();
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    spawn_approval_forwarder(
+    approvals::spawn_approval_forwarder(
         approval_rx,
         events,
         pending_approvals.clone(),
@@ -408,18 +420,15 @@ async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
 #[tokio::test]
 async fn shutdown_denies_pending_approvals() {
     let (events, _) = broadcast::channel(8);
-    let mut event_rx = events.subscribe();
-    let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
+    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
     let approval_id = "approval-1".to_owned();
-    pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, responder),
-    );
+    register_test_approval(&pending_approvals, &events, &approval_id, responder).await;
+    // Подписка после регистрации: первым событием интересует resolved.
+    let mut event_rx = events.subscribe();
 
-    deny_pending_approvals(
+    approvals::deny_pending_approvals(
         pending_approvals.clone(),
-        events,
         "app-server shutting down".to_owned(),
     )
     .await;
@@ -479,36 +488,35 @@ async fn shutdown_resolves_pending_user_inputs() {
     ));
 }
 
+/// Ключевое поведение очереди: если запросивший (orchestrator при отмене
+/// turn-а, субагент при timeout) дропает свой approval future, watcher
+/// убирает осиротевшую запись и сообщает клиентам resolved=false —
+/// без blanket-deny остальных pending approvals.
 #[tokio::test]
-async fn cancel_pending_approvals_denies_pending_requests() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
-    let handle = AgentAppServer::launch_with_module_catalog(
-        config,
-        cwd.path().to_path_buf(),
-        None,
-        test_catalog(),
+async fn dropped_requester_removes_pending_approval_and_resolves_it() {
+    let (events, _) = broadcast::channel(8);
+    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
+
+    let (cancelled_responder, cancelled_rx) = oneshot::channel();
+    let (survivor_responder, mut survivor_rx) = oneshot::channel();
+    register_test_approval(
+        &pending_approvals,
+        &events,
+        "approval-cancelled",
+        cancelled_responder,
     )
-    .expect("app server");
-    let mut event_rx = handle.subscribe();
-    let (responder, response_rx) = oneshot::channel();
-    let approval_id = "approval-cancel".to_owned();
-    handle.pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, responder),
-    );
+    .await;
+    register_test_approval(
+        &pending_approvals,
+        &events,
+        "approval-survivor",
+        survivor_responder,
+    )
+    .await;
+    let mut event_rx = events.subscribe();
 
-    handle
-        .cancel_pending_approvals("turn canceled by client".to_owned())
-        .await;
-
-    let response = response_rx
-        .await
-        .expect("cancel should send approval response");
-    assert!(!response.approved);
-    assert_eq!(response.note.as_deref(), Some("turn canceled by client"));
-    assert!(handle.pending_approvals.lock().await.is_empty());
+    // Отмена turn-а: orchestrator дропает свой future -> receiver закрыт.
+    drop(cancelled_rx);
 
     let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
         .await
@@ -519,10 +527,61 @@ async fn cancel_pending_approvals_denies_pending_requests() {
         AppServerEvent::ApprovalResolved {
             approval_id: id,
             approved: false,
+        } if id == "approval-cancelled"
+    ));
+
+    // Второй pending approval не задет.
+    let pending = pending_approvals.lock().await;
+    assert!(!pending.contains_key("approval-cancelled"));
+    assert!(pending.contains_key("approval-survivor"));
+    drop(pending);
+    assert!(survivor_rx.try_recv().is_err());
+}
+
+/// Ответ клиента резолвит именно свой запрос; событие эмитит watcher.
+#[tokio::test]
+async fn resolve_pending_approval_forwards_response_and_emits_event() {
+    let (events, _) = broadcast::channel(8);
+    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
+    let (responder, response_rx) = oneshot::channel();
+    let approval_id = "approval-resolve".to_owned();
+    register_test_approval(&pending_approvals, &events, &approval_id, responder).await;
+    let mut event_rx = events.subscribe();
+
+    approvals::resolve_pending_approval(
+        &pending_approvals,
+        &approval_id,
+        ApprovalResponse::approve(),
+    )
+    .await
+    .expect("resolve should succeed");
+
+    let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
+        .await
+        .expect("approval response should not hang")
+        .expect("approval responder should receive answer");
+    assert!(response.approved);
+    assert!(pending_approvals.lock().await.is_empty());
+
+    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+        .await
+        .expect("approval resolved event should arrive")
+        .expect("event stream should stay open");
+    assert!(matches!(
+        resolved_event,
+        AppServerEvent::ApprovalResolved {
+            approval_id: id,
+            approved: true,
         } if id == approval_id
     ));
 
-    handle.shutdown().await;
+    let unknown = approvals::resolve_pending_approval(
+        &pending_approvals,
+        &approval_id,
+        ApprovalResponse::approve(),
+    )
+    .await;
+    assert!(unknown.is_err(), "second resolve must report unknown id");
 }
 
 #[tokio::test]

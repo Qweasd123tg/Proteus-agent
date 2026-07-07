@@ -392,6 +392,9 @@ impl SubagentRunner for SequentialSubagentRunner {
         };
         let mut child_ctx = ctx.clone();
         child_ctx.thread_id = child_thread_id;
+        // Attribution: approvals и другие запросы ребёнка помечаются именем
+        // роли, чтобы клиент мог отличить их от запросов основного цикла.
+        child_ctx.thread_label = Some(role.name.clone());
 
         // Started/Finished эмитятся под родительским thread_id; события
         // самого цикла (tool calls) — под child_thread_id через child_ctx.

@@ -34,8 +34,8 @@ use proteus_contracts::{
 };
 use proteus_core::{
     contracts::{
-        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
-        EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
+        ApprovalOrigin, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
+        ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
         PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput,
         ToolExposureRequest, ToolRegistry, ToolSource, Workflow,
     },
@@ -2187,6 +2187,52 @@ async fn only_approved_tool_results_grant_turn_permissions() {
     assert_eq!(ctx.turn_grants.snapshot(), vec!["escalated_exec"]);
 }
 
+/// Approval-запрос несёт attribution: thread/turn исполняющего контекста и
+/// метку роли, когда исполнитель — субагентный цикл (`thread_label`).
+#[tokio::test]
+async fn approval_requests_carry_origin_attribution() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let mut registry = registry_from_test_config(&config, dir.path());
+    registry
+        .tools
+        .register(GrantingTool {
+            name: "granting_probe",
+            safety: ToolSafety::RunsCommands,
+        })
+        .unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let transport = Arc::new(OriginCapturingApprovalTransport::default());
+    let mut ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        transport.clone(),
+        PermissionMode::Normal,
+    );
+    ctx.thread_label = Some("explore".to_owned());
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask::new("attribution".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(new_call_id(), "granting_probe".to_owned(), json!({})),
+        )
+        .await
+        .unwrap();
+    assert!(result.ok);
+
+    let origins = transport.origins.lock().unwrap().clone();
+    assert_eq!(origins.len(), 1);
+    let origin = origins[0]
+        .clone()
+        .expect("approval request must carry origin");
+    assert_eq!(origin.thread_id, ctx.thread_id);
+    assert_eq!(origin.turn_id, ctx.turn_id);
+    assert_eq!(origin.label.as_deref(), Some("explore"));
+}
+
 #[tokio::test]
 async fn tool_orchestrator_enforces_tool_timeout() {
     let dir = temp_workspace();
@@ -2526,6 +2572,24 @@ impl Tool for GrantingTool {
 }
 
 struct ApprovingApprovalTransport;
+
+/// Записывает origin каждого запроса и одобряет его.
+#[derive(Debug, Default)]
+struct OriginCapturingApprovalTransport {
+    origins: std::sync::Mutex<Vec<Option<ApprovalOrigin>>>,
+}
+
+#[async_trait]
+impl ApprovalTransport for OriginCapturingApprovalTransport {
+    fn can_request_approval(&self) -> bool {
+        true
+    }
+
+    async fn request_approval(&self, request: ApprovalRequest) -> anyhow::Result<ApprovalResponse> {
+        self.origins.lock().unwrap().push(request.origin.clone());
+        Ok(ApprovalResponse::approve())
+    }
+}
 
 #[async_trait]
 impl ApprovalTransport for ApprovingApprovalTransport {

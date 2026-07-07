@@ -9,7 +9,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        ApprovalRequest, PolicyContext, PolicyVisibilityContext, RuntimeContext, ToolContext,
+        ApprovalOrigin, ApprovalRequest, PolicyContext, PolicyVisibilityContext, RuntimeContext,
+        ToolContext,
     },
     domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
 };
@@ -97,12 +98,15 @@ impl ToolOrchestrator {
                     reason: reason.clone(),
                 })
                 .await?;
-                let approval_request = ctx.approval.request_approval(ApprovalRequest::new(
-                    call.clone(),
-                    task.cwd.clone(),
-                    reason.clone(),
-                    tool_spec.clone(),
-                ));
+                let approval_request = ctx.approval.request_approval(
+                    ApprovalRequest::new(
+                        call.clone(),
+                        task.cwd.clone(),
+                        reason.clone(),
+                        tool_spec.clone(),
+                    )
+                    .with_origin(approval_origin(ctx)),
+                );
                 let approval = tokio::select! {
                     result = approval_request => result?,
                     _ = ctx.cancellation.cancelled() => {
@@ -264,6 +268,17 @@ impl ToolOrchestrator {
         }
 
         result
+    }
+}
+
+/// Attribution approval-запроса к исполняющему контексту: thread/turn всегда
+/// известны orchestrator-у, метка (`thread_label`) приходит от субагентного
+/// runner-а и остаётся `None` для основного цикла.
+fn approval_origin(ctx: &RuntimeContext) -> ApprovalOrigin {
+    let origin = ApprovalOrigin::new(ctx.thread_id, ctx.turn_id);
+    match &ctx.thread_label {
+        Some(label) => origin.with_label(label.clone()),
+        None => origin,
     }
 }
 

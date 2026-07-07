@@ -416,7 +416,8 @@ async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, 
         cancellation.cancel();
     }
 
-    server.cancel_pending_approvals(note.to_owned()).await;
+    // Pending approvals отменяемых turn-ов деняются watcher-ом app-server-а
+    // после того, как orchestrator дропнет свои approval futures.
     server.cancel_pending_user_inputs(note.to_owned()).await;
     state.emit_session_activity_for_server(server).await;
 }
@@ -454,9 +455,8 @@ async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
         },
         None => state.current_server().await,
     };
-    server
-        .cancel_pending_approvals("turn canceled by client".to_owned())
-        .await;
+    // Pending approvals отменённого turn-а деняются watcher-ом app-server-а;
+    // blanket-deny здесь трогал бы approvals других turn-ов той же сессии.
     server
         .cancel_pending_user_inputs("turn canceled by client".to_owned())
         .await;

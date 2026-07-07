@@ -29,6 +29,10 @@ where
         .and_then(Value::as_str)
         .unwrap_or(&request.reason)
         .to_owned();
+    let origin_label = request
+        .origin
+        .as_ref()
+        .and_then(|origin| origin.label.clone());
 
     view! {
         <article class="control-card approval-card">
@@ -37,6 +41,14 @@ where
                     <span class="dot"></span>
                     "Доступ"
                 </span>
+                {origin_label
+                    .map(|label| {
+                        view! {
+                            <span class="status-badge subagent">
+                                {format!("субагент: {label}")}
+                            </span>
+                        }
+                    })}
                 <strong>{request.call.name}</strong>
                 <code>{short_path(&request.cwd)}</code>
             </div>

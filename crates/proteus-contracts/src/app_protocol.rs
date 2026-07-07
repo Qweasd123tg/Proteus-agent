@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse},
+    contracts::{ApprovalCacheScope, ApprovalOrigin, UserInputRequest, UserInputResponse},
     domain::{
         AgentOutput, EventEnvelope, HistoryCompactionReport, PermissionMode, SessionId, ToolCall,
         ToolSpec, TurnId,
@@ -191,6 +191,14 @@ pub struct AppApprovalRequest {
     pub tool_spec: Option<ToolSpec>,
     #[serde(default)]
     pub preview: Option<AppApprovalPreview>,
+    /// Кто запросил approval (thread/turn + метка источника, например роль
+    /// субагента). `None` — запрос от транспорта без runtime-атрибуции.
+    #[serde(default)]
+    pub origin: Option<ApprovalOrigin>,
+    /// Монотонный порядковый номер в очереди pending approvals текущего
+    /// app-server. Клиенты сортируют по нему; `0` у старых серверов.
+    #[serde(default)]
+    pub seq: u64,
 }
 
 impl AppApprovalRequest {
@@ -208,11 +216,23 @@ impl AppApprovalRequest {
             reason,
             tool_spec,
             preview: None,
+            origin: None,
+            seq: 0,
         }
     }
 
     pub fn with_preview(mut self, preview: Option<AppApprovalPreview>) -> Self {
         self.preview = preview;
+        self
+    }
+
+    pub fn with_origin(mut self, origin: Option<ApprovalOrigin>) -> Self {
+        self.origin = origin;
+        self
+    }
+
+    pub fn with_seq(mut self, seq: u64) -> Self {
+        self.seq = seq;
         self
     }
 }
@@ -578,7 +598,7 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        Event, EventContext, EventEnvelope, new_call_id, new_session_id, new_thread_id,
+        Event, EventContext, EventEnvelope, new_call_id, new_session_id, new_thread_id, new_turn_id,
     };
 
     #[test]
@@ -600,6 +620,32 @@ mod tests {
 
         assert_eq!(request.approval_id, "approval-1");
         assert!(request.preview.is_none());
+        // Старый сервер без attribution: поля отсутствуют на wire.
+        assert!(request.origin.is_none());
+        assert_eq!(request.seq, 0);
+    }
+
+    /// Attribution и порядок очереди переживают wire-сериализацию.
+    #[test]
+    fn approval_request_roundtrips_origin_and_seq() {
+        let origin = crate::contracts::ApprovalOrigin::new(new_thread_id(), new_turn_id())
+            .with_label("explore");
+        let request = AppApprovalRequest::new(
+            "approval-1".to_owned(),
+            ToolCall::new(new_call_id(), "shell", json!({ "command": "cargo test" })),
+            PathBuf::from("/workspace"),
+            "test approval".to_owned(),
+            None,
+        )
+        .with_origin(Some(origin.clone()))
+        .with_seq(42);
+
+        let payload = serde_json::to_value(&request).expect("serialize approval request");
+        let parsed: AppApprovalRequest =
+            serde_json::from_value(payload).expect("parse approval request");
+
+        assert_eq!(parsed.origin, Some(origin));
+        assert_eq!(parsed.seq, 42);
     }
 
     #[test]

@@ -368,7 +368,18 @@ state.
 Scope:
 
 - расширить interrupt/cancel beyond stdio target cancel;
-- explicit approval queue events;
+- ✅ approval queue с атрибуцией (2026-07-07): `ApprovalRequest.origin`
+  (thread/turn + метка роли субагента через `RuntimeContext.thread_label`),
+  wire-поля `AppApprovalRequest.origin`/`seq` (serde-tolerant), сортировка
+  очереди по seq, per-request watcher в app-server (`app_server/approvals.rs`)
+  — запись живёт, пока жив запросивший: cancel одного turn-а больше не деняет
+  чужие pending approvals (blanket-deny только на shutdown); терминальный
+  transport сериализует конкурентные prompts и печатает источник; web-клиент
+  показывает бейдж роли. Follow-ups: (a) аналогичный watcher/attribution для
+  pending user inputs (они всё ещё blanket-cancel), (b) решение, входит ли
+  thread в ключ approval-кеша (сейчас session-wide: approve из субагента
+  переиспользуется main-циклом и наоборот), (c) изоляция `turn_grants`
+  ребёнка (escalated_exec родителя протекает в субагент — кластер 2 аудита);
 - session resume/restore;
 - durable task/session metadata;
 - event-log based debugging. Аудит 2026-07-06: текущий `events.jsonl` — это

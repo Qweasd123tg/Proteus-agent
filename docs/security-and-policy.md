@@ -220,6 +220,25 @@ Pending request хранится в app-server и доступен через `G
 approval и очищает pending request. При дефолтном значении `0` timeout
 отключён, и интерактивный prompt ждёт пользователя до ответа, cancel или
 shutdown. При shutdown app-server отклоняет все pending approvals.
+
+Очередь pending approvals атрибуцирована и per-request scoped:
+
+- `ApprovalRequest.origin` несёт `thread_id`/`turn_id` исполняющего контекста
+  и optional `label` — субагентный runner ставит туда имя роли через
+  `RuntimeContext.thread_label`. На wire (`AppApprovalRequest.origin`)
+  attribution опциональна: старые клиенты и серверы совместимы.
+- `AppApprovalRequest.seq` — монотонный порядковый номер очереди; `GET
+  /pending` и web-клиент сортируют pending approvals по нему, а не по
+  случайному UUID.
+- Каждый pending approval привязан watcher-ом к своему запросившему: если
+  orchestrator дропает approval future (cancel turn-а, timeout субагента),
+  запись удаляется и клиентам уходит `ApprovalResolved {approved: false}`.
+  Поэтому cancel одного turn-а больше не отклоняет pending approvals других
+  конкурентных turn-ов; blanket-deny остаётся только на shutdown.
+- Терминальный transport CLI сериализует конкурентные prompts mutex-ом и
+  печатает `from: subagent '<role>'` для запросов дочерних циклов; web-клиент
+  показывает бейдж роли на approval-карточке.
+
 `ToolOrchestrator` передаёт модели tools через
 `ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
 `Ask` видны только если transport умеет интерактивно запросить approval, а

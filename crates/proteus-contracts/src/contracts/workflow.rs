@@ -44,6 +44,10 @@ pub struct RuntimeContext {
     /// Turn-scoped permission grants: контекст создаётся на каждый ход
     /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
     pub turn_grants: Arc<TurnPermissionGrants>,
+    /// Человекочитаемая метка исполняющего thread-а для attribution
+    /// (approvals, клиентский UX). `None` — основной цикл turn-а; субагентный
+    /// runner ставит имя роли.
+    pub thread_label: Option<String>,
 }
 
 impl RuntimeContext {
@@ -94,7 +98,13 @@ impl RuntimeContext {
             tool_exposure,
             subagent,
             turn_grants: Arc::default(),
+            thread_label: None,
         }
+    }
+
+    pub fn with_thread_label(mut self, label: impl Into<String>) -> Self {
+        self.thread_label = Some(label.into());
+        self
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {

@@ -8,7 +8,6 @@ use std::{
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, RwLock, broadcast};
-use uuid::Uuid;
 
 use crate::{
     contracts::{
@@ -18,16 +17,17 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        ModuleCatalogEntrySummary, PendingApproval, PendingUserInput, RuntimeReloadReport,
-        SessionStore, TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
-        config_store_root, delete_workspace_session, list_session_summaries,
-        list_workspace_session_summaries, normalize_session_dir_path, session_id_from_session_dir,
+        ModuleCatalogEntrySummary, PendingUserInput, RuntimeReloadReport, SessionStore,
+        TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
+        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
+        normalize_session_dir_path, session_id_from_session_dir,
         session_workspace_from_session_dir,
     },
     domain::{AgentOutput, EventEnvelope, PermissionMode, new_thread_id},
 };
 
 mod approval_preview;
+mod approvals;
 mod config_builder;
 mod config_summary;
 mod context_map;
@@ -38,7 +38,6 @@ pub mod stdio;
 mod transcript;
 mod turn_progress;
 
-use approval_preview::approval_preview_for;
 pub use config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
     ConfigBuilderSnapshot, ConfigBuilderTool, ConfigBuilderWarning,
@@ -68,17 +67,13 @@ pub use proteus_contracts::app_protocol::{
     AppServerEvent, AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
-struct PendingApprovalEntry {
-    request: AppApprovalRequest,
-    responder: tokio::sync::oneshot::Sender<ApprovalResponse>,
-}
-
 struct PendingUserInputEntry {
     request: UserInputRequest,
     responder: tokio::sync::oneshot::Sender<UserInputResponse>,
 }
 
-type PendingApprovalResponders = Arc<Mutex<HashMap<AppApprovalId, PendingApprovalEntry>>>;
+use approvals::PendingApprovalResponders;
+
 type PendingUserInputResponders = Arc<Mutex<HashMap<AppUserInputRequestId, PendingUserInputEntry>>>;
 
 #[derive(Clone)]
@@ -416,7 +411,13 @@ impl AppServerHandle {
             .values()
             .map(|entry| entry.request.clone())
             .collect::<Vec<_>>();
-        approvals.sort_by(|left, right| left.approval_id.cmp(&right.approval_id));
+        // Хронология очереди: seq присваивает forwarder; approval_id — только
+        // детерминированный tie-breaker для записей без seq (тесты, legacy).
+        approvals.sort_by(|left, right| {
+            left.seq
+                .cmp(&right.seq)
+                .then_with(|| left.approval_id.cmp(&right.approval_id))
+        });
 
         let mut user_inputs = self
             .pending_user_inputs
@@ -524,21 +525,12 @@ impl AppServerHandle {
         note: Option<String>,
         cache: ApprovalCacheScope,
     ) -> Result<()> {
-        let responder = self
-            .pending_approvals
-            .lock()
-            .await
-            .remove(approval_id)
-            .ok_or_else(|| anyhow!("unknown approval id: {approval_id}"))?;
-        responder
-            .responder
-            .send(ApprovalResponse::new(approved, note, cache))
-            .map_err(|_| anyhow!("approval response channel dropped"))?;
-        let _ = self.events.send(AppServerEvent::ApprovalResolved {
-            approval_id: approval_id.to_owned(),
-            approved,
-        });
-        Ok(())
+        approvals::resolve_pending_approval(
+            &self.pending_approvals,
+            approval_id,
+            ApprovalResponse::new(approved, note, cache),
+        )
+        .await
     }
 
     pub async fn respond_user_input(
@@ -563,9 +555,8 @@ impl AppServerHandle {
     }
 
     pub async fn shutdown(&self) {
-        deny_pending_approvals(
+        approvals::deny_pending_approvals(
             self.pending_approvals.clone(),
-            self.events.clone(),
             "app-server shutting down".to_owned(),
         )
         .await;
@@ -576,10 +567,6 @@ impl AppServerHandle {
         )
         .await;
         let _ = self.events.send(AppServerEvent::Shutdown);
-    }
-
-    pub async fn cancel_pending_approvals(&self, note: String) {
-        deny_pending_approvals(self.pending_approvals.clone(), self.events.clone(), note).await;
     }
 
     pub async fn cancel_pending_user_inputs(&self, note: String) {
@@ -714,7 +701,7 @@ impl AgentAppServer {
         let turn_progress = Arc::new(Mutex::new(TurnProgress::default()));
 
         spawn_runtime_event_forwarder(core_broadcast, events.clone(), turn_progress.clone());
-        spawn_approval_forwarder(
+        approvals::spawn_approval_forwarder(
             approval_rx,
             events.clone(),
             pending_approvals.clone(),
@@ -828,69 +815,6 @@ fn spawn_runtime_event_forwarder_with_receiver(
     });
 }
 
-fn spawn_approval_forwarder(
-    mut approval_rx: tokio::sync::mpsc::Receiver<PendingApproval>,
-    events: broadcast::Sender<AppServerEvent>,
-    pending_approvals: PendingApprovalResponders,
-    approval_timeout: Duration,
-) {
-    tokio::spawn(async move {
-        while let Some(PendingApproval { request, responder }) = approval_rx.recv().await {
-            let approval_id = Uuid::new_v4().to_string();
-            let preview = approval_preview_for(&request.call, &request.cwd);
-            let app_request = AppApprovalRequest::new(
-                approval_id.clone(),
-                request.call,
-                request.cwd,
-                request.reason,
-                request.tool_spec,
-            )
-            .with_preview(preview);
-            pending_approvals.lock().await.insert(
-                approval_id.clone(),
-                PendingApprovalEntry {
-                    request: app_request.clone(),
-                    responder,
-                },
-            );
-            let _ = events.send(AppServerEvent::ApprovalRequested {
-                request: Box::new(app_request),
-            });
-
-            if !approval_timeout.is_zero() {
-                spawn_approval_timeout(
-                    approval_id,
-                    pending_approvals.clone(),
-                    events.clone(),
-                    approval_timeout,
-                );
-            }
-        }
-    });
-}
-
-fn spawn_approval_timeout(
-    approval_id: AppApprovalId,
-    pending_approvals: PendingApprovalResponders,
-    events: broadcast::Sender<AppServerEvent>,
-    approval_timeout: Duration,
-) {
-    tokio::spawn(async move {
-        tokio::time::sleep(approval_timeout).await;
-        let entry = pending_approvals.lock().await.remove(&approval_id);
-        if let Some(entry) = entry {
-            let timeout_ms = approval_timeout.as_millis() as u64;
-            let _ = entry.responder.send(ApprovalResponse::deny(format!(
-                "approval request timed out after {timeout_ms}ms"
-            )));
-            let _ = events.send(AppServerEvent::ApprovalResolved {
-                approval_id,
-                approved: false,
-            });
-        }
-    });
-}
-
 fn spawn_user_input_forwarder(
     mut user_input_rx: tokio::sync::mpsc::Receiver<PendingUserInput>,
     events: broadcast::Sender<AppServerEvent>,
@@ -937,21 +861,6 @@ fn spawn_user_input_timeout(
             let _ = events.send(AppServerEvent::UserInputResolved { request_id });
         }
     });
-}
-
-async fn deny_pending_approvals(
-    pending_approvals: PendingApprovalResponders,
-    events: broadcast::Sender<AppServerEvent>,
-    note: String,
-) {
-    let pending = std::mem::take(&mut *pending_approvals.lock().await);
-    for (approval_id, entry) in pending {
-        let _ = entry.responder.send(ApprovalResponse::deny(note.clone()));
-        let _ = events.send(AppServerEvent::ApprovalResolved {
-            approval_id,
-            approved: false,
-        });
-    }
 }
 
 async fn deny_pending_user_inputs(

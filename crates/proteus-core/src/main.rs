@@ -524,12 +524,16 @@ fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<Perm
 fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {
     Arc::new(TerminalApprovalTransport {
         enabled: io::stdin().is_terminal() && io::stdout().is_terminal(),
+        prompt_lock: tokio::sync::Mutex::new(()),
     })
 }
 
 #[derive(Debug)]
 struct TerminalApprovalTransport {
     enabled: bool,
+    /// Терминал — один: конкурентные approval-запросы (например, от
+    /// субагента и основного цикла) сериализуются, а не дерутся за stdin.
+    prompt_lock: tokio::sync::Mutex<()>,
 }
 
 #[async_trait]
@@ -546,6 +550,7 @@ impl ApprovalTransport for TerminalApprovalTransport {
             )));
         }
 
+        let _guard = self.prompt_lock.lock().await;
         let args = request.call.args.to_string();
         let args = if args.chars().count() > 500 {
             format!("{}...", args.chars().take(500).collect::<String>())
@@ -554,6 +559,13 @@ impl ApprovalTransport for TerminalApprovalTransport {
         };
         eprintln!();
         eprintln!("Approval requested");
+        if let Some(label) = request
+            .origin
+            .as_ref()
+            .and_then(|origin| origin.label.as_deref())
+        {
+            eprintln!("from: subagent '{label}'");
+        }
         eprintln!("tool: {}", request.call.name);
         eprintln!("cwd: {}", request.cwd.display());
         eprintln!("reason: {}", request.reason);

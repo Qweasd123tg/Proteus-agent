@@ -290,9 +290,9 @@ async fn cancel_stdio_turn(
         Err(anyhow!("turn canceled by client")),
     )
     .await;
-    server
-        .cancel_pending_approvals("turn canceled by client".to_owned())
-        .await;
+    // Pending approvals отменённого turn-а деняются watcher-ом app-server-а,
+    // когда orchestrator дропает свой approval future: blanket-deny здесь
+    // затрагивал бы pending approvals других конкурентных turn-ов.
     server
         .cancel_pending_user_inputs("turn canceled by client".to_owned())
         .await;

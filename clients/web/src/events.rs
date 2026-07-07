@@ -456,6 +456,13 @@ fn handle_app_event(
                 } else {
                     items.push(request);
                 }
+                // Хронология очереди по seq; approval_id — tie-breaker для
+                // записей старых серверов без seq.
+                items.sort_by(|left, right| {
+                    left.seq
+                        .cmp(&right.seq)
+                        .then_with(|| left.approval_id.cmp(&right.approval_id))
+                });
             });
         }
         AppServerEvent::ApprovalResolved {

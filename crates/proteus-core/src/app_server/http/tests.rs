@@ -62,12 +62,15 @@ async fn test_state() -> (HttpAppState, AppServerHandle) {
     (state, server)
 }
 
-fn pending_approval_entry(
+async fn register_pending_approval(
+    server: &AppServerHandle,
     approval_id: &str,
     responder: tokio::sync::oneshot::Sender<ApprovalResponse>,
-) -> crate::app_server::PendingApprovalEntry {
-    crate::app_server::PendingApprovalEntry {
-        request: crate::app_server::AppApprovalRequest::new(
+) {
+    crate::app_server::approvals::register_pending_approval(
+        &server.pending_approvals,
+        &server.events,
+        crate::app_server::AppApprovalRequest::new(
             approval_id.to_owned(),
             ToolCall::new(new_call_id(), "write_file", json!({ "path": "notes.txt" })),
             PathBuf::from("/workspace"),
@@ -75,7 +78,8 @@ fn pending_approval_entry(
             None,
         ),
         responder,
-    }
+    )
+    .await;
 }
 
 fn pending_user_input_entry(
@@ -1124,10 +1128,7 @@ async fn route_approval_resolves_pending_request_with_auth_and_cors() {
     let (state, server) = test_state().await;
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-route".to_owned();
-    server.pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, approval_tx),
-    );
+    register_pending_approval(&server, &approval_id, approval_tx).await;
     let request = Request::builder()
         .method(Method::POST)
         .uri("/approval")
@@ -1232,10 +1233,7 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
     let (state, server) = test_state().await;
     let (approval_tx, _approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-pending".to_owned();
-    server.pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, approval_tx),
-    );
+    register_pending_approval(&server, &approval_id, approval_tx).await;
     let (input_tx, _input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-pending".to_owned();
     server.pending_user_inputs.lock().await.insert(
@@ -1743,10 +1741,7 @@ async fn route_approval_resolves_background_session_request() {
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     let (responder, response_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-background".to_owned();
-    server.pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, responder),
-    );
+    register_pending_approval(&server, &approval_id, responder).await;
 
     let response = route_request(
         state.clone(),
@@ -2204,8 +2199,11 @@ async fn cancel_unknown_turn_returns_protocol_error() {
     server.shutdown().await;
 }
 
+/// Cancel turn-а больше не деняет pending approvals сервера скопом:
+/// approval живёт, пока жив его запросивший, и убирается watcher-ом,
+/// когда orchestrator дропает свой approval future.
 #[tokio::test]
-async fn cancel_active_turn_clears_pending_approval_and_user_input() {
+async fn cancel_active_turn_keeps_foreign_pending_approval_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
         .expect("app server");
@@ -2220,10 +2218,7 @@ async fn cancel_active_turn_clears_pending_approval_and_user_input() {
 
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-cancel".to_owned();
-    server.pending_approvals.lock().await.insert(
-        approval_id.clone(),
-        pending_approval_entry(&approval_id, approval_tx),
-    );
+    register_pending_approval(&server, &approval_id, approval_tx).await;
 
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-cancel".to_owned();
@@ -2251,14 +2246,23 @@ async fn cancel_active_turn_clears_pending_approval_and_user_input() {
 
     assert!(cancellation.is_cancelled());
     assert!(state.running_turns.lock().await.is_empty());
-    assert!(server.pending_approvals.lock().await.is_empty());
+    // Approval с живым запросившим переживает cancel чужого turn-а.
+    assert!(server.has_pending_approval(&approval_id).await);
+    // User inputs пока сохраняют blanket-cancel поведение.
     assert!(server.pending_user_inputs.lock().await.is_empty());
-
-    let approval = approval_rx.await.expect("approval should be resolved");
-    assert!(!approval.approved);
-    assert_eq!(approval.note.as_deref(), Some("turn canceled by client"));
     let input = input_rx.await.expect("user input should be resolved");
     assert!(input.answers.is_empty());
+
+    // Запросивший умирает (например, его turn отменили) -> watcher чистит.
+    drop(approval_rx);
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while server.has_pending_approval(&approval_id).await {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "orphaned approval should be removed by watcher"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 
     server.shutdown().await;
 }

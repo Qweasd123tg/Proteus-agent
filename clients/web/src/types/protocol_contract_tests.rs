@@ -68,6 +68,14 @@ fn contract_approval_request() -> contract_protocol::AppApprovalRequest {
         .with_body("hello", "text")
         .with_metadata(json!({ "operation": "update" })),
     ))
+    .with_origin(Some(
+        contract_contracts::ApprovalOrigin::new(
+            contract_domain::new_thread_id(),
+            contract_domain::new_turn_id(),
+        )
+        .with_label("explore"),
+    ))
+    .with_seq(7)
 }
 
 fn contract_user_input_request() -> contract_contracts::UserInputRequest {
@@ -185,6 +193,11 @@ fn web_decodes_contract_stdio_output_events() {
                 assert_eq!(preview.kind, "write_file");
                 assert_eq!(preview.affected_files, vec!["README.md"]);
                 assert_eq!(preview.metadata["operation"], "update");
+                let origin = request.origin.expect("approval origin");
+                assert_eq!(origin.label.as_deref(), Some("explore"));
+                assert!(!origin.thread_id.is_empty());
+                assert!(!origin.turn_id.is_empty());
+                assert_eq!(request.seq, 7);
             }
             AppServerEvent::ApprovalResolved {
                 approval_id,
