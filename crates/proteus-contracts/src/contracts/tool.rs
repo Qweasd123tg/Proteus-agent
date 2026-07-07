@@ -3,7 +3,7 @@ use std::{
     fmt,
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -43,6 +43,10 @@ pub struct CancellationToken {
 struct CancellationState {
     cancelled: AtomicBool,
     notify: Notify,
+    /// Дочерние токены (`child_token`): cancel родителя каскадится вниз,
+    /// cancel ребёнка родителя не трогает. Weak — жизнью ребёнка владеет
+    /// его собственный держатель, родитель только доставляет cancel.
+    children: Mutex<Vec<Weak<CancellationState>>>,
 }
 
 impl fmt::Debug for CancellationToken {
@@ -59,9 +63,7 @@ impl CancellationToken {
     }
 
     pub fn cancel(&self) {
-        if !self.inner.cancelled.swap(true, Ordering::SeqCst) {
-            self.inner.notify.notify_waiters();
-        }
+        cancel_state(&self.inner);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -73,6 +75,47 @@ impl CancellationToken {
             return;
         }
         self.inner.notify.notified().await;
+    }
+
+    /// Дочерний токен: отменяется вместе с родителем, но его собственный
+    /// `cancel()` не влияет на родителя. Основа per-child cancellation
+    /// (например, отмена одного субагента без отмены родительского turn-а).
+    pub fn child_token(&self) -> Self {
+        let child = Arc::new(CancellationState::default());
+        {
+            let mut children = self
+                .inner
+                .children
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            children.retain(|entry| entry.strong_count() > 0);
+            children.push(Arc::downgrade(&child));
+        }
+        // Закрывает гонку: cancel родителя мог пройти до регистрации ребёнка
+        // и не увидеть его в списке.
+        if self.is_cancelled() {
+            cancel_state(&child);
+        }
+        Self { inner: child }
+    }
+}
+
+fn cancel_state(state: &Arc<CancellationState>) {
+    if state.cancelled.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    state.notify.notify_waiters();
+    let children = {
+        let mut children = state
+            .children
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *children)
+    };
+    for child in children {
+        if let Some(child) = child.upgrade() {
+            cancel_state(&child);
+        }
     }
 }
 
@@ -110,6 +153,48 @@ mod tests {
         token.cancelled().await;
 
         assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn parent_cancel_propagates_to_child_tokens() {
+        let parent = CancellationToken::new();
+        let child = parent.child_token();
+        let grandchild = child.child_token();
+
+        let waiter = grandchild.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            waiter.cancelled().await;
+            tx.send(()).expect("send wake");
+        });
+
+        parent.cancel();
+        rx.await.expect("grandchild waiter should wake");
+        assert!(child.is_cancelled());
+        assert!(grandchild.is_cancelled());
+    }
+
+    #[test]
+    fn child_cancel_does_not_affect_parent() {
+        let parent = CancellationToken::new();
+        let child = parent.child_token();
+        let sibling = parent.child_token();
+
+        child.cancel();
+
+        assert!(child.is_cancelled());
+        assert!(!parent.is_cancelled());
+        assert!(!sibling.is_cancelled());
+    }
+
+    #[test]
+    fn child_token_of_cancelled_parent_is_already_cancelled() {
+        let parent = CancellationToken::new();
+        parent.cancel();
+
+        let child = parent.child_token();
+
+        assert!(child.is_cancelled());
     }
 }
 

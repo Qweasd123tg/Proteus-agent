@@ -147,12 +147,20 @@ pipeline) почти бесплатно.
   (пустой набор при spawn — `escalated_exec` родителя не протекает), а
   session-level approval cache скоупится по thread запросившего. Остальная
   изоляция — по-прежнему фильтр tools по роли, т.е. не структурная.
-- Cancel: ребёнок сидит на родительском `CancellationToken`; resumable
-  snapshot пишется только при `Completed | MaxIterationsReached`
-  (`core/subagent.rs:468`) — отменённый ребёнок теряет всю работу.
+- Cancel: **закрыто (2026-07-07)**. Ребёнок живёт на child-токене
+  (`CancellationToken::child_token()` в contracts: cancel родителя
+  каскадится вниз, cancel ребёнка родителя не трогает — groundwork
+  per-child cancel для parallel), а resumable snapshot сохраняется при
+  любом терминальном статусе, включая `Cancelled`/`TimedOut`: прерванный
+  ребёнок больше не теряет работу, её можно продолжить по `task_id`.
+  Незакрытые tool calls в снапшоте закрываются синтетическими tool
+  results, чтобы resume-история оставалась валидной для provider-а.
+  Остаток: доставка partial summary/task_id-маркера в родительский
+  транскрипт при cancel родительского turn-а (нужна runtime-поддержка,
+  не только snapshot).
 - Следствие для порядка работ: parallel subagents требуют per-child
-  cancellation, approval queue с атрибуцией (v0.3) и бюджетов — control
-  plane идёт раньше фичи.
+  cancellation (готово), approval queue с атрибуцией (готово, v0.3) и
+  бюджетов (`BudgetTracker` — остаётся) — control plane почти собран.
 - Хорошая новость: stdio-протокол (`Send{id}` / `Cancel{target_id}` /
   `Approval`, `app_server/stdio.rs:98-229`) уже достаточен для пути B
   «ребёнок = процесс proteus».
@@ -224,8 +232,12 @@ slot-governance назрел.
 3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
    MCP stdio host в core мигрирован на него (initializer-hook для
    handshake); остался LSP-плагин как следующий потребитель.
-4. Parallel subagents — только после v0.3 approval queue с атрибуцией
-   (для пути B — плюс стабилизация protocol v0.4).
+4. Parallel subagents — control-plane блокеры сняты (approval queue с
+   атрибуцией и per-child cancellation готовы, 2026-07-07); осталось
+   решение по развилке A/B (предпочтение 2026-07-07 — путь B «ребёнок =
+   процесс proteus», для него — стабилизация protocol v0.4 и форвардинг
+   событий ребёнка), provider-neutral spawn/wait/cancel DTO и
+   `BudgetTracker`.
 
 ## Этапы
 
@@ -332,8 +344,11 @@ plan/execute/review экспериментов.
   без cache hints и `prompt_cache_key` — исправлено в `core/subagent.rs`
   (стабильный ключ на child thread); (c) ребёнок унаследовал reasoning=high
   родителя для чтения конфигов — per-role model/effort override нужен,
-  аргумент к пути B/"роль = профиль"; (d) cancel родительского turn теряет
-  всю частичную работу ребёнка (summary и task_id-маркер не доставляются);
+  аргумент к пути B/"роль = профиль"; (d) (частично закрыто 2026-07-07)
+  cancel родительского turn терял всю работу ребёнка — теперь ребёнок на
+  child-токене, resumable snapshot сохраняется и при `Cancelled`/`TimedOut`
+  (продолжение по `task_id`); остаток — доставка partial summary в
+  родительский транскрипт;
   (e) дочерний цикл исполняет tool calls последовательно — конкурентное
   исполнение read-only пачки (как в host `execute_tools_json`) — кандидат;
   (f) немота ребёнка (подавленные дельты) усиливает ощущение зависания —
@@ -650,7 +665,7 @@ Scope:
 ### Architecture Cleanup
 
 - Modularity debt: production-файлы за лимитом 500-700 строк (замер 2026-07):
-  `core/subagent.rs` 1433, `core/config.rs` 1200, `clients/web/src/messages.rs`
+  `core/config.rs` 1200, `clients/web/src/messages.rs`
   1165, `clients/web/src/app_helpers.rs` 1117, `shell-tool/src/lib.rs` 1000,
   `adapters/anthropic.rs` 973, `clients/web/src/components/context_map.rs` 959,
   `app_server.rs` 957, `context-pack/src/lib.rs` 946, `clients/web/src/app.rs`
@@ -658,8 +673,9 @@ Scope:
   `clients/web/src/components/tool_activity.rs` 900, `module_catalog.rs` 830,
   `session_store.rs` 823, `codex-compactor/src/lib.rs` 803. Правило:
   оппортунистический разрез (тронул файл — сначала выдели связный блок), без
-  отдельного big-bang рефакторинга. Приоритет: `core/subagent.rs` (слот
-  выделен, реализация не порезана) и пятёрка web client.
+  отдельного big-bang рефакторинга. Приоритет: пятёрка web client.
+  Закрыто: `core/subagent.rs` (1616) разрезан на `subagent/{mod,roles,
+  resumable,child_loop,tests}` (2026-07-07).
 - Watch-сигналы распухания workflow slot (сам contract узкий, следить за
   реализациями): (a) дублирование одинаковых блоков между workflow-модулями —
   сначала extract в scaffold/lib внутри пака, при 2-3 правдоподобных

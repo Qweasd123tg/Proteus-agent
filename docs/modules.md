@@ -538,7 +538,12 @@ max_iterations = 15
 Модель передаёт `agent_type`, `prompt` и короткое `description`; workflow
 собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка как
 обычный `ToolResult`. Tool calls ребёнка идут через тот же policy/approval/tool
-контур, что и родительские. Для роли можно задать per-role `tools` allowlist:
+контур, что и родительские. Ребёнок исполняется на child-токене отмены
+(`CancellationToken::child_token()`): cancel родительского turn-а каскадится
+ребёнку, а отмена ребёнка не трогает родителя; resumable snapshot сохраняется
+при любом терминальном статусе (включая `Cancelled`/`TimedOut`), так что
+прерванную работу можно продолжить по `task_id`. Для роли можно задать
+per-role `tools` allowlist:
 после exposure-фильтра runner оставит только перечисленные tools. Это особенно
 важно при `tool_exposure = "all_visible"`, где `exposure_phase` игнорируется.
 
