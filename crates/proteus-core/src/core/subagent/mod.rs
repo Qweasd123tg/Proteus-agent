@@ -8,10 +8,13 @@
 //! (policy/approval-контур), что и родительские.
 
 mod child_loop;
+mod process;
 mod resumable;
 mod roles;
 #[cfg(test)]
 mod tests;
+
+pub use process::ProcessSubagentRunner;
 
 use std::{
     path::Path,

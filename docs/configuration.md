@@ -576,6 +576,38 @@ frontmatter обязан содержать `description` и может зада
 `tools`, `max_iterations`, `timeout_ms`, `max_summary_bytes`; тело Markdown-файла
 используется как prompt роли.
 
+`modules.subagent = "process"` включает builtin process runner: ребёнок —
+отдельный процесс `proteus server stdio --new-session` со своим named config
+(«роль = профиль»). Роль не задаёт ребёнку системный prompt и tools — это
+делает его config; опциональный `prompt` роли префиксуется к тексту задачи.
+
+```toml
+[modules]
+subagent = "process"
+
+[module_config.subagent.process]
+max_depth = 1
+# binary = "/usr/local/bin/proteus"  # default: текущий исполняемый файл
+# cancel_grace_ms = 5000             # ожидание штатного cancel до kill
+
+[[module_config.subagent.process.roles]]
+name = "explore"
+description = "Read-only explorer running in an isolated process."
+config = "sub-explorer"              # named config или путь к config-файлу
+# prompt = "Focus on the build system." # опциональный префикс задачи
+# args = ["--permission-mode", "plan"]  # extra CLI-аргументы ребёнка
+# timeout_ms = 120000
+# max_summary_bytes = 4096
+```
+
+Approval/user-input запросы ребёнка форвардятся в родительские transports
+(пользователь родительской session видит их с меткой роли), поэтому
+approval timeout ребёнка (`app_server.approval_timeout_ms` его конфига)
+должен быть достаточным для ручного решения. `Send`/`ClearHistory`/`Cancel`
+идут по стандартному stdio-протоколу; свежая задача сбрасывает историю
+ребёнка, `task_id` продолжает живую session, restart процесса инвалидирует
+старые `task_id`.
+
 ## Renderer
 
 `modules.renderer = "text"` — безопасный core default без plugin pack.

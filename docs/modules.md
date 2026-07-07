@@ -552,9 +552,27 @@ Model-запросы дочернего цикла включают prompt cache
 `proteus:subagent:<provider>:<model>:<child_thread_id>` — история ребёнка
 append-only, поэтому ключ на child thread даёт консистентный prefix-cache
 routing между итерациями и продолжается после resume по `task_id`. Ребёнок
-наследует модель и reasoning-настройки родителя; per-role model/effort пока
-не поддерживается (зафиксировано в roadmap как evidence для parallel/profile
-дизайна).
+наследует модель и reasoning-настройки родителя; per-role model/effort в
+`sequential` не поддерживается — это одна из причин появления реализации
+`process` («роль = профиль»).
+
+Builtin `process` реализует путь B: ребёнок — отдельный процесс
+`proteus server stdio --new-session` со своим named config. Родитель общается
+с ним по стандартному app-server JSONL-протоколу: отправляет turn через
+`Send`, пере-эмитит tool-события ребёнка под выделенным `child_thread_id`
+(тот же набор, что у sequential: tool lifecycle, approvals, patch, memory,
+nested subagent, error; модельная телеметрия и deltas остаются в event log
+ребёнка), форвардит `ApprovalRequested`/`UserInputRequested` в родительские
+transports (решение принимает пользователь родительской session; origin несёт
+имя роли) и возвращает `AgentOutput.text` как summary. Изоляция структурная:
+policy, tools, model, permission mode и промпты ребёнка задаёт config роли,
+а не родительский runtime; сбой ребёнка не задевает родителя. Cancel
+родительского turn-а транслируется в `Cancel` ребёнку с grace-ожиданием
+(`cancel_grace_ms`), затем процесс убивается. Процесс на роль
+переиспользуется между задачами (lazy spawn): свежая задача начинается с
+`ClearHistory`, resume по `task_id` продолжает живую session ребёнка; смерть
+или restart процесса инвалидирует его task_id-ы. Роли задаются в
+`module_config.subagent.process` (см. `configuration.md`).
 
 ## Workflow
 

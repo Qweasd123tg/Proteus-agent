@@ -204,7 +204,7 @@ fn message_text(message: &CanonicalMessage) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
-fn accumulate_usage(total: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
+pub(super) fn accumulate_usage(total: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
     let Some(usage) = usage else {
         return;
     };

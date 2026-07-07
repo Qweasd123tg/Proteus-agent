@@ -9,7 +9,7 @@ use crate::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
         PatchApplier, Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
     },
-    core::{ModelConfig, SequentialSubagentRunner},
+    core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, DynamicToolExposure, EmptyContextBuilder,
@@ -196,6 +196,17 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         ),
         build_sequential_subagent,
     );
+    catalog.register_module::<dyn SubagentRunner>(
+        slot::SUBAGENT,
+        "process",
+        manifest(
+            "process",
+            ModuleKind::Subagent,
+            &["process_isolation", "role_profiles", "roles_from_config"],
+            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); настройки в module_config.subagent.process.",
+        ),
+        build_process_subagent,
+    );
 
     // Workflows
     catalog.register_module::<dyn Workflow>(
@@ -321,6 +332,13 @@ fn build_sequential_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Sub
     Ok(Arc::new(SequentialSubagentRunner::from_config_with_cwd(
         config, ctx.cwd,
     )?))
+}
+
+fn build_process_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
+    let config = ctx
+        .config
+        .module_config_value(ModuleKind::Subagent, "process");
+    Ok(Arc::new(ProcessSubagentRunner::from_config(config)?))
 }
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {

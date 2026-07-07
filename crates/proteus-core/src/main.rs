@@ -62,6 +62,10 @@ struct Cli {
     cwd: Option<PathBuf>,
     #[arg(long)]
     resume_session: Option<PathBuf>,
+    /// Всегда стартовать свежую session вместо resume последней workspace
+    /// session (используется subagent process runner-ом для детей).
+    #[arg(long)]
+    new_session: bool,
     #[arg(short, long)]
     interactive: bool,
     #[arg(long)]
@@ -144,7 +148,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if is_app_server_stdio_command(&cli.task) {
-        return run_stdio_app_server(config, cwd, config_path, cli.resume_session).await;
+        if cli.new_session && cli.resume_session.is_some() {
+            anyhow::bail!("--new-session conflicts with --resume-session");
+        }
+        return run_stdio_app_server(
+            config,
+            cwd,
+            config_path,
+            cli.resume_session,
+            cli.new_session,
+        )
+        .await;
     }
     if let Some(http_config) = parse_app_server_http_command(&cli.task)? {
         return run_http_app_server(config, cwd, config_path, cli.resume_session, http_config)

@@ -187,7 +187,11 @@ handshake). MCP stdio host в core мигрирован на
 `ProcessHost<NewlineJsonFraming>` (`initialize`-handshake живёт в
 initializer, выполняется на каждом (re)spawn); собственные
 session/protocol-модули MCP удалены. Следующий потребитель — будущий
-LSP-плагин (`ContentLengthFraming` уже в крейте).
+LSP-плагин (`ContentLengthFraming` уже в крейте). Уточнение (2026-07-07):
+subagent process runner (путь B) потребителем не стал — ему нужен
+async-стриминг событий с форвардингом approvals и cancel посреди turn-а,
+что не ложится в sync request/response модель крейта; он использует
+`tokio::process` напрямую (`core/subagent/process/child.rs`).
 
 ### Кластер 4: ABI-стена для runtime-фактов
 
@@ -233,11 +237,14 @@ slot-governance назрел.
    MCP stdio host в core мигрирован на него (initializer-hook для
    handshake); остался LSP-плагин как следующий потребитель.
 4. Parallel subagents — control-plane блокеры сняты (approval queue с
-   атрибуцией и per-child cancellation готовы, 2026-07-07); осталось
-   решение по развилке A/B (предпочтение 2026-07-07 — путь B «ребёнок =
-   процесс proteus», для него — стабилизация protocol v0.4 и форвардинг
-   событий ребёнка), provider-neutral spawn/wait/cancel DTO и
-   `BudgetTracker`.
+   атрибуцией и per-child cancellation готовы, 2026-07-07), путь B выбран
+   и его слайс 1 реализован: builtin `subagent = "process"` — ребёнок =
+   процесс `proteus server stdio --new-session` с named config роли,
+   форвардинг событий/approvals/user-inputs через stdio-протокол, cancel =
+   `Cancel` + grace + kill (см. `docs/modules.md`). Осталось: parallel
+   stage 1 (несколько read-only детей одновременно; provider-neutral
+   spawn/wait/cancel DTO в контракте слота), `BudgetTracker`, UX дерева
+   потоков в клиенте.
 
 ## Этапы
 
@@ -317,21 +324,19 @@ plan/execute/review экспериментов.
 - ✅ Slot `subagent` (13-й): sequential дочерний цикл с изолированным
   контекстом, ролями из конфига/markdown, task-тулом в workflow, task_id-резюмом
   и событиями под child `ThreadId`. Интейк пересмотрен в slot-governance.md.
-  Дальше — догфуд sequential, затем решение по parallel `spawn/wait/cancel`.
-  Развилка исполнения для parallel (зафиксирована 2026-07-06, решать по
-  dogfood-evidence): (A) in-process tokio tasks — дёшево стартует, но общие
-  registry/approvals/session и общий blast radius сбоев; (B) ребёнок =
-  отдельный процесс `proteus` (готовый `server stdio` интерфейс + generic
-  process host) — изоляция сбоев, cancel=kill, дороже старт, нужен форвардинг
-  событий ребёнка. Идея "роль = профиль": ребёнок запускается с собственным
-  named config — mini-сборка модулей под роль (`sub-explorer` read-only tools
-  + deny-write policy + memory/compactor none + дешёвая модель), безопасность
-  структурная через policy/tools, а не промптовая; профили детей тестируются
-  в dogfood отдельно. Путь B даёт это бесплатно, путь A требует эмуляции
-  фильтрами. Общие блокеры обоих путей: approval queue с атрибуцией к ребёнку
-  (v0.3), provider-neutral spawn/wait/cancel DTO (sequential и оба parallel —
-  реализации одного слота), budget/rate-limit учёт (`BudgetTracker`), UX
-  дерева параллельных потоков в клиенте. Стратегия записи (2026-07-06):
+  Развилка исполнения для parallel решена (2026-07-07): выбран путь B,
+  его sequential-слайс реализован как builtin `subagent = "process"` —
+  ребёнок = процесс `proteus server stdio --new-session` с named config
+  роли («роль = профиль»: policy/tools/model/permission mode задаются
+  конфигом ребёнка структурно), форвардинг tool-событий под child
+  `ThreadId`, approvals/user-inputs — в родительские transports с меткой
+  роли, cancel = `Cancel` + grace + kill, свежая задача = `ClearHistory`,
+  resume по `task_id` продолжает живую session ребёнка. Путь A
+  (in-process tokio tasks) не реализуется, пока process-путь не упрётся
+  в цену старта. Оставшиеся блокеры parallel stage 1: provider-neutral
+  spawn/wait/cancel DTO (sequential и parallel — реализации одного
+  слота), budget/rate-limit учёт (`BudgetTracker`), UX дерева
+  параллельных потоков в клиенте. Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
   Code worktrees, Codex cloud isolation), worktree lifecycle — оркестрация

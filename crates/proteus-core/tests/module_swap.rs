@@ -476,7 +476,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(workflow_ids, ["none"]);
     assert_eq!(compactor_ids, ["none"]);
     assert_eq!(tool_exposure_ids, ["all_visible", "dynamic"]);
-    assert_eq!(subagent_ids, ["none", "sequential"]);
+    assert_eq!(subagent_ids, ["none", "process", "sequential"]);
     assert_eq!(renderer_ids, ["text"]);
     assert!(catalog.manifest(ModuleKind::Tool, "read_file").is_none());
 }
@@ -511,6 +511,32 @@ fn subagent_slot_swaps_none_and_sequential_roles() {
     assert_eq!(roles.len(), 1);
     assert_eq!(roles[0].name, "explore");
     assert_eq!(roles[0].limits.max_iterations, 15);
+
+    // Третья реализация слота: ребёнок = отдельный процесс proteus
+    // («роль = профиль»). Swap проверяет contract boundary (roles из
+    // конфига), сам spawn покрыт tests/process_subagent.rs.
+    config.modules.subagent = "process".to_owned();
+    set_module_config(
+        &mut config,
+        "subagent",
+        "process",
+        json!({
+            "roles": [
+                {
+                    "name": "explore",
+                    "description": "Read-only exploration",
+                    "config": "sub-explorer",
+                    "timeout_ms": 60000
+                }
+            ]
+        }),
+    );
+    let registry = registry_from_test_config(&config, dir.path());
+    let roles = registry.subagent.roles();
+    assert_eq!(roles.len(), 1);
+    assert_eq!(roles[0].name, "explore");
+    assert_eq!(roles[0].limits.timeout_ms, Some(60000));
+    assert_eq!(roles[0].config["config"], "sub-explorer");
 }
 
 #[tokio::test]
