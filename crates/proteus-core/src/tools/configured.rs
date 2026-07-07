@@ -149,7 +149,7 @@ pub fn register_configured_tools(
                 )?;
             }
             ConfiguredToolExecutorConfig::Mcp {
-                server,
+                server: _,
                 command,
                 args,
                 tool,
@@ -157,7 +157,6 @@ pub fn register_configured_tools(
                 max_response_bytes,
             } => {
                 let host = configured_mcp_inline_host(
-                    server.clone().unwrap_or_else(|| command.clone()),
                     command.clone(),
                     args.clone(),
                     protocol_version.clone(),

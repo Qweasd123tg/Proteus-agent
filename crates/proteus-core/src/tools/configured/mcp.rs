@@ -1,11 +1,8 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
+use proteus_process_host::{NewlineJsonFraming, ProcessHost, ProcessSpec};
 use serde_json::{Value, json};
 
 use crate::{
@@ -15,12 +12,8 @@ use crate::{
 };
 
 mod discovery;
-mod protocol;
-mod session;
 
 use discovery::DiscoveredMcpTool;
-use protocol::render_mcp_content;
-use session::McpStdioSession;
 
 #[derive(Clone)]
 pub struct ConfiguredMcpTool {
@@ -86,39 +79,41 @@ impl Tool for ConfiguredMcpTool {
     }
 }
 
+/// Persistent stdio MCP server behind the shared process host: lazy start,
+/// `initialize` handshake on every (re)spawn, restart on next use after errors.
 #[derive(Debug)]
 pub(super) struct McpStdioHost {
-    server_name: String,
-    command: String,
-    args: Vec<String>,
-    protocol_version: String,
-    cwd: PathBuf,
     timeout: Duration,
-    max_response_bytes: usize,
-    session: Mutex<Option<McpStdioSession>>,
+    host: ProcessHost<NewlineJsonFraming>,
 }
 
 impl McpStdioHost {
-    #[allow(clippy::too_many_arguments)]
     fn new(
-        server_name: String,
         command: String,
         args: Vec<String>,
         protocol_version: String,
-        cwd: PathBuf,
+        cwd: &Path,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
-        Self {
-            server_name,
-            command,
-            args,
-            protocol_version,
-            cwd,
-            timeout,
-            max_response_bytes,
-            session: Mutex::new(None),
-        }
+        let spec = ProcessSpec::new(command).args(args).cwd(cwd);
+        let framing = NewlineJsonFraming::new(max_response_bytes);
+        let host = ProcessHost::with_initializer(spec, framing, move |session| {
+            session.request(
+                "initialize",
+                json!({
+                    "protocolVersion": protocol_version,
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "proteus-core",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }),
+                timeout,
+            )?;
+            session.notify("notifications/initialized", json!({}))
+        });
+        Self { timeout, host }
     }
 
     fn timeout(&self) -> Duration {
@@ -126,55 +121,42 @@ impl McpStdioHost {
     }
 
     fn call_tool(&self, remote_tool: &str, args: Value, timeout: Duration) -> Result<Value> {
-        let mut session = self.lock_session()?;
-        self.ensure_session(&mut session)?;
-        let result = session
-            .as_mut()
-            .expect("MCP session initialized")
-            .call_tool(remote_tool, args, timeout);
-        if result.is_err() {
-            *session = None;
-        }
+        let result = self.host.request(
+            "tools/call",
+            json!({
+                "name": remote_tool,
+                "arguments": args
+            }),
+            timeout,
+        );
+        // MCP notifications are not consumed anywhere yet; drop them so a
+        // chatty server does not grow the session buffer unboundedly.
+        self.host.drain_notifications();
         result
     }
 
     fn list_tools(&self, server: &ConfiguredMcpServerConfig) -> Result<Vec<DiscoveredMcpTool>> {
-        let mut session = self.lock_session()?;
-        self.ensure_session(&mut session)?;
-        let result = session
-            .as_mut()
-            .expect("MCP session initialized")
-            .list_tools(server, self.timeout);
-        if result.is_err() {
-            *session = None;
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let params = cursor
+                .as_ref()
+                .map(|cursor| json!({ "cursor": cursor }))
+                .unwrap_or_else(|| json!({}));
+            let result = self.host.request("tools/list", params, self.timeout);
+            self.host.drain_notifications();
+            let result = result?;
+            tools.extend(discovery::mcp_tools_from_list_result(server, &result)?);
+            cursor = discovery::next_mcp_cursor(&result);
+            if cursor.is_none() {
+                break;
+            }
         }
-        result
-    }
-
-    fn lock_session(&self) -> Result<MutexGuard<'_, Option<McpStdioSession>>> {
-        self.session
-            .lock()
-            .map_err(|_| anyhow!("MCP host '{}' session lock poisoned", self.server_name))
-    }
-
-    fn ensure_session(&self, session: &mut Option<McpStdioSession>) -> Result<()> {
-        if session.is_none() {
-            *session = Some(McpStdioSession::start(
-                &self.server_name,
-                &self.command,
-                &self.args,
-                &self.protocol_version,
-                &self.cwd,
-                self.timeout,
-                self.max_response_bytes,
-            )?);
-        }
-        Ok(())
+        Ok(tools)
     }
 }
 
 pub(super) fn configured_mcp_inline_host(
-    server_name: String,
     command: String,
     args: Vec<String>,
     protocol_version: String,
@@ -183,11 +165,10 @@ pub(super) fn configured_mcp_inline_host(
     max_response_bytes: Option<usize>,
 ) -> Arc<McpStdioHost> {
     Arc::new(McpStdioHost::new(
-        server_name,
         command,
         args,
         protocol_version,
-        cwd.to_path_buf(),
+        cwd,
         Duration::from_millis(timeout_ms),
         max_response_bytes
             .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
@@ -220,16 +201,33 @@ pub(super) fn register_discovered_mcp_tools(
 
 fn configured_mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Arc<McpStdioHost> {
     Arc::new(McpStdioHost::new(
-        server.name.clone(),
         server.command.clone(),
         server.args.clone(),
         server.protocol_version.clone(),
-        cwd.to_path_buf(),
+        cwd,
         Duration::from_millis(server.timeout_ms.unwrap_or(30_000)),
         server
             .max_response_bytes
             .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
     ))
+}
+
+fn render_mcp_content(content: Option<&Value>) -> String {
+    let Some(Value::Array(items)) = content else {
+        return String::new();
+    };
+    items
+        .iter()
+        .map(|item| match item.get("type").and_then(Value::as_str) {
+            Some("text") => item
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            _ => item.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(super) fn effective_mcp_safety(safety: ToolSafety) -> ToolSafety {

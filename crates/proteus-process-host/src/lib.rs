@@ -13,6 +13,6 @@ mod session;
 mod spec;
 
 pub use framing::{ContentLengthFraming, DEFAULT_MAX_FRAME_BYTES, Framing, NewlineJsonFraming};
-pub use host::{ProcessHost, ProcessSessionGuard};
+pub use host::{ProcessHost, ProcessSessionGuard, SessionInitializer};
 pub use session::ProcessSession;
 pub use spec::ProcessSpec;

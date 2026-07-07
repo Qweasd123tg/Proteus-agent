@@ -1251,6 +1251,7 @@ dependencies = [
  "memory-pack",
  "policy-pack",
  "proteus-contracts",
+ "proteus-process-host",
  "renderer-pack",
  "reqwest",
  "serde",

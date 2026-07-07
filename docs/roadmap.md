@@ -171,11 +171,14 @@ pipeline) почти бесплатно.
 По правилу «contract после второго use case» абстракция созрела: выделить
 process host как named задачу до LSP и parallel subagents — обе дешевеют.
 
-**Реализовано частично:** общий sync process host выделен в
+**Реализовано:** общий sync process host выделен в
 `crates/proteus-process-host` (framing, request/response, notifications,
-kill-on-timeout, lazy restart). Первый потребитель — будущий LSP-плагин;
-миграция существующего MCP stdio host из core оставлена отдельным отложенным
-шагом.
+kill-on-timeout, lazy restart, session initializer hook для protocol
+handshake). MCP stdio host в core мигрирован на
+`ProcessHost<NewlineJsonFraming>` (`initialize`-handshake живёт в
+initializer, выполняется на каждом (re)spawn); собственные
+session/protocol-модули MCP удалены. Следующий потребитель — будущий
+LSP-плагин (`ContentLengthFraming` уже в крейте).
 
 ### Кластер 4: ABI-стена для runtime-фактов
 
@@ -217,8 +220,9 @@ slot-governance назрел.
    (`messages.pre-compaction.N.jsonl`) — дешёвый шаг для replay/eval/clone-pipeline.
 2. Единое решение по данным (parts + storage engine + replay) до
    eval runner-а.
-3. ✅ Реализовано в части крейта: `proteus-process-host` выделен как named
-   sync utility; подключение LSP-плагина и миграция MCP — отдельные шаги.
+3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
+   MCP stdio host в core мигрирован на него (initializer-hook для
+   handshake); остался LSP-плагин как следующий потребитель.
 4. Parallel subagents — только после v0.3 approval queue с атрибуцией
    (для пути B — плюс стабилизация protocol v0.4).
 
@@ -520,10 +524,11 @@ Scope:
   tools вместо grep-гаданий; семантический поиск → вторая реализация
   `SearchBackend` рядом с `rg`. Клиент болтливее MCP (didOpen/didChange
   зеркалирование документов, capabilities, сервер на язык), но lifecycle
-  переиспользует тот же паттерн persistent stdio JSON-RPC host, что MCP
-  executor — третий аргумент вынести общий process-host из `tools/` (см.
-  Architecture Cleanup). Порядок: сначала dogfood измеряет, сколько уходит на
-  цикл проверки правок, затем решение об объёме.
+  переиспользует тот же persistent stdio JSON-RPC host, что и MCP executor —
+  общий `proteus-process-host` выделен и уже обслуживает MCP
+  (`ContentLengthFraming` и initializer-hook под LSP готовы). Порядок:
+  сначала dogfood измеряет, сколько уходит на цикл проверки правок, затем
+  решение об объёме.
 
 ### Token / Context Discipline
 
@@ -664,10 +669,13 @@ Scope:
 - При дальнейшем развитии dynamic tools вынести общий lexical scoring/tokenize
   helper в shared contract/support слой либо сознательно оставить duplication
   между core selector и workflow meta-tools как ABI-boundary tradeoff.
-- Вынести concrete MCP stdio lifecycle из `crates/proteus-core/src/tools` в
-  отдельную module/plugin implementation. Core должен оставить registry,
-  policy/safety и узкий provider contract, а не JSON-RPC initialize/list/call
-  loop конкретного transport.
+- `[частично реализовано]` Вынести concrete MCP stdio lifecycle из
+  `crates/proteus-core/src/tools` в отдельную module/plugin implementation.
+  Transport-слой (spawn/framing/JSON-RPC request-response/lazy restart/
+  kill-on-timeout) уехал в `proteus-process-host`; в core остались
+  registry-регистрация, safety и MCP-семантика (initialize handshake,
+  tools/list pagination, tools/call rendering). Полный вынос MCP executor
+  в plugin — отдельный шаг, если появится причина.
 - Явно закрепить contract текущего user message для `WorkflowOutput`.
   Сейчас runtime сохраняет user prompt до workflow и сверяет, что workflow
   вернул тот же user message на `new_messages_start`; следующий cleanup должен

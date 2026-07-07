@@ -169,3 +169,51 @@ fn read_content_length<R: BufRead>(reader: &mut R, max_frame_bytes: usize) -> Re
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufReader;
+
+    use super::*;
+
+    /// Строка длиннее лимита без завершающего `\n` отклоняется до конца
+    /// чтения — защита от неограниченного буфера.
+    #[test]
+    fn newline_framing_rejects_oversized_frame_without_newline() {
+        let framing = NewlineJsonFraming::new(20_000);
+        let payload = vec![b' '; 20_001];
+        let mut reader = BufReader::new(&payload[..]);
+
+        let error = framing
+            .read_frame(&mut reader)
+            .expect_err("oversized frame should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("newline JSON frame exceeded 20000 bytes before newline"),
+            "{error}"
+        );
+    }
+
+    /// Увеличенный per-host лимит принимает кадр, который дефолтный
+    /// лимит всё ещё отклоняет.
+    #[test]
+    fn newline_framing_honors_custom_limit() {
+        let payload = "x".repeat(20_001);
+        let frame = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"{payload}\"}}\n");
+
+        let generous = NewlineJsonFraming::new(100_000);
+        let mut reader = BufReader::new(frame.as_bytes());
+        let value = generous
+            .read_frame(&mut reader)
+            .expect("custom limit should accept larger frame");
+        assert_eq!(value["id"], 1);
+
+        let strict = NewlineJsonFraming::new(20_000);
+        let mut reader = BufReader::new(frame.as_bytes());
+        strict
+            .read_frame(&mut reader)
+            .expect_err("strict limit should reject the same frame");
+    }
+}
