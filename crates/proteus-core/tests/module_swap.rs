@@ -2320,16 +2320,21 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
         PermissionMode::Normal,
     );
 
-    let output = single_loop_workflow(8)
+    let error = single_loop_workflow(8)
         .run(
             AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
             Vec::new(),
             ctx,
         )
         .await
-        .unwrap();
+        .expect_err("length response with tool calls must fail closed");
 
-    assert_eq!(output.output.text, "partial write");
+    assert!(
+        error
+            .to_string()
+            .contains("single_loop model response hit the length limit"),
+        "{error}"
+    );
     assert!(!dir.path().join("partial.txt").exists());
     let records = events.events().await;
     assert!(

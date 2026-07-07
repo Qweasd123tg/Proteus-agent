@@ -562,6 +562,15 @@ fn tool_call_response(call: ToolCall) -> CanonicalModelResponse {
     )
 }
 
+fn assert_no_executed_calls(host: &FakeHost) {
+    assert!(
+        host.executed_calls
+            .lock()
+            .expect("executed calls")
+            .is_empty()
+    );
+}
+
 #[test]
 fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
     let mut input = workflow_input("change code");
@@ -1039,6 +1048,64 @@ fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
             .iter()
             .any(|instruction| instruction.text.contains("full tool catalog"))
     );
+}
+
+#[test]
+fn single_loop_errors_when_model_calls_unrequested_tool() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch",
+        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+    );
+    let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
+        .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let error = match CodingSingleLoopWorkflow::default()
+        .run_json(RString::from(input_json), &mut host_to)
+    {
+        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+        RResult::RErr(error) => error,
+    };
+    drop(host_to);
+
+    assert!(
+        error
+            .message
+            .as_str()
+            .contains("single_loop model requested tool 'apply_patch' that was not present")
+    );
+    assert_no_executed_calls(&host);
+}
+
+#[test]
+fn single_loop_final_errors_when_model_calls_tool() {
+    let input = workflow_input("change code");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+    let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
+        .with_tools(vec![read_file.clone()], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let error = match run_single_loop(input, &mut host_to, 0) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    drop(host_to);
+
+    assert!(
+        error
+            .message
+            .as_str()
+            .contains("single_loop_final model requested tool 'read_file' that was not present")
+    );
+    assert_no_executed_calls(&host);
 }
 
 #[test]
@@ -1614,6 +1681,116 @@ fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
             .iter()
             .any(|message| message.role == MessageRole::Tool)
     );
+}
+
+#[test]
+fn plan_execute_review_errors_when_plan_calls_non_readonly_tool() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch",
+        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+    );
+    let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
+        .with_tools(vec![read_file, apply_patch.clone()], vec![apply_patch]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let error =
+        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+    drop(host_to);
+
+    assert!(
+        error
+            .message
+            .as_str()
+            .contains("plan model requested tool 'apply_patch' that was not present")
+    );
+    assert_no_executed_calls(&host);
+}
+
+#[test]
+fn plan_execute_review_errors_when_execute_calls_unrequested_tool() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch",
+        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+    );
+    let mut host = FakeHost::with_responses(vec![
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "plan"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+        tool_call_response(call),
+    ])
+    .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let error =
+        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+    drop(host_to);
+
+    assert!(
+        error
+            .message
+            .as_str()
+            .contains("execute model requested tool 'apply_patch' that was not present")
+    );
+    assert_no_executed_calls(&host);
+}
+
+#[test]
+fn plan_execute_review_errors_when_review_calls_tool() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+    let mut host = FakeHost::with_responses(vec![
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "plan"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "draft"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+        tool_call_response(call),
+    ])
+    .with_tools(vec![read_file.clone()], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let error =
+        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
+            RResult::RErr(error) => error,
+        };
+    drop(host_to);
+
+    assert!(
+        error
+            .message
+            .as_str()
+            .contains("review model requested tool 'read_file' that was not present")
+    );
+    assert_no_executed_calls(&host);
 }
 
 #[test]

@@ -61,7 +61,7 @@ use metadata::{insert_request_metadata_u32, prompt_cache_key};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};
-use validation::validate_codex_model_response;
+use validation::validate_model_response;
 use workflows::EmptyFinalResponseMode;
 pub use workflows::{
     CodingCodexLoopDiagnosticWorkflow, CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow,
@@ -145,6 +145,7 @@ pub(crate) fn run_single_loop(
                 finish_reason: response.finish_reason.clone(),
             },
         )?;
+        validate_model_response("single_loop", &request, &response)?;
 
         turn.model_messages.push(response.message.clone());
         turn.persistent_messages.push(response.message.clone());
@@ -205,6 +206,7 @@ pub(crate) fn run_single_loop(
             finish_reason: response.finish_reason.clone(),
         },
     )?;
+    validate_model_response("single_loop_final", &request, &response)?;
 
     turn.model_messages.push(response.message.clone());
     turn.persistent_messages.push(response.message.clone());
@@ -268,7 +270,7 @@ pub(crate) fn run_codex_loop(
                 finish_reason: response.finish_reason.clone(),
             },
         )?;
-        validate_codex_model_response(&request, &response)?;
+        validate_model_response("codex_loop", &request, &response)?;
 
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
@@ -361,6 +363,7 @@ pub(crate) fn run_plan_execute_review(
                 finish_reason: plan_response.finish_reason.clone(),
             },
         )?;
+        validate_model_response("plan", &plan_request, &plan_response)?;
         let plan_message =
             with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
         turn.model_messages.push(plan_message.clone());
@@ -409,6 +412,7 @@ pub(crate) fn run_plan_execute_review(
                 finish_reason: response.finish_reason.clone(),
             },
         )?;
+        validate_model_response("execute", &request, &response)?;
 
         let finish_reason = response.finish_reason.clone();
         turn.model_messages.push(response.message.clone());
@@ -458,6 +462,7 @@ pub(crate) fn run_plan_execute_review(
             finish_reason: final_response.finish_reason.clone(),
         },
     )?;
+    validate_model_response("review", &review_request, &final_response)?;
 
     turn.model_messages.push(final_response.message.clone());
     turn.persistent_messages
