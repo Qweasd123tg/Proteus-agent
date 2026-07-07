@@ -12,16 +12,15 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 use crate::{
     contracts::{
         ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        UserInputRequest, UserInputResponse, is_streaming_delta,
+        UserInputResponse, is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        ModuleCatalogEntrySummary, PendingUserInput, RuntimeReloadReport, SessionStore,
-        TopologyBuildInput, TopologySnapshot, build_topology_snapshot, config_store_root,
-        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
-        normalize_session_dir_path, session_id_from_session_dir,
-        session_workspace_from_session_dir,
+        ModuleCatalogEntrySummary, RuntimeReloadReport, SessionStore, TopologyBuildInput,
+        TopologySnapshot, build_topology_snapshot, config_store_root, delete_workspace_session,
+        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
+        session_id_from_session_dir, session_workspace_from_session_dir,
     },
     domain::{AgentOutput, EventEnvelope, PermissionMode, new_thread_id},
 };
@@ -37,6 +36,7 @@ pub mod protocol;
 pub mod stdio;
 mod transcript;
 mod turn_progress;
+mod user_inputs;
 
 pub use config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
@@ -67,14 +67,8 @@ pub use proteus_contracts::app_protocol::{
     AppServerEvent, AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
-struct PendingUserInputEntry {
-    request: UserInputRequest,
-    responder: tokio::sync::oneshot::Sender<UserInputResponse>,
-}
-
 use approvals::PendingApprovalResponders;
-
-type PendingUserInputResponders = Arc<Mutex<HashMap<AppUserInputRequestId, PendingUserInputEntry>>>;
+use user_inputs::{PendingUserInputResponders, resolve_pending_user_inputs_empty};
 
 #[derive(Clone)]
 pub struct AppServerHandle {
@@ -426,7 +420,13 @@ impl AppServerHandle {
             .values()
             .map(|entry| entry.request.clone())
             .collect::<Vec<_>>();
-        user_inputs.sort_by(|left, right| left.request_id.cmp(&right.request_id));
+        // Хронология очереди: seq присваивает forwarder; request_id — только
+        // детерминированный tie-breaker для записей без seq (тесты, legacy).
+        user_inputs.sort_by(|left, right| {
+            left.seq
+                .cmp(&right.seq)
+                .then_with(|| left.request_id.cmp(&right.request_id))
+        });
 
         AppPendingRequests::new(approvals, user_inputs)
     }
@@ -538,20 +538,8 @@ impl AppServerHandle {
         request_id: &str,
         response: UserInputResponse,
     ) -> Result<()> {
-        let responder = self
-            .pending_user_inputs
-            .lock()
+        user_inputs::resolve_pending_user_input(&self.pending_user_inputs, request_id, response)
             .await
-            .remove(request_id)
-            .ok_or_else(|| anyhow!("unknown user input request id: {request_id}"))?;
-        responder
-            .responder
-            .send(response)
-            .map_err(|_| anyhow!("user input response channel dropped"))?;
-        let _ = self.events.send(AppServerEvent::UserInputResolved {
-            request_id: request_id.to_owned(),
-        });
-        Ok(())
     }
 
     pub async fn shutdown(&self) {
@@ -560,17 +548,8 @@ impl AppServerHandle {
             "app-server shutting down".to_owned(),
         )
         .await;
-        deny_pending_user_inputs(
-            self.pending_user_inputs.clone(),
-            self.events.clone(),
-            "app-server shutting down".to_owned(),
-        )
-        .await;
+        resolve_pending_user_inputs_empty(self.pending_user_inputs.clone()).await;
         let _ = self.events.send(AppServerEvent::Shutdown);
-    }
-
-    pub async fn cancel_pending_user_inputs(&self, note: String) {
-        deny_pending_user_inputs(self.pending_user_inputs.clone(), self.events.clone(), note).await;
     }
 
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
@@ -707,7 +686,7 @@ impl AgentAppServer {
             pending_approvals.clone(),
             approval_timeout,
         );
-        spawn_user_input_forwarder(
+        user_inputs::spawn_user_input_forwarder(
             user_input_rx,
             events.clone(),
             pending_user_inputs.clone(),
@@ -813,66 +792,6 @@ fn spawn_runtime_event_forwarder_with_receiver(
             }
         }
     });
-}
-
-fn spawn_user_input_forwarder(
-    mut user_input_rx: tokio::sync::mpsc::Receiver<PendingUserInput>,
-    events: broadcast::Sender<AppServerEvent>,
-    pending_user_inputs: PendingUserInputResponders,
-    timeout: Duration,
-) {
-    tokio::spawn(async move {
-        while let Some(PendingUserInput { request, responder }) = user_input_rx.recv().await {
-            let request_id = request.request_id.clone();
-            pending_user_inputs.lock().await.insert(
-                request_id.clone(),
-                PendingUserInputEntry {
-                    request: request.clone(),
-                    responder,
-                },
-            );
-            let _ = events.send(AppServerEvent::UserInputRequested {
-                request: Box::new(request),
-            });
-
-            if !timeout.is_zero() {
-                spawn_user_input_timeout(
-                    request_id,
-                    pending_user_inputs.clone(),
-                    events.clone(),
-                    timeout,
-                );
-            }
-        }
-    });
-}
-
-fn spawn_user_input_timeout(
-    request_id: AppUserInputRequestId,
-    pending_user_inputs: PendingUserInputResponders,
-    events: broadcast::Sender<AppServerEvent>,
-    timeout: Duration,
-) {
-    tokio::spawn(async move {
-        tokio::time::sleep(timeout).await;
-        let entry = pending_user_inputs.lock().await.remove(&request_id);
-        if let Some(entry) = entry {
-            let _ = entry.responder.send(UserInputResponse::empty());
-            let _ = events.send(AppServerEvent::UserInputResolved { request_id });
-        }
-    });
-}
-
-async fn deny_pending_user_inputs(
-    pending_user_inputs: PendingUserInputResponders,
-    events: broadcast::Sender<AppServerEvent>,
-    _note: String,
-) {
-    let pending = std::mem::take(&mut *pending_user_inputs.lock().await);
-    for (request_id, entry) in pending {
-        let _ = entry.responder.send(UserInputResponse::empty());
-        let _ = events.send(AppServerEvent::UserInputResolved { request_id });
-    }
 }
 
 #[cfg(test)]

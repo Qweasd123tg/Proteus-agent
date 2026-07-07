@@ -251,6 +251,10 @@ where
         .title
         .clone()
         .unwrap_or_else(|| "Нужен ответ".to_owned());
+    let origin_label = request
+        .origin
+        .as_ref()
+        .and_then(|origin| origin.label.clone());
     let questions = request.questions.clone();
     let question_count = questions.len();
     let tabs = questions
@@ -291,6 +295,14 @@ where
                     <span class="dot"></span>
                     "Вопрос"
                 </span>
+                {origin_label
+                    .map(|label| {
+                        view! {
+                            <span class="status-badge subagent">
+                                {format!("субагент: {label}")}
+                            </span>
+                        }
+                    })}
                 <strong>{title}</strong>
                 <span class="input-step">
                     {move || {

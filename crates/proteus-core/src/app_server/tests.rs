@@ -76,14 +76,25 @@ async fn register_test_approval(
     .await;
 }
 
-fn pending_user_input_entry(
+fn test_user_input_request(request_id: &str) -> UserInputRequest {
+    UserInputRequest::new(request_id.to_owned(), PathBuf::from("."), Vec::new())
+}
+
+/// Регистрирует pending user input так же, как это делает forwarder:
+/// запись в map + watcher, владеющий responder-ом.
+async fn register_test_user_input(
+    pending_user_inputs: &user_inputs::PendingUserInputResponders,
+    events: &broadcast::Sender<AppServerEvent>,
     request_id: &str,
     responder: oneshot::Sender<UserInputResponse>,
-) -> PendingUserInputEntry {
-    PendingUserInputEntry {
-        request: UserInputRequest::new(request_id.to_owned(), PathBuf::from("."), Vec::new()),
+) {
+    user_inputs::register_pending_user_input(
+        pending_user_inputs,
+        events,
+        test_user_input_request(request_id),
         responder,
-    }
+    )
+    .await;
 }
 
 #[test]
@@ -376,7 +387,7 @@ async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
     let (events, _) = broadcast::channel(8);
     let mut event_rx = events.subscribe();
     let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-    spawn_user_input_forwarder(
+    user_inputs::spawn_user_input_forwarder(
         user_input_rx,
         events,
         pending_user_inputs.clone(),
@@ -456,21 +467,15 @@ async fn shutdown_denies_pending_approvals() {
 #[tokio::test]
 async fn shutdown_resolves_pending_user_inputs() {
     let (events, _) = broadcast::channel(8);
-    let mut event_rx = events.subscribe();
-    let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
+    let pending_user_inputs: user_inputs::PendingUserInputResponders =
+        Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
     let request_id = "input-1".to_owned();
-    pending_user_inputs.lock().await.insert(
-        request_id.clone(),
-        pending_user_input_entry(&request_id, responder),
-    );
+    register_test_user_input(&pending_user_inputs, &events, &request_id, responder).await;
+    // Подписка после регистрации: первым событием интересует resolved.
+    let mut event_rx = events.subscribe();
 
-    deny_pending_user_inputs(
-        pending_user_inputs.clone(),
-        events,
-        "app-server shutting down".to_owned(),
-    )
-    .await;
+    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone()).await;
 
     let response = response_rx
         .await
@@ -584,35 +589,79 @@ async fn resolve_pending_approval_forwards_response_and_emits_event() {
     assert!(unknown.is_err(), "second resolve must report unknown id");
 }
 
+/// Ключевое поведение очереди user inputs (зеркало approvals): если
+/// запросивший (tool при отмене turn-а) дропает свой future, watcher убирает
+/// осиротевшую запись и сообщает клиентам resolved — без blanket-resolve
+/// остальных pending user inputs.
 #[tokio::test]
-async fn cancel_pending_user_inputs_resolves_pending_requests() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
-    let handle = AgentAppServer::launch_with_module_catalog(
-        config,
-        cwd.path().to_path_buf(),
-        None,
-        test_catalog(),
+async fn dropped_requester_removes_pending_user_input_and_resolves_it() {
+    let (events, _) = broadcast::channel(8);
+    let pending_user_inputs: user_inputs::PendingUserInputResponders =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    let (cancelled_responder, cancelled_rx) = oneshot::channel();
+    let (survivor_responder, mut survivor_rx) = oneshot::channel();
+    register_test_user_input(
+        &pending_user_inputs,
+        &events,
+        "input-cancelled",
+        cancelled_responder,
     )
-    .expect("app server");
-    let mut event_rx = handle.subscribe();
-    let (responder, response_rx) = oneshot::channel();
-    let request_id = "input-cancel".to_owned();
-    handle.pending_user_inputs.lock().await.insert(
-        request_id.clone(),
-        pending_user_input_entry(&request_id, responder),
-    );
+    .await;
+    register_test_user_input(
+        &pending_user_inputs,
+        &events,
+        "input-survivor",
+        survivor_responder,
+    )
+    .await;
+    let mut event_rx = events.subscribe();
 
-    handle
-        .cancel_pending_user_inputs("turn canceled by client".to_owned())
-        .await;
+    // Отмена turn-а: orchestrator дропает tool future -> receiver закрыт.
+    drop(cancelled_rx);
 
-    let response = response_rx
+    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
         .await
-        .expect("cancel should send user input response");
+        .expect("user input resolved event should arrive")
+        .expect("event stream should stay open");
+    assert!(matches!(
+        resolved_event,
+        AppServerEvent::UserInputResolved { request_id: id } if id == "input-cancelled"
+    ));
+
+    // Второй pending user input не задет.
+    let pending = pending_user_inputs.lock().await;
+    assert!(!pending.contains_key("input-cancelled"));
+    assert!(pending.contains_key("input-survivor"));
+    drop(pending);
+    assert!(survivor_rx.try_recv().is_err());
+}
+
+/// Ответ клиента резолвит именно свой запрос; событие эмитит watcher.
+#[tokio::test]
+async fn resolve_pending_user_input_forwards_response_and_emits_event() {
+    let (events, _) = broadcast::channel(8);
+    let pending_user_inputs: user_inputs::PendingUserInputResponders =
+        Arc::new(Mutex::new(HashMap::new()));
+    let (responder, response_rx) = oneshot::channel();
+    let request_id = "input-resolve".to_owned();
+    register_test_user_input(&pending_user_inputs, &events, &request_id, responder).await;
+    let mut event_rx = events.subscribe();
+
+    user_inputs::resolve_pending_user_input(
+        &pending_user_inputs,
+        &request_id,
+        UserInputResponse::empty(),
+    )
+    .await
+    .expect("resolve should succeed");
+
+    let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
+        .await
+        .expect("user input response should not hang")
+        .expect("user input responder should receive answer");
     assert!(response.answers.is_empty());
-    assert!(handle.pending_user_inputs.lock().await.is_empty());
+    assert!(pending_user_inputs.lock().await.is_empty());
 
     let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
         .await
@@ -623,7 +672,13 @@ async fn cancel_pending_user_inputs_resolves_pending_requests() {
         AppServerEvent::UserInputResolved { request_id: id } if id == request_id
     ));
 
-    handle.shutdown().await;
+    let unknown = user_inputs::resolve_pending_user_input(
+        &pending_user_inputs,
+        &request_id,
+        UserInputResponse::empty(),
+    )
+    .await;
+    assert!(unknown.is_err(), "second resolve must report unknown id");
 }
 
 #[tokio::test]
@@ -632,7 +687,7 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
     let (events, _) = broadcast::channel(8);
     let mut event_rx = events.subscribe();
     let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-    spawn_user_input_forwarder(
+    user_inputs::spawn_user_input_forwarder(
         user_input_rx,
         events.clone(),
         pending_user_inputs.clone(),
@@ -667,12 +722,7 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
         AppServerEvent::UserInputRequested { request } if request.request_id == request_id
     ));
 
-    deny_pending_user_inputs(
-        pending_user_inputs.clone(),
-        events,
-        "app-server shutting down".to_owned(),
-    )
-    .await;
+    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone()).await;
 
     let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
         .await

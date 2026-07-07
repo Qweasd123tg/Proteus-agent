@@ -638,7 +638,13 @@ pipeline, что и завершённое сообщение, но MathJax за
 окончания streaming turn, чтобы не перестраивать формулы на каждый token/delta.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
-пользователя до cancel или shutdown.
+пользователя до cancel или shutdown. Как и approvals, pending user inputs
+атрибуцированы и per-request scoped: `UserInputRequest.origin` несёт
+`RequestOrigin` (thread/turn + метка роли субагента), `UserInputRequest.seq` —
+порядок очереди, а watcher app-server-а убирает запись, когда запросивший
+умирает (cancel turn-а), не трогая pending user inputs других turn-ов;
+blanket-resolve остаётся только на shutdown (см.
+`docs/security-and-policy.md`).
 `header` каждого вопроса является коротким UI-chip/tab label; UI может
 использовать эти labels в строке прогресса (`Language`, `Stack`, `Deploy`, ...),
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью

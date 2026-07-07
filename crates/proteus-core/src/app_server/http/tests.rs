@@ -82,18 +82,22 @@ async fn register_pending_approval(
     .await;
 }
 
-fn pending_user_input_entry(
+async fn register_pending_user_input(
+    server: &AppServerHandle,
     request_id: &str,
     responder: tokio::sync::oneshot::Sender<UserInputResponse>,
-) -> crate::app_server::PendingUserInputEntry {
-    crate::app_server::PendingUserInputEntry {
-        request: ContractUserInputRequest::new(
+) {
+    crate::app_server::user_inputs::register_pending_user_input(
+        &server.pending_user_inputs,
+        &server.events,
+        ContractUserInputRequest::new(
             request_id.to_owned(),
             PathBuf::from("/workspace"),
             Vec::new(),
         ),
         responder,
-    }
+    )
+    .await;
 }
 
 async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
@@ -1175,10 +1179,7 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
     let (state, server) = test_state().await;
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-route".to_owned();
-    server.pending_user_inputs.lock().await.insert(
-        request_id.clone(),
-        pending_user_input_entry(&request_id, input_tx),
-    );
+    register_pending_user_input(&server, &request_id, input_tx).await;
     let request = Request::builder()
         .method(Method::POST)
         .uri("/user-input")
@@ -1236,10 +1237,7 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
     register_pending_approval(&server, &approval_id, approval_tx).await;
     let (input_tx, _input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-pending".to_owned();
-    server.pending_user_inputs.lock().await.insert(
-        request_id.clone(),
-        pending_user_input_entry(&request_id, input_tx),
-    );
+    register_pending_user_input(&server, &request_id, input_tx).await;
 
     let response = route_request(state, authed_get_request("/pending"))
         .await
@@ -2199,11 +2197,11 @@ async fn cancel_unknown_turn_returns_protocol_error() {
     server.shutdown().await;
 }
 
-/// Cancel turn-а больше не деняет pending approvals сервера скопом:
-/// approval живёт, пока жив его запросивший, и убирается watcher-ом,
-/// когда orchestrator дропает свой approval future.
+/// Cancel turn-а больше не деняет pending approvals и user inputs сервера
+/// скопом: запись живёт, пока жив её запросивший, и убирается watcher-ом,
+/// когда orchestrator дропает свой future.
 #[tokio::test]
-async fn cancel_active_turn_keeps_foreign_pending_approval_until_requester_drops() {
+async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
         .expect("app server");
@@ -2222,10 +2220,7 @@ async fn cancel_active_turn_keeps_foreign_pending_approval_until_requester_drops
 
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-cancel".to_owned();
-    server.pending_user_inputs.lock().await.insert(
-        request_id.clone(),
-        pending_user_input_entry(&request_id, input_tx),
-    );
+    register_pending_user_input(&server, &request_id, input_tx).await;
 
     let output = execute_app_request(
         &state,
@@ -2246,20 +2241,20 @@ async fn cancel_active_turn_keeps_foreign_pending_approval_until_requester_drops
 
     assert!(cancellation.is_cancelled());
     assert!(state.running_turns.lock().await.is_empty());
-    // Approval с живым запросившим переживает cancel чужого turn-а.
+    // Записи с живыми запросившими переживают cancel чужого turn-а.
     assert!(server.has_pending_approval(&approval_id).await);
-    // User inputs пока сохраняют blanket-cancel поведение.
-    assert!(server.pending_user_inputs.lock().await.is_empty());
-    let input = input_rx.await.expect("user input should be resolved");
-    assert!(input.answers.is_empty());
+    assert!(server.has_pending_user_input(&request_id).await);
 
-    // Запросивший умирает (например, его turn отменили) -> watcher чистит.
+    // Запросившие умирают (например, их turn отменили) -> watcher-ы чистят.
     drop(approval_rx);
+    drop(input_rx);
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while server.has_pending_approval(&approval_id).await {
+    while server.has_pending_approval(&approval_id).await
+        || server.has_pending_user_input(&request_id).await
+    {
         assert!(
             std::time::Instant::now() < deadline,
-            "orphaned approval should be removed by watcher"
+            "orphaned approval and user input should be removed by watchers"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }

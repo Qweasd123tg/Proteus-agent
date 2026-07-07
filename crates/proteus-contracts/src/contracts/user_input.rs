@@ -4,6 +4,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::contracts::RequestOrigin;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct UserInputQuestionOption {
@@ -86,6 +88,19 @@ pub struct UserInputRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub questions: Vec<UserInputQuestion>,
+    /// Who is asking: thread/turn plus optional source label (subagent role).
+    /// `None` for requests constructed outside a runtime turn (tests, legacy
+    /// senders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<RequestOrigin>,
+    /// Monotonic queue position assigned by the app-server forwarder for
+    /// client-side ordering. `0` when the request never went through a queue.
+    #[serde(default, skip_serializing_if = "is_zero_seq")]
+    pub seq: u64,
+}
+
+fn is_zero_seq(seq: &u64) -> bool {
+    *seq == 0
 }
 
 impl UserInputRequest {
@@ -99,11 +114,23 @@ impl UserInputRequest {
             cwd,
             title: None,
             questions,
+            origin: None,
+            seq: 0,
         }
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn with_origin(mut self, origin: RequestOrigin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    pub fn with_seq(mut self, seq: u64) -> Self {
+        self.seq = seq;
         self
     }
 }

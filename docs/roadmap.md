@@ -141,11 +141,12 @@ pipeline) почти бесплатно.
 
 ### Кластер 2: изоляция subagent — иллюзия; parallel гейтится на control plane
 
-- `child_ctx = ctx.clone()` со сменой только `thread_id`
-  (`core/subagent.rs:393`): ребёнок делит с родителем registry, policy,
-  approval transport, event emitter, session и `turn_grants` —
-  `escalated_exec` родителя протекает в ребёнка. Изоляция — только фильтр
-  tools по роли, т.е. не структурная.
+- `child_ctx = ctx.clone()` (`child_context` в `core/subagent.rs`): ребёнок
+  делит с родителем registry, policy, approval transport, event emitter и
+  session. **Закрыто (2026-07-07):** `turn_grants` ребёнка изолированы
+  (пустой набор при spawn — `escalated_exec` родителя не протекает), а
+  session-level approval cache скоупится по thread запросившего. Остальная
+  изоляция — по-прежнему фильтр tools по роли, т.е. не структурная.
 - Cancel: ребёнок сидит на родительском `CancellationToken`; resumable
   snapshot пишется только при `Completed | MaxIterationsReached`
   (`core/subagent.rs:468`) — отменённый ребёнок теряет всю работу.
@@ -375,11 +376,16 @@ Scope:
   — запись живёт, пока жив запросивший: cancel одного turn-а больше не деняет
   чужие pending approvals (blanket-deny только на shutdown); терминальный
   transport сериализует конкурентные prompts и печатает источник; web-клиент
-  показывает бейдж роли. Follow-ups: (a) аналогичный watcher/attribution для
-  pending user inputs (они всё ещё blanket-cancel), (b) решение, входит ли
-  thread в ключ approval-кеша (сейчас session-wide: approve из субагента
-  переиспользуется main-циклом и наоборот), (c) изоляция `turn_grants`
-  ребёнка (escalated_exec родителя протекает в субагент — кластер 2 аудита);
+  показывает бейдж роли. Follow-ups закрыты (2026-07-07): (a) pending user
+  inputs переведены на ту же watcher/attribution схему
+  (`app_server/user_inputs.rs`, `UserInputRequest.origin`/`seq`, стемпинг
+  origin в `ToolOrchestrator` через `AttributedUserInputTransport`,
+  blanket-cancel убран); (b) approval-кеш скоупится по thread запросившего
+  (`origin.thread_id` в ключе `CachedApprovalTransport`) — approve субагента
+  не переиспользуется main-циклом и наоборот; (c) `turn_grants` ребёнка
+  изолированы структурно (`child_context` в `core/subagent.rs` даёт пустые
+  grants — `escalated_exec` родителя не протекает, кластер 2 аудита частично
+  закрыт);
 - session resume/restore;
 - durable task/session metadata;
 - event-log based debugging. Аудит 2026-07-06: текущий `events.jsonl` — это

@@ -161,8 +161,7 @@ pub async fn run_stdio_app_server(
             }
             StdioRequest::Cancel { target_id, .. } => {
                 let result =
-                    cancel_stdio_turn(&server, &mut keyed_turn_handles, &output_tx, &target_id)
-                        .await;
+                    cancel_stdio_turn(&mut keyed_turn_handles, &output_tx, &target_id).await;
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
             }
             StdioRequest::SetPermissionMode { mode, .. } => {
@@ -274,7 +273,6 @@ impl StdioTurnHandle {
 }
 
 async fn cancel_stdio_turn(
-    server: &AppServerHandle,
     turn_handles: &mut HashMap<String, StdioTurnHandle>,
     output_tx: &mpsc::Sender<StdioOutput>,
     target_id: &str,
@@ -290,12 +288,10 @@ async fn cancel_stdio_turn(
         Err(anyhow!("turn canceled by client")),
     )
     .await;
-    // Pending approvals отменённого turn-а деняются watcher-ом app-server-а,
-    // когда orchestrator дропает свой approval future: blanket-deny здесь
-    // затрагивал бы pending approvals других конкурентных turn-ов.
-    server
-        .cancel_pending_user_inputs("turn canceled by client".to_owned())
-        .await;
+    // Pending approvals и user inputs отменённого turn-а резолвятся
+    // watcher-ами app-server-а, когда orchestrator дропает свои futures:
+    // blanket-deny здесь затрагивал бы pending запросы других конкурентных
+    // turn-ов.
     Ok(())
 }
 
@@ -347,61 +343,12 @@ async fn send_stdio_response(
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
-    use coding_workflow::CodingPlanExecuteReviewWorkflow;
-    use context_pack::SimpleContextBuilderPlugin;
-    use policy_pack::AskWritePolicyPlugin;
-    use proteus_contracts::{
-        abi_stable::sabi_trait::TD_Opaque,
-        contracts::Renderer_TO,
-        plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
-    };
-    use renderer_pack::PlainRendererPlugin;
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::core::BuiltinModuleCatalog;
-
-    fn test_catalog() -> BuiltinModuleCatalog {
-        let mut catalog = BuiltinModuleCatalog::new();
-        catalog
-            .register_plugin_context_builder(
-                "simple",
-                PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
-            )
-            .expect("register test context builder");
-        catalog
-            .register_plugin_workflow(
-                "coding.plan_execute_review",
-                PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
-            )
-            .expect("register test workflow");
-        catalog
-            .register_plugin_policy(
-                "ask_write",
-                PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-            )
-            .expect("register test policy");
-        catalog
-            .register_plugin_renderer(
-                "plain",
-                Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
-            )
-            .expect("register test renderer");
-        catalog
-    }
 
     #[tokio::test]
     async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
-        let cwd = tempfile::tempdir().expect("cwd");
-        let mut config = AppConfig::default();
-        config.modules.patch = "null".to_owned();
-        let server = AgentAppServer::launch_with_module_catalog(
-            config,
-            cwd.path().to_path_buf(),
-            None,
-            test_catalog(),
-        )
-        .expect("app server");
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
         let cancellation = CancellationToken::new();
@@ -415,7 +362,7 @@ mod tests {
             },
         );
 
-        cancel_stdio_turn(&server, &mut turn_handles, &output_tx, "send-1")
+        cancel_stdio_turn(&mut turn_handles, &output_tx, "send-1")
             .await
             .expect("cancel turn");
 
@@ -437,6 +384,5 @@ mod tests {
             StdioOutput::Event { .. } => panic!("expected response"),
             _ => panic!("unexpected output variant"),
         }
-        server.shutdown().await;
     }
 }

@@ -187,6 +187,13 @@ Runtime оборачивает выбранный transport в session-level app
   явно содержит `workspace_write`;
 - `tool_in_cwd` — legacy broad scope по `cwd + tool name`.
 
+Ключ кеша дополнительно включает `thread_id` запросившего из
+`ApprovalRequest.origin`: approve, выданный одному исполняющему контексту
+(main loop или конкретный запуск субагента), не переиспользуется другим.
+Main thread стабилен на всю сессию, поэтому для основного цикла кеш работает
+как раньше; субагентный child-thread живёт один запуск — его approvals
+истекают вместе с ним. Запросы без origin образуют собственный bucket.
+
 Core санитайзит слишком широкие scopes: shell/command/network/dangerous tools
 не получают broad cache, а неподходящий `workspace_write` понижается до
 `exact_call`. Неизвестный wire scope понижается до `none`, чтобы будущие клиенты
@@ -223,10 +230,11 @@ shutdown. При shutdown app-server отклоняет все pending approvals
 
 Очередь pending approvals атрибуцирована и per-request scoped:
 
-- `ApprovalRequest.origin` несёт `thread_id`/`turn_id` исполняющего контекста
-  и optional `label` — субагентный runner ставит туда имя роли через
-  `RuntimeContext.thread_label`. На wire (`AppApprovalRequest.origin`)
-  attribution опциональна: старые клиенты и серверы совместимы.
+- `ApprovalRequest.origin` несёт `RequestOrigin` — `thread_id`/`turn_id`
+  исполняющего контекста и optional `label` — субагентный runner ставит туда
+  имя роли через `RuntimeContext.thread_label`. На wire
+  (`AppApprovalRequest.origin`) attribution опциональна: старые клиенты и
+  серверы совместимы.
 - `AppApprovalRequest.seq` — монотонный порядковый номер очереди; `GET
   /pending` и web-клиент сортируют pending approvals по нему, а не по
   случайному UUID.
@@ -238,6 +246,14 @@ shutdown. При shutdown app-server отклоняет все pending approvals
 - Терминальный transport CLI сериализует конкурентные prompts mutex-ом и
   печатает `from: subagent '<role>'` для запросов дочерних циклов; web-клиент
   показывает бейдж роли на approval-карточке.
+
+Очередь pending user inputs (`request_user_input`) устроена зеркально:
+orchestrator оборачивает `UserInputTransport` attribution-обёрткой, поэтому
+`UserInputRequest.origin` несёт тот же `RequestOrigin`, forwarder app-server-а
+присваивает `UserInputRequest.seq`, watcher убирает запись при смерти
+запросившего (клиентам уходит `UserInputResolved`), а blanket-resolve пустыми
+ответами остаётся только на shutdown. Оба поля serde-tolerant: старые
+payload-ы без них парсятся с defaults.
 
 `ToolOrchestrator` передаёт модели tools через
 `ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
@@ -358,6 +374,11 @@ core мержит эти строки в гранты текущего хода 
 Core учитывает `granted_permissions` только на approved-пути, поэтому
 `request_permissions` обязан стоять в `ask_before` — сам approval и есть
 выдача гранта. Tool в `allow`-списке выдать грант сам себе не может.
+
+Субагенты изолированы структурно: дочерний контекст получает пустые
+`turn_grants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а
+гранты, выданные ребёнку через его собственный approval, не видны
+родительскому ходу.
 
 ## allow_all
 

@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::contracts::{UserInputRequest, UserInputResponse, UserInputTransport};
+use crate::contracts::{RequestOrigin, UserInputRequest, UserInputResponse, UserInputTransport};
 
 pub struct PendingUserInput {
     pub request: UserInputRequest,
@@ -49,5 +51,37 @@ impl UserInputTransport for HeadlessUserInputTransport {
 
     async fn request_user_input(&self, _request: UserInputRequest) -> Result<UserInputResponse> {
         Err(anyhow!("user input transport is not interactive"))
+    }
+}
+
+/// Обёртка, штампующая attribution на user-input запросы. Tools строят
+/// `UserInputRequest` сами и не знают thread/turn; orchestrator оборачивает
+/// транспорт этой обёрткой при сборке `ToolContext`, чтобы каждый запрос нес
+/// `RequestOrigin` исполняющего контекста. Уже проставленный origin не
+/// перезаписывается.
+pub struct AttributedUserInputTransport {
+    inner: Arc<dyn UserInputTransport>,
+    origin: RequestOrigin,
+}
+
+impl AttributedUserInputTransport {
+    pub fn new(inner: Arc<dyn UserInputTransport>, origin: RequestOrigin) -> Self {
+        Self { inner, origin }
+    }
+}
+
+#[async_trait]
+impl UserInputTransport for AttributedUserInputTransport {
+    fn can_request_user_input(&self) -> bool {
+        self.inner.can_request_user_input()
+    }
+
+    async fn request_user_input(&self, request: UserInputRequest) -> Result<UserInputResponse> {
+        let request = if request.origin.is_none() {
+            request.with_origin(self.origin.clone())
+        } else {
+            request
+        };
+        self.inner.request_user_input(request).await
     }
 }

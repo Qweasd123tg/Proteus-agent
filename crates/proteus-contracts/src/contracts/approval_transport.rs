@@ -6,19 +6,20 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::domain::{ThreadId, ToolCall, ToolSpec, TurnId};
 
-/// Attribution of an approval request to the execution context that asked
-/// for it. `label` carries a human-readable source name (e.g. subagent role)
-/// when the requesting thread is not the main turn loop.
+/// Attribution of a control-plane request (approval, user input) to the
+/// execution context that asked for it. `label` carries a human-readable
+/// source name (e.g. subagent role) when the requesting thread is not the
+/// main turn loop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct ApprovalOrigin {
+pub struct RequestOrigin {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
-impl ApprovalOrigin {
+impl RequestOrigin {
     pub fn new(thread_id: ThreadId, turn_id: TurnId) -> Self {
         Self {
             thread_id,
@@ -42,7 +43,7 @@ pub struct ApprovalRequest {
     pub tool_spec: Option<ToolSpec>,
     /// Who is asking: thread/turn plus optional source label. `None` only
     /// for transports/tests constructed outside a runtime turn.
-    pub origin: Option<ApprovalOrigin>,
+    pub origin: Option<RequestOrigin>,
 }
 
 impl ApprovalRequest {
@@ -61,7 +62,7 @@ impl ApprovalRequest {
         }
     }
 
-    pub fn with_origin(mut self, origin: ApprovalOrigin) -> Self {
+    pub fn with_origin(mut self, origin: RequestOrigin) -> Self {
         self.origin = Some(origin);
         self
     }

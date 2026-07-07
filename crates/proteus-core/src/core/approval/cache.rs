@@ -7,9 +7,15 @@ use tokio::sync::Mutex;
 
 use crate::{
     contracts::{ApprovalCacheScope, ApprovalRequest, ApprovalResponse, ApprovalTransport},
-    domain::ToolSafety,
+    domain::{ThreadId, ToolSafety},
 };
 
+/// Session-таймлайн кеш approvals с thread-scoped ключом: approve,
+/// выданный одному исполняющему контексту (main loop или конкретный запуск
+/// субагента), не переиспользуется другим. Main thread стабилен на всю
+/// сессию, поэтому для основного цикла кеш работает как раньше; субагентный
+/// child-thread живёт один запуск — его approvals истекают вместе с ним.
+/// Запросы без origin (тесты, legacy transports) образуют собственный bucket.
 #[derive(Clone)]
 pub struct CachedApprovalTransport {
     inner: Arc<dyn ApprovalTransport>,
@@ -64,6 +70,9 @@ impl CachedApprovalTransport {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ApprovalCacheKey {
+    /// Thread запросившего (`None` — запрос без origin). Часть ключа:
+    /// approve одного thread-а не действует для другого.
+    thread_id: Option<ThreadId>,
     tool_name: String,
     cwd: PathBuf,
     args: Option<String>,
@@ -71,14 +80,17 @@ struct ApprovalCacheKey {
 
 impl ApprovalCacheKey {
     fn from_request(request: &ApprovalRequest, scope: ApprovalCacheScope) -> Option<Self> {
+        let thread_id = request.origin.as_ref().map(|origin| origin.thread_id);
         match scope {
             ApprovalCacheScope::None => None,
             ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => Some(Self {
+                thread_id,
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
             }),
             ApprovalCacheScope::ToolInCwd | ApprovalCacheScope::WorkspaceWrite => Some(Self {
+                thread_id,
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: None,
@@ -287,6 +299,49 @@ mod tests {
         transport.request_approval(request("b.txt")).await.unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// Кеш скоупится по thread запросившего: approve, выданный субагенту,
+    /// не действует для main-цикла (и наоборот), а также не делится между
+    /// разными запусками субагентов.
+    #[tokio::test]
+    async fn cache_is_scoped_to_requesting_thread() {
+        use crate::contracts::RequestOrigin;
+        use crate::domain::{new_thread_id, new_turn_id};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCall,
+        }));
+        let main_origin = RequestOrigin::new(new_thread_id(), new_turn_id());
+        let child_origin = RequestOrigin::new(new_thread_id(), new_turn_id()).with_label("explore");
+
+        transport
+            .request_approval(request("a.txt").with_origin(main_origin.clone()))
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Тот же вызов из другого thread-а спрашивает заново.
+        transport
+            .request_approval(request("a.txt").with_origin(child_origin.clone()))
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // Запрос без origin — собственный bucket, а не подмножество чужого.
+        transport.request_approval(request("a.txt")).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+        // Повтор внутри своего thread-а переиспользуется.
+        let cached = transport
+            .request_approval(request("a.txt").with_origin(main_origin))
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert!(cached.approved);
+        assert!(cached.note.unwrap().contains("session cache"));
     }
 
     #[tokio::test]

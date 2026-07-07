@@ -69,7 +69,7 @@ fn contract_approval_request() -> contract_protocol::AppApprovalRequest {
         .with_metadata(json!({ "operation": "update" })),
     ))
     .with_origin(Some(
-        contract_contracts::ApprovalOrigin::new(
+        contract_contracts::RequestOrigin::new(
             contract_domain::new_thread_id(),
             contract_domain::new_turn_id(),
         )
@@ -105,6 +105,14 @@ fn contract_user_input_request() -> contract_contracts::UserInputRequest {
         ],
     )
     .with_title("Choose implementation scope")
+    .with_origin(
+        contract_contracts::RequestOrigin::new(
+            contract_domain::new_thread_id(),
+            contract_domain::new_turn_id(),
+        )
+        .with_label("explore"),
+    )
+    .with_seq(9)
 }
 
 fn contract_response() -> contract_contracts::UserInputResponse {
@@ -221,6 +229,11 @@ fn web_decodes_contract_stdio_output_events() {
                         .and_then(|option| option.preview.as_deref()),
                     Some("recommended")
                 );
+                let origin = request.origin.expect("user input origin");
+                assert_eq!(origin.label.as_deref(), Some("explore"));
+                assert!(!origin.thread_id.is_empty());
+                assert!(!origin.turn_id.is_empty());
+                assert_eq!(request.seq, 9);
             }
             AppServerEvent::UserInputResolved { request_id } => {
                 assert_eq!(request_id, "input-1")

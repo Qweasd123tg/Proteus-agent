@@ -9,7 +9,7 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        ApprovalOrigin, ApprovalRequest, PolicyContext, PolicyVisibilityContext, RuntimeContext,
+        ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
         ToolContext,
     },
     domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
@@ -105,7 +105,7 @@ impl ToolOrchestrator {
                         reason.clone(),
                         tool_spec.clone(),
                     )
-                    .with_origin(approval_origin(ctx)),
+                    .with_origin(request_origin(ctx)),
                 );
                 let approval = tokio::select! {
                     result = approval_request => result?,
@@ -185,10 +185,17 @@ impl ToolOrchestrator {
             .and_then(|spec| spec.timeout_ms)
             .unwrap_or(self.default_timeout_ms);
         let started = Instant::now();
+        // user_input оборачивается attribution-обёрткой: запросы tool-а несут
+        // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
             cwd: task.cwd.clone(),
             cancellation: ctx.cancellation.clone(),
-            user_input: Some(ctx.user_input.clone()),
+            user_input: Some(std::sync::Arc::new(
+                crate::core::AttributedUserInputTransport::new(
+                    ctx.user_input.clone(),
+                    request_origin(ctx),
+                ),
+            )),
         };
         let result = tokio::select! {
             result = timeout(Duration::from_millis(timeout_ms), tool.invoke(call, tool_ctx)) => {
@@ -271,11 +278,12 @@ impl ToolOrchestrator {
     }
 }
 
-/// Attribution approval-запроса к исполняющему контексту: thread/turn всегда
-/// известны orchestrator-у, метка (`thread_label`) приходит от субагентного
-/// runner-а и остаётся `None` для основного цикла.
-fn approval_origin(ctx: &RuntimeContext) -> ApprovalOrigin {
-    let origin = ApprovalOrigin::new(ctx.thread_id, ctx.turn_id);
+/// Attribution control-plane запроса (approval, user input) к исполняющему
+/// контексту: thread/turn всегда известны orchestrator-у, метка
+/// (`thread_label`) приходит от субагентного runner-а и остаётся `None` для
+/// основного цикла.
+fn request_origin(ctx: &RuntimeContext) -> RequestOrigin {
+    let origin = RequestOrigin::new(ctx.thread_id, ctx.turn_id);
     match &ctx.thread_label {
         Some(label) => origin.with_label(label.clone()),
         None => origin,

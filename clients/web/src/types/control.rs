@@ -38,14 +38,14 @@ pub(crate) struct ApprovalRequestInfo {
     /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
     /// Отсутствует у старых серверов.
     #[serde(default)]
-    pub(crate) origin: Option<ApprovalOriginInfo>,
+    pub(crate) origin: Option<RequestOriginInfo>,
     /// Порядковый номер в очереди approvals; `0` у старых серверов.
     #[serde(default)]
     pub(crate) seq: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub(crate) struct ApprovalOriginInfo {
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct RequestOriginInfo {
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
     #[serde(default)]
@@ -95,6 +95,13 @@ pub(crate) struct UserInputRequestInfo {
     pub(crate) cwd: String,
     pub(crate) title: Option<String>,
     pub(crate) questions: Vec<UserInputQuestion>,
+    /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
+    /// Отсутствует у старых серверов.
+    #[serde(default)]
+    pub(crate) origin: Option<RequestOriginInfo>,
+    /// Порядковый номер в очереди user inputs; `0` у старых серверов.
+    #[serde(default)]
+    pub(crate) seq: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

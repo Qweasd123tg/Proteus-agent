@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    contracts::{ApprovalCacheScope, ApprovalOrigin, UserInputRequest, UserInputResponse},
+    contracts::{ApprovalCacheScope, RequestOrigin, UserInputRequest, UserInputResponse},
     domain::{
         AgentOutput, EventEnvelope, HistoryCompactionReport, PermissionMode, SessionId, ToolCall,
         ToolSpec, TurnId,
@@ -194,7 +194,7 @@ pub struct AppApprovalRequest {
     /// Кто запросил approval (thread/turn + метка источника, например роль
     /// субагента). `None` — запрос от транспорта без runtime-атрибуции.
     #[serde(default)]
-    pub origin: Option<ApprovalOrigin>,
+    pub origin: Option<RequestOrigin>,
     /// Монотонный порядковый номер в очереди pending approvals текущего
     /// app-server. Клиенты сортируют по нему; `0` у старых серверов.
     #[serde(default)]
@@ -226,7 +226,7 @@ impl AppApprovalRequest {
         self
     }
 
-    pub fn with_origin(mut self, origin: Option<ApprovalOrigin>) -> Self {
+    pub fn with_origin(mut self, origin: Option<RequestOrigin>) -> Self {
         self.origin = origin;
         self
     }
@@ -628,7 +628,7 @@ mod tests {
     /// Attribution и порядок очереди переживают wire-сериализацию.
     #[test]
     fn approval_request_roundtrips_origin_and_seq() {
-        let origin = crate::contracts::ApprovalOrigin::new(new_thread_id(), new_turn_id())
+        let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
             .with_label("explore");
         let request = AppApprovalRequest::new(
             "approval-1".to_owned(),
@@ -646,6 +646,32 @@ mod tests {
 
         assert_eq!(parsed.origin, Some(origin));
         assert_eq!(parsed.seq, 42);
+    }
+
+    /// User-input запросы несут ту же attribution/queue-position схему, что
+    /// approvals; старые payload-ы без полей парсятся с defaults.
+    #[test]
+    fn user_input_request_roundtrips_origin_and_seq_and_tolerates_absence() {
+        let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
+            .with_label("explore");
+        let request = UserInputRequest::new("input-1", PathBuf::from("/workspace"), Vec::new())
+            .with_origin(origin.clone())
+            .with_seq(7);
+
+        let payload = serde_json::to_value(&request).expect("serialize user input request");
+        let parsed: UserInputRequest =
+            serde_json::from_value(payload).expect("parse user input request");
+        assert_eq!(parsed.origin, Some(origin));
+        assert_eq!(parsed.seq, 7);
+
+        let legacy: UserInputRequest = serde_json::from_value(json!({
+            "request_id": "input-legacy",
+            "cwd": "/workspace",
+            "questions": []
+        }))
+        .expect("parse legacy user input request");
+        assert!(legacy.origin.is_none());
+        assert_eq!(legacy.seq, 0);
     }
 
     #[test]

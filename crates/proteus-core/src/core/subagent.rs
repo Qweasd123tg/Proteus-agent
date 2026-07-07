@@ -10,7 +10,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -390,11 +390,7 @@ impl SubagentRunner for SequentialSubagentRunner {
                 ],
             )
         };
-        let mut child_ctx = ctx.clone();
-        child_ctx.thread_id = child_thread_id;
-        // Attribution: approvals и другие запросы ребёнка помечаются именем
-        // роли, чтобы клиент мог отличить их от запросов основного цикла.
-        child_ctx.thread_label = Some(role.name.clone());
+        let child_ctx = child_context(&ctx, child_thread_id, &role.name);
 
         // Started/Finished эмитятся под родительским thread_id; события
         // самого цикла (tool calls) — под child_thread_id через child_ctx.
@@ -507,6 +503,24 @@ struct ChildLoopState {
     iterations: u32,
     last_text: Option<String>,
     usage: Option<TokenUsage>,
+}
+
+/// Контекст дочернего цикла поверх родительского: собственный `thread_id`,
+/// метка роли для attribution (approvals, user inputs, клиентский UX) и
+/// пустые turn-scoped grants. Изоляция grants структурная: ребёнок не
+/// наследует права родителя (например, `escalated_exec` после
+/// approved-запроса) и не протаскивает свои granted permissions обратно в
+/// родительский ход.
+fn child_context(
+    ctx: &RuntimeContext,
+    child_thread_id: ThreadId,
+    role_name: &str,
+) -> RuntimeContext {
+    let mut child_ctx = ctx.clone();
+    child_ctx.thread_id = child_thread_id;
+    child_ctx.thread_label = Some(role_name.to_owned());
+    child_ctx.turn_grants = Arc::default();
+    child_ctx
 }
 
 /// Отбор tools ребёнка: сперва policy-видимость (тот же гейт, что
@@ -1068,6 +1082,33 @@ Markdown prompt.\n",
                 .to_string()
                 .contains("duplicate subagent role: explore"),
             "{error:#}"
+        );
+    }
+
+    /// Изоляция turn-scoped grants структурная: ребёнок стартует с пустыми
+    /// grants (escalated_exec родителя не протекает) и его собственные
+    /// grants не видны родительскому ходу.
+    #[test]
+    fn child_context_isolates_turn_grants_and_labels_thread() {
+        let events = Arc::new(InMemoryEventStore::new());
+        let ctx = test_runtime_context(events);
+        ctx.turn_grants.grant(["escalated_exec".to_owned()]);
+
+        let child_thread_id = new_thread_id();
+        let child_ctx = child_context(&ctx, child_thread_id, "explore");
+
+        assert_eq!(child_ctx.thread_id, child_thread_id);
+        assert_eq!(child_ctx.thread_label.as_deref(), Some("explore"));
+        assert!(
+            child_ctx.turn_grants.snapshot().is_empty(),
+            "parent grants must not leak into the child"
+        );
+
+        child_ctx.turn_grants.grant(["child_grant".to_owned()]);
+        assert_eq!(
+            ctx.turn_grants.snapshot(),
+            vec!["escalated_exec"],
+            "child grants must not leak back into the parent"
         );
     }
 

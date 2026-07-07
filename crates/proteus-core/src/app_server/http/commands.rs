@@ -360,7 +360,7 @@ async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     let deleting_active = current.is_session_dir(&session_dir);
     let mut replacement_summary = None;
     if let Some(deleting_server) = state.server_for_session_dir(&session_dir).await {
-        cancel_work_for_server(state, &deleting_server, "session deleted by client").await;
+        cancel_work_for_server(state, &deleting_server).await;
         state.remove_session_server(&session_dir).await;
     }
 
@@ -392,7 +392,7 @@ async fn new_session(state: &HttpAppState) -> Result<Value> {
     Ok(summary)
 }
 
-async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, note: &str) {
+async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle) {
     let session_dir = server.session_dir_path().map(canonical_session_key);
     let active_turns = {
         let mut running_turns = state.running_turns.lock().await;
@@ -416,9 +416,9 @@ async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle, 
         cancellation.cancel();
     }
 
-    // Pending approvals отменяемых turn-ов деняются watcher-ом app-server-а
-    // после того, как orchestrator дропнет свои approval futures.
-    server.cancel_pending_user_inputs(note.to_owned()).await;
+    // Pending approvals и user inputs отменяемых turn-ов резолвятся
+    // watcher-ами app-server-а после того, как orchestrator дропнет свои
+    // futures.
     state.emit_session_activity_for_server(server).await;
 }
 
@@ -455,11 +455,9 @@ async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
         },
         None => state.current_server().await,
     };
-    // Pending approvals отменённого turn-а деняются watcher-ом app-server-а;
-    // blanket-deny здесь трогал бы approvals других turn-ов той же сессии.
-    server
-        .cancel_pending_user_inputs("turn canceled by client".to_owned())
-        .await;
+    // Pending approvals и user inputs отменённого turn-а резолвятся
+    // watcher-ами app-server-а; blanket-deny здесь трогал бы pending запросы
+    // других turn-ов той же сессии.
     state.emit_session_activity_for_server(&server).await;
     Ok(())
 }

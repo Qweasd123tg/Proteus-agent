@@ -34,10 +34,10 @@ use proteus_contracts::{
 };
 use proteus_core::{
     contracts::{
-        ApprovalOrigin, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
-        ContextBuildInput, EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
-        PolicyVisibilityContext, SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput,
-        ToolExposureRequest, ToolRegistry, ToolSource, Workflow,
+        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
+        EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
+        PolicyVisibilityContext, RequestOrigin, SearchBackend, SearchQuery, Tool, ToolContext,
+        ToolExposureInput, ToolExposureRequest, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
@@ -2576,7 +2576,7 @@ struct ApprovingApprovalTransport;
 /// Записывает origin каждого запроса и одобряет его.
 #[derive(Debug, Default)]
 struct OriginCapturingApprovalTransport {
-    origins: std::sync::Mutex<Vec<Option<ApprovalOrigin>>>,
+    origins: std::sync::Mutex<Vec<Option<RequestOrigin>>>,
 }
 
 #[async_trait]
