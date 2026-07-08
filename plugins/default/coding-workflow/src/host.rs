@@ -2,7 +2,7 @@ use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{
         CompactionInput, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
-        ToolExposureRequest,
+        SubagentWorkspaceRequest, ToolExposureRequest, WorkspaceInfo,
     },
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
@@ -317,8 +317,8 @@ pub(super) fn execute_tools(
 ) -> Result<Vec<ToolResult>, PluginWorkflowError> {
     if calls.len() >= 2 && calls.iter().all(|call| task_tool::is_task_tool(&call.name)) {
         let roles = subagent_roles(host)?;
-        if task_tool::all_roles_parallel_safe(calls, &roles) {
-            return task_tool::handle_parallel_task_calls(host, input, calls);
+        if task_tool::all_roles_parallel_eligible(calls, &roles) {
+            return task_tool::handle_parallel_task_calls(host, input, calls, &roles);
         }
     }
     if calls.len() <= 1
@@ -394,6 +394,36 @@ pub(super) fn wait_subagent(
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
     from_json_string(result_json.as_str())
+}
+
+/// Создаёт git worktree для пишущего ребёнка (роль с `isolation = worktree`).
+pub(super) fn create_subagent_workspace(
+    host: &mut PluginWorkflowHostMut<'_>,
+    request: &SubagentWorkspaceRequest,
+) -> Result<WorkspaceInfo, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
+    let request_json = to_json_string(request)?;
+    let info_json = match host.create_subagent_workspace_json(RString::from(request_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(info_json.as_str())
+}
+
+/// Убирает worktree, если ребёнок ничего не изменил (`true`); изменения
+/// есть — worktree остаётся родителю на merge (`false`). Без
+/// cancelled-гейта: cleanup должен проходить и в размотке отменённого
+/// turn-а, иначе worktree-ы копятся.
+pub(super) fn cleanup_subagent_workspace(
+    host: &mut PluginWorkflowHostMut<'_>,
+    info: &WorkspaceInfo,
+) -> Result<bool, PluginWorkflowError> {
+    let info_json = to_json_string(info)?;
+    let removed_json = match host.cleanup_subagent_workspace_json(RString::from(info_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(removed_json.as_str())
 }
 
 pub(super) fn execute_tool(

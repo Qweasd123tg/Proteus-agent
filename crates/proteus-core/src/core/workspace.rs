@@ -183,13 +183,18 @@ mod tests {
             info.base_commit
         );
         // Основной checkout не замусорен: .proteus/ исключён.
-        assert_eq!(run_git(repo.path(), &["status", "--porcelain"]).unwrap(), "");
+        assert_eq!(
+            run_git(repo.path(), &["status", "--porcelain"]).unwrap(),
+            ""
+        );
 
         assert!(cleanup_worktree_if_unchanged(&info).expect("cleanup"));
         assert!(!info.path.exists());
-        assert!(run_git(repo.path(), &["branch", "--list", &info.branch])
-            .unwrap()
-            .is_empty());
+        assert!(
+            run_git(repo.path(), &["branch", "--list", &info.branch])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -221,9 +226,11 @@ mod tests {
         fs::remove_dir_all(&info.path).expect("manual removal");
 
         assert!(cleanup_worktree_if_unchanged(&info).expect("cleanup"));
-        assert!(run_git(repo.path(), &["branch", "--list", &info.branch])
-            .unwrap()
-            .is_empty());
+        assert!(
+            run_git(repo.path(), &["branch", "--list", &info.branch])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

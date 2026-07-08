@@ -317,6 +317,12 @@ struct FakeHost {
     subagent_ops: Mutex<Vec<(String, String)>>,
     /// Результаты для wait по spawn_id (spawn выдаёт id по порядку).
     spawned_results: Mutex<std::collections::HashMap<String, SubagentResult>>,
+    /// Созданные worktree-workspace-ы (в порядке create-вызовов).
+    workspace_requests: Mutex<Vec<proteus_contracts::contracts::SubagentWorkspaceRequest>>,
+    /// Cleanup-вызовы и настроенный ответ по пути worktree
+    /// (нет записи — worktree чист, `true`).
+    cleanup_calls: Mutex<Vec<proteus_contracts::contracts::WorkspaceInfo>>,
+    dirty_workspaces: Mutex<std::collections::HashSet<std::path::PathBuf>>,
     compactions: Mutex<Vec<CompactionInput>>,
     compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
 }
@@ -350,6 +356,16 @@ impl FakeHost {
 
     fn with_subagent_results(mut self, results: Vec<SubagentResult>) -> Self {
         self.subagent_results = Mutex::new(VecDeque::from(results));
+        self
+    }
+
+    /// Помечает worktree по пути как изменённый: cleanup ответит `false`
+    /// (worktree остаётся родителю на merge).
+    fn with_dirty_workspace(self, path: std::path::PathBuf) -> Self {
+        self.dirty_workspaces
+            .lock()
+            .expect("dirty workspaces")
+            .insert(path);
         self
     }
 }
@@ -578,6 +594,47 @@ impl PluginWorkflowHost for FakeHost {
             .expect("subagent ops")
             .push(("cancel".to_owned(), handle.spawn_id));
         RResult::ROk(())
+    }
+
+    fn create_subagent_workspace_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: proteus_contracts::contracts::SubagentWorkspaceRequest =
+            serde_json::from_str(request_json.as_str()).expect("workspace request json");
+        let info = proteus_contracts::contracts::WorkspaceInfo::new(
+            request.parent_cwd.clone(),
+            request
+                .parent_cwd
+                .join(".proteus/worktrees")
+                .join(&request.name),
+            format!("proteus/{}", request.name),
+            "base-commit",
+        );
+        self.workspace_requests
+            .lock()
+            .expect("workspace requests")
+            .push(request);
+        RResult::ROk(RString::from(
+            serde_json::to_string(&info).expect("workspace info json"),
+        ))
+    }
+
+    fn cleanup_subagent_workspace_json(
+        &self,
+        info_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let info: proteus_contracts::contracts::WorkspaceInfo =
+            serde_json::from_str(info_json.as_str()).expect("workspace info json");
+        let dirty = self
+            .dirty_workspaces
+            .lock()
+            .expect("dirty workspaces")
+            .contains(&info.path);
+        self.cleanup_calls.lock().expect("cleanup calls").push(info);
+        RResult::ROk(RString::from(
+            serde_json::to_string(&!dirty).expect("cleanup json"),
+        ))
     }
 
     fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
@@ -1561,6 +1618,244 @@ fn parallel_task_batch_isolates_per_call_failures() {
     let ops = host.subagent_ops.lock().expect("subagent ops");
     let kinds: Vec<&str> = ops.iter().map(|(kind, _)| kind.as_str()).collect();
     assert_eq!(kinds, vec!["spawn", "wait"], "живой ребёнок дожидается");
+}
+
+fn worktree_role(name: &str) -> SubagentRoleSpec {
+    SubagentRoleSpec::new(name, "Isolated writer", "p")
+        .with_isolation(proteus_contracts::contracts::SubagentIsolation::Worktree)
+}
+
+/// Ожидаемый путь worktree, который вернёт FakeHost для вызова call id
+/// роли role при родительском cwd.
+fn expected_worktree_path(
+    input: &PluginWorkflowInput,
+    role: &str,
+    call_id: &str,
+) -> std::path::PathBuf {
+    input
+        .task
+        .cwd
+        .join(".proteus/worktrees")
+        .join(format!("{role}-{call_id}"))
+}
+
+#[test]
+fn task_tool_spec_marks_worktree_roles_and_merge_duty() {
+    let roles = vec![worktree_role("coder")];
+    let spec = task_tool::task_tool_spec(&roles).expect("task tool spec");
+    let agent_type = spec.input_schema["properties"]["agent_type"]["description"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(agent_type.contains("- coder (worktree-isolated): Isolated writer"));
+    assert!(spec.description.contains("run concurrently"));
+    assert!(spec.description.contains("NOTHING is merged automatically"));
+}
+
+#[test]
+fn worktree_role_swaps_cwd_and_reports_branch_when_changed() {
+    let input = workflow_input("fix the bug");
+    let child_thread_id = new_thread_id();
+    let call = ToolCall::new(
+        "wt-call-1",
+        task_tool::TASK_TOOL,
+        json!({ "agent_type": "coder", "prompt": "apply the fix" }),
+    );
+    let worktree = expected_worktree_path(&input, "coder", "wt-call-1");
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![worktree_role("coder")])
+        .with_subagent_results(vec![
+            SubagentResult::new("fix applied", SubagentStatus::Completed, 3)
+                .with_child_thread_id(child_thread_id),
+        ])
+        .with_dirty_workspace(worktree.clone());
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = task_tool::handle_task_tool_call(&mut host_to, &input, &call).unwrap();
+    drop(host_to);
+
+    assert!(result.ok);
+    // Ребёнок получил cwd worktree, не родительский checkout.
+    let requests = host.subagent_requests.lock().expect("subagent requests");
+    assert_eq!(requests[0].task.cwd, worktree);
+    // Создание и cleanup прошли через host.
+    let created = host.workspace_requests.lock().expect("workspace requests");
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].parent_cwd, input.task.cwd);
+    assert_eq!(host.cleanup_calls.lock().expect("cleanup calls").len(), 1);
+    // Изменённый worktree аннотирован: путь, ветка, обязанность мержить.
+    assert!(result.output.contains("fix applied"));
+    assert!(
+        result.output.contains("branch: proteus/coder-wt-call-1"),
+        "{}",
+        result.output
+    );
+    assert!(
+        result.output.contains("merge it yourself") || result.output.contains("Review and merge")
+    );
+}
+
+#[test]
+fn worktree_role_unchanged_workspace_is_removed_silently() {
+    let input = workflow_input("look around");
+    let call = ToolCall::new(
+        "wt-call-2",
+        task_tool::TASK_TOOL,
+        json!({ "agent_type": "coder", "prompt": "check something" }),
+    );
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![worktree_role("coder")])
+        .with_subagent_results(vec![
+            SubagentResult::new("nothing to change", SubagentStatus::Completed, 1)
+                .with_child_thread_id(new_thread_id()),
+        ]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = task_tool::handle_task_tool_call(&mut host_to, &input, &call).unwrap();
+    drop(host_to);
+
+    assert!(result.ok);
+    assert!(
+        result.output.contains("[worktree: no changes, removed]"),
+        "{}",
+        result.output
+    );
+    assert_eq!(host.cleanup_calls.lock().expect("cleanup calls").len(), 1);
+}
+
+#[test]
+fn worktree_resume_reuses_registered_workspace() {
+    let input = workflow_input("continue the fix");
+    let child_thread_id = new_thread_id();
+    let first_call = ToolCall::new(
+        "wt-call-3",
+        task_tool::TASK_TOOL,
+        json!({ "agent_type": "coder", "prompt": "start the fix" }),
+    );
+    let worktree = expected_worktree_path(&input, "coder", "wt-call-3");
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![worktree_role("coder")])
+        .with_subagent_results(vec![
+            SubagentResult::new("started", SubagentStatus::Completed, 1)
+                .with_child_thread_id(child_thread_id),
+            SubagentResult::new("finished", SubagentStatus::Completed, 1)
+                .with_child_thread_id(child_thread_id),
+        ])
+        .with_dirty_workspace(worktree.clone());
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let first = task_tool::handle_task_tool_call(&mut host_to, &input, &first_call).unwrap();
+    assert!(first.ok);
+
+    let resume_call = ToolCall::new(
+        "wt-call-4",
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "coder",
+            "prompt": "continue",
+            "task_id": child_thread_id.to_string()
+        }),
+    );
+    let resumed = task_tool::handle_task_tool_call(&mut host_to, &input, &resume_call).unwrap();
+    drop(host_to);
+
+    assert!(resumed.ok, "{:?}", resumed.error);
+    let requests = host.subagent_requests.lock().expect("subagent requests");
+    assert_eq!(
+        requests[1].task.cwd, worktree,
+        "resume попал в тот же worktree"
+    );
+    assert_eq!(
+        host.workspace_requests
+            .lock()
+            .expect("workspace requests")
+            .len(),
+        1,
+        "resume не создаёт новый worktree"
+    );
+}
+
+#[test]
+fn worktree_resume_with_unknown_task_id_is_rejected_before_spawn() {
+    let input = workflow_input("continue nothing");
+    let call = ToolCall::new(
+        "wt-call-5",
+        task_tool::TASK_TOOL,
+        json!({
+            "agent_type": "coder",
+            "prompt": "continue",
+            "task_id": new_thread_id().to_string()
+        }),
+    );
+    let mut host = FakeHost::default().with_subagent_roles(vec![worktree_role("coder")]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let result = task_tool::handle_task_tool_call(&mut host_to, &input, &call).unwrap();
+    drop(host_to);
+
+    assert!(!result.ok);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("worktree for task_id"),
+        "{:?}",
+        result.error
+    );
+    assert!(
+        host.subagent_requests
+            .lock()
+            .expect("subagent requests")
+            .is_empty(),
+        "до runner-а не дошло"
+    );
+}
+
+#[test]
+fn worktree_batch_runs_concurrently_with_distinct_workspaces() {
+    let input = workflow_input("two independent fixes");
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![worktree_role("coder")])
+        .with_subagent_results(vec![
+            SubagentResult::new("fix one", SubagentStatus::Completed, 1)
+                .with_child_thread_id(new_thread_id()),
+            SubagentResult::new("fix two", SubagentStatus::Completed, 1)
+                .with_child_thread_id(new_thread_id()),
+        ]);
+    let calls = vec![
+        parallel_task_call("wt-task-1", "coder", "fix module a"),
+        parallel_task_call("wt-task-2", "coder", "fix module b"),
+    ];
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let results = host::execute_tools(&mut host_to, &input, &calls, "test").unwrap();
+    drop(host_to);
+
+    assert_eq!(results.len(), 2);
+    assert!(results[0].ok && results[1].ok);
+
+    let ops = host.subagent_ops.lock().expect("subagent ops");
+    let kinds: Vec<&str> = ops.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        vec!["spawn", "spawn", "wait", "wait"],
+        "worktree-роль параллелится без parallel_safe"
+    );
+
+    let requests = host.subagent_requests.lock().expect("subagent requests");
+    assert_ne!(
+        requests[0].task.cwd, requests[1].task.cwd,
+        "каждый ребёнок в своём worktree"
+    );
+    assert_eq!(
+        requests[0].task.cwd,
+        expected_worktree_path(&input, "coder", "wt-task-1")
+    );
 }
 
 #[test]

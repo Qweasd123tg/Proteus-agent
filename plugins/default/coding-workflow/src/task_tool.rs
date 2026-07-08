@@ -1,16 +1,51 @@
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
+
 use proteus_contracts::{
-    contracts::{SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec},
+    contracts::{
+        SubagentHandle, SubagentIsolation, SubagentRequest, SubagentResult, SubagentRoleSpec,
+        SubagentWorkspaceRequest, WorkspaceInfo,
+    },
     domain::{Event, ToolCall, ToolResult, ToolSafety, ToolSpec},
     plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
 };
 use serde_json::{Value, json};
 
-use crate::host::{emit_event, run_subagent, spawn_subagent, wait_subagent};
+use crate::host::{
+    cleanup_subagent_workspace, create_subagent_workspace, emit_event, run_subagent,
+    spawn_subagent, subagent_roles, wait_subagent,
+};
 
 pub const TASK_TOOL: &str = "task";
 
 pub fn is_task_tool(name: &str) -> bool {
     name == TASK_TOOL
+}
+
+/// Реестр живых worktree-ов по task_id ребёнка: resume того же task-а
+/// должен попасть в ту же рабочую копию. In-memory, как и resumable-store
+/// runner-ов: рестарт процесса теряет и снапшоты, и этот реестр.
+fn workspaces() -> &'static Mutex<HashMap<String, WorkspaceInfo>> {
+    static WORKSPACES: OnceLock<Mutex<HashMap<String, WorkspaceInfo>>> = OnceLock::new();
+    WORKSPACES.get_or_init(Mutex::default)
+}
+
+fn lookup_workspace(task_id: &str) -> Option<WorkspaceInfo> {
+    workspaces().lock().ok()?.get(task_id).cloned()
+}
+
+fn register_workspace(task_id: String, info: WorkspaceInfo) {
+    if let Ok(mut map) = workspaces().lock() {
+        map.insert(task_id, info);
+    }
+}
+
+fn forget_workspace(task_id: &str) {
+    if let Ok(mut map) = workspaces().lock() {
+        map.remove(task_id);
+    }
 }
 
 pub fn task_tool_spec(roles: &[SubagentRoleSpec]) -> Option<ToolSpec> {
@@ -21,18 +56,38 @@ pub fn task_tool_spec(roles: &[SubagentRoleSpec]) -> Option<ToolSpec> {
     let role_description = roles
         .iter()
         .map(|role| {
+            let mut markers = Vec::new();
             if role.parallel_safe {
-                format!("- {} (parallel-safe): {}", role.name, role.description)
-            } else {
+                markers.push("parallel-safe");
+            }
+            if role.isolation == SubagentIsolation::Worktree {
+                markers.push("worktree-isolated");
+            }
+            if markers.is_empty() {
                 format!("- {}: {}", role.name, role.description)
+            } else {
+                format!(
+                    "- {} ({}): {}",
+                    role.name,
+                    markers.join(", "),
+                    role.description
+                )
             }
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let concurrency_line = if roles.iter().any(|role| role.parallel_safe) {
-        "Several task calls issued in one reply run concurrently when every requested role is parallel-safe (marked in the role list); use that for independent read-only research. Any other combination runs sequentially, so start the next task only after the current one has returned."
+    let concurrency_line = if roles.iter().any(is_parallel_eligible) {
+        "Several task calls issued in one reply run concurrently when every requested role is parallel-safe or worktree-isolated (marked in the role list); use that for independent research or independent isolated changes. Any other combination runs sequentially, so start the next task only after the current one has returned."
     } else {
         "Tasks run sequentially; start another task only after the current delegated work has returned."
+    };
+    let worktree_line = if roles
+        .iter()
+        .any(|role| role.isolation == SubagentIsolation::Worktree)
+    {
+        "\nWorktree-isolated roles work in their own git worktree branched from the current HEAD, so they never touch your checkout. If the subagent changed anything, its result reports the worktree path and branch; NOTHING is merged automatically - review and merge that branch yourself (conflicts are normal work), then remove the worktree."
+    } else {
+        ""
     };
     let description = format!(
         "Delegate a focused task to an isolated Proteus subagent role and return its summary.\n\
@@ -42,7 +97,7 @@ Reuse task_id from a previous task result to continue that subagent with its acc
 Delegate when a subtask is self-contained and its full trace would pollute your context, such as research, verification, or broad searches.\n\
 Choose the role that best matches the delegated work and keep the prompt specific.\n\
 Do the work yourself when it needs your accumulated context, close supervision, or tight iteration with the user.\n\
-{concurrency_line}"
+{concurrency_line}{worktree_line}"
     );
 
     Some(
@@ -89,16 +144,25 @@ pub fn append_task_tool(tools: &mut Vec<ToolSpec>, roles: &[SubagentRoleSpec]) {
     }
 }
 
+/// Роль пригодна для конкурентного батча: read-only (`parallel_safe`) либо
+/// пишущая в собственном worktree (`isolation = worktree`).
+fn is_parallel_eligible(role: &SubagentRoleSpec) -> bool {
+    role.parallel_safe || role.isolation == SubagentIsolation::Worktree
+}
+
+fn find_role<'a>(roles: &'a [SubagentRoleSpec], call: &ToolCall) -> Option<&'a SubagentRoleSpec> {
+    call.args
+        .get("agent_type")
+        .and_then(Value::as_str)
+        .and_then(|name| roles.iter().find(|role| role.name == name))
+}
+
 /// Батч task-вызовов можно исполнять конкурентно, только если каждый вызов
-/// адресует существующую роль, объявленную `parallel_safe`.
-pub fn all_roles_parallel_safe(calls: &[ToolCall], roles: &[SubagentRoleSpec]) -> bool {
-    calls.iter().all(|call| {
-        call.args
-            .get("agent_type")
-            .and_then(Value::as_str)
-            .and_then(|name| roles.iter().find(|role| role.name == name))
-            .is_some_and(|role| role.parallel_safe)
-    })
+/// адресует существующую parallel-eligible роль.
+pub fn all_roles_parallel_eligible(calls: &[ToolCall], roles: &[SubagentRoleSpec]) -> bool {
+    calls
+        .iter()
+        .all(|call| find_role(roles, call).is_some_and(is_parallel_eligible))
 }
 
 /// Валидация аргументов task-вызова. Ошибка — текст для error ToolResult
@@ -141,52 +205,198 @@ fn parse_task_call(
     Ok(request)
 }
 
+/// Подготовленный запуск: запрос (с подменённым на worktree cwd для
+/// изолированных ролей) и его workspace, если роль worktree-изолирована.
+struct PreparedTask {
+    request: SubagentRequest,
+    workspace: Option<WorkspaceInfo>,
+}
+
+/// Разбирает вызов и обеспечивает worktree для изолированной роли: fresh —
+/// новый worktree от HEAD родительского cwd, resume — рабочая копия того же
+/// task_id из реестра. Ошибки — текст для error ToolResult.
+fn prepare_task_call(
+    host: &mut PluginWorkflowHostMut<'_>,
+    input: &PluginWorkflowInput,
+    call: &ToolCall,
+    roles: &[SubagentRoleSpec],
+) -> Result<PreparedTask, String> {
+    let mut request = parse_task_call(input, call)?;
+    let worktree_role =
+        find_role(roles, call).is_some_and(|role| role.isolation == SubagentIsolation::Worktree);
+    if !worktree_role {
+        return Ok(PreparedTask {
+            request,
+            workspace: None,
+        });
+    }
+
+    let resume_task_id = request
+        .metadata
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let workspace = match resume_task_id {
+        Some(task_id) => lookup_workspace(&task_id).ok_or_else(|| {
+            format!(
+                "worktree for task_id {task_id} is gone (removed as unchanged, merged, or lost on restart); start a fresh task instead"
+            )
+        })?,
+        None => {
+            let name = workspace_name(&request.role, &call.id);
+            create_subagent_workspace(
+                host,
+                &SubagentWorkspaceRequest::new(request.task.cwd.clone(), name),
+            )
+            .map_err(|error| error.message.into_string())?
+        }
+    };
+    request.task.cwd = workspace.path.clone();
+    Ok(PreparedTask {
+        request,
+        workspace: Some(workspace),
+    })
+}
+
+/// Имя workspace из роли и call id: только [A-Za-z0-9._-], без ведущей точки.
+fn workspace_name(role: &str, call_id: &str) -> String {
+    let sanitize = |value: &str| {
+        value
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+    };
+    format!("{}-{}", sanitize(role), sanitize(call_id))
+        .trim_start_matches(['.', '-'])
+        .to_owned()
+}
+
+fn child_task_id(result: &SubagentResult) -> Option<String> {
+    result.child_thread_id.as_ref().and_then(|child_thread_id| {
+        serde_json::to_value(child_thread_id)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+    })
+}
+
+/// Пост-обработка workspace после завершения ребёнка: чистый worktree
+/// убирается, изменённый — регистрируется за task_id и аннотируется в
+/// выводе (merge — обязанность родителя). Возвращает строку-приписку к
+/// output ребёнка.
+fn finalize_workspace(
+    host: &mut PluginWorkflowHostMut<'_>,
+    workspace: Option<WorkspaceInfo>,
+    result: &SubagentResult,
+) -> Option<String> {
+    let info = workspace?;
+    match cleanup_subagent_workspace(host, &info) {
+        Ok(true) => {
+            if let Some(task_id) = child_task_id(result) {
+                forget_workspace(&task_id);
+            }
+            Some("[worktree: no changes, removed]".to_owned())
+        }
+        Ok(false) => {
+            if let Some(task_id) = child_task_id(result) {
+                register_workspace(task_id, info.clone());
+            }
+            Some(format!(
+                "[worktree: {} | branch: {}]\nThe subagent's changes live only on that branch. Review and merge it yourself, then remove the worktree.",
+                info.path.display(),
+                info.branch
+            ))
+        }
+        Err(error) => Some(format!(
+            "[worktree cleanup failed: {}; worktree left at {}]",
+            error.message,
+            info.path.display()
+        )),
+    }
+}
+
+/// Error ToolResult для провалившегося запуска: свежесозданный workspace
+/// прибирается (чистый — удаляется; тронутый — остаётся, путь дописывается
+/// в сообщение об ошибке).
+fn error_result_with_workspace(
+    host: &mut PluginWorkflowHostMut<'_>,
+    call: &ToolCall,
+    mut message: String,
+    workspace: Option<WorkspaceInfo>,
+) -> ToolResult {
+    if let Some(info) = workspace {
+        match cleanup_subagent_workspace(host, &info) {
+            Ok(true) => {}
+            Ok(false) | Err(_) => {
+                message.push_str(&format!(
+                    "\n[worktree left at {} | branch: {}]",
+                    info.path.display(),
+                    info.branch
+                ));
+            }
+        }
+    }
+    ToolResult::error(call.id.clone(), message).with_metadata(json!({
+        "tool": TASK_TOOL,
+    }))
+}
+
 pub fn handle_task_tool_call(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
     call: &ToolCall,
 ) -> Result<ToolResult, PluginWorkflowError> {
-    let request = match parse_task_call(input, call) {
-        Ok(request) => request,
+    let roles = subagent_roles(host)?;
+    let prepared = match prepare_task_call(host, input, call, &roles) {
+        Ok(prepared) => prepared,
         Err(message) => return Ok(ToolResult::error(call.id.clone(), message)),
     };
 
-    let result = match run_subagent(host, &request) {
-        Ok(result) => result,
-        Err(error) => {
-            return Ok(
-                ToolResult::error(call.id.clone(), error.message.as_str()).with_metadata(json!({
-                    "tool": TASK_TOOL,
-                })),
-            );
+    match run_subagent(host, &prepared.request) {
+        Ok(result) => {
+            let note = finalize_workspace(host, prepared.workspace, &result);
+            Ok(result_to_tool_result(call, result, note))
         }
-    };
-    Ok(result_to_tool_result(call, result))
+        Err(error) => Ok(error_result_with_workspace(
+            host,
+            call,
+            error.message.into_string(),
+            prepared.workspace,
+        )),
+    }
 }
 
 /// Конкурентное исполнение батча task-вызовов: сначала spawn всех детей
 /// (ToolCallRequested в порядке вызовов), затем wait в том же порядке.
-/// Ошибка одного вызова (аргументы, spawn, wait) даёт error ToolResult и
-/// не прерывает остальных: уже запущенные дети дожидаются в любом случае.
+/// Worktree-изолированные роли получают собственный workspace до spawn-а.
+/// Ошибка одного вызова (аргументы, workspace, spawn, wait) даёт error
+/// ToolResult и не прерывает остальных: уже запущенные дети дожидаются в
+/// любом случае.
 pub fn handle_parallel_task_calls(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
     calls: &[ToolCall],
+    roles: &[SubagentRoleSpec],
 ) -> Result<Vec<ToolResult>, PluginWorkflowError> {
     enum Spawned {
-        Running(SubagentHandle),
-        Failed(String),
+        Running(SubagentHandle, Option<WorkspaceInfo>),
+        Failed(String, Option<WorkspaceInfo>),
     }
 
     let mut spawned = Vec::with_capacity(calls.len());
     for call in calls {
         emit_event(host, &Event::ToolCallRequested { call: call.clone() })?;
-        let outcome = match parse_task_call(input, call) {
-            Ok(request) => match spawn_subagent(host, &request) {
-                Ok(handle) => Spawned::Running(handle),
-                Err(error) => Spawned::Failed(error.message.into_string()),
+        let outcome = match prepare_task_call(host, input, call, roles) {
+            Ok(prepared) => match spawn_subagent(host, &prepared.request) {
+                Ok(handle) => Spawned::Running(handle, prepared.workspace),
+                Err(error) => Spawned::Failed(error.message.into_string(), prepared.workspace),
             },
-            Err(message) => Spawned::Failed(message),
+            Err(message) => Spawned::Failed(message, None),
         };
         spawned.push(outcome);
     }
@@ -194,13 +404,18 @@ pub fn handle_parallel_task_calls(
     let mut results = Vec::with_capacity(calls.len());
     for (call, outcome) in calls.iter().zip(spawned) {
         let result = match outcome {
-            Spawned::Running(handle) => match wait_subagent(host, &handle) {
-                Ok(result) => result_to_tool_result(call, result),
-                Err(error) => ToolResult::error(call.id.clone(), error.message.as_str())
-                    .with_metadata(json!({ "tool": TASK_TOOL })),
+            Spawned::Running(handle, workspace) => match wait_subagent(host, &handle) {
+                Ok(result) => {
+                    let note = finalize_workspace(host, workspace, &result);
+                    result_to_tool_result(call, result, note)
+                }
+                Err(error) => {
+                    error_result_with_workspace(host, call, error.message.into_string(), workspace)
+                }
             },
-            Spawned::Failed(message) => ToolResult::error(call.id.clone(), message)
-                .with_metadata(json!({ "tool": TASK_TOOL })),
+            Spawned::Failed(message, workspace) => {
+                error_result_with_workspace(host, call, message, workspace)
+            }
         };
         emit_event(
             host,
@@ -213,16 +428,21 @@ pub fn handle_parallel_task_calls(
     Ok(results)
 }
 
-fn result_to_tool_result(call: &ToolCall, result: SubagentResult) -> ToolResult {
+fn result_to_tool_result(
+    call: &ToolCall,
+    result: SubagentResult,
+    workspace_note: Option<String>,
+) -> ToolResult {
+    let task_id = child_task_id(&result);
     let mut output = result.summary;
-    if let Some(task_id) = result.child_thread_id.as_ref().and_then(|child_thread_id| {
-        serde_json::to_value(child_thread_id)
-            .ok()
-            .and_then(|value| value.as_str().map(ToOwned::to_owned))
-    }) {
+    if let Some(task_id) = task_id {
         output.push_str("\n\n[task_id: ");
         output.push_str(&task_id);
         output.push(']');
+    }
+    if let Some(note) = workspace_note {
+        output.push('\n');
+        output.push_str(&note);
     }
 
     ToolResult::ok(call.id.clone(), output).with_metadata(json!({
