@@ -71,7 +71,7 @@ executors, но external process modules и package manager ещё не реал
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, `dynamic`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
-| Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, plugin-provided через `PluginSubagent` |
+| Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, `process`, plugin-provided через `PluginSubagent` |
 | Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
@@ -516,24 +516,50 @@ tool-search/ranking можно вынести в плагин, не обходя
 
 `modules.subagent` выбирает реализацию `SubagentRunner`: изолированного
 дочернего agent loop с ролями. Contract живёт в
-`contracts/subagent.rs`: `roles() -> Vec<SubagentRoleSpec>` и
-`run(SubagentRequest) -> SubagentResult`. Workflow не получает прямой доступ к
-runner-у: плагинный workflow вызывает host-методы `subagent_roles_json()` и
-`run_subagent_json(request_json)`.
+`contracts/subagent.rs`: `roles() -> Vec<SubagentRoleSpec>`,
+`run(SubagentRequest) -> SubagentResult` (запустить и дождаться) и
+опциональная тройка `spawn(SubagentRequest) -> SubagentHandle` /
+`wait(&SubagentHandle) -> SubagentResult` / `cancel(&SubagentHandle)` для
+фонового запуска нескольких детей (default-реализации возвращают «не
+поддерживается»). Workflow не получает прямой доступ к runner-у: плагинный
+workflow вызывает host-методы `subagent_roles_json()`,
+`run_subagent_json(request_json)` и их spawn/wait/cancel-аналоги.
+
+Оба builtin-runner-а (`sequential`, `process`) реализуют spawn/wait/cancel:
+`run` = `spawn` + `wait`, дочерний цикл живёт detached tokio-таской в
+реестре запущенных детей (общий cap `max_parallel`, default 8; ошибки
+подготовки — unknown role, depth limit, невалидный `task_id` — возвращаются
+из `spawn` до `SubagentStarted`). Каждый запуск получает child-токен отмены:
+`cancel` по handle снимает одного ребёнка, не трогая соседей и родительский
+turn. Побочный эффект detached-исполнения: обрыв родительского future
+(отмена turn-а на границе block_on) не роняет ребёнка на полпути — цикл
+доводится до терминального статуса и сохраняет resumable snapshot.
+
+Роль объявляется безопасной для конкурентного запуска флагом
+`parallel_safe = true` (декларация оператора: роль должна быть фактически
+read-only — через `tools` allowlist у `sequential` или read-only config
+ребёнка у `process`). `coding-workflow` использует флаг как гейт: батч из
+нескольких `task`-вызовов одного ответа модели исполняется конкурентно
+(spawn всех → wait по порядку) только если каждая запрошенная роль
+`parallel_safe`; любая другая комбинация идёт последовательно. Ошибка
+одного вызова (аргументы, spawn, wait) даёт error `ToolResult` и не
+прерывает остальных детей батча.
 
 Builtin `none` возвращает пустой список ролей и отключает делегирование.
-Builtin `sequential` запускает один дочерний цикл синхронно до результата.
+Builtin `sequential` исполняет дочерний цикл in-process.
 Роли задаются в module-owned payload:
 
 ```toml
 [module_config.subagent.sequential]
 max_depth = 1
+# max_parallel = 8
 
 [[module_config.subagent.sequential.roles]]
 name = "explore"
 description = "Read-only codebase explorer."
 prompt = "Inspect the repository without modifying files. Return paths and line numbers."
 max_iterations = 15
+# parallel_safe = true # роль можно запускать конкурентно (строго read-only tools!)
 # exposure_phase = "subagent:explore" # default if omitted
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
@@ -572,13 +598,18 @@ nested subagent, error; модельная телеметрия и deltas ост
 transports (решение принимает пользователь родительской session; origin несёт
 имя роли) и возвращает `AgentOutput.text` как summary. Изоляция структурная:
 policy, tools, model, permission mode и промпты ребёнка задаёт config роли,
-а не родительский runtime; сбой ребёнка не задевает родителя. Cancel
-родительского turn-а транслируется в `Cancel` ребёнку с grace-ожиданием
-(`cancel_grace_ms`), затем процесс убивается. Процесс на роль
+а не родительский runtime; сбой ребёнка не задевает родителя. Cancel запуска
+(по handle или каскадом от родительского turn-а) транслируется в `Cancel`
+ребёнку с grace-ожиданием (`cancel_grace_ms`), затем процесс убивается.
+
+Процессы роли живут в пуле: до `max_processes` одновременных детей на роль
+(default 4 для `parallel_safe`-ролей, 1 для остальных; сверх-лимитные
+запуски ждут свободного процесса на semaphore). Свободный процесс
 переиспользуется между задачами (lazy spawn): свежая задача начинается с
-`ClearHistory`, resume по `task_id` продолжает живую session ребёнка; смерть
-или restart процесса инвалидирует его task_id-ы. Роли задаются в
-`module_config.subagent.process` (см. `configuration.md`).
+`ClearHistory` (что инвалидирует прежние task_id-ы этого процесса — resume
+по очищенной session честно отклоняется), resume по `task_id` продолжает
+живую session конкретного процесса; смерть процесса хоронит его task_id-ы.
+Роли задаются в `module_config.subagent.process` (см. `configuration.md`).
 
 ## Workflow
 

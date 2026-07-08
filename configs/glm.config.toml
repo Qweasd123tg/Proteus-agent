@@ -154,6 +154,9 @@ Rules:
 - Final answer must be a concise report: findings with file paths and line numbers, short quotes only where they carry the answer.
 - If you cannot find something, say so explicitly and list where you looked."""
 tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+# Строго read-only allowlist выше делает роль безопасной для конкурентного
+# запуска: несколько task-вызовов explore в одном ответе модели идут параллельно.
+parallel_safe = true
 max_iterations = 15
 max_summary_bytes = 8192
 

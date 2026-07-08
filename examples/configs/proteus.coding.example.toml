@@ -44,12 +44,16 @@ always_include = ["request_user_input"]
 # max_depth = 1
 # roles_dir = ".proteus/agents"
 # max_resumable = 8
+# max_parallel = 8
 #
 # [[module_config.subagent.sequential.roles]]
 # name = "explore"
 # description = "Read-only codebase explorer that returns paths and line numbers."
 # prompt = "You are a read-only codebase researcher. Inspect the repository without modifying files. Map structure with list_dir/find_files before reading, batch several tool calls per response (prefer read_many_files over one read_file at a time). Return concise findings with file paths and line numbers."
 # max_iterations = 15
+# # Several explore tasks in one model reply run concurrently; declare
+# # parallel_safe only for roles that are strictly read-only (see tools below).
+# parallel_safe = true
 # # all_visible ignores exposure_phase; use tools as a per-role safety allowlist.
 # exposure_phase = "subagent:explore"
 # tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]

@@ -6,8 +6,14 @@
 //! своя история (только `role.prompt` + `request.prompt`), свой отбор tools
 //! по фазе роли. Tool calls ребёнка идут через тот же `ToolOrchestrator`
 //! (policy/approval-контур), что и родительские.
+//!
+//! Исполнение — через `spawn`/`wait`/`cancel`: ребёнок живёт detached
+//! tokio-таской в реестре `PendingChildren`, поэтому несколько детей могут
+//! работать конкурентно, а обрыв родительского future не роняет цикл
+//! ребёнка на полпути. `run` = `spawn` + `wait`.
 
 mod child_loop;
+mod pending;
 mod process;
 mod resumable;
 mod roles;
@@ -18,7 +24,7 @@ pub use process::ProcessSubagentRunner;
 
 use std::{
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -29,11 +35,11 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        RuntimeContext, SubagentRequest, SubagentResult, SubagentRoleSpec, SubagentRunner,
-        SubagentStatus,
+        RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
+        SubagentRunner, SubagentStatus,
     },
     core::ToolOrchestrator,
-    domain::{Event, SessionId, ThreadId, new_thread_id},
+    domain::{Event, SessionId, ThreadId, new_call_id, new_thread_id},
     model_standard::{CanonicalMessage, MessageRole},
 };
 
@@ -41,6 +47,7 @@ use child_loop::{
     ChildLoopState, run_child_loop, select_child_tools, subagent_status_label,
     truncate_at_char_boundary,
 };
+use pending::PendingChildren;
 use resumable::{ResumableSnapshot, ResumableStore};
 use roles::{SequentialSubagentConfig, build_role_specs};
 
@@ -48,12 +55,35 @@ use roles::{SequentialSubagentConfig, build_role_specs};
 /// Убирается из тулсета ребёнка, чтобы запретить рекурсию на уровне тулсета.
 const TASK_TOOL_NAME: &str = "task";
 
-#[derive(Debug)]
 pub struct SequentialSubagentRunner {
+    inner: Arc<RunnerInner>,
+}
+
+impl std::fmt::Debug for SequentialSubagentRunner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SequentialSubagentRunner")
+            .field("roles", &self.inner.roles.len())
+            .field("max_depth", &self.inner.max_depth)
+            .field("max_parallel", &self.inner.max_parallel)
+            .finish_non_exhaustive()
+    }
+}
+
+struct RunnerInner {
     roles: Vec<SubagentRoleSpec>,
     max_depth: u64,
     max_resumable: usize,
+    max_parallel: usize,
     resumable: Mutex<ResumableStore>,
+    pending: Mutex<PendingChildren>,
+}
+
+/// Результат подготовки запуска: роль, thread ребёнка и стартовая история
+/// (fresh: prompt роли + задача; resume: снапшот + новая задача).
+struct PreparedChild {
+    role: SubagentRoleSpec,
+    child_thread_id: ThreadId,
+    history: Vec<CanonicalMessage>,
 }
 
 impl SequentialSubagentRunner {
@@ -72,13 +102,25 @@ impl SequentialSubagentRunner {
                 .context("failed to parse module_config.subagent.sequential")?
         };
 
-        let (roles, max_depth, max_resumable) = build_role_specs(parsed, cwd)?;
+        let (roles, max_depth, max_resumable, max_parallel) = build_role_specs(parsed, cwd)?;
         Ok(Self {
-            roles,
-            max_depth,
-            max_resumable,
-            resumable: Mutex::new(ResumableStore::default()),
+            inner: Arc::new(RunnerInner {
+                roles,
+                max_depth,
+                max_resumable,
+                max_parallel,
+                resumable: Mutex::new(ResumableStore::default()),
+                pending: Mutex::new(PendingChildren::default()),
+            }),
         })
+    }
+}
+
+impl RunnerInner {
+    fn lock_pending(&self) -> Result<MutexGuard<'_, PendingChildren>> {
+        self.pending
+            .lock()
+            .map_err(|_| anyhow!("subagent pending registry lock poisoned"))
     }
 
     fn resumable_snapshot(&self, task_id: &str) -> Result<Option<ResumableSnapshot>> {
@@ -108,15 +150,10 @@ impl SequentialSubagentRunner {
                 self.max_resumable,
             ))
     }
-}
 
-#[async_trait]
-impl SubagentRunner for SequentialSubagentRunner {
-    fn roles(&self) -> Vec<SubagentRoleSpec> {
-        self.roles.clone()
-    }
-
-    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
+    /// Резолвит роль, глубину и resume до запуска: все ошибки подготовки
+    /// возвращаются из `spawn` напрямую, ещё до `SubagentStarted`.
+    fn prepare(&self, request: &SubagentRequest, ctx: &RuntimeContext) -> Result<PreparedChild> {
         let role = self
             .roles
             .iter()
@@ -169,17 +206,27 @@ impl SubagentRunner for SequentialSubagentRunner {
                 ],
             )
         };
-        let child_ctx = child_context(&ctx, child_thread_id, &role.name);
 
-        // Started/Finished эмитятся под родительским thread_id; события
-        // самого цикла (tool calls) — под child_thread_id через child_ctx.
-        ctx.emit(Event::SubagentStarted {
-            role: role.name.clone(),
-            description: request.description.clone(),
+        Ok(PreparedChild {
+            role,
             child_thread_id,
+            history,
         })
-        .await?;
+    }
 
+    /// Тело дочернего цикла: от подготовленной истории до терминального
+    /// статуса, resumable snapshot и `SubagentFinished`. Живёт detached
+    /// tokio-таской (`spawn`), поэтому события эмитятся через собственные
+    /// клоны контекстов, а не через ссылки на caller.
+    async fn execute(
+        self: Arc<Self>,
+        role: SubagentRoleSpec,
+        request: SubagentRequest,
+        ctx: RuntimeContext,
+        child_ctx: RuntimeContext,
+        child_thread_id: ThreadId,
+        history: Vec<CanonicalMessage>,
+    ) -> Result<SubagentResult> {
         // Ребёнок не наследует родительские ctx.instructions: system-слой —
         // только prompt роли.
         let mut state = ChildLoopState {
@@ -278,14 +325,84 @@ impl SubagentRunner for SequentialSubagentRunner {
     }
 }
 
+#[async_trait]
+impl SubagentRunner for SequentialSubagentRunner {
+    fn roles(&self) -> Vec<SubagentRoleSpec> {
+        self.inner.roles.clone()
+    }
+
+    /// `run` = `spawn` + `wait`: цикл ребёнка исполняется detached-таской,
+    /// поэтому обрыв родительского future (например, отмена turn'а на
+    /// границе block_on в workflow host) не роняет ребёнка на полпути —
+    /// тот доводит работу до терминального статуса и сохраняет resumable
+    /// snapshot.
+    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
+        let handle = self.spawn(request, ctx).await?;
+        self.wait(&handle).await
+    }
+
+    async fn spawn(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentHandle> {
+        let prepared = self.inner.prepare(&request, &ctx)?;
+        let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.role.name);
+        let spawn_id = new_call_id();
+        self.inner.lock_pending()?.reserve(
+            &spawn_id,
+            child_ctx.cancellation.clone(),
+            self.inner.max_parallel,
+        )?;
+
+        // Started/Finished эмитятся под родительским thread_id; события
+        // самого цикла (tool calls) — под child_thread_id через child_ctx.
+        // Started уходит до tokio::spawn, чтобы события ребёнка не могли
+        // обогнать его в event stream.
+        if let Err(error) = ctx
+            .emit(Event::SubagentStarted {
+                role: prepared.role.name.clone(),
+                description: request.description.clone(),
+                child_thread_id: prepared.child_thread_id,
+            })
+            .await
+        {
+            self.inner.lock_pending()?.release(&spawn_id);
+            return Err(error);
+        }
+
+        let handle = SubagentHandle::new(
+            spawn_id.clone(),
+            prepared.role.name.clone(),
+            prepared.child_thread_id,
+        );
+        let join = tokio::spawn(self.inner.clone().execute(
+            prepared.role,
+            request,
+            ctx.clone(),
+            child_ctx,
+            prepared.child_thread_id,
+            prepared.history,
+        ));
+        self.inner.lock_pending()?.attach(&spawn_id, join);
+        Ok(handle)
+    }
+
+    async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+        let join = self.inner.lock_pending()?.take(&handle.spawn_id)?;
+        join.await
+            .map_err(|join_error| anyhow!("subagent child task failed: {join_error}"))?
+    }
+
+    async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
+        self.inner.lock_pending()?.cancel(&handle.spawn_id)
+    }
+}
+
 /// Контекст дочернего цикла поверх родительского: собственный `thread_id`,
 /// метка роли для attribution (approvals, user inputs, клиентский UX),
 /// пустые turn-scoped grants и child-токен отмены. Изоляция grants
 /// структурная: ребёнок не наследует права родителя (например,
 /// `escalated_exec` после approved-запроса) и не протаскивает свои granted
 /// permissions обратно в родительский ход. Child-токен: cancel родителя
-/// каскадится ребёнку, но ребёнка можно отменить отдельно, не трогая
-/// родительский turn (groundwork для parallel subagents).
+/// каскадится ребёнку, но ребёнка можно отменить отдельно (`cancel` по
+/// handle), не трогая родительский turn и соседних детей.
 fn child_context(
     ctx: &RuntimeContext,
     child_thread_id: ThreadId,

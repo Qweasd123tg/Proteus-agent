@@ -1,7 +1,8 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{
-        CompactionInput, SubagentRequest, SubagentResult, SubagentRoleSpec, ToolExposureRequest,
+        CompactionInput, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
+        ToolExposureRequest,
     },
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
@@ -302,7 +303,9 @@ fn visible_tools(
     })
 }
 
-/// Выполняет батч tool calls одного ответа модели. Meta-tools динамической
+/// Выполняет батч tool calls одного ответа модели. Батч из нескольких
+/// task-вызовов, где все запрошенные роли `parallel_safe`, исполняется
+/// конкурентно через spawn/wait слота `subagent`. Meta-tools динамической
 /// экспозиции обрабатываются локально, поэтому при их наличии (или одном
 /// вызове) используется последовательный путь; иначе — batch host API, где
 /// подряд идущие ReadOnly tools выполняются конкурентно.
@@ -312,6 +315,12 @@ pub(super) fn execute_tools(
     calls: &[ToolCall],
     phase: &str,
 ) -> Result<Vec<ToolResult>, PluginWorkflowError> {
+    if calls.len() >= 2 && calls.iter().all(|call| task_tool::is_task_tool(&call.name)) {
+        let roles = subagent_roles(host)?;
+        if task_tool::all_roles_parallel_safe(calls, &roles) {
+            return task_tool::handle_parallel_task_calls(host, input, calls);
+        }
+    }
     if calls.len() <= 1
         || calls
             .iter()
@@ -353,6 +362,34 @@ pub(super) fn run_subagent(
     ensure_not_cancelled(host)?;
     let request_json = to_json_string(request)?;
     let result_json = match host.run_subagent_json(RString::from(request_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(result_json.as_str())
+}
+
+pub(super) fn spawn_subagent(
+    host: &mut PluginWorkflowHostMut<'_>,
+    request: &SubagentRequest,
+) -> Result<SubagentHandle, PluginWorkflowError> {
+    ensure_not_cancelled(host)?;
+    let request_json = to_json_string(request)?;
+    let handle_json = match host.spawn_subagent_json(RString::from(request_json)) {
+        RResult::ROk(json) => json,
+        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    };
+    from_json_string(handle_json.as_str())
+}
+
+/// Дожидается запущенного ребёнка. Cancelled-проверка перед wait намеренно
+/// отсутствует: даже при отменённом turn-е нужно забрать результат уже
+/// работающего ребёнка (runner сам завершит его по каскаду отмены).
+pub(super) fn wait_subagent(
+    host: &mut PluginWorkflowHostMut<'_>,
+    handle: &SubagentHandle,
+) -> Result<SubagentResult, PluginWorkflowError> {
+    let handle_json = to_json_string(handle)?;
+    let result_json = match host.wait_subagent_json(RString::from(handle_json)) {
         RResult::ROk(json) => json,
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };

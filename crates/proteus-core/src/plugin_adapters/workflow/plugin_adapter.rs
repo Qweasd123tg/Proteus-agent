@@ -22,8 +22,8 @@ use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, RuntimeContext, SubagentRequest, ToolExposureInput,
-        ToolExposureRequest, Workflow, WorkflowOutput,
+        CompactionInput, ContextBuildInput, RuntimeContext, SubagentHandle, SubagentRequest,
+        ToolExposureInput, ToolExposureRequest, Workflow, WorkflowOutput,
     },
     core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
@@ -334,6 +334,47 @@ impl PluginWorkflowHost for WorkflowHost {
         };
         let ctx = self.ctx.clone();
         self.block_on_json(async move { ctx.subagent.run(request, ctx.clone()).await })
+    }
+
+    fn spawn_subagent_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: SubagentRequest = match serde_json::from_str(request_json.as_str()) {
+            Ok(request) => request,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        self.block_on_json(async move { ctx.subagent.spawn(request, ctx.clone()).await })
+    }
+
+    fn wait_subagent_json(
+        &self,
+        handle_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let handle: SubagentHandle = match serde_json::from_str(handle_json.as_str()) {
+            Ok(handle) => handle,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        self.block_on_json(async move { ctx.subagent.wait(&handle).await })
+    }
+
+    fn cancel_subagent_json(&self, handle_json: RString) -> RResult<(), PluginWorkflowHostError> {
+        let handle: SubagentHandle = match serde_json::from_str(handle_json.as_str()) {
+            Ok(handle) => handle,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        let ctx = self.ctx.clone();
+        // Cancel не гейтится select-ом на родительскую отмену: он должен
+        // проходить и в размотке уже отменённого turn-а.
+        match self
+            .handle
+            .block_on(async move { ctx.subagent.cancel(&handle).await })
+        {
+            Ok(()) => RResult::ROk(()),
+            Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
+        }
     }
 }
 

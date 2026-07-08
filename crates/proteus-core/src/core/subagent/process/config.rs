@@ -28,6 +28,10 @@ pub(super) struct ProcessSubagentConfig {
     /// прежде чем убить процесс.
     #[serde(default = "default_cancel_grace_ms")]
     pub cancel_grace_ms: u64,
+    /// Максимум одновременно запущенных (`spawn`) детей runner-а
+    /// (поверх per-role `max_processes`).
+    #[serde(default = "default_max_parallel")]
+    pub max_parallel: usize,
 }
 
 impl Default for ProcessSubagentConfig {
@@ -37,6 +41,7 @@ impl Default for ProcessSubagentConfig {
             binary: None,
             max_depth: default_max_depth(),
             cancel_grace_ms: default_cancel_grace_ms(),
+            max_parallel: default_max_parallel(),
         }
     }
 }
@@ -57,10 +62,30 @@ pub(super) struct ProcessRoleConfig {
     /// Дополнительные CLI-аргументы ребёнка (например, `--permission-mode`).
     #[serde(default)]
     pub args: Vec<String>,
+    /// Роль можно запускать конкурентно рядом с другими субагентами
+    /// (декларация оператора: config ребёнка должен быть read-only
+    /// профилем).
+    #[serde(default)]
+    pub parallel_safe: bool,
+    /// Максимум одновременных процессов роли. По умолчанию 4 для
+    /// `parallel_safe`-ролей и 1 для остальных.
+    #[serde(default)]
+    pub max_processes: Option<usize>,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub max_summary_bytes: Option<usize>,
+}
+
+impl ProcessRoleConfig {
+    /// Размер пула процессов роли (минимум 1).
+    pub(super) fn effective_max_processes(&self) -> usize {
+        match self.max_processes {
+            Some(max_processes) => max_processes.max(1),
+            None if self.parallel_safe => default_parallel_max_processes(),
+            None => 1,
+        }
+    }
 }
 
 fn default_max_depth() -> u64 {
@@ -69,6 +94,14 @@ fn default_max_depth() -> u64 {
 
 fn default_cancel_grace_ms() -> u64 {
     5_000
+}
+
+fn default_max_parallel() -> usize {
+    8
+}
+
+fn default_parallel_max_processes() -> usize {
+    4
 }
 
 pub(super) fn build_process_role_specs(
@@ -95,6 +128,7 @@ pub(super) fn build_process_role_specs(
                 role.prompt.clone().unwrap_or_default(),
             )
             .with_limits(limits)
+            .with_parallel_safe(role.parallel_safe)
             .with_config(json!({ "config": role.config })),
         );
     }
@@ -142,6 +176,8 @@ mod tests {
             config: "  ".to_owned(),
             prompt: None,
             args: Vec::new(),
+            parallel_safe: false,
+            max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
         }])
@@ -157,10 +193,46 @@ mod tests {
             config: "sub-explorer".to_owned(),
             prompt: None,
             args: Vec::new(),
+            parallel_safe: false,
+            max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
         };
         let error = build_process_role_specs(&[role.clone(), role]).unwrap_err();
         assert!(error.to_string().contains("duplicate subagent role"));
+    }
+
+    #[test]
+    fn parallel_safe_marks_spec_and_widens_default_pool() {
+        let config: ProcessSubagentConfig = serde_json::from_value(json!({
+            "roles": [
+                { "name": "explore", "description": "d", "config": "c", "parallel_safe": true },
+                { "name": "writer", "description": "d", "config": "c" },
+                {
+                    "name": "capped",
+                    "description": "d",
+                    "config": "c",
+                    "parallel_safe": true,
+                    "max_processes": 2
+                }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(config.max_parallel, 8, "default runner-level cap");
+        let by_name = |name: &str| {
+            config
+                .roles
+                .iter()
+                .find(|role| role.name == name)
+                .expect("role")
+        };
+        assert_eq!(by_name("explore").effective_max_processes(), 4);
+        assert_eq!(by_name("writer").effective_max_processes(), 1);
+        assert_eq!(by_name("capped").effective_max_processes(), 2);
+
+        let specs = build_process_role_specs(&config.roles).unwrap();
+        assert!(specs[0].parallel_safe);
+        assert!(!specs[1].parallel_safe);
     }
 }

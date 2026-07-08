@@ -312,6 +312,11 @@ struct FakeHost {
     subagent_roles: Mutex<Vec<SubagentRoleSpec>>,
     subagent_requests: Mutex<Vec<SubagentRequest>>,
     subagent_results: Mutex<VecDeque<SubagentResult>>,
+    /// Хронология spawn/wait для проверки конкурентного пути:
+    /// ("spawn", role) и ("wait", spawn_id).
+    subagent_ops: Mutex<Vec<(String, String)>>,
+    /// Результаты для wait по spawn_id (spawn выдаёт id по порядку).
+    spawned_results: Mutex<std::collections::HashMap<String, SubagentResult>>,
     compactions: Mutex<Vec<CompactionInput>>,
     compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
 }
@@ -319,17 +324,8 @@ struct FakeHost {
 impl FakeHost {
     fn with_responses(responses: Vec<CanonicalModelResponse>) -> Self {
         Self {
-            events: Mutex::new(Vec::new()),
-            requests: Mutex::new(Vec::new()),
             responses: Mutex::new(VecDeque::from(responses)),
-            visible_tools: Mutex::new(Vec::new()),
-            selected_tools: Mutex::new(Vec::new()),
-            executed_calls: Mutex::new(Vec::new()),
-            subagent_roles: Mutex::new(Vec::new()),
-            subagent_requests: Mutex::new(Vec::new()),
-            subagent_results: Mutex::new(VecDeque::new()),
-            compactions: Mutex::new(Vec::new()),
-            compaction_outputs: Mutex::new(VecDeque::new()),
+            ..Self::default()
         }
     }
 
@@ -509,6 +505,79 @@ impl PluginWorkflowHost for FakeHost {
         RResult::ROk(RString::from(
             serde_json::to_string(&result).expect("subagent result json"),
         ))
+    }
+
+    fn spawn_subagent_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: SubagentRequest =
+            serde_json::from_str(request_json.as_str()).expect("subagent request json");
+        let Some(result) = self
+            .subagent_results
+            .lock()
+            .expect("subagent results")
+            .pop_front()
+        else {
+            return RResult::RErr(PluginWorkflowHostError::new(
+                "subagent spawn not configured",
+            ));
+        };
+        let spawn_seq = self.subagent_ops.lock().expect("subagent ops").len();
+        let spawn_id = format!("spawn-{spawn_seq}-{}", request.role);
+        self.subagent_ops
+            .lock()
+            .expect("subagent ops")
+            .push(("spawn".to_owned(), request.role.clone()));
+        self.subagent_requests
+            .lock()
+            .expect("subagent requests")
+            .push(request.clone());
+        let handle = proteus_contracts::contracts::SubagentHandle::new(
+            spawn_id.clone(),
+            request.role.clone(),
+            result.child_thread_id.unwrap_or_else(new_thread_id),
+        );
+        self.spawned_results
+            .lock()
+            .expect("spawned results")
+            .insert(spawn_id, result);
+        RResult::ROk(RString::from(
+            serde_json::to_string(&handle).expect("subagent handle json"),
+        ))
+    }
+
+    fn wait_subagent_json(
+        &self,
+        handle_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let handle: proteus_contracts::contracts::SubagentHandle =
+            serde_json::from_str(handle_json.as_str()).expect("subagent handle json");
+        self.subagent_ops
+            .lock()
+            .expect("subagent ops")
+            .push(("wait".to_owned(), handle.spawn_id.clone()));
+        let Some(result) = self
+            .spawned_results
+            .lock()
+            .expect("spawned results")
+            .remove(&handle.spawn_id)
+        else {
+            return RResult::RErr(PluginWorkflowHostError::new("unknown subagent spawn_id"));
+        };
+        RResult::ROk(RString::from(
+            serde_json::to_string(&result).expect("subagent result json"),
+        ))
+    }
+
+    fn cancel_subagent_json(&self, handle_json: RString) -> RResult<(), PluginWorkflowHostError> {
+        let handle: proteus_contracts::contracts::SubagentHandle =
+            serde_json::from_str(handle_json.as_str()).expect("subagent handle json");
+        self.subagent_ops
+            .lock()
+            .expect("subagent ops")
+            .push(("cancel".to_owned(), handle.spawn_id));
+        RResult::ROk(())
     }
 
     fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
@@ -1324,6 +1393,174 @@ fn task_tool_call_rejects_non_string_task_id() {
             .expect("subagent requests")
             .is_empty()
     );
+}
+
+fn parallel_task_call(id: &str, role: &str, prompt: &str) -> ToolCall {
+    ToolCall::new(
+        id,
+        task_tool::TASK_TOOL,
+        json!({ "agent_type": role, "prompt": prompt }),
+    )
+}
+
+#[test]
+fn task_tool_spec_marks_parallel_safe_roles() {
+    let roles = vec![
+        SubagentRoleSpec::new("explore", "Read-only exploration", "p").with_parallel_safe(true),
+        SubagentRoleSpec::new("writer", "Makes edits", "p"),
+    ];
+    let spec = task_tool::task_tool_spec(&roles).expect("task tool spec");
+    let agent_type = spec.input_schema["properties"]["agent_type"]["description"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(agent_type.contains("- explore (parallel-safe): Read-only exploration"));
+    assert!(agent_type.contains("- writer: Makes edits"));
+    assert!(spec.description.contains("run concurrently"));
+
+    let sequential_only = vec![SubagentRoleSpec::new("writer", "Makes edits", "p")];
+    let spec = task_tool::task_tool_spec(&sequential_only).expect("task tool spec");
+    assert!(spec.description.contains("Tasks run sequentially"));
+    assert!(!spec.description.contains("parallel-safe"));
+}
+
+#[test]
+fn parallel_safe_task_batch_spawns_all_then_waits_in_order() {
+    let input = workflow_input("research two things");
+    let first_thread = new_thread_id();
+    let second_thread = new_thread_id();
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![
+            SubagentRoleSpec::new("explore", "Read-only", "p").with_parallel_safe(true),
+            SubagentRoleSpec::new("docs", "Read-only docs", "p").with_parallel_safe(true),
+        ])
+        .with_subagent_results(vec![
+            SubagentResult::new("explore summary", SubagentStatus::Completed, 1)
+                .with_child_thread_id(first_thread),
+            SubagentResult::new("docs summary", SubagentStatus::Completed, 1)
+                .with_child_thread_id(second_thread),
+        ]);
+    let calls = vec![
+        parallel_task_call("task-1", "explore", "map the repo"),
+        parallel_task_call("task-2", "docs", "read the docs"),
+    ];
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let results = host::execute_tools(&mut host_to, &input, &calls, "test").unwrap();
+    drop(host_to);
+
+    assert_eq!(results.len(), 2);
+    assert!(results[0].ok && results[1].ok);
+    assert!(results[0].output.contains("explore summary"));
+    assert!(results[1].output.contains("docs summary"));
+
+    let ops = host.subagent_ops.lock().expect("subagent ops");
+    let kinds: Vec<&str> = ops.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        vec!["spawn", "spawn", "wait", "wait"],
+        "все дети запускаются до первого wait"
+    );
+
+    let events = host.events.lock().expect("events");
+    let sequence: Vec<String> = events
+        .iter()
+        .map(|event| match event {
+            Event::ToolCallRequested { call } => format!("requested:{}", call.id),
+            Event::ToolFinished { result } => format!("finished:{}", result.call_id),
+            _ => "other".to_owned(),
+        })
+        .collect();
+    assert_eq!(
+        sequence,
+        vec![
+            "requested:task-1",
+            "requested:task-2",
+            "finished:task-1",
+            "finished:task-2"
+        ]
+    );
+}
+
+#[test]
+fn task_batch_with_non_parallel_role_runs_sequentially() {
+    let input = workflow_input("mixed delegation");
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![
+            SubagentRoleSpec::new("explore", "Read-only", "p").with_parallel_safe(true),
+            SubagentRoleSpec::new("writer", "Makes edits", "p"),
+        ])
+        .with_subagent_results(vec![
+            SubagentResult::new("explore summary", SubagentStatus::Completed, 1),
+            SubagentResult::new("writer summary", SubagentStatus::Completed, 1),
+        ]);
+    let calls = vec![
+        parallel_task_call("task-1", "explore", "map the repo"),
+        parallel_task_call("task-2", "writer", "apply the fix"),
+    ];
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let results = host::execute_tools(&mut host_to, &input, &calls, "test").unwrap();
+    drop(host_to);
+
+    assert_eq!(results.len(), 2);
+    assert!(results[0].ok && results[1].ok);
+    assert!(
+        host.subagent_ops.lock().expect("subagent ops").is_empty(),
+        "не-parallel_safe роль в батче выключает spawn/wait путь"
+    );
+    assert_eq!(
+        host.subagent_requests
+            .lock()
+            .expect("subagent requests")
+            .len(),
+        2,
+        "оба вызова прошли последовательным run-путём"
+    );
+}
+
+#[test]
+fn parallel_task_batch_isolates_per_call_failures() {
+    let input = workflow_input("partially broken batch");
+    let mut host = FakeHost::default()
+        .with_subagent_roles(vec![
+            SubagentRoleSpec::new("explore", "Read-only", "p").with_parallel_safe(true),
+            SubagentRoleSpec::new("docs", "Read-only docs", "p").with_parallel_safe(true),
+        ])
+        .with_subagent_results(vec![SubagentResult::new(
+            "explore summary",
+            SubagentStatus::Completed,
+            1,
+        )]);
+    let calls = vec![
+        parallel_task_call("task-1", "explore", "map the repo"),
+        // Второй вызов проходит parallel-гейт (роль валидна), но падает на
+        // валидации аргументов при spawn.
+        ToolCall::new(
+            "task-2",
+            task_tool::TASK_TOOL,
+            json!({ "agent_type": "docs" }),
+        ),
+    ];
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let results = host::execute_tools(&mut host_to, &input, &calls, "test").unwrap();
+    drop(host_to);
+
+    assert_eq!(results.len(), 2);
+    assert!(results[0].ok);
+    assert!(results[0].output.contains("explore summary"));
+    assert!(!results[1].ok);
+    assert_eq!(
+        results[1].error.as_deref(),
+        Some("task requires string arg 'prompt'")
+    );
+
+    let ops = host.subagent_ops.lock().expect("subagent ops");
+    let kinds: Vec<&str> = ops.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(kinds, vec!["spawn", "wait"], "живой ребёнок дожидается");
 }
 
 #[test]

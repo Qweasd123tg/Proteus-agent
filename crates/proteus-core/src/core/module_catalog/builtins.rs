@@ -191,8 +191,8 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         manifest(
             "sequential",
             ModuleKind::Subagent,
-            &["sequential", "roles_from_config"],
-            "Последовательный дочерний агентский цикл: роли и лимиты из module_config.subagent.sequential.",
+            &["sequential", "parallel_spawn", "roles_from_config"],
+            "Дочерний агентский цикл in-process: роли и лимиты из module_config.subagent.sequential; spawn/wait для конкурентных parallel_safe-ролей.",
         ),
         build_sequential_subagent,
     );
@@ -202,8 +202,13 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         manifest(
             "process",
             ModuleKind::Subagent,
-            &["process_isolation", "role_profiles", "roles_from_config"],
-            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); настройки в module_config.subagent.process.",
+            &[
+                "process_isolation",
+                "role_profiles",
+                "parallel_spawn",
+                "roles_from_config",
+            ],
+            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); пул процессов на роль, spawn/wait для parallel_safe-ролей; настройки в module_config.subagent.process.",
         ),
         build_process_subagent,
     );

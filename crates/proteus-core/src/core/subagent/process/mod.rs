@@ -10,30 +10,52 @@
 //! tools, model и permission mode ребёнка задаются его конфигом; сбой или
 //! kill ребёнка не задевает родительский runtime (cancel = `Cancel` +
 //! grace, затем kill).
+//!
+//! Исполнение — через `spawn`/`wait`/`cancel` (см. `PendingChildren`):
+//! каждый запуск живёт detached tokio-таской на child-токене отмены.
+//! Процессы роли переиспользуются через пул: до `max_processes`
+//! одновременных детей на роль (semaphore), свободные процессы ждут в
+//! `idle` и получают `ClearHistory` перед свежей задачей. `run` =
+//! `spawn` + `wait`.
 
 mod child;
 mod config;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, path::PathBuf, sync::Mutex as StdMutex, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex as StdMutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use serde_json::{Value, json};
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::{
+    sync::Semaphore,
+    time::{Instant, timeout, timeout_at},
+};
 
 use crate::{
     contracts::{
-        ApprovalRequest, RequestOrigin, RuntimeContext, SubagentRequest, SubagentResult,
-        SubagentRoleSpec, SubagentRunner, SubagentStatus, UserInputResponse,
+        ApprovalRequest, RequestOrigin, RuntimeContext, SubagentHandle, SubagentRequest,
+        SubagentResult, SubagentRoleSpec, SubagentRunner, SubagentStatus, UserInputResponse,
     },
     domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id, new_thread_id},
     model_standard::TokenUsage,
 };
 
-use super::child_loop::{subagent_status_label, truncate_at_char_boundary};
+use super::{
+    child_context,
+    child_loop::{subagent_status_label, truncate_at_char_boundary},
+    pending::PendingChildren,
+};
 use child::ChildProcess;
 use config::{ProcessRoleConfig, ProcessSubagentConfig, build_process_role_specs};
 
@@ -41,36 +63,59 @@ use config::{ProcessRoleConfig, ProcessSubagentConfig, build_process_role_specs}
 const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct ProcessSubagentRunner {
+    inner: Arc<RunnerInner>,
+}
+
+struct RunnerInner {
     specs: Vec<SubagentRoleSpec>,
     roles: HashMap<String, RoleState>,
     binary: PathBuf,
     max_depth: u64,
+    max_parallel: usize,
     cancel_grace: Duration,
-    /// task_id → (role, generation ребёнка): resume валиден, пока жив тот же
-    /// процесс (история живёт в session ребёнка).
+    /// task_id → (role, process id): resume валиден, пока жив тот же процесс
+    /// и его session-история не была очищена под свежую задачу.
     resumable: StdMutex<HashMap<String, ResumableProcessTask>>,
+    pending: StdMutex<PendingChildren>,
+    next_process_id: AtomicU64,
 }
 
 struct RoleState {
     config: ProcessRoleConfig,
-    slot: tokio::sync::Mutex<RoleSlot>,
+    /// Конкурентное владение процессами роли: до `max_processes` детей
+    /// одновременно; остальные ждут свободного permit-а.
+    permits: Arc<Semaphore>,
+    pool: StdMutex<RolePool>,
 }
 
 #[derive(Default)]
-struct RoleSlot {
-    child: Option<ChildProcess>,
-    /// Инкрементируется на каждый (re)spawn: инвалидирует task_id-ы,
-    /// выданные предыдущему процессу.
-    generation: u64,
-    /// Ребёнок уже отработал turn с момента spawn: свежая (не-resume)
-    /// задача требует `ClearHistory` перед `Send`.
+struct RolePool {
+    /// Свободные (возвращённые) процессы роли.
+    idle: Vec<PooledChild>,
+    /// process id-ы, находящиеся в аренде у запущенных детей.
+    leased: HashSet<u64>,
+}
+
+struct PooledChild {
+    id: u64,
+    child: ChildProcess,
+    /// Ребёнок уже отработал turn: свежая (не-resume) задача требует
+    /// `ClearHistory` перед `Send`.
     used: bool,
 }
 
 #[derive(Debug, Clone)]
 struct ResumableProcessTask {
     role: String,
-    generation: u64,
+    process_id: u64,
+}
+
+/// Результат подготовки запуска (до `SubagentStarted`): спека роли, thread
+/// ребёнка и resume-цель, если задан валидный `task_id`.
+struct PreparedProcess {
+    spec: SubagentRoleSpec,
+    child_thread_id: ThreadId,
+    resume_process_id: Option<u64>,
 }
 
 impl ProcessSubagentRunner {
@@ -93,24 +138,39 @@ impl ProcessSubagentRunner {
             .roles
             .into_iter()
             .map(|role| {
+                let max_processes = role.effective_max_processes();
                 (
                     role.name.clone(),
                     RoleState {
                         config: role,
-                        slot: tokio::sync::Mutex::new(RoleSlot::default()),
+                        permits: Arc::new(Semaphore::new(max_processes)),
+                        pool: StdMutex::new(RolePool::default()),
                     },
                 )
             })
             .collect();
 
         Ok(Self {
-            specs,
-            roles,
-            binary,
-            max_depth: parsed.max_depth,
-            cancel_grace: Duration::from_millis(parsed.cancel_grace_ms),
-            resumable: StdMutex::new(HashMap::new()),
+            inner: Arc::new(RunnerInner {
+                specs,
+                roles,
+                binary,
+                max_depth: parsed.max_depth,
+                max_parallel: parsed.max_parallel,
+                cancel_grace: Duration::from_millis(parsed.cancel_grace_ms),
+                resumable: StdMutex::new(HashMap::new()),
+                pending: StdMutex::new(PendingChildren::default()),
+                next_process_id: AtomicU64::new(0),
+            }),
         })
+    }
+}
+
+impl RunnerInner {
+    fn lock_pending(&self) -> Result<MutexGuard<'_, PendingChildren>> {
+        self.pending
+            .lock()
+            .map_err(|_| anyhow!("subagent pending registry lock poisoned"))
     }
 
     fn resumable_task(&self, task_id: &str) -> Result<Option<ResumableProcessTask>> {
@@ -129,25 +189,30 @@ impl ProcessSubagentRunner {
             .insert(task_id, task);
         Ok(())
     }
-}
 
-#[async_trait]
-impl SubagentRunner for ProcessSubagentRunner {
-    fn roles(&self) -> Vec<SubagentRoleSpec> {
-        self.specs.clone()
+    /// Хоронит все task_id-ы, указывающие на процесс: вызывается, когда
+    /// процесс умер или его session-история очищена под свежую задачу
+    /// (resume на очищенной истории молча продолжил бы пустую session).
+    fn purge_resumable_for_process(&self, process_id: u64) {
+        if let Ok(mut map) = self.resumable.lock() {
+            map.retain(|_, task| task.process_id != process_id);
+        }
     }
 
-    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
+    /// Резолвит роль, глубину и resume-цель до запуска: все ошибки
+    /// подготовки возвращаются из `spawn` напрямую, ещё до
+    /// `SubagentStarted`. Живость resume-процесса проверяется позже, при
+    /// аренде из пула.
+    fn prepare(&self, request: &SubagentRequest) -> Result<PreparedProcess> {
         let spec = self
             .specs
             .iter()
             .find(|spec| spec.name == request.role)
             .cloned()
             .ok_or_else(|| anyhow!("unknown subagent role: {}", request.role))?;
-        let role = self
-            .roles
-            .get(&request.role)
-            .ok_or_else(|| anyhow!("unknown subagent role: {}", request.role))?;
+        if !self.roles.contains_key(&request.role) {
+            bail!("unknown subagent role: {}", request.role);
+        }
 
         let depth = request
             .metadata
@@ -161,128 +226,263 @@ impl SubagentRunner for ProcessSubagentRunner {
             );
         }
 
-        let mut slot = role.slot.lock().await;
-        if slot.child.as_mut().is_some_and(|child| !child.is_alive()) {
-            slot.child = None;
-        }
-        if slot.child.is_none() {
-            slot.child = Some(ChildProcess::spawn(
-                &self.binary,
-                &role.config.config,
-                &role.config.args,
-                &request.task.cwd,
-            )?);
-            slot.generation = slot.generation.wrapping_add(1);
-            slot.used = false;
-        }
-
-        let resume_task_id = request.metadata.get("task_id").and_then(Value::as_str);
-        let (child_thread_id, is_resume) = match resume_task_id {
-            Some(task_id) => {
-                let entry = self
-                    .resumable_task(task_id)?
-                    .ok_or_else(|| anyhow!("unknown task_id (expired or from another session)"))?;
-                if entry.role != request.role {
-                    bail!(
-                        "task_id belongs to subagent role {}, but request role is {}",
-                        entry.role,
-                        request.role
-                    );
+        let (child_thread_id, resume_process_id) =
+            match request.metadata.get("task_id").and_then(Value::as_str) {
+                Some(task_id) => {
+                    let entry = self.resumable_task(task_id)?.ok_or_else(|| {
+                        anyhow!("unknown task_id (expired or from another session)")
+                    })?;
+                    if entry.role != request.role {
+                        bail!(
+                            "task_id belongs to subagent role {}, but request role is {}",
+                            entry.role,
+                            request.role
+                        );
+                    }
+                    let child_thread_id = task_id.parse::<ThreadId>().with_context(|| {
+                        format!("invalid task_id for resumable subagent: {task_id}")
+                    })?;
+                    (child_thread_id, Some(entry.process_id))
                 }
-                if entry.generation != slot.generation {
-                    bail!("unknown task_id (subagent child process was restarted)");
-                }
-                let child_thread_id = task_id.parse::<ThreadId>().with_context(|| {
-                    format!("invalid task_id for resumable subagent: {task_id}")
-                })?;
-                (child_thread_id, true)
-            }
-            None => (new_thread_id(), false),
-        };
+                None => (new_thread_id(), None),
+            };
 
-        let generation = slot.generation;
-        let needs_clear = !is_resume && slot.used;
-        let slot_ref = &mut *slot;
-        let child = slot_ref
-            .child
-            .as_mut()
-            .expect("child process spawned above");
-        child.drain_stale_outputs();
-
-        if needs_clear {
-            clear_child_history(child).await?;
-        }
-
-        ctx.emit(Event::SubagentStarted {
-            role: spec.name.clone(),
-            description: request.description.clone(),
+        Ok(PreparedProcess {
+            spec,
             child_thread_id,
+            resume_process_id,
         })
-        .await?;
+    }
+
+    /// Берёт процесс роли в аренду. Resume — строго конкретный процесс по
+    /// id; fresh — любой свободный живой процесс либо новый (permit уже
+    /// ограничил количество одновременных аренд).
+    fn lease_process(
+        &self,
+        role: &RoleState,
+        resume_process_id: Option<u64>,
+        cwd: &Path,
+    ) -> Result<PooledChild> {
+        let mut pool = role
+            .pool
+            .lock()
+            .map_err(|_| anyhow!("subagent role pool lock poisoned"))?;
+        match resume_process_id {
+            Some(process_id) => {
+                if let Some(index) = pool.idle.iter().position(|entry| entry.id == process_id) {
+                    let mut entry = pool.idle.swap_remove(index);
+                    if !entry.child.is_alive() {
+                        self.purge_resumable_for_process(process_id);
+                        bail!("unknown task_id (subagent child process exited)");
+                    }
+                    pool.leased.insert(process_id);
+                    Ok(entry)
+                } else if pool.leased.contains(&process_id) {
+                    bail!("task_id belongs to a subagent that is still running; wait for it first")
+                } else {
+                    bail!("unknown task_id (subagent child process was restarted)")
+                }
+            }
+            None => {
+                while let Some(mut candidate) = pool.idle.pop() {
+                    if candidate.child.is_alive() {
+                        pool.leased.insert(candidate.id);
+                        return Ok(candidate);
+                    }
+                    self.purge_resumable_for_process(candidate.id);
+                }
+                let id = self.next_process_id.fetch_add(1, Ordering::Relaxed);
+                let child =
+                    ChildProcess::spawn(&self.binary, &role.config.config, &role.config.args, cwd)?;
+                pool.leased.insert(id);
+                Ok(PooledChild {
+                    id,
+                    child,
+                    used: false,
+                })
+            }
+        }
+    }
+
+    /// Возвращает процесс в пул (живой — в `idle`, мёртвый — хоронится
+    /// вместе со своими task_id-ами).
+    fn release_process(&self, role: &RoleState, leased: PooledChild, alive: bool) {
+        let Ok(mut pool) = role.pool.lock() else {
+            return;
+        };
+        pool.leased.remove(&leased.id);
+        if alive {
+            pool.idle.push(leased);
+        } else {
+            self.purge_resumable_for_process(leased.id);
+        }
+    }
+
+    /// Turn на арендованном процессе: опциональный ClearHistory, `Send`,
+    /// затем drive до терминального Response с уважением role-таймаута.
+    async fn run_leased_turn(
+        &self,
+        spec: &SubagentRoleSpec,
+        request: &SubagentRequest,
+        forwarder: &ChildEventForwarder<'_>,
+        tracker: &mut TurnTracker,
+        leased: &mut PooledChild,
+        is_resume: bool,
+    ) -> Result<TurnEnd> {
+        leased.child.drain_stale_outputs();
+        if !is_resume && leased.used {
+            clear_child_history(&mut leased.child).await?;
+            // История процесса очищена — прежние task_id-ы этого процесса
+            // мертвы, resume по ним продолжил бы пустую session.
+            self.purge_resumable_for_process(leased.id);
+        }
 
         let text = if !is_resume && !spec.prompt.trim().is_empty() {
             format!("{}\n\n{}", spec.prompt, request.prompt)
         } else {
             request.prompt.clone()
         };
+        let send_id = new_call_id();
+        leased
+            .child
+            .send(&StdioRequest::Send {
+                id: Some(send_id.clone()),
+                text,
+            })
+            .await?;
+
+        match spec.limits.timeout_ms {
+            Some(timeout_ms) => {
+                match timeout(
+                    Duration::from_millis(timeout_ms),
+                    drive_turn(
+                        &mut leased.child,
+                        forwarder,
+                        &send_id,
+                        tracker,
+                        self.cancel_grace,
+                    ),
+                )
+                .await
+                {
+                    Ok(end) => end,
+                    Err(_elapsed) => {
+                        let clean = cancel_child_turn(
+                            &mut leased.child,
+                            forwarder,
+                            &send_id,
+                            tracker,
+                            self.cancel_grace,
+                        )
+                        .await;
+                        if !clean {
+                            leased.child.kill().await;
+                        }
+                        Ok(TurnEnd::Interrupted(SubagentStatus::TimedOut))
+                    }
+                }
+            }
+            None => {
+                drive_turn(
+                    &mut leased.child,
+                    forwarder,
+                    &send_id,
+                    tracker,
+                    self.cancel_grace,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Терминальный исход без запуска turn-а (отмена до аренды процесса).
+    async fn finish_interrupted(
+        &self,
+        spec: &SubagentRoleSpec,
+        ctx: &RuntimeContext,
+        child_thread_id: ThreadId,
+        status: SubagentStatus,
+    ) -> Result<SubagentResult> {
+        ctx.emit(Event::SubagentFinished {
+            role: spec.name.clone(),
+            status: subagent_status_label(status),
+            iterations: 0,
+            child_thread_id,
+        })
+        .await?;
+        Ok(SubagentResult::new(String::new(), status, 0)
+            .with_child_thread_id(child_thread_id)
+            .with_metadata(json!({ "resumable": false })))
+    }
+
+    /// Тело запуска: аренда процесса (в пределах permit-а роли), turn,
+    /// возврат процесса в пул, resumable-учёт и `SubagentFinished`. Живёт
+    /// detached tokio-таской; отменяется через child-токен `child_ctx`.
+    async fn execute(
+        self: Arc<Self>,
+        spec: SubagentRoleSpec,
+        request: SubagentRequest,
+        ctx: RuntimeContext,
+        child_ctx: RuntimeContext,
+        child_thread_id: ThreadId,
+        resume_process_id: Option<u64>,
+    ) -> Result<SubagentResult> {
+        let role = self
+            .roles
+            .get(&spec.name)
+            .ok_or_else(|| anyhow!("unknown subagent role: {}", spec.name))?;
+        let is_resume = resume_process_id.is_some();
+
+        let permit = tokio::select! {
+            permit = role.permits.clone().acquire_owned() => {
+                permit.map_err(|_| anyhow!("subagent role process pool is closed"))?
+            }
+            _ = child_ctx.cancellation.cancelled() => {
+                return self
+                    .finish_interrupted(&spec, &ctx, child_thread_id, SubagentStatus::Cancelled)
+                    .await;
+            }
+        };
+
+        let mut tracker = TurnTracker::default();
         let forwarder = ChildEventForwarder {
-            ctx: &ctx,
+            ctx: &child_ctx,
             child_thread_id,
             role: spec.name.clone(),
         };
-        let mut tracker = TurnTracker::default();
 
-        let send_id = new_call_id();
-        let body_result: Result<TurnEnd> = async {
-            child
-                .send(&StdioRequest::Send {
-                    id: Some(send_id.clone()),
-                    text,
-                })
-                .await?;
-
-            match spec.limits.timeout_ms {
-                Some(timeout_ms) => {
-                    match timeout(
-                        Duration::from_millis(timeout_ms),
-                        drive_turn(child, &forwarder, &send_id, &mut tracker, self.cancel_grace),
-                    )
-                    .await
-                    {
-                        Ok(end) => end,
-                        Err(_elapsed) => {
-                            let clean = cancel_child_turn(
-                                child,
-                                &forwarder,
-                                &send_id,
-                                &mut tracker,
-                                self.cancel_grace,
-                            )
-                            .await;
-                            if !clean {
-                                child.kill().await;
-                            }
-                            Ok(TurnEnd::Interrupted(SubagentStatus::TimedOut))
-                        }
-                    }
-                }
-                None => {
-                    drive_turn(child, &forwarder, &send_id, &mut tracker, self.cancel_grace).await
-                }
+        let mut leased = match self.lease_process(role, resume_process_id, &request.task.cwd) {
+            Ok(leased) => leased,
+            Err(error) => {
+                drop(permit);
+                let _ = ctx
+                    .emit(Event::SubagentFinished {
+                        role: spec.name.clone(),
+                        status: "errored".into(),
+                        iterations: 0,
+                        child_thread_id,
+                    })
+                    .await;
+                return Err(error);
             }
-        }
-        .await;
+        };
+
+        let body_result = self
+            .run_leased_turn(
+                &spec,
+                &request,
+                &forwarder,
+                &mut tracker,
+                &mut leased,
+                is_resume,
+            )
+            .await;
 
         match body_result {
             Ok(end) => {
-                slot_ref.used = true;
-                let child_alive = slot_ref
-                    .child
-                    .as_mut()
-                    .is_some_and(|child| child.is_alive());
-                if !child_alive {
-                    slot_ref.child = None;
-                }
+                leased.used = true;
+                let child_alive = leased.child.is_alive();
+                let process_id = leased.id;
 
                 let (status, summary) = match end {
                     TurnEnd::Completed(text) => (SubagentStatus::Completed, text),
@@ -299,10 +499,15 @@ impl SubagentRunner for ProcessSubagentRunner {
                         child_thread_id.to_string(),
                         ResumableProcessTask {
                             role: spec.name.clone(),
-                            generation,
+                            process_id,
                         },
                     )?;
                 }
+                // Процесс возвращается в пул до освобождения permit-а,
+                // чтобы следующий ожидающий нашёл его в idle, а не спавнил
+                // лишний процесс сверх max_processes.
+                self.release_process(role, leased, child_alive);
+                drop(permit);
 
                 ctx.emit(Event::SubagentFinished {
                     role: spec.name.clone(),
@@ -322,11 +527,10 @@ impl SubagentRunner for ProcessSubagentRunner {
             }
             Err(error) => {
                 // Fatal-путь (EOF, ошибка child turn-а): процесс считается
-                // невалидным — следующий run пересоздаст его.
-                if let Some(child) = slot_ref.child.as_mut() {
-                    child.kill().await;
-                }
-                slot_ref.child = None;
+                // невалидным — убиваем и хороним вместе с его task_id-ами.
+                leased.child.kill().await;
+                self.release_process(role, leased, false);
+                drop(permit);
                 let _ = ctx
                     .emit(Event::SubagentFinished {
                         role: spec.name.clone(),
@@ -338,6 +542,71 @@ impl SubagentRunner for ProcessSubagentRunner {
                 Err(error)
             }
         }
+    }
+}
+
+#[async_trait]
+impl SubagentRunner for ProcessSubagentRunner {
+    fn roles(&self) -> Vec<SubagentRoleSpec> {
+        self.inner.specs.clone()
+    }
+
+    /// `run` = `spawn` + `wait`: turn ребёнка живёт detached-таской, поэтому
+    /// обрыв родительского future (отмена turn'а на границе block_on) не
+    /// бросает процесс ребёнка без cancel-протокола — таска доводит
+    /// `Cancel` + grace + kill и возвращает процесс в пул.
+    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
+        let handle = self.spawn(request, ctx).await?;
+        self.wait(&handle).await
+    }
+
+    async fn spawn(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentHandle> {
+        let prepared = self.inner.prepare(&request)?;
+        let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.spec.name);
+        let spawn_id = new_call_id();
+        self.inner.lock_pending()?.reserve(
+            &spawn_id,
+            child_ctx.cancellation.clone(),
+            self.inner.max_parallel,
+        )?;
+
+        if let Err(error) = ctx
+            .emit(Event::SubagentStarted {
+                role: prepared.spec.name.clone(),
+                description: request.description.clone(),
+                child_thread_id: prepared.child_thread_id,
+            })
+            .await
+        {
+            self.inner.lock_pending()?.release(&spawn_id);
+            return Err(error);
+        }
+
+        let handle = SubagentHandle::new(
+            spawn_id.clone(),
+            prepared.spec.name.clone(),
+            prepared.child_thread_id,
+        );
+        let join = tokio::spawn(self.inner.clone().execute(
+            prepared.spec,
+            request,
+            ctx.clone(),
+            child_ctx,
+            prepared.child_thread_id,
+            prepared.resume_process_id,
+        ));
+        self.inner.lock_pending()?.attach(&spawn_id, join);
+        Ok(handle)
+    }
+
+    async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+        let join = self.inner.lock_pending()?.take(&handle.spawn_id)?;
+        join.await
+            .map_err(|join_error| anyhow!("subagent child task failed: {join_error}"))?
+    }
+
+    async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
+        self.inner.lock_pending()?.cancel(&handle.spawn_id)
     }
 }
 
@@ -394,7 +663,9 @@ impl TurnTracker {
 }
 
 /// Пере-эмиссия событий ребёнка в родительский event stream под
-/// `child_thread_id` и форвардинг интерактивных запросов.
+/// `child_thread_id` и форвардинг интерактивных запросов. `ctx` — child
+/// context запуска: те же transports/emitter, что у родителя, но
+/// child-токен отмены (per-child cancel не задевает соседей).
 struct ChildEventForwarder<'a> {
     ctx: &'a RuntimeContext,
     child_thread_id: ThreadId,
@@ -422,8 +693,7 @@ impl ChildEventForwarder<'_> {
     }
 
     /// Форвардит approval ребёнка в родительский transport и возвращает
-    /// reply для ребёнка. `None` — родительский turn отменён во время
-    /// ожидания решения.
+    /// reply для ребёнка. `None` — запуск отменён во время ожидания решения.
     async fn forward_approval(
         &self,
         request: proteus_contracts::app_protocol::AppApprovalRequest,
@@ -457,8 +727,7 @@ impl ChildEventForwarder<'_> {
         })
     }
 
-    /// Форвардит typed user-input запрос ребёнка. `None` — родительский
-    /// turn отменён.
+    /// Форвардит typed user-input запрос ребёнка. `None` — запуск отменён.
     async fn forward_user_input(
         &self,
         request: crate::contracts::UserInputRequest,
@@ -498,8 +767,8 @@ fn should_forward_child_event(event: &Event) -> bool {
 }
 
 /// Главный цикл turn-а: читает outputs ребёнка до Response на наш Send,
-/// форвардя события и интерактивные запросы. Отмена родителя запускает
-/// cancel-протокол (`Cancel` → grace-дожидание Response → kill).
+/// форвардя события и интерактивные запросы. Отмена запуска (child-токен)
+/// запускает cancel-протокол (`Cancel` → grace-дожидание Response → kill).
 async fn drive_turn(
     child: &mut ChildProcess,
     forwarder: &ChildEventForwarder<'_>,
@@ -549,7 +818,7 @@ async fn finish_cancelled(
 enum OutputVerdict {
     Continue,
     Finished(TurnEnd),
-    /// Родительский turn отменён во время ожидания approval/user-input.
+    /// Запуск отменён во время ожидания approval/user-input.
     CancelRequested,
 }
 

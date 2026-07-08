@@ -236,15 +236,16 @@ slot-governance назрел.
 3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
    MCP stdio host в core мигрирован на него (initializer-hook для
    handshake); остался LSP-плагин как следующий потребитель.
-4. Parallel subagents — control-plane блокеры сняты (approval queue с
-   атрибуцией и per-child cancellation готовы, 2026-07-07), путь B выбран
-   и его слайс 1 реализован: builtin `subagent = "process"` — ребёнок =
-   процесс `proteus server stdio --new-session` с named config роли,
-   форвардинг событий/approvals/user-inputs через stdio-протокол, cancel =
-   `Cancel` + grace + kill (см. `docs/modules.md`). Осталось: parallel
-   stage 1 (несколько read-only детей одновременно; provider-neutral
-   spawn/wait/cancel DTO в контракте слота), `BudgetTracker`, UX дерева
-   потоков в клиенте.
+4. Parallel subagents — stage 1 реализован (2026-07-08): контракт слота
+   расширен provider-neutral spawn/wait/cancel (`SubagentHandle`,
+   default-методы «не поддерживается»; `run` = `spawn` + `wait` у обоих
+   builtin-runner-ов, дети — detached-таски на child-токенах, cap
+   `max_parallel`), роли объявляют `parallel_safe`, process runner держит
+   пул до `max_processes` процессов на роль (resume по конкретному
+   process id; ClearHistory хоронит старые task_id-ы процесса),
+   coding-workflow исполняет батч task-вызовов конкурентно только когда
+   все роли parallel_safe. Осталось: `BudgetTracker` (Кластер 5), UX
+   дерева потоков в клиенте, worktree-per-child для пишущих (stage 2).
 
 ## Этапы
 
@@ -333,10 +334,17 @@ plan/execute/review экспериментов.
   роли, cancel = `Cancel` + grace + kill, свежая задача = `ClearHistory`,
   resume по `task_id` продолжает живую session ребёнка. Путь A
   (in-process tokio tasks) не реализуется, пока process-путь не упрётся
-  в цену старта. Оставшиеся блокеры parallel stage 1: provider-neutral
-  spawn/wait/cancel DTO (sequential и parallel — реализации одного
-  слота), budget/rate-limit учёт (`BudgetTracker`), UX дерева
-  параллельных потоков в клиенте. Стратегия записи (2026-07-06):
+  в цену старта. Parallel stage 1 реализован (2026-07-08): контракт слота
+  расширен spawn/wait/cancel (`SubagentHandle`; `run` = `spawn` + `wait`,
+  дети — detached-таски на child-токенах, реестр запущенных с cap
+  `max_parallel`), роли несут флаг `parallel_safe`, process runner держит
+  пул до `max_processes` процессов на роль, workflow host получил
+  `spawn/wait/cancel_subagent_json`, coding-workflow исполняет батч
+  task-вызовов конкурентно, только когда все запрошенные роли
+  parallel_safe (spawn всех → wait по порядку; ошибка одного вызова не
+  прерывает остальных). Оставшиеся блокеры: budget/rate-limit учёт
+  (`BudgetTracker`), UX дерева параллельных потоков в клиенте.
+  Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
   Code worktrees, Codex cloud isolation), worktree lifecycle — оркестрация

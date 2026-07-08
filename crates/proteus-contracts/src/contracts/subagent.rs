@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,13 @@ pub struct SubagentRoleSpec {
     /// По умолчанию реализация использует `"subagent:<name>"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exposure_phase: Option<String>,
+    /// Роль объявлена безопасной для конкурентного запуска рядом с другими
+    /// субагентами (обычно строго read-only профиль). Флаг задаёт оператор
+    /// в конфиге реализации; consumers (workflow) используют его, чтобы
+    /// решить, можно ли исполнять несколько task-вызовов параллельно через
+    /// `spawn`/`wait`.
+    #[serde(default)]
+    pub parallel_safe: bool,
     /// Лимиты дочернего цикла.
     #[serde(default)]
     pub limits: SubagentLimits,
@@ -48,6 +55,7 @@ impl SubagentRoleSpec {
             description: description.into(),
             prompt: prompt.into(),
             exposure_phase: None,
+            parallel_safe: false,
             limits: SubagentLimits::default(),
             config: serde_json::Value::Null,
         }
@@ -55,6 +63,11 @@ impl SubagentRoleSpec {
 
     pub fn with_exposure_phase(mut self, phase: impl Into<String>) -> Self {
         self.exposure_phase = Some(phase.into());
+        self
+    }
+
+    pub fn with_parallel_safe(mut self, parallel_safe: bool) -> Self {
+        self.parallel_safe = parallel_safe;
         self
     }
 
@@ -211,6 +224,33 @@ impl SubagentResult {
     }
 }
 
+/// Handle запущенного (`spawn`) дочернего цикла: ключ для `wait`/`cancel`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SubagentHandle {
+    /// Opaque id запуска, уникальный в пределах runner-а. В отличие от
+    /// `child_thread_id`, не переиспользуется при resume той же задачи.
+    pub spawn_id: String,
+    /// Роль запущенного ребёнка.
+    pub role: String,
+    /// ThreadId, под которым эмитятся события ребёнка (известен сразу).
+    pub child_thread_id: ThreadId,
+}
+
+impl SubagentHandle {
+    pub fn new(
+        spawn_id: impl Into<String>,
+        role: impl Into<String>,
+        child_thread_id: ThreadId,
+    ) -> Self {
+        Self {
+            spawn_id: spawn_id.into(),
+            role: role.into(),
+            child_thread_id,
+        }
+    }
+}
+
 /// Slot `subagent`: исполнение дочерних агентских циклов с изолированным
 /// контекстом.
 ///
@@ -220,9 +260,9 @@ impl SubagentResult {
 /// policy/approval-контур, что и родительские (безопасность не ослабляется
 /// делегированием), и уважать `ctx.cancellation`.
 ///
-/// v1 — последовательный `run`. Параллельный вариант (`spawn`/`wait`/
-/// `cancel` с handle) — планируемое расширение контракта; DTO спроектированы
-/// так, чтобы его добавление не ломало существующие реализации.
+/// Исполнение — `run` (запустить и дождаться) либо `spawn`/`wait`/`cancel`
+/// (фоновый запуск нескольких детей). `spawn`-путь опционален: реализации
+/// без него не должны объявлять роли `parallel_safe`.
 #[async_trait]
 pub trait SubagentRunner: Send + Sync {
     /// Роли, доступные для делегирования. Пустой список = делегирование
@@ -233,4 +273,34 @@ pub trait SubagentRunner: Send + Sync {
     /// родительского turn'а; реализация сама изолирует ребёнка (свой
     /// thread_id, своя история, свой отбор tools по фазе роли).
     async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult>;
+
+    /// Запускает дочерний цикл в фоне и сразу возвращает handle.
+    /// `Event::SubagentStarted` эмитится до возврата. Ошибки подготовки
+    /// (unknown role, depth limit, невалидный task_id) — через `Err`
+    /// отсюда; исход самого цикла забирается через `wait`. Запущенный
+    /// ребёнок обязан жить на child-токене `ctx.cancellation`: cancel
+    /// родителя каскадится вниз, cancel ребёнка родителя не трогает.
+    ///
+    /// Default — «не поддерживается»: реализации без фонового запуска
+    /// переопределять не обязаны.
+    async fn spawn(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentHandle> {
+        let _ = (request, ctx);
+        bail!("this subagent runner does not support spawn/wait/cancel");
+    }
+
+    /// Дожидается завершения запущенного ребёнка и отдаёт результат.
+    /// Каждый handle выдаёт результат ровно один раз: повторный `wait`
+    /// по тому же handle — ошибка.
+    async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+        let _ = handle;
+        bail!("this subagent runner does not support spawn/wait/cancel");
+    }
+
+    /// Отменяет запущенного ребёнка, не трогая остальных детей и
+    /// родительский turn. Результат (обычно `Cancelled` + resumable
+    /// snapshot) забирается через `wait`.
+    async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
+        let _ = handle;
+        bail!("this subagent runner does not support spawn/wait/cancel");
+    }
 }

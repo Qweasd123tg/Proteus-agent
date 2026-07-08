@@ -261,14 +261,14 @@ fn parses_roles_and_limits_from_config() {
     );
     assert_eq!(reviewer.limits.timeout_ms, None);
     assert_eq!(reviewer.effective_exposure_phase(), "subagent:reviewer");
-    assert_eq!(runner.max_depth, 2);
+    assert_eq!(runner.inner.max_depth, 2);
 }
 
 #[test]
 fn missing_config_means_no_roles() {
     let runner = SequentialSubagentRunner::from_config(Value::Null).unwrap();
     assert!(runner.roles().is_empty());
-    assert_eq!(runner.max_depth, 1);
+    assert_eq!(runner.inner.max_depth, 1);
 }
 
 #[test]
@@ -903,4 +903,313 @@ async fn resumable_store_evicts_least_recently_used_snapshot() {
             .contains("unknown task_id (expired or from another session)"),
         "{error:#}"
     );
+}
+
+/// Разблокирует `complete` только когда `expected` запросов пришли
+/// одновременно: sequential-исполнение батча повисло бы на первом.
+struct BarrierModelClient {
+    barrier: tokio::sync::Barrier,
+}
+
+#[async_trait]
+impl ModelClient for BarrierModelClient {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("barrier")
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> crate::model_standard::ModelCapabilities {
+        FakeModelClient::default().capabilities(model)
+    }
+
+    async fn complete(&self, _request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        self.barrier.wait().await;
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "concurrent done"),
+            Vec::new(),
+            crate::model_standard::FinishReason::Stop,
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<crate::model_standard::ModelStreamEvent>>
+                    + Send,
+            >,
+        >,
+    > {
+        Err(anyhow!("not used"))
+    }
+}
+
+/// Виснет навсегда, если prompt содержит "block me" (снимается только
+/// отменой через select в child_loop); иначе отвечает сразу.
+struct SelectiveBlockingModelClient;
+
+#[async_trait]
+impl ModelClient for SelectiveBlockingModelClient {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("selective")
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> crate::model_standard::ModelCapabilities {
+        FakeModelClient::default().capabilities(model)
+    }
+
+    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let should_block = request.messages.iter().any(|message| {
+            message.parts.iter().any(|part| {
+                matches!(
+                    part,
+                    crate::model_standard::ContentPart::Text { text } if text.contains("block me")
+                )
+            })
+        });
+        if should_block {
+            futures_util::future::pending::<()>().await;
+        }
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "quick done"),
+            Vec::new(),
+            crate::model_standard::FinishReason::Stop,
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<crate::model_standard::ModelStreamEvent>>
+                    + Send,
+            >,
+        >,
+    > {
+        Err(anyhow!("not used"))
+    }
+}
+
+fn parallel_roles_config() -> Value {
+    json!({
+        "roles": [
+            {
+                "name": "explore",
+                "description": "Read-only exploration",
+                "prompt": "prompt",
+                "parallel_safe": true
+            }
+        ]
+    })
+}
+
+#[test]
+fn parallel_safe_flag_round_trips_from_config() {
+    let runner = SequentialSubagentRunner::from_config(json!({
+        "roles": [
+            { "name": "explore", "description": "a", "prompt": "p", "parallel_safe": true },
+            { "name": "writer", "description": "b", "prompt": "p" }
+        ]
+    }))
+    .unwrap();
+    let roles = runner.roles();
+    assert!(roles[0].parallel_safe);
+    assert!(!roles[1].parallel_safe);
+}
+
+/// Два ребёнка действительно работают конкурентно: каждый блокируется на
+/// барьере в model call и проходит его только вместе с соседом.
+#[tokio::test]
+async fn spawned_children_run_concurrently() {
+    let runner = SequentialSubagentRunner::from_config(parallel_roles_config()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let model = Arc::new(BarrierModelClient {
+        barrier: tokio::sync::Barrier::new(2),
+    });
+    let ctx = test_runtime_context_with_model(events.clone(), model);
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let first = runner
+        .spawn(
+            SubagentRequest::new("explore", "first branch", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .unwrap();
+    let second = runner
+        .spawn(SubagentRequest::new("explore", "second branch", task), ctx)
+        .await
+        .unwrap();
+    assert_ne!(first.spawn_id, second.spawn_id);
+    assert_ne!(first.child_thread_id, second.child_thread_id);
+
+    // Started обоих детей эмитятся до wait: модель видит оба запуска сразу.
+    let started = events
+        .envelopes()
+        .await
+        .iter()
+        .filter(|envelope| matches!(envelope.event, Event::SubagentStarted { .. }))
+        .count();
+    assert_eq!(started, 2);
+
+    let first_result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&first))
+        .await
+        .expect("first wait must not hang")
+        .unwrap();
+    let second_result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&second))
+        .await
+        .expect("second wait must not hang")
+        .unwrap();
+
+    assert_eq!(first_result.status, SubagentStatus::Completed);
+    assert_eq!(second_result.status, SubagentStatus::Completed);
+    assert!(first_result.summary.contains("concurrent done"));
+    assert!(second_result.summary.contains("concurrent done"));
+}
+
+/// Cancel по handle снимает только адресованного ребёнка: сосед завершается
+/// штатно, родительский turn не отменяется, у отменённого сохраняется
+/// resumable snapshot.
+#[tokio::test]
+async fn cancel_by_handle_cancels_only_target_child() {
+    let runner = SequentialSubagentRunner::from_config(parallel_roles_config()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context_with_model(events, Arc::new(SelectiveBlockingModelClient));
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let blocked = runner
+        .spawn(
+            SubagentRequest::new("explore", "please block me", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .unwrap();
+    let quick = runner
+        .spawn(
+            SubagentRequest::new("explore", "answer fast", task),
+            ctx.clone(),
+        )
+        .await
+        .unwrap();
+
+    let quick_result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&quick))
+        .await
+        .expect("quick wait must not hang")
+        .unwrap();
+    assert_eq!(quick_result.status, SubagentStatus::Completed);
+
+    runner.cancel(&blocked).await.unwrap();
+    let blocked_result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&blocked))
+        .await
+        .expect("cancelled wait must not hang")
+        .unwrap();
+    assert_eq!(blocked_result.status, SubagentStatus::Cancelled);
+    assert_eq!(
+        blocked_result.metadata["resumable"],
+        json!(true),
+        "cancelled child keeps resumable snapshot"
+    );
+    assert!(
+        !ctx.is_cancelled(),
+        "cancelling a child must not cancel the parent turn"
+    );
+}
+
+#[tokio::test]
+async fn wait_consumes_handle_once() {
+    let runner = SequentialSubagentRunner::from_config(parallel_roles_config()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context(events);
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let handle = runner
+        .spawn(SubagentRequest::new("explore", "look", task), ctx)
+        .await
+        .unwrap();
+    runner.wait(&handle).await.unwrap();
+
+    let error = runner.wait(&handle).await.unwrap_err();
+    assert!(
+        error.to_string().contains("unknown subagent spawn_id"),
+        "{error:#}"
+    );
+    let error = runner.cancel(&handle).await.unwrap_err();
+    assert!(
+        error.to_string().contains("unknown subagent spawn_id"),
+        "{error:#}"
+    );
+}
+
+/// Ошибки подготовки возвращаются из spawn до SubagentStarted.
+#[tokio::test]
+async fn spawn_rejects_unknown_role_before_started_event() {
+    let runner = SequentialSubagentRunner::from_config(parallel_roles_config()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context(events.clone());
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let error = runner
+        .spawn(SubagentRequest::new("mystery", "look", task), ctx)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("unknown subagent role"));
+    assert!(
+        events
+            .envelopes()
+            .await
+            .iter()
+            .all(|envelope| !matches!(envelope.event, Event::SubagentStarted { .. })),
+        "no Started event for failed spawn"
+    );
+}
+
+#[tokio::test]
+async fn spawn_respects_max_parallel_cap() {
+    let runner = SequentialSubagentRunner::from_config(json!({
+        "roles": [
+            {
+                "name": "explore",
+                "description": "Read-only exploration",
+                "prompt": "prompt",
+                "parallel_safe": true
+            }
+        ],
+        "max_parallel": 1
+    }))
+    .unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context_with_model(events, Arc::new(SelectiveBlockingModelClient));
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let blocked = runner
+        .spawn(
+            SubagentRequest::new("explore", "please block me", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .unwrap();
+
+    let error = runner
+        .spawn(
+            SubagentRequest::new("explore", "one more", task),
+            ctx.clone(),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("max_parallel"), "{error:#}");
+
+    runner.cancel(&blocked).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&blocked))
+        .await
+        .expect("wait must not hang")
+        .unwrap();
+    assert_eq!(result.status, SubagentStatus::Cancelled);
 }

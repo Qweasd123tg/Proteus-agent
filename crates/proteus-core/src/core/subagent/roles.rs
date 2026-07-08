@@ -23,6 +23,9 @@ pub(super) struct SequentialSubagentConfig {
     pub max_depth: u64,
     #[serde(default = "default_max_resumable")]
     pub max_resumable: usize,
+    /// Максимум одновременно запущенных (`spawn`) детей runner-а.
+    #[serde(default = "default_max_parallel")]
+    pub max_parallel: usize,
 }
 
 impl Default for SequentialSubagentConfig {
@@ -32,6 +35,7 @@ impl Default for SequentialSubagentConfig {
             roles_dir: None,
             max_depth: default_max_depth(),
             max_resumable: default_max_resumable(),
+            max_parallel: default_max_parallel(),
         }
     }
 }
@@ -46,6 +50,11 @@ pub(super) struct SequentialRoleConfig {
     pub exposure_phase: Option<String>,
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    /// Роль можно запускать конкурентно рядом с другими субагентами
+    /// (декларация оператора; для sequential-runner-а роль должна быть
+    /// фактически read-only через tools/policy).
+    #[serde(default)]
+    pub parallel_safe: bool,
     #[serde(default)]
     pub max_iterations: Option<u32>,
     #[serde(default)]
@@ -62,6 +71,10 @@ fn default_max_resumable() -> usize {
     8
 }
 
+fn default_max_parallel() -> usize {
+    8
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct MarkdownRoleFrontmatter {
     description: String,
@@ -69,6 +82,8 @@ struct MarkdownRoleFrontmatter {
     exposure_phase: Option<String>,
     #[serde(default)]
     tools: Option<Vec<String>>,
+    #[serde(default)]
+    parallel_safe: bool,
     #[serde(default)]
     max_iterations: Option<u32>,
     #[serde(default)]
@@ -81,7 +96,7 @@ struct MarkdownRoleFrontmatter {
 pub(super) fn build_role_specs(
     parsed: SequentialSubagentConfig,
     cwd: &Path,
-) -> Result<(Vec<SubagentRoleSpec>, u64, usize)> {
+) -> Result<(Vec<SubagentRoleSpec>, u64, usize, usize)> {
     let mut role_configs = parsed.roles;
     if let Some(roles_dir) = parsed.roles_dir.as_ref() {
         role_configs.extend(load_markdown_roles(roles_dir, cwd)?);
@@ -101,8 +116,9 @@ pub(super) fn build_role_specs(
         }
         limits.timeout_ms = role.timeout_ms;
         limits.max_summary_bytes = role.max_summary_bytes;
-        let mut spec =
-            SubagentRoleSpec::new(role.name, role.description, role.prompt).with_limits(limits);
+        let mut spec = SubagentRoleSpec::new(role.name, role.description, role.prompt)
+            .with_limits(limits)
+            .with_parallel_safe(role.parallel_safe);
         if let Some(phase) = role.exposure_phase {
             spec = spec.with_exposure_phase(phase);
         }
@@ -112,7 +128,12 @@ pub(super) fn build_role_specs(
         roles.push(spec);
     }
 
-    Ok((roles, parsed.max_depth, parsed.max_resumable))
+    Ok((
+        roles,
+        parsed.max_depth,
+        parsed.max_resumable,
+        parsed.max_parallel,
+    ))
 }
 
 fn load_markdown_roles(roles_dir: &Path, cwd: &Path) -> Result<Vec<SequentialRoleConfig>> {
@@ -187,6 +208,7 @@ fn parse_markdown_role(path: &Path) -> Result<SequentialRoleConfig> {
         prompt: body.join("\n").trim().to_owned(),
         exposure_phase: frontmatter.exposure_phase,
         tools: frontmatter.tools,
+        parallel_safe: frontmatter.parallel_safe,
         max_iterations: frontmatter.max_iterations,
         timeout_ms: frontmatter.timeout_ms,
         max_summary_bytes: frontmatter.max_summary_bytes,

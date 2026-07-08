@@ -167,7 +167,8 @@ non-stdio transports — отдельная задача. Если они поя
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
   `complete_model`, `compact_history`, `select_tools`, `visible_tools`,
-  `execute_tool`, `subagent_roles_json`, `run_subagent_json`, `emit_event`). Runtime metadata, включая model/ref,
+  `execute_tool`, `subagent_roles_json`, `run_subagent_json` и его
+  spawn/wait/cancel-аналоги, `emit_event`). Runtime metadata, включая model/ref,
   reasoning, timeout-ы и base `InstructionBlock` prompt, приходит в
   `PluginWorkflowInput.runtime`.
 

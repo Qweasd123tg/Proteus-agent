@@ -193,3 +193,126 @@ async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
         "{missing_role:#}"
     );
 }
+
+/// Параллельный запуск двух детей одной parallel_safe-роли через
+/// spawn/wait: оба turn-а завершаются, дети живут на разных child thread.
+/// Resume по task_id второго ребёнка продолжает его process-session
+/// (resumable-учёт по process id, а не по слоту роли).
+#[tokio::test]
+async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let config_path = write_child_config(config_home.path());
+    let runner = ProcessSubagentRunner::from_config(json!({
+        "binary": env!("CARGO_BIN_EXE_proteus"),
+        "roles": [
+            {
+                "name": "helper",
+                "description": "Stub helper child",
+                "config": config_path.to_string_lossy(),
+                "parallel_safe": true,
+                "max_processes": 2,
+                "timeout_ms": 60000
+            }
+        ]
+    }))
+    .expect("build process runner");
+
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context(events.clone());
+    let task = AgentTask::new("delegate", workspace.path().to_path_buf());
+
+    assert!(
+        runner.roles()[0].parallel_safe,
+        "role spec must carry parallel_safe"
+    );
+
+    let first = runner
+        .spawn(
+            SubagentRequest::new("helper", "branch one", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("spawn first child");
+    let second = runner
+        .spawn(
+            SubagentRequest::new("helper", "branch two", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("spawn second child");
+    assert_ne!(first.spawn_id, second.spawn_id);
+    assert_ne!(first.child_thread_id, second.child_thread_id);
+
+    // Оба Started уже в event stream — до первого wait.
+    let started = events
+        .envelopes()
+        .await
+        .iter()
+        .filter(|envelope| matches!(envelope.event, Event::SubagentStarted { .. }))
+        .count();
+    assert_eq!(started, 2);
+
+    let first_result = runner.wait(&first).await.expect("first child result");
+    let second_result = runner.wait(&second).await.expect("second child result");
+    assert_eq!(first_result.status, SubagentStatus::Completed);
+    assert_eq!(second_result.status, SubagentStatus::Completed);
+
+    // Resume второго ребёнка: его процесс в пуле, session-история жива.
+    // (Первый resume-ить нельзя без гонки: если дети успели пройти через
+    // один процесс, ClearHistory свежей задачи хоронит старые task_id-ы.)
+    let resumed = runner
+        .run(
+            SubagentRequest::new("helper", "continue branch two", task)
+                .with_metadata(json!({ "task_id": second.child_thread_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect("resume second child");
+    assert_eq!(resumed.status, SubagentStatus::Completed);
+    assert_eq!(resumed.child_thread_id, Some(second.child_thread_id));
+}
+
+/// История, очищенная под свежую задачу, хоронит старые task_id-ы того же
+/// процесса: resume по ним честно отклоняется, а не продолжает пустую
+/// session.
+#[tokio::test]
+async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_process() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner(&config_path);
+
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context(events);
+    let task = AgentTask::new("delegate", workspace.path().to_path_buf());
+
+    let first = runner
+        .run(
+            SubagentRequest::new("helper", "first task", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("first child turn");
+    let first_task_id = first.child_thread_id.expect("child thread id");
+
+    // Свежая задача на той же роли (max_processes = 1 → тот же процесс):
+    // ClearHistory стирает session-историю первого task-а.
+    runner
+        .run(
+            SubagentRequest::new("helper", "fresh task", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("fresh child turn");
+
+    let stale = runner
+        .run(
+            SubagentRequest::new("helper", "continue first", task)
+                .with_metadata(json!({ "task_id": first_task_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect_err("stale task_id must be rejected after history clear");
+    assert!(stale.to_string().contains("unknown task_id"), "{stale:#}");
+}

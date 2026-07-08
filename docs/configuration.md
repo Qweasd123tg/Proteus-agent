@@ -547,12 +547,15 @@ subagent = "sequential"
 max_depth = 1
 # roles_dir = ".proteus/agents"
 # max_resumable = 8
+# max_parallel = 8   # cap одновременно запущенных (spawn) детей
 
 [[module_config.subagent.sequential.roles]]
 name = "explore"
 description = "Read-only explorer that returns paths and line numbers."
 prompt = "Inspect the repository without editing files. Return concise findings with paths and line numbers."
 max_iterations = 15
+# parallel_safe = true # роль можно запускать конкурентно с другими субагентами;
+#                      # объявляйте только для фактически read-only ролей (tools allowlist!)
 # exposure_phase = "subagent:explore"
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
@@ -560,9 +563,13 @@ max_iterations = 15
 ```
 
 Workflow-плагины получают роли через `subagent_roles_json()` и запускают ребёнка
-через `run_subagent_json(SubagentRequest)`. В `coding-workflow` это surface tool
+через `run_subagent_json(SubagentRequest)` либо фоново через
+`spawn_subagent_json`/`wait_subagent_json`/`cancel_subagent_json`
+(`SubagentHandle`). В `coding-workflow` это surface tool
 `task` с аргументами `agent_type`, `prompt`, optional `description` и optional
-`task_id`.
+`task_id`. Батч из нескольких `task`-вызовов одного ответа модели исполняется
+конкурентно, только если каждая запрошенная роль объявлена `parallel_safe`;
+иначе — последовательно.
 У роли можно задать `tools = [...]`: после общего `ToolExposure` дочерний цикл
 оставит только перечисленные имена. `exposure_phase` помогает только с
 phase-aware exposure модулем; `all_visible` фазу не учитывает, поэтому per-role
@@ -579,8 +586,8 @@ resume-история оставалась валидной), и не переж
 Кроме inline `roles`, sequential runner может читать Markdown-роли из
 `roles_dir`. У каждого файла имя без расширения становится именем роли, YAML
 frontmatter обязан содержать `description` и может задавать `exposure_phase`,
-`tools`, `max_iterations`, `timeout_ms`, `max_summary_bytes`; тело Markdown-файла
-используется как prompt роли.
+`tools`, `parallel_safe`, `max_iterations`, `timeout_ms`, `max_summary_bytes`;
+тело Markdown-файла используется как prompt роли.
 
 `modules.subagent = "process"` включает builtin process runner: ребёнок —
 отдельный процесс `proteus server stdio --new-session` со своим named config
@@ -595,6 +602,7 @@ subagent = "process"
 max_depth = 1
 # binary = "/usr/local/bin/proteus"  # default: текущий исполняемый файл
 # cancel_grace_ms = 5000             # ожидание штатного cancel до kill
+# max_parallel = 8                   # cap одновременно запущенных (spawn) детей
 
 [[module_config.subagent.process.roles]]
 name = "explore"
@@ -602,6 +610,8 @@ description = "Read-only explorer running in an isolated process."
 config = "sub-explorer"              # named config или путь к config-файлу
 # prompt = "Focus on the build system." # опциональный префикс задачи
 # args = ["--permission-mode", "plan"]  # extra CLI-аргументы ребёнка
+# parallel_safe = true                # config ребёнка должен быть read-only профилем
+# max_processes = 2                  # пул процессов роли; default 4 при parallel_safe, иначе 1
 # timeout_ms = 120000
 # max_summary_bytes = 4096
 ```
@@ -610,9 +620,11 @@ Approval/user-input запросы ребёнка форвардятся в ро
 (пользователь родительской session видит их с меткой роли), поэтому
 approval timeout ребёнка (`app_server.approval_timeout_ms` его конфига)
 должен быть достаточным для ручного решения. `Send`/`ClearHistory`/`Cancel`
-идут по стандартному stdio-протоколу; свежая задача сбрасывает историю
-ребёнка, `task_id` продолжает живую session, restart процесса инвалидирует
-старые `task_id`.
+идут по стандартному stdio-протоколу; процессы роли живут в пуле до
+`max_processes` одновременных детей (лишние запуски ждут свободного
+процесса), свежая задача сбрасывает историю ребёнка и тем самым хоронит
+прежние `task_id` этого процесса, `task_id` продолжает живую session
+конкретного процесса, смерть процесса инвалидирует его `task_id`.
 
 ## Renderer
 
