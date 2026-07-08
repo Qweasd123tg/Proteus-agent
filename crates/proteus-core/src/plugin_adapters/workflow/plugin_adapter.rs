@@ -23,9 +23,10 @@ use tokio::{runtime::Handle, time::timeout};
 use crate::{
     contracts::{
         CompactionInput, ContextBuildInput, RuntimeContext, SubagentHandle, SubagentRequest,
-        ToolExposureInput, ToolExposureRequest, Workflow, WorkflowOutput,
+        SubagentWorkspaceRequest, ToolExposureInput, ToolExposureRequest, Workflow, WorkflowOutput,
+        WorkspaceInfo,
     },
-    core::ToolOrchestrator,
+    core::{ToolOrchestrator, workspace},
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
     plugin_adapters::compactor::RuntimeCompactionHost,
@@ -375,6 +376,51 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }
+    }
+
+    fn create_subagent_workspace_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let request: SubagentWorkspaceRequest = match serde_json::from_str(request_json.as_str()) {
+            Ok(request) => request,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        if self.ctx.is_cancelled() {
+            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
+        }
+        // Sync git-механика: host-методы и так живут на blocking-потоке
+        // workflow-а, в async runtime ходить незачем.
+        to_json_rresult(workspace::create_worktree(
+            &request.parent_cwd,
+            &request.name,
+        ))
+    }
+
+    fn cleanup_subagent_workspace_json(
+        &self,
+        info_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError> {
+        let info: WorkspaceInfo = match serde_json::from_str(info_json.as_str()) {
+            Ok(info) => info,
+            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        };
+        // Без cancelled-гейта: cleanup должен проходить и в размотке уже
+        // отменённого turn-а, иначе worktree-ы копятся.
+        to_json_rresult(workspace::cleanup_worktree_if_unchanged(&info))
+    }
+}
+
+/// Сериализует результат sync host-метода в JSON-`RResult`.
+fn to_json_rresult<T: serde::Serialize>(
+    result: Result<T>,
+) -> RResult<RString, PluginWorkflowHostError> {
+    match result {
+        Ok(value) => match serde_json::to_string(&value) {
+            Ok(json) => RResult::ROk(RString::from(json)),
+            Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
+        },
+        Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
     }
 }
 

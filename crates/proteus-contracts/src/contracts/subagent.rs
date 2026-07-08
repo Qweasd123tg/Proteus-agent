@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -245,6 +247,59 @@ impl SubagentResult {
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
         self
+    }
+}
+
+/// Запрос workflow-хосту на создание изолированного git worktree для
+/// пишущего ребёнка (`SubagentIsolation::Worktree`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SubagentWorkspaceRequest {
+    /// cwd родительской задачи — от него резолвится repo root.
+    pub parent_cwd: PathBuf,
+    /// Имя workspace (санитизированное): задаёт имя worktree и ветки.
+    pub name: String,
+}
+
+impl SubagentWorkspaceRequest {
+    pub fn new(parent_cwd: PathBuf, name: impl Into<String>) -> Self {
+        Self {
+            parent_cwd,
+            name: name.into(),
+        }
+    }
+}
+
+/// Созданный worktree-workspace ребёнка. Родительский workflow подменяет
+/// `task.cwd` на `path` перед spawn и передаёт весь DTO обратно хосту
+/// для cleanup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct WorkspaceInfo {
+    /// Root основного checkout (для worktree- и branch-операций cleanup-а).
+    pub repo_root: PathBuf,
+    /// Путь worktree — новый cwd ребёнка.
+    pub path: PathBuf,
+    /// Ветка worktree (`proteus/<name>`), которую мержит родитель.
+    pub branch: String,
+    /// Коммит, от которого создан worktree: cleanup сравнивает с ним HEAD,
+    /// чтобы понять «изменений нет».
+    pub base_commit: String,
+}
+
+impl WorkspaceInfo {
+    pub fn new(
+        repo_root: PathBuf,
+        path: PathBuf,
+        branch: impl Into<String>,
+        base_commit: impl Into<String>,
+    ) -> Self {
+        Self {
+            repo_root,
+            path,
+            branch: branch.into(),
+            base_commit: base_commit.into(),
+        }
     }
 }
 

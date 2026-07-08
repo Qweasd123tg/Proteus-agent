@@ -637,6 +637,23 @@ pub trait PluginWorkflowHost: Send + Sync {
     /// Input JSON: `SubagentHandle`. Отменяет запущенного ребёнка, не
     /// трогая остальных; результат забирается через `wait_subagent_json`.
     fn cancel_subagent_json(&self, handle_json: RString) -> RResult<(), PluginWorkflowHostError>;
+
+    /// Input JSON: `SubagentWorkspaceRequest`. Output JSON: `WorkspaceInfo`.
+    /// Создаёт git worktree для пишущего ребёнка (роль с
+    /// `isolation = worktree`); workflow подменяет `task.cwd` на его путь
+    /// перед spawn. Не-git cwd или занятое имя — обычная ошибка.
+    fn create_subagent_workspace_json(
+        &self,
+        request_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
+
+    /// Input JSON: `WorkspaceInfo`. Output JSON: `bool` — `true`, если
+    /// worktree был чист (нет изменений относительно base_commit) и удалён;
+    /// `false` — изменения есть, worktree оставлен родителю на merge.
+    fn cleanup_subagent_workspace_json(
+        &self,
+        info_json: RString,
+    ) -> RResult<RString, PluginWorkflowHostError>;
 }
 
 #[repr(C)]

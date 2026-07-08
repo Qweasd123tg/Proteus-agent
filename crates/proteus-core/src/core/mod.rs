@@ -18,6 +18,7 @@ pub mod tool_orchestrator;
 pub mod topology;
 pub mod topology_render;
 pub mod user_input;
+pub mod workspace;
 
 pub use approval::*;
 pub use config::*;
