@@ -7,10 +7,11 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::json;
 
+use super::super::roles::parse_isolation;
 use crate::contracts::{SubagentLimits, SubagentRoleSpec};
 
 /// Формат `module_config.subagent.process`.
@@ -67,8 +68,13 @@ pub(super) struct ProcessRoleConfig {
     /// профилем).
     #[serde(default)]
     pub parallel_safe: bool,
+    /// Изоляция рабочей копии: `"worktree"` — каждый fresh запуск роли
+    /// получает собственный git worktree (для пишущих ролей; тоже даёт
+    /// право на конкурентный запуск).
+    #[serde(default)]
+    pub isolation: Option<String>,
     /// Максимум одновременных процессов роли. По умолчанию 4 для
-    /// `parallel_safe`-ролей и 1 для остальных.
+    /// `parallel_safe`/worktree-ролей и 1 для остальных.
     #[serde(default)]
     pub max_processes: Option<usize>,
     #[serde(default)]
@@ -82,7 +88,9 @@ impl ProcessRoleConfig {
     pub(super) fn effective_max_processes(&self) -> usize {
         match self.max_processes {
             Some(max_processes) => max_processes.max(1),
-            None if self.parallel_safe => default_parallel_max_processes(),
+            None if self.parallel_safe || self.isolation.is_some() => {
+                default_parallel_max_processes()
+            }
             None => 1,
         }
     }
@@ -121,6 +129,8 @@ pub(super) fn build_process_role_specs(
         let mut limits = SubagentLimits::default();
         limits.timeout_ms = role.timeout_ms;
         limits.max_summary_bytes = role.max_summary_bytes;
+        let isolation = parse_isolation(role.isolation.as_deref())
+            .with_context(|| format!("subagent role {}", role.name))?;
         specs.push(
             SubagentRoleSpec::new(
                 role.name.clone(),
@@ -129,6 +139,7 @@ pub(super) fn build_process_role_specs(
             )
             .with_limits(limits)
             .with_parallel_safe(role.parallel_safe)
+            .with_isolation(isolation)
             .with_config(json!({ "config": role.config })),
         );
     }
@@ -177,6 +188,7 @@ mod tests {
             prompt: None,
             args: Vec::new(),
             parallel_safe: false,
+            isolation: None,
             max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
@@ -194,6 +206,7 @@ mod tests {
             prompt: None,
             args: Vec::new(),
             parallel_safe: false,
+            isolation: None,
             max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
@@ -234,5 +247,38 @@ mod tests {
         let specs = build_process_role_specs(&config.roles).unwrap();
         assert!(specs[0].parallel_safe);
         assert!(!specs[1].parallel_safe);
+    }
+
+    #[test]
+    fn worktree_isolation_marks_spec_and_widens_default_pool() {
+        let config: ProcessSubagentConfig = serde_json::from_value(json!({
+            "roles": [
+                { "name": "coder", "description": "d", "config": "c", "isolation": "worktree" }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(config.roles[0].effective_max_processes(), 4);
+        let specs = build_process_role_specs(&config.roles).unwrap();
+        assert_eq!(
+            specs[0].isolation,
+            crate::contracts::SubagentIsolation::Worktree
+        );
+        assert!(!specs[0].parallel_safe);
+    }
+
+    #[test]
+    fn unknown_isolation_value_is_rejected() {
+        let config: ProcessSubagentConfig = serde_json::from_value(json!({
+            "roles": [
+                { "name": "coder", "description": "d", "config": "c", "isolation": "container" }
+            ]
+        }))
+        .unwrap();
+
+        let error = build_process_role_specs(&config.roles).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("unknown isolation value"), "{message}");
+        assert!(message.contains("coder"), "{message}");
     }
 }

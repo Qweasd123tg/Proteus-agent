@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::contracts::{SubagentLimits, SubagentRoleSpec};
+use crate::contracts::{SubagentIsolation, SubagentLimits, SubagentRoleSpec};
 
 /// Формат `module_config.subagent.sequential`.
 #[derive(Debug, Clone, Deserialize)]
@@ -55,6 +55,10 @@ pub(super) struct SequentialRoleConfig {
     /// фактически read-only через tools/policy).
     #[serde(default)]
     pub parallel_safe: bool,
+    /// Изоляция рабочей копии: `"worktree"` — каждый fresh запуск роли
+    /// получает собственный git worktree (для пишущих ролей).
+    #[serde(default)]
+    pub isolation: Option<String>,
     #[serde(default)]
     pub max_iterations: Option<u32>,
     #[serde(default)]
@@ -84,6 +88,8 @@ struct MarkdownRoleFrontmatter {
     tools: Option<Vec<String>>,
     #[serde(default)]
     parallel_safe: bool,
+    #[serde(default)]
+    isolation: Option<String>,
     #[serde(default)]
     max_iterations: Option<u32>,
     #[serde(default)]
@@ -116,9 +122,12 @@ pub(super) fn build_role_specs(
         }
         limits.timeout_ms = role.timeout_ms;
         limits.max_summary_bytes = role.max_summary_bytes;
+        let isolation = parse_isolation(role.isolation.as_deref())
+            .with_context(|| format!("subagent role {}", role.name))?;
         let mut spec = SubagentRoleSpec::new(role.name, role.description, role.prompt)
             .with_limits(limits)
-            .with_parallel_safe(role.parallel_safe);
+            .with_parallel_safe(role.parallel_safe)
+            .with_isolation(isolation);
         if let Some(phase) = role.exposure_phase {
             spec = spec.with_exposure_phase(phase);
         }
@@ -134,6 +143,17 @@ pub(super) fn build_role_specs(
         parsed.max_resumable,
         parsed.max_parallel,
     ))
+}
+
+/// Парсит строковое значение изоляции из конфига. Неизвестное значение —
+/// ошибка конфигурации, а не тихий fallback. Общая для sequential- и
+/// process-конфигов ролей.
+pub(super) fn parse_isolation(value: Option<&str>) -> Result<SubagentIsolation> {
+    match value {
+        None => Ok(SubagentIsolation::None),
+        Some("worktree") => Ok(SubagentIsolation::Worktree),
+        Some(other) => bail!("unknown isolation value: {other} (expected \"worktree\")"),
+    }
 }
 
 fn load_markdown_roles(roles_dir: &Path, cwd: &Path) -> Result<Vec<SequentialRoleConfig>> {
@@ -209,6 +229,7 @@ fn parse_markdown_role(path: &Path) -> Result<SequentialRoleConfig> {
         exposure_phase: frontmatter.exposure_phase,
         tools: frontmatter.tools,
         parallel_safe: frontmatter.parallel_safe,
+        isolation: frontmatter.isolation,
         max_iterations: frontmatter.max_iterations,
         timeout_ms: frontmatter.timeout_ms,
         max_summary_bytes: frontmatter.max_summary_bytes,

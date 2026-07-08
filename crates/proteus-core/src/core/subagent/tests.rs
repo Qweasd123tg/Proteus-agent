@@ -12,7 +12,7 @@ use super::*;
 use crate::{
     contracts::{
         CancellationToken, EventEmitter, ModelClient, PolicyContext, PolicyVisibilityContext,
-        SubagentLimits, ToolRegistry,
+        SubagentIsolation, SubagentLimits, ToolRegistry,
     },
     core::{HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore},
     domain::{
@@ -284,6 +284,33 @@ fn duplicate_role_names_are_rejected() {
 }
 
 #[test]
+fn parses_worktree_isolation_from_config() {
+    let runner = SequentialSubagentRunner::from_config(json!({
+        "roles": [
+            { "name": "coder", "description": "d", "prompt": "p", "isolation": "worktree" },
+            { "name": "explore", "description": "d", "prompt": "p" }
+        ]
+    }))
+    .unwrap();
+    let roles = runner.roles();
+    assert_eq!(roles[0].isolation, SubagentIsolation::Worktree);
+    assert_eq!(roles[1].isolation, SubagentIsolation::None);
+}
+
+#[test]
+fn unknown_isolation_value_is_rejected() {
+    let error = SequentialSubagentRunner::from_config(json!({
+        "roles": [
+            { "name": "coder", "description": "d", "prompt": "p", "isolation": "container" }
+        ]
+    }))
+    .unwrap_err();
+    let message = format!("{error:#}");
+    assert!(message.contains("unknown isolation value"), "{message}");
+    assert!(message.contains("coder"), "{message}");
+}
+
+#[test]
 fn markdown_role_is_loaded_from_roles_dir() {
     let workspace = tempfile::tempdir().expect("workspace");
     let roles_dir = workspace.path().join("roles");
@@ -295,6 +322,7 @@ description: Markdown role\n\
 exposure_phase: md_phase\n\
 tools:\n\
   - remember_fact\n\
+isolation: worktree\n\
 max_iterations: 3\n\
 timeout_ms: 42\n\
 max_summary_bytes: 7\n\
@@ -320,6 +348,7 @@ Markdown prompt.\n",
     assert_eq!(role.limits.timeout_ms, Some(42));
     assert_eq!(role.limits.max_summary_bytes, Some(7));
     assert_eq!(role.effective_exposure_phase(), "md_phase");
+    assert_eq!(role.isolation, SubagentIsolation::Worktree);
     assert_eq!(
         role.config.get("tools").and_then(Value::as_array).unwrap(),
         &vec![json!("remember_fact")]

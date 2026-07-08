@@ -35,6 +35,12 @@ pub struct SubagentRoleSpec {
     /// `spawn`/`wait`.
     #[serde(default)]
     pub parallel_safe: bool,
+    /// Изоляция рабочей копии для пишущих ролей. `Worktree` — каждый fresh
+    /// запуск роли получает собственный git worktree (lifecycle оркестрирует
+    /// родительский workflow, подменяя `task.cwd` перед spawn); такая роль
+    /// пригодна для конкурентного батча наравне с `parallel_safe`.
+    #[serde(default)]
+    pub isolation: SubagentIsolation,
     /// Лимиты дочернего цикла.
     #[serde(default)]
     pub limits: SubagentLimits,
@@ -56,6 +62,7 @@ impl SubagentRoleSpec {
             prompt: prompt.into(),
             exposure_phase: None,
             parallel_safe: false,
+            isolation: SubagentIsolation::None,
             limits: SubagentLimits::default(),
             config: serde_json::Value::Null,
         }
@@ -68,6 +75,11 @@ impl SubagentRoleSpec {
 
     pub fn with_parallel_safe(mut self, parallel_safe: bool) -> Self {
         self.parallel_safe = parallel_safe;
+        self
+    }
+
+    pub fn with_isolation(mut self, isolation: SubagentIsolation) -> Self {
+        self.isolation = isolation;
         self
     }
 
@@ -87,6 +99,18 @@ impl SubagentRoleSpec {
             .clone()
             .unwrap_or_else(|| format!("subagent:{}", self.name))
     }
+}
+
+/// Изоляция рабочей копии дочернего цикла.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SubagentIsolation {
+    /// Ребёнок работает в `task.cwd` родителя (по умолчанию).
+    #[default]
+    None,
+    /// Каждый fresh запуск получает собственный git worktree.
+    Worktree,
 }
 
 /// Лимиты дочернего цикла. Реализация обязана останавливать цикл при
