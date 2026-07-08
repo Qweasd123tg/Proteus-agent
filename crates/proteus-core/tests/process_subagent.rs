@@ -316,3 +316,51 @@ async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_proces
         .expect_err("stale task_id must be rejected after history clear");
     assert!(stale.to_string().contains("unknown task_id"), "{stale:#}");
 }
+
+/// Fresh-задача с другим cwd не реюзает idle-процесс (его `--cwd`
+/// зафиксирован при спавне): роль получает новый процесс, а session-история
+/// первого не очищается — его task_id остаётся resumable. Без cwd-проверки
+/// реюз ломал бы worktree-изоляцию пишущих детей.
+#[tokio::test]
+async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace_a = tempfile::tempdir().expect("workspace a");
+    let workspace_b = tempfile::tempdir().expect("workspace b");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner(&config_path);
+
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context(events);
+
+    let task_a = AgentTask::new("delegate", workspace_a.path().to_path_buf());
+    let first = runner
+        .run(
+            SubagentRequest::new("helper", "first task", task_a.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("first child turn");
+    let first_task_id = first.child_thread_id.expect("child thread id");
+
+    // Fresh-задача в другом cwd: должен подняться новый процесс, а не
+    // ClearHistory на процессе из workspace_a.
+    let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
+    runner
+        .run(
+            SubagentRequest::new("helper", "other workspace task", task_b),
+            ctx.clone(),
+        )
+        .await
+        .expect("fresh child turn in another cwd");
+
+    // Первый ребёнок не тронут — resume по его task_id продолжает работать.
+    let resumed = runner
+        .run(
+            SubagentRequest::new("helper", "continue first", task_a)
+                .with_metadata(json!({ "task_id": first_task_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect("resume of first child must survive foreign-cwd fresh task");
+    assert_eq!(resumed.child_thread_id, Some(first_task_id));
+}

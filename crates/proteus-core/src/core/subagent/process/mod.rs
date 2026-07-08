@@ -99,6 +99,10 @@ struct RolePool {
 struct PooledChild {
     id: u64,
     child: ChildProcess,
+    /// cwd, с которым процесс запущен (`--cwd` фиксируется при спавне и
+    /// смене не подлежит): fresh-реюз допустим только при совпадении cwd,
+    /// иначе worktree-изоляция ломалась бы реюзом чужой рабочей копии.
+    cwd: PathBuf,
     /// Ребёнок уже отработал turn: свежая (не-resume) задача требует
     /// `ClearHistory` перед `Send`.
     used: bool,
@@ -284,12 +288,23 @@ impl RunnerInner {
                 }
             }
             None => {
-                while let Some(mut candidate) = pool.idle.pop() {
-                    if candidate.child.is_alive() {
+                // Fresh-задача: подходит только живой процесс с тем же cwd
+                // (worktree-роли получают уникальный cwd на запуск — для них
+                // это фактически всегда новый процесс). Мёртвые процессы
+                // хоронятся по пути.
+                let mut index = 0;
+                while index < pool.idle.len() {
+                    if !pool.idle[index].child.is_alive() {
+                        let dead = pool.idle.swap_remove(index);
+                        self.purge_resumable_for_process(dead.id);
+                        continue;
+                    }
+                    if pool.idle[index].cwd == cwd {
+                        let candidate = pool.idle.swap_remove(index);
                         pool.leased.insert(candidate.id);
                         return Ok(candidate);
                     }
-                    self.purge_resumable_for_process(candidate.id);
+                    index += 1;
                 }
                 let id = self.next_process_id.fetch_add(1, Ordering::Relaxed);
                 let child =
@@ -298,6 +313,7 @@ impl RunnerInner {
                 Ok(PooledChild {
                     id,
                     child,
+                    cwd: cwd.to_path_buf(),
                     used: false,
                 })
             }
