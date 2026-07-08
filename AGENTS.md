@@ -51,9 +51,10 @@ clients/
     inspector/           - отдельный Leptos config/architecture-клиент
 plugins/
     default/             - стандартный набор плагинов и ABI-примеры
-        file-tools/          - полноразмерный tool-плагин (read/write/list/grep)
+        file-tools/          - полноразмерный tool-плагин (read/write/edit/list/grep)
         git-tools/           - read-only git_status/git_diff tool-плагин
-        shell-tool/          - tool shell (sh -lc)
+        shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)
+        plan-tool/           - tool update_plan (пошаговый план в transcript)
         rg-search/           - SearchBackend на ripgrep под id "rg"
         direct-patch/        - PatchApplier internal patch format под id "direct"
         sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
@@ -62,8 +63,13 @@ plugins/
         coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop", "coding.codex_loop_diagnostic" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
         memory-pack/         - MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-        policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"
+        policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
         renderer-pack/       - Renderer плагины "plain" и "statusline"
+configs/                 - packaged named configs и prompts (источник install.sh)
+examples/
+    configs/             - example-профили (proteus.*.example.toml, config.example.json)
+    mcp/                 - локальный smoke-test MCP server
+    research/            - tracked заметки по upstream агентам
 ```
 
 Плагины живут в `~/.proteus/plugins/` и не зависят от `proteus-core`; граница проходит через `proteus-contracts` и ABI glue на `abi_stable`. Допустимы зависимости от утилитарных крейтов без ABI-типов (сейчас `proteus-process-host`). Детали — `docs/plugin-architecture.md`.
@@ -75,7 +81,7 @@ plugins/
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
-- Не превращать `docs/MODULAR_PROTEUS_SPEC_RU.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
+- Не превращать `docs/spec.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
 - Если модуль, профиль или workflow заявлен как копия/совместимый режим с
   Codex или другим upstream agent runtime, не добавляйте творческие fallback-и,
   эвристики или "улучшения" в той же реализации. Поведение, ошибки, stop
@@ -101,7 +107,8 @@ plugins/
 
 Документация проекта ведётся на русском. Имена кода, API, traits, modules и config keys остаются английскими.
 
-При изменении поведения обновляйте ближайший документ:
+При изменении поведения обновляйте ближайший документ (полный индекс —
+`docs/README.md`):
 
 - quickstart и CLI: `README.md`;
 - архитектурные границы: `docs/architecture.md`;
@@ -111,9 +118,10 @@ plugins/
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
-- vision/spec: `docs/MODULAR_PROTEUS_SPEC_RU.md`;
+- vision/spec: `docs/spec.md`;
 - roadmap: `docs/roadmap.md`;
-- memory plugin blueprint (research): `docs/memory-research.md`.
+- межпаковые контракты: `docs/pack-contracts.md`;
+- research-черновики и архивы: `docs/research/`.
 
 ## Ведение Запросов Пользователя
 
@@ -133,7 +141,7 @@ plugins/
 Если в текущем заходе делается только часть списка, явно скажите, какие пункты
 закрыты, какие отложены и почему. Отложенные идеи, UX-наблюдения и будущие
 задачи фиксируйте в ближайшем подходящем markdown-документе (`docs/roadmap.md`,
-`docs/MODULAR_PROTEUS_SPEC_RU.md`, профильный документ в `docs/` или отдельный
+`docs/spec.md`, профильный документ в `docs/` или отдельный
 research/notes doc), чтобы их можно было закрыть позже.
 
 ## Проверка Перед Завершением
@@ -150,3 +158,7 @@ cargo test
 Если менялась только документация и тесты не запускались, явно укажите это в финальном ответе.
 
 Для архитектурных правок проверьте, что `tests/module_swap.rs` продолжает подтверждать заменяемость slots и canonical model contract.
+
+Web-клиенты (`clients/web`, `clients/inspector`) исключены из root workspace и
+собираются через Trunk: валидируйте их `trunk build` (не `cargo check` — он
+может врать из-за lock), `trunk serve` слушает 1420/1421.

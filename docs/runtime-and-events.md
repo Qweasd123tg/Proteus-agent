@@ -132,10 +132,11 @@ config запросил такой режим через provider profile `reaso
 chain-of-thought и без `event_log.persist_deltas = true` не восстанавливается
 после restart/resume.
 
-## Session Store И Durable Snapshots
+## Файлы Сессии И Durable Snapshots
 
 Если runtime запущен с config path, рядом с config root создаётся дерево
-`sessions/<workspace>/<session>/`. Основной файл истории остаётся
+`sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
+раздел «Session Store» ниже). Основной файл истории остаётся
 `messages.jsonl`: в него пишутся только committed `CanonicalMessage`, без
 эфемерных context chunks.
 
@@ -416,7 +417,8 @@ session мутировать новый экран.
 ## Session Store
 
 Если runtime знает путь пользовательского конфига, он создаёт session store
-рядом с config home. Для default layout
+рядом с config home (состав файлов внутри session directory — раздел «Файлы
+Сессии И Durable Snapshots» выше). Для default layout
 `~/.config/Proteus-agent/configs/config.toml` session store живёт в
 `~/.config/Proteus-agent/sessions`. Пустой старт app-server не создаёт session
 directory: `session.json` и `messages.jsonl` появляются только при первой
@@ -561,7 +563,7 @@ model/tool loop: model request с tools, tool execution через workflow host
 последним tool result.
 
 `coding.codex_loop_diagnostic` - variant для packaged diagnostic profile
-`codex` (`codex.config.toml`) и smoke-проверок. Он использует тот же loop, но
+`codex` (`configs/codex.config.toml`) и smoke-проверок. Он использует тот же loop, но
 если модель после tool call вернула пустой финальный assistant-message, итоговый
 `AgentOutput.text` содержит диагностическое сообщение и последний `ToolResult`.
 Это не меняет history и model protocol, но делает MCP/tool smoke-тесты

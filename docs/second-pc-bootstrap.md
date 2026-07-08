@@ -44,10 +44,10 @@ proteus tools list
 
 ```text
 read_file
+read_many_files
 list_dir
 grep
 find_files
-read_many_files
 git_status
 git_diff
 search
@@ -55,6 +55,7 @@ apply_patch
 write_file
 shell
 remember_fact
+request_user_input
 ```
 
 ## Запуск

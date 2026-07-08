@@ -518,7 +518,7 @@ Scope:
   tools, режимы auto-verify и компактный phase/debug report;
 - расширение `memory_policy` за пределы декларативного `MemoryPolicyPlan`, если
   понадобится callback/retrieval во время `after_turn`; blueprint остаётся в
-  `docs/memory-research.md` (per-call capability + mailbox);
+  `docs/research/memory-research.md` (per-call capability + mailbox);
 - MCP resources/prompts/subscriptions и non-stdio transports поверх уже
   реализованного stdio tools host;
 - Волна 3 — вынос builtin-модулей в плагины по одному;
@@ -659,12 +659,18 @@ Scope:
 
 ### Memory / Skills
 
+- Skills (согласованный план): plugin `plugins/default/skill-pack` без нового
+  slot-а — discovery `~/.proteus/skills/` + `<workspace>/.proteus/skills/`
+  (project > user), SKILL.md с frontmatter (совместимо с Claude/opencode),
+  context provider `skills` инжектит `<available_skills>`, tool `skill {name}`
+  отдаёт тело. Известный gap: plugin tool не получает module_config → v1 на
+  конвенции путей.
 - Agent Skills и plugin mentions сначала реализовывать через docs-on-disk,
   `ContextBuilder`/`context_provider` и tools. `SkillCatalog` нужен только если
   core должен сам discover/inject skills как stable lifecycle point.
 - Long-term memory consolidation jobs исследовать через `MemoryStore`,
   `MemoryPolicy` и workflow. Если declarative `MemoryPolicyPlan` станет тесным,
-  вернуться к blueprint в `docs/memory-research.md`: per-call capability +
+  вернуться к blueprint в `docs/research/memory-research.md`: per-call capability +
   mailbox/background job boundary.
 
 ### Architecture Cleanup

@@ -15,103 +15,62 @@ Rust-first coding-agent harness с dylib плагинами.
 `~/.proteus/plugins/`. Клиенты живут отдельными процессами и общаются с ядром
 через AppServer protocol. Активное направление UI — Leptos web client.
 
-Высокоуровневая архитектура: [docs/architecture.md](docs/architecture.md).
-Плагинная система: [docs/plugin-architecture.md](docs/plugin-architecture.md).
-Runtime topology и diagnostic reports: [docs/inspect.md](docs/inspect.md).
+Главный обзор архитектуры: [docs/architecture.md](docs/architecture.md).
+Полный индекс документации: [docs/README.md](docs/README.md).
 
 ## Структура репо
 
 ```text
 crates/
-  proteus-contracts/  — публичные trait'ы и DTO; плагины и клиенты depend сюда
-  proteus-core/    — ядро: runtime, registry, loaders, app-server, CLI
+  proteus-contracts/    — публичные trait'ы и DTO; плагины и клиенты depend сюда
+  proteus-core/         — ядро: runtime, registry, loaders, app-server, CLI
+  proteus-process-host/ — утилитарный крейт: persistent stdio child-процессы
 clients/
-  web/              — standalone Leptos web-клиент
-examples/
-  source/           — git-ignored snapshots внешних проектов для research
-  research/         — tracked заметки и выводы по references
+  web/                  — standalone Leptos chat-клиент
+  inspector/            — Leptos config/architecture-клиент
 plugins/
-  default/             — стандартные плагины и ABI-примеры
-    direct-patch/        — PatchApplier internal patch format под id "direct"
-    file-tools/          — реальный набор: read_file / write_file / list_dir / grep / find_files / read_many_files
-    git-tools/           — read-only git_status / git_diff
-    rg-search/           — SearchBackend на ripgrep под id "rg"
-    shell-tool/          — tool shell (sh -lc)
-    sqlite-memory/       — MemoryStore на SQLite FTS5 как dylib
-    codex-compactor/     — HistoryCompactor под id "codex": model-backed Codex handoff summary без fallback
-    codex-tool-exposure/ — ToolExposure под id "codex_dynamic": Codex-style hot tool set
-        coding-workflow/     — Workflow-плагины "coding.single_loop", "coding.codex_loop", "coding.codex_loop_diagnostic" и "coding.plan_execute_review"
-    context-pack/        — ContextBuilder-плагины "simple", "repo_aware" и "codex_context"
-    memory-pack/         — MemoryStore "jsonl" и MemoryPolicy "carry_forward"
-    policy-pack/         — ApprovalPolicy плагины "allow_all", "ask_write" и "codex_policy"
-    renderer-pack/       — Renderer плагины "plain" и "statusline"
-docs/                  — architecture, plugin-architecture, configuration, memory-research, etc.
+  default/              — стандартные плагины (ставятся через ./install.sh):
+                          file-tools, git-tools, shell-tool, plan-tool,
+                          rg-search, direct-patch, coding-workflow,
+                          context-pack, codex-compactor, codex-tool-exposure,
+                          memory-pack, policy-pack, renderer-pack, sqlite-memory
+  research/             — черновики вне root workspace (не production)
+configs/                — packaged named configs и prompts (источник для
+                          install.sh; можно симлинкать как
+                          ~/.config/Proteus-agent/configs)
+examples/
+  configs/              — example-профили для чтения и прямого запуска
+  mcp/                  — локальный smoke-test MCP server
+  research/             — tracked заметки по upstream агентам
+  source/               — git-ignored snapshots внешних проектов
+docs/                   — вся документация, индекс в docs/README.md
 ```
 
 ## Что умеет сейчас
 
-**Ядро:**
-- Runtime с session/turn lifecycle, event store (JSONL), session store (resume).
-- Unified registry с открытым `SlotId`, 13 slot'ов (model, search, memory,
-  memory_policy, context, tool, policy, patch, compactor, tool_exposure,
-  workflow, renderer, subagent).
-- Builtin модули в базовых slot'ах: fake / openai / openai_compatible /
-  anthropic models, `null` search fallback, `none` memory, `none` memory
-  policy, `none` context, `deny_all` policy, `null` patch fallback,
-  `none` compactor, `all_visible`/`dynamic` tool exposure, `none` workflow и
-  `text` renderer. Codex-style request-time compactor `codex` с внутренним
-  summary model call поставляет плагин `codex-compactor`; Codex-style selector
-  `codex_dynamic` поставляет плагин `codex-tool-exposure`. Production workflow
-  в core больше не встроен:
-  `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и `coding.plan_execute_review` поставляет
-  плагин `coding-workflow`; production context builders `simple`,
-  `repo_aware` и `codex_context` поставляет плагин `context-pack`; `jsonl` memory и
-  `carry_forward` memory policy поставляет плагин `memory-pack`;
-  `allow_all`/`ask_write`/`codex_policy` поставляет `policy-pack`; `plain`/`statusline`
-  поставляет `renderer-pack`.
-- Builtin tools: `apply_patch`, `search`, `remember_fact`,
-  `request_user_input`/`AskUserQuestion`. Search backend `rg` поставляется
-  плагином `rg-search`, patch backend `direct` — плагином `direct-patch`.
-  File I/O
-  (`read_file`/`write_file`/`list_dir`/`grep`/`find_files`/`read_many_files`), git helpers
-  (`git_status`/`git_diff`) и `shell` поставляются плагинами
-  `file-tools`, `git-tools` и `shell-tool` — устанавливаются через
-  `./install.sh`. Плюс configured native/process/MCP wrappers через
-  main config; `tools.mcp_servers` discovery держит persistent stdio host в
-  runtime snapshot.
-- Permission modes: `plan` / `normal` / `auto`.
-- Session approval cache (`exact_call`, `exact_command`, `workspace_write` и
-  legacy `tool_in_cwd` scopes).
-- Метаданные approval preview для UI-клиентов: affected files, diff/body или
-  command до approve/deny; enforcement остаётся в `ToolRegistry`,
-  `ApprovalPolicy`, `ToolSafety` и validation самого tool.
-- Event log и session resume.
-
-**Плагины (Wave 2):**
-- Dylib plugin loader через abi_stable.
-- Plugin ABI поддерживает `tool`, `renderer`, `policy`, `patch`, `search`,
-  `memory`, declarative `memory_policy`, request-time `compactor`,
-  `tool_exposure`, полный `context_builder`, `context_provider` для
-  `repo_aware` pipeline и `workflow` через host
-  capabilities. `model` остаётся builtin-only.
-- ABI intentionally source-level для локальных workspace-плагинов: при
-  изменении `proteus-contracts` плагины пересобираются вместе с ядром, а
-  несовместимые старые `.so` отклоняются layout-check'ом.
-- Multi-plugin loading через lower-level libloading API (обход type-cache
-  в `RootModule::load_from_file`).
-- Опциональный `plugin.toml` manifest рядом с `.so`.
-- Политика конфликтов: builtin/configured tool выигрывает у plugin tool при
-  одинаковом имени; duplicate tool names между плагинами отклоняются при
-  загрузке, чтобы `tools.enabled` не зависел от порядка сканирования.
-- `PROTEUS_PLUGINS_DISABLE=1` для тестов.
-
-**Клиенты:**
-- `clients/web` — standalone Leptos/Trunk chat-клиент: transcript, composer,
-  permission mode controls и HTTP/SSE transport client поверх app-server
-  boundary без зависимости на runtime internals.
-- `clients/inspector` — отдельный Leptos/Trunk client для редко используемых
-  config/architecture экранов (`/configs`, `/architecture`) поверх того же
-  app-server boundary.
+- **Ядро**: session/turn lifecycle, durable event log (JSONL), session store с
+  resume, unified registry с открытым `SlotId` и 13 slot'ами (model, search,
+  memory, memory_policy, context, tool, policy, patch, compactor,
+  tool_exposure, workflow, renderer, subagent). В core остались только
+  безопасные stubs и builtin model providers (fake / openai /
+  openai_compatible / anthropic); production-реализации приезжают плагинами.
+  Полная таблица slots и реализаций: [docs/modules.md](docs/modules.md).
+- **Tools**: core-owned `apply_patch`, `search`, `remember_fact`,
+  `request_user_input`; file/git/shell/plan tools — из плагинов; плюс
+  configured native/process/MCP wrappers через config (`tools.configured`,
+  `tools.mcp_servers` со stdio discovery).
+- **Permissions**: режимы `plan` / `normal` / `auto`, mode-aware
+  `ApprovalPolicy`, session approval cache, approval preview metadata для UI.
+  Подробно: [docs/security-and-policy.md](docs/security-and-policy.md).
+- **Плагины**: dylib loader через abi_stable, единый `PluginRegistry` для
+  tool/renderer/policy/patch/search/memory/memory_policy/compactor/
+  tool_exposure/subagent/context/workflow, optional `plugin.toml` manifest,
+  duplicate policy, `PROTEUS_PLUGINS_DISABLE=1` для тестов.
+  Подробно: [docs/plugin-architecture.md](docs/plugin-architecture.md).
+- **Клиенты**: `clients/web` — chat-клиент (transcript, composer, approvals,
+  typed input, план-карточки, session picker) поверх HTTP/SSE;
+  `clients/inspector` — config/architecture экраны (`/configs`,
+  `/architecture`) поверх той же app-server boundary.
 
 ## Быстрый запуск
 
@@ -136,7 +95,7 @@ cargo run --bin proteus -- "describe the project layout"
 cargo run --bin proteus -- init coding
 # создать экспериментальный Codex-shaped profile
 cargo run --bin proteus -- init codex
-# запустить Codex-shaped named config из codex.config.toml
+# запустить Codex-shaped named config из configs/codex.config.toml
 cargo run --bin proteus -- --config codex doctor
 # проверить config/plugins/modules/tools без запуска turn'а
 cargo run --bin proteus -- doctor
@@ -148,156 +107,84 @@ cargo run --bin proteus -- inspect topology --format map
 cargo run --bin proteus -- eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
 ```
 
-`doctor` не делает model request. Он проверяет config source, загрузку
-плагинов, выбранные module ids, активный model provider, наличие секрета
-провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
-собираемость tool registry.
+`doctor` не делает model request: он проверяет config source, загрузку
+плагинов, module ids, model provider и его секрет, внешние команды вроде `rg`,
+timeout'ы, event log path и сборку tool registry. `eval report` читает
+существующий JSONL event log и выводит первичные метрики coding loop
+(success/fail, turns, model/tool calls, approvals, tokens, changed files).
+`inspect topology` строит `TopologySnapshot` без model request; те же данные
+отдаёт HTTP app-server через `GET /inspect/topology*`
+([docs/inspect.md](docs/inspect.md)).
 
-`eval report <event-log-path>` читает существующий JSONL event log и выводит
-первичные метрики coding loop: success/fail, turns, model/tool calls,
-approvals, usage tokens, duration, changed files и failure reason. Это первый
-слой eval harness поверх runtime events; он не запускает модель и не меняет
-рабочее дерево.
-
-`inspect topology` строит `TopologySnapshot` без model request: active slots,
-module source, plugin load status/contributions, registered tools,
-plugin-provided disabled tools, runtime path, full diagnostic map, Mermaid
-export и warnings. HTTP app-server отдаёт тот же snapshot через
-`GET /inspect/topology`, runtime path через `GET /inspect/topology.runtime`,
-короткую Mermaid runtime-схему через `GET /inspect/topology.runtime.mmd`,
-текстовую диагностическую карту через `GET /inspect/topology.map` и
-diagnostic Mermaid через `GET /inspect/topology.mmd`.
-
-### Экспериментальный web client
+### Web client
 
 ```bash
 ./install.sh
 proteus init coding
 proteus doctor
+proteus
+```
+
+Wrapper `proteus` использует текущую директорию как workspace, поднимает
+app-server на `http://127.0.0.1:8787`, chat-клиент на `http://127.0.0.1:1420`
+и Inspector на `http://127.0.0.1:1421` (отключение — `PROTEUS_INSPECTOR=0`).
+По умолчанию генерируется ephemeral session token на запуск, browser
+открывается с `?session=<token>&server=<app-origin>&inspector=<inspector-origin>`;
+свой token — `PROTEUS_SESSION_TOKEN`, отключение token-режима — только явное
+`PROTEUS_NO_SESSION_TOKEN=1`. Порты меняются через `PROTEUS_APP_PORT`,
+`PROTEUS_WEB_PORT`, `PROTEUS_INSPECTOR_PORT`. Единственный launcher-аргумент
+`--config` передаётся в app-server (`proteus --config codex`); для CLI-команд
+передайте task/subcommand (`proteus doctor`, `proteus --plan "inspect
+project"`). Если source новее release binary, wrapper пересоберёт
+`target/release/proteus` через `./install.sh`; старые процессы на портах
+app-server/web он закрывает сам.
+
+Ручной запуск без wrapper-а:
+
+```bash
 cargo run --bin proteus -- server http \
   --port 8787 \
   --allow-origin http://127.0.0.1:1420 \
-  --allow-origin http://localhost:1420 \
-  --allow-origin http://127.0.0.1:1421 \
-  --allow-origin http://localhost:1421
-```
+  --allow-origin http://localhost:1420
 
-В другом терминале:
-
-```bash
+# в другом терминале
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
-cd clients/web
-env -u NO_COLOR trunk serve
+cd clients/web && env -u NO_COLOR trunk serve
+# inspector (опционально): cd clients/inspector && env -u NO_COLOR trunk serve
 ```
 
-Для ручного запуска config/architecture UI запустите отдельный web-клиент:
+Chat-клиент работает поверх app-server endpoints: `/events`, `/send`,
+`/approval`, `/user-input`, `/cancel`, `/sessions`, `/resume`, `/history`,
+`/pending` и control-plane. Inspector читает `/config` и `/inspect/topology*`.
+CLI и `proteus server stdio` остаются параллельными путями для headless/debug
+прогонов. Протокол: [docs/runtime-and-events.md](docs/runtime-and-events.md).
 
-```bash
-cd clients/inspector
-env -u NO_COLOR trunk serve
-```
-
-После `./install.sh` короткий локальный запуск доступен из любой папки проекта:
-
-```bash
-proteus
-proteus --config codex
-```
-
-Wrapper использует текущую директорию как workspace, поднимает app-server на
-`http://127.0.0.1:8787`, chat-клиент на `http://127.0.0.1:1420` и Inspector
-для config/architecture экранов на `http://127.0.0.1:1421`. Если Inspector не
-нужен, задайте `PROTEUS_INSPECTOR=0`; порт можно поменять через
-`PROTEUS_INSPECTOR_PORT`. Wrapper по умолчанию генерирует ephemeral session
-token на запуск и открывает browser с
-`?session=<token>&server=<app-origin>&inspector=<inspector-origin>`;
-web-клиент использует query token для `EventSource` и header
-`X-Proteus-Session` для `fetch`, а `server=`/`inspector=` позволяют custom
-портам (`PROTEUS_APP_PORT` и т.п.) не ломать клиентов. Свой token задаётся
-через `PROTEUS_SESSION_TOKEN`; отключение token-режима — только явное:
-`PROTEUS_NO_SESSION_TOKEN=1`. Единственный launcher-аргумент `--config`
-передаётся в app-server, поэтому `proteus --config codex` запускает UI на
-named config `codex`; для обычных CLI команд передайте task/subcommand,
-например `proteus doctor`, `proteus --config codex doctor` или
-`proteus --plan "inspect project"`. Если source новее release binary, wrapper
-сначала пересоберёт `target/release/proteus` через `./install.sh`, чтобы web и
-app-server не разъезжались по protocol endpoints. Если на `8787` висит старый
-`proteus server http`, wrapper закрывает его перед стартом нового workspace;
-если на `1420` висит старый `trunk serve`, закрывает и его. Для чужого
-процесса используйте `PROTEUS_APP_PORT=<port>`, `PROTEUS_WEB_PORT=<port>` или
-`PROTEUS_INSPECTOR_PORT=<port>`.
-
-Leptos chat-клиент живёт в `clients/web` и уже работает как HTTP/SSE client
-поверх app-server: `/events`, `/send`, `/approval`, `/user-input`, `/cancel`,
-`/sessions`, `/resume`, `/history`, `/pending` и control-plane endpoints. Inspector живёт
-в `clients/inspector` и читает `/config` и `/inspect/topology*`. HTTP/SSE
-transport запускается через `proteus server http`; CLI и `proteus server stdio`
-остаются параллельными путями для headless/debug прогонов.
-
-Для dogfood запуска держите app-server на loopback (`127.0.0.1`) и не
+Для dogfood запусков держите app-server на loopback (`127.0.0.1`) и не
 выносите его наружу: текущий HTTP boundary рассчитан на локальный v0 dogfood.
-Wrapper включает ephemeral session token по умолчанию, CORS ограничен
-локальными/явно разрешёнными origins; это не shared-network deployment
-модель.
-Reference snapshots для web-клиента лежат вне production-каталога:
-
-- `examples/source/leptos` — git-ignored clone `leptos-rs/leptos`;
-- `examples/source/oxide-agent-web-transport` — git-ignored clone
-  `0FL01/Oxide-Agent` branch `feature/web-transport`;
-- `examples/research/web-client-references.md` — tracked заметка, зачем эти
-  references нужны и какие границы из них смотреть.
 
 ### Плагины
 
-Быстрый способ — `./install.sh`: собирает runtime-пакеты в release и копирует
-стандартные плагины в `~/.proteus/plugins/<plugin>/`. После этого `rg-search`,
-`direct-patch`, `file-tools`, `git-tools`, `shell-tool`, `coding-workflow`,
-`context-pack`, `codex-compactor`, `codex-tool-exposure`, `memory-pack`,
-`policy-pack`, `renderer-pack` и `sqlite-memory` подхватываются автоматически.
-Скрипт также кладёт packaged named configs в
-`~/.config/Proteus-agent/configs/`, поэтому `proteus --config codex` работает
-из любой рабочей директории после установки.
+`./install.sh` собирает runtime-пакеты в release, копирует стандартные плагины
+в `~/.proteus/plugins/<plugin>/`, кладёт packaged named configs в
+`~/.config/Proteus-agent/configs/` и ставит wrapper `~/.local/bin/proteus`.
+После этого `proteus --config codex` работает из любой рабочей директории.
 
-Ручной способ:
+Ручная установка одного плагина — собрать `.so` и положить рядом с manifest:
 
 ```bash
-cargo build --release \
-  -p proteus-core \
-  -p file-tools \
-  -p git-tools \
-  -p shell-tool \
-  -p rg-search \
-  -p direct-patch \
-  -p coding-workflow \
-  -p context-pack \
-  -p codex-compactor \
-  -p codex-tool-exposure \
-  -p memory-pack \
-  -p policy-pack \
-  -p renderer-pack \
-  -p sqlite-memory \
-  --features context-pack/plugin-entrypoint,codex-compactor/plugin-entrypoint,codex-tool-exposure/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
-
-for p in file-tools git-tools shell-tool rg-search direct-patch coding-workflow context-pack codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory; do
-  mkdir -p ~/.proteus/plugins/$p
-  cp target/release/lib${p//-/_}.so ~/.proteus/plugins/$p/
-  cp plugins/default/$p/plugin.toml ~/.proteus/plugins/$p/ 2>/dev/null || true
-done
+cargo build --release -p file-tools
+mkdir -p ~/.proteus/plugins/file-tools
+cp target/release/libfile_tools.so ~/.proteus/plugins/file-tools/
+cp plugins/default/file-tools/plugin.toml ~/.proteus/plugins/file-tools/ 2>/dev/null || true
 
 # проверить что подхватились
 cargo run --bin proteus -- modules list
-cargo run --bin proteus -- --config proteus.coding.example.toml tools list
+cargo run --bin proteus -- --config examples/configs/proteus.coding.example.toml tools list
 ```
 
-### Установка wrapper'а
-
-```bash
-./install.sh
-# добавляет ~/.local/bin/proteus wrapper и ставит стандартные плагины
-proteus init coding
-proteus doctor
-```
+Полный список плагинов и team-паков — в `install.sh`; некоторые паки требуют
+feature `plugin-entrypoint` (см. флаги сборки в скрипте).
 
 ## Конфигурация
 
@@ -309,44 +196,26 @@ proteus doctor
 4. `$XDG_CONFIG_HOME/Proteus-agent/configs/config.toml`, если `HOME` недоступен
 
 Если не найдено — используются безопасные stub defaults из `AppConfig`
-(`workflow = "none"`, `context = "none"`, `policy = "deny_all"`,
-`compactor = "none"`, `tool_exposure = "all_visible"`).
+(`workflow = "none"`, `context = "none"`, `policy = "deny_all"`).
+`proteus init coding|codex|full|safe` создаёт config.toml в default location;
+bare named configs (`--config codex`) резолвятся строго в `<name>.config.toml`
+из default config dir.
 
-Примеры:
-- `proteus.example.toml` — safe dev-basic (fake model, null search, без tools).
-- `proteus.coding.example.toml` — quickstart для реальной работы
-  (anthropic/openai, baseline `coding.single_loop`, repo_aware, rg, полный
-  tool set, ask_write policy).
-- `codex.config.toml` — экспериментальный Codex-shaped named config,
-  запускается через `--config codex`:
-  отдельная сборка модулей для проверки `coding.codex_loop_diagnostic`,
-  Codex-подобного
-  `codex_context`, `codex_policy`, `codex_dynamic` ToolExposure из
-  `codex-tool-exposure`, `codex` compactor и Playwright MCP browser tools
-  (`playwright__browser_*`). Для первого запуска нужен Node/npx и browser
-  install, например `npx -y @playwright/mcp@latest install-browser firefox`.
-  Bare named configs резолвятся строго в `<name>.config.toml` из default config
-  dir; локальный вариант запускайте явным путём, например
-  `--config ./codex.config.toml`. Старый `proteus.codex.example.toml` оставлен
-  как compatibility include.
-- `proteus.dev-slim.example.toml` — узкий профиль для разработки самого
-  Proteus: dynamic tool exposure, меньший context budget и только hot coding
-  tools. Запускается явно через `--config proteus.dev-slim.example.toml`.
-- `proteus.external-tools.example.toml` — bring-your-own tools profile:
-  `tools.enabled = []`, полный набор tools приходит из директории `tools`
-  рядом с config root.
-- `proteus.mcp.example.toml` — локальный smoke-test для stdio MCP:
-  `examples/mcp/echo_server.sh` подключается через `tools.mcp_servers`, а
-  `tools list` должен показать `local_echo__echo` с source `mcp:local_echo`.
-- `docs/scope.md` фиксирует active / parked / research зоны. `proteus init
-  coding` или `proteus init codex` создаёт
-  `$HOME/.config/Proteus-agent/configs/config.toml`, где
-  provider/key, modules, tools и policy лежат в одном явном файле.
-- `config.example.json` — JSON-вариант/schema surface; для обычной работы
-  предпочтительнее `proteus init coding` и один TOML config file.
+Конфиги в репозитории:
 
-Полная schema, provider profiles, secrets, tools и renderers в
-[docs/configuration.md](docs/configuration.md).
+- `configs/` — packaged named configs (`codex.config.toml`,
+  `opencode.config.toml`, `proteus.provider.example.toml`) и `prompts/*`;
+  источник для `install.sh`. Личную установку можно симлинкать прямо на эту
+  папку — тогда правки конфигов остаются git-изменениями.
+- `examples/configs/` — example-профили: `proteus.example.toml` (safe, fake
+  model), `proteus.coding.example.toml` (quickstart), `proteus.dev-slim.example.toml`
+  (разработка самого Proteus), `proteus.external-tools.example.toml`,
+  `proteus.mcp.example.toml` (stdio MCP smoke), `config.example.json`
+  (JSON schema surface).
+
+Полная schema, provider profiles, secrets, tools и module_config:
+[docs/configuration.md](docs/configuration.md). Зоны active/parked/research:
+[docs/scope.md](docs/scope.md).
 
 ## Runtime данные
 
@@ -359,17 +228,13 @@ proteus doctor
 
 ## Документация
 
-- [docs/architecture.md](docs/architecture.md) — архитектура ядра и runtime.
-- [docs/plugin-architecture.md](docs/plugin-architecture.md) — как устроены плагины.
-- [docs/modules.md](docs/modules.md) — builtin модули по slot'ам.
-- [docs/slot-governance.md](docs/slot-governance.md) — когда добавлять новый slot, а когда делать plugin/profile.
-- [docs/configuration.md](docs/configuration.md) — config schema, secrets, tools.
-- [docs/runtime-and-events.md](docs/runtime-and-events.md) — REPL, session store, event log, AppServer protocol.
-- [docs/security-and-policy.md](docs/security-and-policy.md) — tool safety, approval policy, workspace boundary.
-- [docs/testing.md](docs/testing.md) — тестирование модульности.
-- [docs/dogfood-gate.md](docs/dogfood-gate.md) — минимальный v0 dogfood loop и UI non-goals.
-- [docs/roadmap.md](docs/roadmap.md) — направление проекта и следующие волны.
-- [docs/memory-research.md](docs/memory-research.md) — research и blueprint для memory плагинов (FFI callbacks).
+Полный индекс: [docs/README.md](docs/README.md). Ключевые точки входа:
+
+- [docs/architecture.md](docs/architecture.md) — как устроено ядро и как думать про проект.
+- [docs/modules.md](docs/modules.md) — все slots и реализации.
+- [docs/configuration.md](docs/configuration.md) — config schema.
+- [docs/security-and-policy.md](docs/security-and-policy.md) — safety, policy, sandbox.
+- [docs/roadmap.md](docs/roadmap.md) — направление и следующие волны.
 - [AGENTS.md](AGENTS.md) — правила работы для агентов/контрибьюторов.
 
 ## Проверка

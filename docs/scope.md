@@ -83,8 +83,8 @@ dogfood path.
 
 Текущий narrow-mode cleanup:
 
-- `proteus.dev-slim.example.toml` для разработки самого Proteus;
-- `proteus.external-tools.example.toml` вместо misleading advanced example;
+- `examples/configs/proteus.dev-slim.example.toml` для разработки самого Proteus;
+- `examples/configs/proteus.external-tools.example.toml` вместо misleading advanced example;
 - `plugins/research/tool-output-artifacts` вне root workspace;
 - `inspect topology --format runtime` для человеческой runtime path карты;
 - `inspect topology --format map` остаётся full diagnostic graph.

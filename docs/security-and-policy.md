@@ -325,7 +325,7 @@ per-command изоляция описана модели явно; это зад
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-экспериментальным named config `codex` (`codex.config.toml`). Это не отдельный
+экспериментальным named config `codex` (`configs/codex.config.toml`). Это не отдельный
 security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 
@@ -387,7 +387,7 @@ Core учитывает `granted_permissions` только на approved-пут�
 ## opencode_policy
 
 `opencode_policy` поставляется тем же `policy-pack` и используется
-экспериментальным named config `opencode` (`opencode.config.toml`). Это порт
+экспериментальным named config `opencode` (`configs/opencode.config.toml`). Это порт
 permission engine из OpenCode (`permission/index.ts` + `util/wildcard.ts`).
 
 Порядок решения:

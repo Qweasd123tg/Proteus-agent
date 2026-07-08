@@ -273,6 +273,12 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   всегда `ok: true`: exit code процесса — данные в тексте/metadata, а не сбой
   tool-а (parity с upstream `ExecCommandToolOutput`); one-shot `shell`
   сохраняет `ok: false` при ненулевом exit;
+- `plan-tool` — `update_plan` (из `plugins/default/plan-tool/`): модель ведёт
+  пошаговый план со статусами (`pending`/`in_progress`/`completed`) в духе
+  Codex `update_plan` и Claude Code TodoWrite. Состояние плана живёт в
+  transcript как последовательность tool calls: сервер только валидирует и
+  нормализует аргументы, отдельного runtime-состояния и протокольных событий
+  нет, клиент рендерит карточку плана из аргументов последнего вызова;
 - `policy-pack` — `request_permissions` (из `plugins/default/policy-pack/`):
   turn-scoped эскалация через approval-gated grants, см.
   `docs/security-and-policy.md`.
@@ -364,7 +370,7 @@ Core не знает схему `ask_write` и передаёт
 `module_config.policy.ask_write` в plugin как JSON.
 
 `codex_policy` тоже поставляется плагином `policy-pack`, но предназначен для
-named config `codex` (`codex.config.toml`): явный `deny` имеет приоритет, затем `allow`,
+named config `codex` (`configs/codex.config.toml`): явный `deny` имеет приоритет, затем `allow`,
 затем `ask_before`, после чего `ReadOnly` разрешается, `WritesFiles` и
 `RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
 запрещаются. Core не знает эту схему и передаёт
@@ -373,7 +379,7 @@ named config `codex` (`codex.config.toml`): явный `deny` имеет при�
 `allow_all` поставляется плагином `policy-pack` и разрешает все tool calls.
 
 `opencode_policy` тоже поставляется плагином `policy-pack` и предназначен для
-named config `opencode` (`opencode.config.toml`). Это порт permission engine
+named config `opencode` (`configs/opencode.config.toml`). Это порт permission engine
 из OpenCode: правила — упорядоченный список троек
 `(permission, pattern, action)` в `module_config.policy.opencode_policy.rules`,
 действует **последнее** совпавшее правило (last match wins), при отсутствии
@@ -639,7 +645,7 @@ model request, считаются ошибкой workflow. Это относит
 через обычный host/orchestrator path.
 
 `modules.workflow = "coding.codex_loop_diagnostic"` — явно названный variant для
-packaged diagnostic profile `codex` (`codex.config.toml`) и smoke-проверок. Он
+packaged diagnostic profile `codex` (`configs/codex.config.toml`) и smoke-проверок. Он
 сохраняет тот же model/tool loop и protocol validation, что
 `coding.codex_loop`, но user-facing `AgentOutput` для пустого финального ответа
 после tool call заменяет на диагностическое сообщение с последним `ToolResult`.

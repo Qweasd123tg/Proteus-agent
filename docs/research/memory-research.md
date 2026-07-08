@@ -1,7 +1,11 @@
 # Memory research: FFI callbacks и реальные coding agents
 
-> Deep research от 2026-04-30, на основе которого построен план memory
-> plugin boundary (см. `roadmap.md` и `plugin-architecture.md`).
+Статус: research-заметка (deep research от 2026-04-30). Не reference:
+store-уровень уже реализован иначе, документ хранит blueprint для будущего
+расширения `MemoryPolicy` (см. `roadmap.md`).
+
+> На основе этого research построен план memory plugin boundary
+> (см. `roadmap.md` и `plugin-architecture.md`).
 >
 > Короткий вывод: store-уровень через `PluginMemoryStore` sabi_trait уже
 > реализован. Для `MemoryPolicy` рекомендован per-call capability

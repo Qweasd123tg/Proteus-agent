@@ -267,13 +267,14 @@ YAML declarative tools и MCP wrappers не являются содержимы�
 В первой волне все плагины живут в одном Cargo workspace с ядром:
 
 ```
-proteus-core/              # root workspace
+Agent/                      # root workspace
     Cargo.toml              # [workspace] members = [...]
     crates/
         proteus-contracts/    # публичный crate
-        proteus-core/      # ядро
+        proteus-core/         # ядро
+        proteus-process-host/ # утилитарный крейт без ABI-типов
     plugins/
-        file-tools/         # отдельный plugin crate
+        default/file-tools/   # отдельный plugin crate
         ...
 ```
 
@@ -371,7 +372,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, declarative `memory_policy`, `compactor`,
   `tool_exposure` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и

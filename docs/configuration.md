@@ -8,7 +8,7 @@ config dir (`~/.config/Proteus-agent/configs/` или
 `$PROTEUS_CONFIG_HOME/configs/`). Поиска в текущем каталоге, JSON-варианта и
 silent fallback нет: если файла нет, запуск завершается ошибкой. Локальный или
 экспериментальный config передавайте явным путём, например
-`--config ./codex.config.toml`. Директория читается как config tree: все
+`--config ./configs/codex.config.toml`. Директория читается как config tree: все
 `*.toml` и `*.json` внутри неё сортируются по имени, затем merge-ятся в один
 итоговый `AppConfig`.
 
@@ -22,7 +22,7 @@ silent fallback нет: если файла нет, запуск заверша�
 
 ```bash
 cargo run --bin proteus -- --config codex
-cargo run --bin proteus -- --config config.example.json
+cargo run --bin proteus -- --config examples/configs/config.example.json
 cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 ```
 
@@ -72,8 +72,8 @@ proteus init full
 init создаст `<name>.config.toml` в default config dir, чтобы следующий
 `--config <name>` читал тот же файл.
 `coding` и `full` используют рабочий coding profile, `codex` использует
-экспериментальный Codex-shaped profile, `safe` использует `proteus.example.toml`
-с fake model.
+экспериментальный Codex-shaped profile, `safe` использует
+`examples/configs/proteus.example.toml` с fake model.
 
 ## UI Client Status
 
@@ -122,16 +122,22 @@ name = "coding-local"
 `proteus init coding` и `proteus init codex` создают один `config.toml` с
 `active_provider`, `providers.*`, workflow, modules, tools, policy и event log.
 
-`config.example.json` - полный single-file пример/schema surface с
-`active_provider` и `providers`; для обычной локальной работы предпочтительнее
-`configs/config.toml`, созданный через `proteus init`.
+`examples/configs/config.example.json` - полный single-file пример/schema
+surface с `active_provider` и `providers`; для обычной локальной работы
+предпочтительнее `configs/config.toml`, созданный через `proteus init`.
 
-`proteus.provider.example.toml` - общий пример provider profile: real provider
-через env key. Его можно подключать из разных behavioral profiles через
-`include`, чтобы не дублировать provider/model/secrets wiring.
+Packaged configs живут в `configs/` репозитория: `codex.config.toml`,
+`opencode.config.toml`, `proteus.provider.example.toml` и `prompts/*`.
+`./install.sh` копирует их в default config dir; example-профили для чтения и
+прямого запуска лежат в `examples/configs/`.
 
-`proteus.coding.example.toml` - quickstart coding profile: подключает общий
-provider через `include`, baseline `modules.workflow = "coding.single_loop"`,
+`configs/proteus.provider.example.toml` - общий пример provider profile: real
+provider через env key. Его можно подключать из разных behavioral profiles
+через `include`, чтобы не дублировать provider/model/secrets wiring.
+
+`examples/configs/proteus.coding.example.toml` - quickstart coding profile:
+подключает общий provider через `include`, baseline
+`modules.workflow = "coding.single_loop"`,
 `modules.search = "rg"`, `modules.context = "repo_aware"` и полный coding
 toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 `find_files`, `read_many_files`, `git_diff`, `apply_patch`, `write_file`,
@@ -141,9 +147,9 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
-`codex.config.toml` - packaged diagnostic Codex-shaped profile для чистой
-проверки Codex-подобной сборки модулей. Он подключает тот же provider через
-`include`, использует `coding.codex_loop_diagnostic`, `codex_context`, `rg`,
+`configs/codex.config.toml` - packaged diagnostic Codex-shaped profile для чистой
+проверки Codex-подобной сборки модулей. Он использует
+`coding.codex_loop_diagnostic`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
 `codex-tool-exposure` и `modules.compactor = "codex"`. Diagnostic workflow
 сохраняет protocol/loop `coding.codex_loop`, но показывает последний
@@ -156,25 +162,25 @@ Playwright MCP подключается через `tools.mcp_servers` как н
 function tool с JSON аргументом `patch` и не включают этот MCP server. Для
 первого запуска Playwright MCP может потребоваться browser install:
 `npx -y @playwright/mcp@latest install-browser firefox`. После `./install.sh`
-запускается явно через `--config codex` из любой рабочей директории; старый
-`proteus.codex.example.toml` оставлен как compatibility include на этот же
-profile. Baseline `coding` от этого профиля не зависит.
+запускается явно через `--config codex` из любой рабочей директории.
+Baseline `coding` от этого профиля не зависит.
 
-`proteus.example.toml` - safe dev-basic пример с fake model, `search = "null"`,
-`context = "simple"`, `module_config.*` payloads и core tools. `simple`
-поставляется `context-pack`, так что runtime всё равно требует установленный
-context plugin.
+`examples/configs/proteus.example.toml` - safe dev-basic пример с fake model,
+`search = "null"`, `context = "simple"`, `module_config.*` payloads и core
+tools. `simple` поставляется `context-pack`, так что runtime всё равно требует
+установленный context plugin.
 
-`proteus.dev-slim.example.toml` - узкий профиль для разработки самого Proteus:
-`tool_exposure = "dynamic"`, меньший context budget и только hot coding tools.
-Используйте его явно через `--config proteus.dev-slim.example.toml`.
+`examples/configs/proteus.dev-slim.example.toml` - узкий профиль для
+разработки самого Proteus: `tool_exposure = "dynamic"`, меньший context budget
+и только hot coding tools. Используйте его явно через
+`--config examples/configs/proteus.dev-slim.example.toml`.
 
-`proteus.external-tools.example.toml` - пример для bring-your-own tools:
-`tools.enabled = []`, а полный набор tools приходит из директории `tools`
-рядом с config root.
+`examples/configs/proteus.external-tools.example.toml` - пример для
+bring-your-own tools: `tools.enabled = []`, а полный набор tools приходит из
+директории `tools` рядом с config root.
 
-`proteus.mcp.example.toml` - smoke-test stdio MCP discovery: локальный
-`examples/mcp/echo_server.sh` регистрирует tool `local_echo__echo`.
+`examples/configs/proteus.mcp.example.toml` - smoke-test stdio MCP discovery:
+локальный `examples/mcp/echo_server.sh` регистрирует tool `local_echo__echo`.
 
 Core-owned sections имеют фиксированную schema. Payloads конкретных модулей
 живут в `module_config.<slot>.<module_id>` и считаются module-owned config:
@@ -380,15 +386,15 @@ priority = 90
 удобства. `codex` profile использует `prompts/codex-default.md` — адаптацию
 upstream Codex base prompt из reference-исходников
 (`codex-rs/protocol/src/prompts/base_instructions/default.md`); divergence
-перечислены комментарием в `codex.config.toml`. Если точные upstream
+перечислены комментарием в `configs/codex.config.toml`. Если точные upstream
 instructions неизвестны, config должен оставить этот список пустым или явно
 документировать divergence отдельным режимом.
 
-Источник prompt-файлов — каталог `prompts/` в корне репозитория (его же
-включает `cli_init.rs` через `include_str!`). `configs/prompts/*` —
-артефакт: `install.sh` перезаписывает его копией из корневого `prompts/`
-при каждой установке. Правки вносите только в корневой `prompts/`, иначе
-следующий `./install.sh` молча откатит изменение.
+Источник prompt-файлов — каталог `configs/prompts/` репозитория (его же
+включает `cli_init.rs` через `include_str!`). `install.sh` копирует эти файлы
+в `<config-home>/configs/prompts/` при каждой установке и перезаписывает
+установленную копию; если config dir является симлинком на репозиторный
+`configs/`, копирование пропускается.
 
 ## Module Config
 
@@ -637,7 +643,7 @@ diagnostic surface CLI/web-клиента.
 Claude-compatible alias `AskUserQuestion`). Остальные стандартные tools —
 файловые (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` — живут в плагинах `file-tools`,
-`git-tools` и `shell-tool`. `proteus.coding.example.toml` уже включает полный
+`git-tools` и `shell-tool`. `examples/configs/proteus.coding.example.toml` уже включает полный
 набор после `./install.sh`; в более безопасных профилях добавляйте эти имена в
 `tools.enabled` явно.
 Если пользователь явно включает plugin tool, но его имя совпадает с
@@ -772,11 +778,12 @@ timeout_ms = 30000
 metadata = { scope = "documentation" }
 ```
 
-Для локальной smoke-проверки есть `proteus.mcp.example.toml` и тестовый server
+Для локальной smoke-проверки есть `examples/configs/proteus.mcp.example.toml`
+и тестовый server
 `examples/mcp/echo_server.sh`:
 
 ```bash
-cargo run --bin proteus -- --config proteus.mcp.example.toml tools list
+cargo run --bin proteus -- --config examples/configs/proteus.mcp.example.toml tools list
 ```
 
 Текущая MCP поддержка покрывает stdio `tools/list` и `tools/call`. Resources,

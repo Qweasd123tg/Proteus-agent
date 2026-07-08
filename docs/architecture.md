@@ -1,10 +1,27 @@
-# Архитектура v0
+# Архитектура
 
-Этот документ описывает фактическую реализацию проекта и текущую границу ядра.
-Более широкий замысел и будущие направления лежат в
-[MODULAR_PROTEUS_SPEC_RU.md](MODULAR_PROTEUS_SPEC_RU.md).
+Этот документ объединяет две вещи: фактическую реализацию ядра (reference) и
+глобальную карту "как думать про Proteus" — что где лежит, как течёт runtime,
+по каким правилам принимаются решения. Более широкий замысел и planned
+направления лежат в [spec.md](spec.md), порядок ближайших работ — в
+[roadmap.md](roadmap.md). Если факт отсюда противоречит профильному документу
+(modules, configuration, runtime-and-events, security), прав профильный
+документ.
 
 ## Коротко
+
+Proteus — локальный coding-agent harness, собранный как модульный каркас:
+
+```text
+Core -> Contract -> Module Implementation
+```
+
+Core (runtime, wiring, app-server) не знает деталей конкретного поиска, памяти,
+модели, tools, policy, patch algorithm или renderer. Любая функциональность
+проходит через существующий slot или явно добавленный contract. Это не
+"фреймворк на будущее", а рабочий инструмент: цель — воспроизводимый coding
+loop (найти контекст, позвать модель, выполнить tools, применить patch,
+оставить trace), которым можно догфудить сам Proteus.
 
 Текущая архитектура slot-based:
 
@@ -24,6 +41,44 @@ discovery app-server уже умеет `ReloadTools`: новый `RuntimeSnapsho
 новый registry и новые stdio MCP host-процессы, а активные turns доживают на
 старом snapshot. Общий `reload_modules`, MCP resources/prompts/subscriptions и
 dylib unload остаются planned; правила зафиксированы в [hot-swap.md](hot-swap.md).
+
+## Словарь
+
+| Термин | Значение |
+|---|---|
+| **Slot** | Тип расширения ядра, один trait в `proteus-contracts` (например `context`, `workflow`, `policy`). Открытый `SlotId`. |
+| **Module** | Конкретная реализация slot-а. Ключ уникальности — `(slot, id)`, например `("search", "rg")`. |
+| **Plugin** | Физическая упаковка modules: dylib (`.so`) + sidecar `plugin.toml` в `~/.proteus/plugins/<name>/`. Один плагин может давать modules в разные slots. |
+| **Pack** | config/profile + набор plugin implementations + docs/evals. Способ проверить композицию slots, а не отдельный ABI. |
+| **Stub** | Safe no-op fallback в core (`crates/proteus-core/src/stubs/`), чтобы runtime стартовал без плагина. |
+| **Adapter** | Provider-specific код (OpenAI/Anthropic HTTP) — живёт только в `crates/proteus-core/src/adapters/`. |
+
+## Карта Репозитория
+
+```text
+crates/proteus-contracts/    traits, DTO, canonical model, plugin ABI (abi_stable)
+crates/proteus-core/         runtime, wiring, plugin_adapters, stubs, adapters, app-server, CLI
+crates/proteus-process-host/ утилитарный крейт: lifecycle persistent stdio child-процессов
+clients/web/                 Leptos chat-клиент (dogfood UI, HTTP/SSE)
+clients/inspector/           Leptos config/topology-клиент
+plugins/default/*            стандартный набор dylib-плагинов
+plugins/research/*           черновики вне root workspace (не production)
+configs/                     packaged named configs и личные профили (симлинк-цель
+                             для ~/.config/Proteus-agent/configs)
+prompts/                     источники prompt-файлов (configs/prompts/* — артефакт install.sh)
+examples/research/*          заметки по upstream агентам (codex, opencode) — источник parity-требований
+docs/                        вся документация (на русском), индекс в docs/README.md
+crates/proteus-core/tests/module_swap.rs   главный boundary/swap gate
+```
+
+Ключевые точки в core:
+
+- `crates/proteus-core/src/main.rs` — CLI (clap): one-shot task, REPL, `modules list`, `inspect topology`, `doctor`, `eval report`, `server http|stdio`.
+- `crates/proteus-core/src/core/runtime.rs` — `AgentRuntime`, вход одного turn-а.
+- `crates/proteus-core/src/core/module_catalog.rs` (+ `builtins.rs`, `plugin_registration.rs`) — регистрация всех modules.
+- `crates/proteus-core/src/core/plugin_loader.rs` — скан `~/.proteus/plugins/`, manifest, загрузка dylib.
+- `crates/proteus-core/src/app_server/http.rs` — HTTP/SSE endpoints (`/events`, `/send`, `/approval`, ...).
+- `crates/proteus-core/src/core/tool_orchestrator.rs` — единственная точка исполнения tools (policy + approval + safety).
 
 ## Статус Ядра
 
@@ -139,9 +194,9 @@ CLI не должен владеть бизнес-логикой runtime.
 
 Visual layer и полноценный CLI не входят в этот crate как runtime layer. Они
 подключаются отдельными процессами через app-server transport или другой
-transport поверх той же boundary. Активное направление внешнего UI теперь
-разделено на `clients/web` для chat/runtime loop и `clients/inspector` для
-редко используемых config/architecture экранов.
+transport поверх той же boundary. Активное направление внешнего UI разделено
+на `clients/web` для chat/runtime loop и `clients/inspector` для редко
+используемых config/architecture экранов.
 
 Для `inspect topology` core отдаёт уже собранный diagnostic graph:
 `TopologySnapshot.edges` связывает config, slots, modules, plugins,
@@ -217,6 +272,9 @@ workflow, toolset) с теми же событиями зажигает те ж�
 - `ToolProvider`;
 - `ApprovalPolicy`;
 - `PatchApplier`;
+- `HistoryCompactor`;
+- `ToolExposure`;
+- `SubagentRunner`;
 - `Workflow`;
 - `Renderer`;
 - `EventSink`.
@@ -305,12 +363,12 @@ adapter — в `output_config.effort` и `thinking` (`adaptive` или manual
 
 ### Plugin Boundary
 
-Плагины — dylib-файлы в `~/.proteus/plugins/`, depends только на `proteus-contracts` (через `abi_stable`). Ядро не depend на плагины.
+Плагины — dylib-файлы в `~/.proteus/plugins/`, depends только на `proteus-contracts` (через `abi_stable`) и, при необходимости, утилитарные крейты без ABI-типов (сейчас `proteus-process-host`). Ядро не depend на плагины.
 
 Ключевые точки:
 
 - `crates/proteus-contracts/src/plugin.rs` — sabi_trait-ы (`PluginRoot`,
-  `PluginRegistry`, `PluginTool`, renderer/policy/patch/search/memory/compactor/tool_exposure/workflow
+  `PluginRegistry`, `PluginTool`, renderer/policy/patch/search/memory/compactor/tool_exposure/subagent/workflow
   adapters), prefix type и `export_root_module!` helper.
 - `crates/proteus-core/src/core/plugin_loader.rs` — загрузчик через
   `libloading` + `lib_header_from_raw_library` + `init_root_module`
@@ -322,12 +380,26 @@ adapter — в `output_config.effort` и `thinking` (`adaptive` или manual
   используется в тестах.
 
 В текущей Волне единый `PluginRegistry` покрывает `tool`, `renderer`,
-`policy`, `patch`, `search`, `memory`, declarative `memory_policy`, full
-`context_builder`, `context_provider` для `repo_aware` и capability-based
-`workflow`. `model` остаётся builtin-only. Детали и волны:
-`plugin-architecture.md`.
+`policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time
+`compactor`, `tool_exposure`, `subagent`, полный `context_builder`,
+`context_provider` для `repo_aware` и capability-based `workflow`. `model`
+остаётся builtin-only. Детали и волны: [plugin-architecture.md](plugin-architecture.md).
 
 ## Runtime Flow
+
+### Жизнь Одного Turn
+
+1. `AgentRuntime::run_with_cancellation` (runtime.rs): берёт `run_lock`, снимает `RuntimeSnapshot { epoch, registry }` — основа hot-swap (turn всегда работает на консистентном наборе modules).
+2. Эмитится `TurnStarted`, user message персистится в `SessionStore` (`messages.jsonl`).
+3. Строится `RuntimeContext` (contracts/workflow.rs) — DI-пакет всех слотов: model, search, memory, context, tools, policy, approval, user_input, patch, compactor, tool_exposure, subagent, cancellation, events.
+4. Вызывается `Workflow::run(task, history, ctx)`. Production workflows живут в плагине `coding-workflow`; dylib-workflow общается с core через узкий `PluginWorkflowHost` (plugin.rs): `build_context_json`, `complete_model_json`, `execute_tool(s)_json`, `compact_history_json`, `select_tools_json`, `run_subagent_json`, `emit_event_json`.
+5. Внутри workflow: ContextBuilder собирает `ContextBundle`, ToolExposure решает какие tools показать, model call стримит дельты, tool calls идут через `ToolOrchestrator` (policy Allow/Ask/Deny → approval transport → исполнение → `ToolFinished`).
+6. `WorkflowOutput { output, messages, new_messages_start, compactions }` валидируется, `memory_policy.after_turn` отрабатывает, messages персистятся (append, либо replace при compaction).
+7. Все события уходят в `EventSink`-fanout: durable `JsonlEventStore` (`.proteus/events.jsonl`, без streaming-дельт) + SSE broadcast для клиентов.
+
+Approval-путь: `ToolOrchestrator` на `Ask` эмитит `ApprovalRequested` → app-server держит pending и шлёт SSE → web UI показывает `ApprovalCard` → `POST /approval {approved, cache}` → `CachedApprovalTransport` может закешировать scope (exact command / workspace-write).
+
+### Workflow Loops
 
 Упрощённый flow baseline `coding.single_loop` workflow из плагина
 `coding-workflow`:
@@ -366,9 +438,147 @@ tool rounds; остановка идёт через no-tool response, ошибк
 timeout. Diagnostic variant отличается только user-facing обработкой пустого
 финального ответа после tool call.
 
+## Слоты И Реализации
+
+13 config-выбираемых slots (`[modules]` в toml, model — через
+`active_provider`/`providers`): `model`, `workflow`, `context`, `search`,
+`tool_exposure`, `policy`, `patch`, `compactor`, `memory`, `memory_policy`,
+`subagent`, `renderer` и `tool` (через `tools.enabled`, а не `modules.*`).
+Актуальная таблица реализаций по каждому slot-у — [modules.md](modules.md).
+
+Прочие контракты (не выбираются через `[modules]`): `ApprovalTransport`,
+`UserInputTransport`, `EventSink`, `ModelClient`, `ToolProvider`,
+`RenderComponent`, `context_provider` (регистрируется плагином, включается в
+`providers` списке builder-а).
+
+Duplicate policy: builtin выигрывает конфликт `(slot, id)`; конфликт имён plugin
+tool с builtin — hard error конфигурации.
+
+## Plugin ABI В Двух Словах
+
+- Граница — `proteus-contracts` + `abi_stable`. Плагин **не** зависит от `proteus-core`.
+- Все slot-трейты первой волны sync; данные ходят как JSON-строки (`*_json` методы). Core гоняет плагин в `spawn_blocking`.
+- Entry point: `PluginRoot { name, description, register_modules }` + `#[export_root_module]`. Типовой `Cargo.toml`: `crate-type = ["cdylib", "rlib"]` (rlib — чтобы линковать в тесты), deps: contracts, abi_stable, serde.
+- `plugin.toml` рядом с `.so`: name/version/description + `[module_descriptions]` для UI/CLI. Читается до загрузки dylib — битый плагин всё равно виден в `modules list` с причиной.
+- Module config: `module_config.<slot>.<module_id>` из toml прокидывается плагину в поле `config` input-JSON (для context/policy/compactor и т.д.). **Грабли: plugin tools конфиг не получают** — только `cwd` строкой на каждый invoke.
+- Грабли ABI: `RootModule::load_from_file` использовать нельзя (кеширует root по типу — ломает multi-plugin); только `RawLibrary::load_at` + `init_root_module`.
+
+Полное описание: [plugin-architecture.md](plugin-architecture.md).
+
+## Config
+
+- `[modules]` — выбор module_id на slot. `[tools] enabled = [...]` — tools opt-in по имени (установленный плагин расширяет namespace, но невидим модели, пока не включён; неизвестное имя — ошибка).
+- `[module_config.<slot>.<module_id>]` — module-owned настройки. Пример: `module_config.context.repo_aware.providers = [...]` — упорядоченный pipeline провайдеров контекста, куда включаются и внешние `context_provider`-ы из плагинов.
+- Профили: `examples/configs/proteus.coding.example.toml` (quickstart),
+  `configs/codex.config.toml` и `configs/opencode.config.toml` (parity-паки),
+  `examples/configs/proteus.dev-slim.example.toml` (разработка самого Proteus),
+  `examples/configs/proteus.external-tools.example.toml`.
+- Approval-правила policy: last match wins.
+- Схема и нюансы — [configuration.md](configuration.md).
+
+## Правила Принятия Решений
+
+Это самое важное для "как идти дальше". Порядок проверки любой новой идеи:
+
+1. **Slot-governance** ([slot-governance.md](slot-governance.md)): slot нужен для класса
+   заменяемого поведения, не для фичи. Дерево решений там же: "модель сама
+   вызывает?" → Tool; "порядок действий loop-а?" → Workflow; "что в контекст?"
+   → ContextBuilder/provider/Compactor; и т.д. Новый slot — только при 2-3
+   правдоподобных реализациях + provider-neutral DTO + swap-тесты.
+2. **Freeze** ([scope.md](scope.md)): до slim-dogfood прогонов — никаких новых
+   slots, packs, memory/renderer polish, artifact pipeline. Активный путь —
+   coding loop (model, workflow, context, tools, policy, patch, search,
+   events, app-server, web UI). Memory/compactor/renderer — parked, это
+   нормально, не долг.
+3. **Parity rule** (AGENTS.md): всё что заявлено как Codex-совместимый режим
+   (`codex_loop`, `codex_context`, `codex_policy`, `codex` compactor) должно
+   повторять upstream поведение, включая ошибки и stop conditions. Улучшения —
+   только как отдельный явно названный module id (пример: `codex_loop_diagnostic`).
+4. **Модульность файлов** (AGENTS.md): production-файл ~500-700 строк —
+   потолок; дальше сначала режь (`builder`/`types`/`state`/`helpers`/`render`/tests).
+5. **Ведение запросов**: на "продолжи/что дальше" — сначала восстановить
+   контекст, предложить 2-3 варианта, ждать явного "го". Многофичевые запросы
+   — раскладывать в checklist и явно закрывать каждый пункт.
+
+## Рецепты
+
+**Новый tool**: плагин в `plugins/default/<name>` (или добавить в существующий
+pack) → impl `PluginTool` (`spec_json` с name/description/input_schema/safety,
+`invoke_json`) → `register_tool` в `register_modules` → включить в
+`tools.enabled` примера → тест на invoke → docs. Safety честная:
+`ReadOnly`/`WritesFiles`/`RunsCommands`/`Network` — от неё зависит policy.
+
+**Новый context provider**: `register_context_provider` в плагине → provider
+получает `PluginContextProviderInput { provider_id, task, metadata }`, отдаёт
+chunks → пользователь включает id в `module_config.context.<builder>.providers`.
+Образец "читать md с диска и инжектить" — `project_instruction_chunks` в
+context-pack.
+
+**Новый workflow**: реализация в `coding-workflow` (или свой pack) поверх
+`TurnScaffold` (scaffold.rs) и host-capabilities. Не обходить orchestrator:
+tools только через `execute_tool(s)_json`.
+
+**Новый model provider**: OpenAI-совместимый — просто `openai_compatible` +
+base_url в config, без кода. Иначе — adapter в `crates/proteus-core/src/adapters/`
++ регистрация в builtins. Provider-типы за пределы adapters не выносить.
+
+**Новый slot**: почти никогда. Если всё же — Definition of Done в
+[slot-governance.md](slot-governance.md) (contract docs, ABI или причина
+core-only, stub, config key, swap test, docs, минимум две реализации).
+
+**Checklist после любого модуля**: catalog registration → config example →
+swap/boundary test если slot → `docs/modules.md` (+`configuration.md`) →
+`cargo test` → отдельный git commit.
+
+**Чеклист поверхностей фичи**: агентная фича уровня продукта почти всегда
+мажется по пяти поверхностям — protocol (endpoint/event/DTO), client (render +
+state), module (плагин/adapter), config (key + example), docs. Фича считается
+сделанной, когда закрыты все пять или явно записано, какие отложены и где
+(урок subagent: slot есть, а web UI handoff висел отдельным долгом). Толстых
+файлов это тоже касается: размазанность вместо толщины — цена модульности,
+следи за лимитом 500-700 строк на каждой поверхности (актуальный список
+должников — roadmap, Architecture Cleanup).
+
+## Проверка
+
+- Минимум для docs-правок: `cargo test`. Для архитектурных — убедиться, что
+  `tests/module_swap.rs` зелёный: он перечисляет builtin-слоты, свапает
+  реализации (subagent, context, compactor, tool_exposure builtin↔plugin),
+  отклоняет невалидные ids/дубликаты, собирает tool-профили из config.
+- `proteus doctor` — самодиагностика; `eval report <events.jsonl>` — разбор
+  прогона; `inspect topology --format runtime` — человеческая карта runtime path.
+- **Dogfood gate** ([dogfood-gate.md](dogfood-gate.md)): реальная маленькая coding-задача
+  через весь стек (web UI → app-server → runtime → tools → patch). Зелёные
+  тесты доказывают только целостность границ, не качество агента; failed task
+  допустим, если сбой локализован по слою. Не использовать как первый тест
+  большую фичу или новый slot.
+
+Правила тестирования по слоям: [testing.md](testing.md).
+
+## Нюансы И Грабли
+
+- Streaming-дельты не пишутся в durable event log (`FilteredEventSink`) —
+  анализировать прогоны по `ToolFinished`/`ModelResponseReceived`, не по дельтам.
+- Web client получает token в query для `EventSource` (headers не умеет),
+  остальное — header. Server loopback-only в v0.
+- Tools с policy `Ask` невидимы модели, если approval transport не умеет
+  спрашивать (headless) — "пропавший tool" часто именно это.
+- Compaction делает `replace_messages` (atomic tmp-rename), обычный turn —
+  append; путать нельзя при работе с SessionStore.
+- `RuntimeSnapshot`/`ModuleEpoch`: reload modules не влияет на уже идущий turn.
+- Batch tools: подряд идущие ReadOnly исполняются конкурентно
+  (`execute_tools_json`) — tool-реализации не должны полагаться на порядок.
+- Правки в `docs/spec.md` обязаны разделять `implemented` и `planned` — не
+  превращать vision в описание факта.
+- Research-код не попадает в root workspace, `install.sh` и default profile.
+- Гравитационные колодцы (куда фичи оседают сами собой): app-server protocol
+  (endpoint+event на каждую UI-фичу, DTO до v0.4 не стабилизирован), web
+  client файлы, реализации workflow (watch-сигналы — roadmap, Architecture
+  Cleanup). Contract-ы узкие, распухают реализации.
+
 ## Текущие Ограничения
 
-- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и `coding.plan_execute_review`, `context-pack` регистрирует `simple`, `repo_aware` и `codex_context`, `codex-compactor` регистрирует `codex`, `codex-tool-exposure` регистрирует `codex_dynamic`. `model` пока регистрируется только как builtin. Package manager, marketplace, dylib unload и общий `reload_modules` не планируются для v0.
+- Dylib plugin loader работает для `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, declarative `memory_policy`, request-time `compactor`, `tool_exposure`, `subagent`, full `context_builder`, `repo_aware` `context_provider` и plugin `workflow`; `coding-workflow` регистрирует `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и `coding.plan_execute_review`, `context-pack` регистрирует `simple`, `repo_aware` и `codex_context`, `codex-compactor` регистрирует `codex`, `codex-tool-exposure` регистрирует `codex_dynamic`. `model` пока регистрируется только как builtin. Package manager, marketplace, dylib unload и общий `reload_modules` не планируются для v0.
 - `plugin.toml` manifest рядом с `.so` читается до загрузки dylib и переопределяет `PluginRoot::name` / `description`. Если dylib не загрузился (ABI mismatch, битый файл, отсутствует), плагин всё равно виден в `modules list` с причиной ошибки.
 - `PatchApplier` сейчас доступен runtime через tool `apply_patch`, но workflow не создаёт отдельный patch action и не испускает standalone patch events.
 - Tools подключаются через `BuiltinToolProvider`, config-defined executors, MCP
