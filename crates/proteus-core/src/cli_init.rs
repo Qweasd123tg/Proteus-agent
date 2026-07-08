@@ -6,11 +6,13 @@ use std::{
 use anyhow::{Result, bail};
 use proteus_core::core::AppConfig;
 
-const CODING_PROFILE_CONFIG: &str = include_str!("../../../proteus.coding.example.toml");
-const CODEX_PROFILE_CONFIG: &str = include_str!("../../../codex.config.toml");
-const PROVIDER_PROFILE_CONFIG: &str = include_str!("../../../proteus.provider.example.toml");
-const SAFE_PROFILE_CONFIG: &str = include_str!("../../../proteus.example.toml");
-const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../prompts/codex-default.md");
+const CODING_PROFILE_CONFIG: &str =
+    include_str!("../../../examples/configs/proteus.coding.example.toml");
+const CODEX_PROFILE_CONFIG: &str = include_str!("../../../configs/codex.config.toml");
+const PROVIDER_PROFILE_CONFIG: &str =
+    include_str!("../../../configs/proteus.provider.example.toml");
+const SAFE_PROFILE_CONFIG: &str = include_str!("../../../examples/configs/proteus.example.toml");
+const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../configs/prompts/codex-default.md");
 /// Относительный путь совпадает с `file` в codex-конфиге: резолвится от
 /// каталога config-файла.
 const CODEX_PROMPT_FILE: &str = "prompts/codex-default.md";
@@ -114,7 +116,12 @@ pub(crate) fn init_config_path_from_arg(path: &Path) -> PathBuf {
 }
 
 fn strip_profile_include(config: &str) -> &str {
-    if let Some(rest) = config.strip_prefix("include = \"proteus.provider.example.toml\"") {
+    // Примеры в examples/configs/ include-ят packaged provider config по
+    // относительному пути от репо; init инлайнит provider profile вместо
+    // include, поэтому префикс просто отрезается.
+    if let Some(rest) =
+        config.strip_prefix("include = \"../../configs/proteus.provider.example.toml\"")
+    {
         rest
     } else {
         config

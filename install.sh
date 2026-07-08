@@ -347,15 +347,25 @@ install_config() {
   cp "${project_dir}/${source_path}" "${dest_path}"
 }
 
-install_config "codex.config.toml" "codex.config.toml"
-install_config "opencode.config.toml" "opencode.config.toml"
-install_config "proteus.provider.example.toml" "proteus.provider.example.toml"
+install_config "codex.config.toml" "configs/codex.config.toml"
+install_config "opencode.config.toml" "configs/opencode.config.toml"
+install_config "proteus.provider.example.toml" "configs/proteus.provider.example.toml"
 
 # Prompt-файлы обновляются при каждой установке: это код профиля, а не
 # пользовательские правки (в отличие от configs, которые не перезаписываются).
 mkdir -p "${configs_dir}/prompts"
-cp "${project_dir}/prompts/codex-default.md" "${configs_dir}/prompts/"
-cp "${project_dir}/prompts/opencode-default.md" "${configs_dir}/prompts/"
+install_prompt() {
+  source_path="${project_dir}/configs/prompts/$1"
+  dest_path="${configs_dir}/prompts/$1"
+  # configs_dir может быть симлинком на репозиторный configs/ — тогда source
+  # и dest являются одним файлом и копирование не нужно.
+  if [ "${source_path}" -ef "${dest_path}" ]; then
+    return
+  fi
+  cp "${source_path}" "${dest_path}"
+}
+install_prompt "codex-default.md"
+install_prompt "opencode-default.md"
 
 echo "Installed: ${bin_path}"
 echo "Plugins:   ${plugins_dir}"

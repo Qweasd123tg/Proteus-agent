@@ -3214,10 +3214,11 @@ impl ModelAdapter for NoToolsAdapter {
 
 #[tokio::test]
 async fn json_config_file_can_select_anthropic_provider() {
-    let config =
-        proteus_core::core::AppConfig::load(Some(&workspace_root_file("config.example.json")))
-            .await
-            .unwrap();
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "examples/configs/config.example.json",
+    )))
+    .await
+    .unwrap();
     let model_config = config.active_model_config().unwrap();
 
     assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
@@ -3275,10 +3276,11 @@ budget_tokens = 8192
 
 #[tokio::test]
 async fn toml_config_file_can_select_statusline_renderer() {
-    let config =
-        proteus_core::core::AppConfig::load(Some(&workspace_root_file("proteus.example.toml")))
-            .await
-            .unwrap();
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "examples/configs/proteus.example.toml",
+    )))
+    .await
+    .unwrap();
 
     assert_eq!(config.modules.renderer, "statusline");
     assert_eq!(config.tools.enabled, standard_tool_names());
@@ -3288,7 +3290,7 @@ async fn toml_config_file_can_select_statusline_renderer() {
 #[tokio::test]
 async fn coding_toml_config_enables_repo_aware_rg_profile() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
-        "proteus.coding.example.toml",
+        "examples/configs/proteus.coding.example.toml",
     )))
     .await
     .unwrap();
@@ -3344,7 +3346,7 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
 #[tokio::test]
 async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
-        "proteus.dev-slim.example.toml",
+        "examples/configs/proteus.dev-slim.example.toml",
     )))
     .await
     .unwrap();
@@ -3384,10 +3386,11 @@ async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
 
 #[tokio::test]
 async fn codex_toml_config_enables_codex_experimental_profile() {
-    let config =
-        proteus_core::core::AppConfig::load(Some(&workspace_root_file("codex.config.toml")))
-            .await
-            .unwrap();
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "configs/codex.config.toml",
+    )))
+    .await
+    .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
     assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
@@ -3482,23 +3485,9 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
 }
 
 #[tokio::test]
-async fn legacy_codex_example_toml_includes_named_codex_config() {
-    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
-        "proteus.codex.example.toml",
-    )))
-    .await
-    .unwrap();
-
-    assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
-    assert_eq!(config.modules.context, "codex_context");
-    assert_eq!(config.modules.compactor, "codex");
-}
-
-#[tokio::test]
 async fn external_tools_toml_config_keeps_enabled_tools_empty() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
-        "proteus.external-tools.example.toml",
+        "examples/configs/proteus.external-tools.example.toml",
     )))
     .await
     .unwrap();
@@ -3708,10 +3697,11 @@ handler = "read_file"
 
 #[tokio::test]
 async fn json_config_can_switch_to_custom_provider_url() {
-    let mut config =
-        proteus_core::core::AppConfig::load(Some(&workspace_root_file("config.example.json")))
-            .await
-            .unwrap();
+    let mut config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "examples/configs/config.example.json",
+    )))
+    .await
+    .unwrap();
     config.active_provider = Some("local".to_owned());
 
     let model_config = config.active_model_config().unwrap();
