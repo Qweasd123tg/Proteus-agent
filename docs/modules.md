@@ -538,12 +538,28 @@ turn. Побочный эффект detached-исполнения: обрыв р
 Роль объявляется безопасной для конкурентного запуска флагом
 `parallel_safe = true` (декларация оператора: роль должна быть фактически
 read-only — через `tools` allowlist у `sequential` или read-only config
-ребёнка у `process`). `coding-workflow` использует флаг как гейт: батч из
-нескольких `task`-вызовов одного ответа модели исполняется конкурентно
+ребёнка у `process`). Пишущая роль получает право на конкурентность через
+`isolation = "worktree"`: каждый fresh запуск исполняется в собственном git
+worktree (см. ниже). `coding-workflow` использует оба флага как гейт: батч
+из нескольких `task`-вызовов одного ответа модели исполняется конкурентно
 (spawn всех → wait по порядку) только если каждая запрошенная роль
-`parallel_safe`; любая другая комбинация идёт последовательно. Ошибка
-одного вызова (аргументы, spawn, wait) даёт error `ToolResult` и не
-прерывает остальных детей батча.
+`parallel_safe` либо worktree-изолирована; любая другая комбинация идёт
+последовательно. Ошибка одного вызова (аргументы, workspace, spawn, wait)
+даёт error `ToolResult` и не прерывает остальных детей батча.
+
+Worktree-lifecycle оркестрирует родительский workflow, не слот: перед
+spawn-ом fresh задачи изолированной роли `coding-workflow` просит хост
+(`create_subagent_workspace_json`) создать
+`<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
+HEAD (каталог исключён через `.git/info/exclude`) и подменяет `task.cwd`
+ребёнка; одиночные вызовы изолируются так же — пишущий ребёнок никогда не
+трогает родительский checkout. После `wait` чистый worktree удаляется
+(`cleanup_subagent_workspace_json`), изменённый остаётся и аннотируется в
+результате `task` путём и веткой: merge — обязанность родительского агента,
+автоматического merge нет, конфликты — штатная работа. Resume по `task_id`
+попадает в тот же worktree (реестр in-memory, живёт как
+resumable-снапшоты). Process runner при этом реюзает idle-процесс только с
+совпадающим cwd — `--cwd` фиксируется при спавне процесса.
 
 Builtin `none` возвращает пустой список ролей и отключает делегирование.
 Builtin `sequential` исполняет дочерний цикл in-process.
@@ -560,6 +576,7 @@ description = "Read-only codebase explorer."
 prompt = "Inspect the repository without modifying files. Return paths and line numbers."
 max_iterations = 15
 # parallel_safe = true # роль можно запускать конкурентно (строго read-only tools!)
+# isolation = "worktree" # пишущая роль: свой git worktree на fresh запуск (тоже даёт конкурентность)
 # exposure_phase = "subagent:explore" # default if omitted
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
@@ -603,9 +620,11 @@ policy, tools, model, permission mode и промпты ребёнка зада�
 ребёнку с grace-ожиданием (`cancel_grace_ms`), затем процесс убивается.
 
 Процессы роли живут в пуле: до `max_processes` одновременных детей на роль
-(default 4 для `parallel_safe`-ролей, 1 для остальных; сверх-лимитные
-запуски ждут свободного процесса на semaphore). Свободный процесс
-переиспользуется между задачами (lazy spawn): свежая задача начинается с
+(default 4 для `parallel_safe`/worktree-ролей, 1 для остальных;
+сверх-лимитные запуски ждут свободного процесса на semaphore). Свободный
+процесс переиспользуется между задачами (lazy spawn) только при совпадении
+cwd (`--cwd` фиксируется при спавне — критично для worktree-изоляции):
+свежая задача начинается с
 `ClearHistory` (что инвалидирует прежние task_id-ы этого процесса — resume
 по очищенной session честно отклоняется), resume по `task_id` продолжает
 живую session конкретного процесса; смерть процесса хоронит его task_id-ы.

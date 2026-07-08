@@ -160,6 +160,24 @@ parallel_safe = true
 max_iterations = 15
 max_summary_bytes = 8192
 
+[[module_config.subagent.sequential.roles]]
+name = "coder"
+description = "Isolated coder for a self-contained code change. Works in its own git worktree and commits to its own branch; the parent reviews and merges the branch afterwards."
+prompt = """You are a focused coding subagent inside the Proteus harness, working in your own git worktree on a dedicated branch. Implement exactly the change you were asked for — nothing more.
+
+Rules:
+- Your cwd is an isolated worktree: edit freely, the parent checkout is untouched.
+- Stay on task: no refactors, cleanups, or extras beyond the request.
+- Verify what you can (build/tests via shell) before finishing.
+- Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.
+- Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging."""
+tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "write_file", "shell"]
+# Изоляция структурная: каждый fresh запуск получает собственный worktree,
+# поэтому несколько coder-вызовов в одном ответе модели идут параллельно.
+isolation = "worktree"
+max_iterations = 25
+max_summary_bytes = 8192
+
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
 always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin"]

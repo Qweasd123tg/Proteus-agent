@@ -57,6 +57,18 @@ always_include = ["request_user_input"]
 # # all_visible ignores exposure_phase; use tools as a per-role safety allowlist.
 # exposure_phase = "subagent:explore"
 # tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+#
+# [[module_config.subagent.sequential.roles]]
+# name = "coder"
+# description = "Isolated coder for a self-contained change; works in its own git worktree."
+# prompt = "You are a focused coding subagent working in your own git worktree on a dedicated branch. Implement exactly the requested change, verify it if possible, commit to the current branch, and report what changed."
+# max_iterations = 25
+# # isolation = "worktree": every fresh run gets its own git worktree
+# # (branch proteus/<name> under <repo>/.proteus/worktrees/), so several
+# # coder tasks in one model reply run concurrently. Nothing is merged
+# # automatically - the parent reviews and merges the child branch.
+# isolation = "worktree"
+# tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "write_file", "shell"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"]

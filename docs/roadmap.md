@@ -244,8 +244,16 @@ slot-governance назрел.
    пул до `max_processes` процессов на роль (resume по конкретному
    process id; ClearHistory хоронит старые task_id-ы процесса),
    coding-workflow исполняет батч task-вызовов конкурентно только когда
-   все роли parallel_safe. Осталось: `BudgetTracker` (Кластер 5), UX
-   дерева потоков в клиенте, worktree-per-child для пишущих (stage 2).
+   все роли parallel_safe. Stage 2 реализован (2026-07-09):
+   worktree-per-child для пишущих — роль с `isolation = "worktree"`
+   получает на каждый fresh запуск свой git worktree
+   (`<repo>/.proteus/worktrees/<имя>`, ветка `proteus/<имя>`, механика в
+   `core/workspace.rs`, host API `create/cleanup_subagent_workspace_json`,
+   lifecycle оркестрирует coding-workflow), батч-гейт расширен до
+   parallel_safe ∨ worktree, пул процессов реюзает idle-процесс только при
+   совпадении cwd; merge ветки — обязанность родительского агента
+   (авто-merge нет), выделенная merge-роль — следующий срез. Осталось:
+   `BudgetTracker` (Кластер 5), UX дерева потоков в клиенте.
 
 ## Этапы
 
@@ -349,7 +357,17 @@ plan/execute/review экспериментов.
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
   Code worktrees, Codex cloud isolation), worktree lifecycle — оркестрация
   родительского workflow/tools, не слот; merge результатов — отдельная
-  роль/фаза, конфликты — штатный случай.
+  роль/фаза, конфликты — штатный случай. Этап 2 реализован (2026-07-09):
+  `isolation = "worktree"` у роли (sequential + process + frontmatter),
+  worktree-механика в `core/workspace.rs` за host API
+  `create/cleanup_subagent_workspace_json`, coding-workflow подменяет cwd
+  ребёнка перед spawn (изоляция и для одиночных вызовов), чистый worktree
+  убирается после wait, изменённый аннотируется в результате путём/веткой,
+  resume попадает в тот же worktree по in-memory реестру, батч-гейт —
+  parallel_safe ∨ worktree, пул процессов реюзает только совпадающий cwd;
+  merge выполняет родитель своими git-тулами (решение владельца
+  2026-07-08), выделенная merge-роль — следующий срез. Packaged
+  glm/codex-конфиги получили роль `coder` (worktree-writer).
   Dogfood-evidence по sequential (первые прогоны, 2026-07-06):
   (a) ребёнок читал файлы по одному `read_file` на итерацию при доступном
   `read_many_files` — промпт роли `explore` дополнен требованиями "map before

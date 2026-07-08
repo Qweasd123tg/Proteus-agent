@@ -556,6 +556,9 @@ prompt = "Inspect the repository without editing files. Return concise findings 
 max_iterations = 15
 # parallel_safe = true # роль можно запускать конкурентно с другими субагентами;
 #                      # объявляйте только для фактически read-only ролей (tools allowlist!)
+# isolation = "worktree" # пишущая роль: каждый fresh запуск получает свой git
+#                        # worktree (ветка proteus/<name> в <repo>/.proteus/worktrees/);
+#                        # тоже даёт право на конкурентный запуск
 # exposure_phase = "subagent:explore"
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
@@ -568,12 +571,22 @@ Workflow-плагины получают роли через `subagent_roles_jso
 (`SubagentHandle`). В `coding-workflow` это surface tool
 `task` с аргументами `agent_type`, `prompt`, optional `description` и optional
 `task_id`. Батч из нескольких `task`-вызовов одного ответа модели исполняется
-конкурентно, только если каждая запрошенная роль объявлена `parallel_safe`;
-иначе — последовательно.
+конкурентно, только если каждая запрошенная роль объявлена `parallel_safe`
+или `isolation = "worktree"`; иначе — последовательно.
 У роли можно задать `tools = [...]`: после общего `ToolExposure` дочерний цикл
 оставит только перечисленные имена. `exposure_phase` помогает только с
 phase-aware exposure модулем; `all_visible` фазу не учитывает, поэтому per-role
 allowlist остаётся страховкой для ограниченных ролей.
+
+Роль с `isolation = "worktree"` всегда (включая одиночный вызов) исполняется в
+собственном git worktree: workflow просит хост создать
+`<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
+HEAD (каталог исключается через `.git/info/exclude`) и подменяет cwd ребёнка.
+После завершения чистый worktree удаляется; изменённый остаётся, а результат
+`task` дописывается путём и веткой — merge выполняет родительский агент, ничего
+не мержится автоматически. Resume по `task_id` попадает в тот же worktree
+(реестр in-memory, как и resumable-снапшоты). Не-git cwd — обычная ошибка
+tool-вызова.
 
 Результат `task` может вернуть маркер `[task_id: ...]`; его можно передать в
 следующий вызов `task`, чтобы продолжить тот же дочерний контекст, а не начинать
@@ -586,8 +599,8 @@ resume-история оставалась валидной), и не переж
 Кроме inline `roles`, sequential runner может читать Markdown-роли из
 `roles_dir`. У каждого файла имя без расширения становится именем роли, YAML
 frontmatter обязан содержать `description` и может задавать `exposure_phase`,
-`tools`, `parallel_safe`, `max_iterations`, `timeout_ms`, `max_summary_bytes`;
-тело Markdown-файла используется как prompt роли.
+`tools`, `parallel_safe`, `isolation`, `max_iterations`, `timeout_ms`,
+`max_summary_bytes`; тело Markdown-файла используется как prompt роли.
 
 `modules.subagent = "process"` включает builtin process runner: ребёнок —
 отдельный процесс `proteus server stdio --new-session` со своим named config
@@ -611,7 +624,8 @@ config = "sub-explorer"              # named config или путь к config-ф
 # prompt = "Focus on the build system." # опциональный префикс задачи
 # args = ["--permission-mode", "plan"]  # extra CLI-аргументы ребёнка
 # parallel_safe = true                # config ребёнка должен быть read-only профилем
-# max_processes = 2                  # пул процессов роли; default 4 при parallel_safe, иначе 1
+# isolation = "worktree"             # пишущая роль: свой git worktree на fresh запуск
+# max_processes = 2                  # пул процессов роли; default 4 при parallel_safe/worktree, иначе 1
 # timeout_ms = 120000
 # max_summary_bytes = 4096
 ```
