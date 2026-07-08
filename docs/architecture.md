@@ -67,6 +67,7 @@ configs/                     packaged named configs и личные профил
                              для ~/.config/Proteus-agent/configs)
 prompts/                     источники prompt-файлов (configs/prompts/* — артефакт install.sh)
 examples/research/*          заметки по upstream агентам (codex, opencode) — источник parity-требований
+examples/source/*            git-ignored клоны/снапшоты исходников upstream агентов
 docs/                        вся документация (на русском), индекс в docs/README.md
 crates/proteus-core/tests/module_swap.rs   главный boundary/swap gate
 ```

@@ -3,7 +3,7 @@
 Это рабочая папка для изучения репозитория `__REMOVED_PRIVATE_HOST__/claude-code` без сборки и без запуска.
 
 Снимок репозитория:
-- локальный клон: `claude-code-src`
+- локальный клон: `examples/source/claude-code` (git-ignored)
 - commit: `583cb60bac792b5d8e89b180c115906855adfa59`
 - дата коммита: `2026-03-31`
 - тема коммита: `Fix COMMIT_ATTRIBUTION and McpbManifestSchema bundling`

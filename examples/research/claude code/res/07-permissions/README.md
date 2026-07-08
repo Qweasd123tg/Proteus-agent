@@ -48,7 +48,7 @@ Permission layer в Claude Code состоит из нескольких раз�
 
 ## Как строится `ToolPermissionContext`
 
-`ToolPermissionContext` описан в [src/Tool.ts](claude-code-src/src/Tool.ts).
+`ToolPermissionContext` описан в [src/Tool.ts](../../../../source/claude-code/src/Tool.ts).
 
 Ключевые поля:
 - `mode`
