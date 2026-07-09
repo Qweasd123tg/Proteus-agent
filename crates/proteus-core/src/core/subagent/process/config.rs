@@ -81,6 +81,10 @@ pub(super) struct ProcessRoleConfig {
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub max_summary_bytes: Option<usize>,
+    /// Token-бюджет запуска: потолок суммы input+output model-запросов
+    /// ребёнка (по `TokenUsageUpdated` событиям под child ThreadId).
+    #[serde(default)]
+    pub max_total_tokens: Option<u64>,
 }
 
 impl ProcessRoleConfig {
@@ -129,6 +133,7 @@ pub(super) fn build_process_role_specs(
         let mut limits = SubagentLimits::default();
         limits.timeout_ms = role.timeout_ms;
         limits.max_summary_bytes = role.max_summary_bytes;
+        limits.max_total_tokens = role.max_total_tokens;
         let isolation = parse_isolation(role.isolation.as_deref())
             .with_context(|| format!("subagent role {}", role.name))?;
         specs.push(
@@ -161,7 +166,8 @@ mod tests {
                     "description": "Read-only explorer",
                     "config": "sub-explorer",
                     "timeout_ms": 60000,
-                    "max_summary_bytes": 2048
+                    "max_summary_bytes": 2048,
+                    "max_total_tokens": 250000
                 }
             ],
             "max_depth": 2,
@@ -176,6 +182,7 @@ mod tests {
         assert_eq!(specs[0].name, "explore");
         assert_eq!(specs[0].limits.timeout_ms, Some(60000));
         assert_eq!(specs[0].limits.max_summary_bytes, Some(2048));
+        assert_eq!(specs[0].limits.max_total_tokens, Some(250_000));
         assert_eq!(specs[0].config["config"], "sub-explorer");
     }
 
@@ -192,6 +199,7 @@ mod tests {
             max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
+            max_total_tokens: None,
         }])
         .unwrap_err();
         assert!(error.to_string().contains("must set a child config"));
@@ -210,6 +218,7 @@ mod tests {
             max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
+            max_total_tokens: None,
         };
         let error = build_process_role_specs(&[role.clone(), role]).unwrap_err();
         assert!(error.to_string().contains("duplicate subagent role"));

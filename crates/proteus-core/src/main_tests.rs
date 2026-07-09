@@ -366,7 +366,9 @@ async fn init_codex_writes_loadable_single_config_file() {
     assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.compactor, "codex");
-    assert_eq!(config.modules.tool_exposure, "codex_dynamic");
+    // all_visible с 2026-07-09: codex_dynamic пересобирал tools по тексту
+    // задачи и ломал prompt cache (см. configs/codex.config.toml).
+    assert_eq!(config.modules.tool_exposure, "all_visible");
     assert!(dir.path().join("prompts/codex-default.md").exists());
     assert!(
         config

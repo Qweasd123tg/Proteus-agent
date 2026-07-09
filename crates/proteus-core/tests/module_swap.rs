@@ -3397,18 +3397,21 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
-    assert_eq!(config.modules.tool_exposure, "codex_dynamic");
+    // all_visible с 2026-07-09: codex_dynamic пересобирал набор tools по
+    // тексту задачи и ломал prompt cache prefix (см. configs/codex.config.toml).
+    assert_eq!(config.modules.tool_exposure, "all_visible");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
-    let playwright = config
-        .tools
-        .mcp_servers
-        .iter()
-        .find(|server| server.name == "playwright")
-        .expect("playwright MCP server");
-    assert_eq!(playwright.command, "npx");
-    assert_eq!(playwright.safety, ToolSafety::Network);
+    // Playwright MCP закомментирован вместе с отключением codex_dynamic:
+    // при all_visible его схемы попадали бы в каждый запрос.
+    assert!(
+        !config
+            .tools
+            .mcp_servers
+            .iter()
+            .any(|server| server.name == "playwright")
+    );
     assert_eq!(configured_tool_names(&config), vec!["apply_patch"]);
     let apply_patch = config
         .tools
@@ -3418,6 +3421,8 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
         .expect("configured apply_patch");
     assert!(matches!(apply_patch.surface, ToolSurface::Freeform { .. }));
 
+    // Конфиг codex_dynamic остаётся в файле (инертен при all_visible),
+    // чтобы возврат dynamic exposure был правкой одной строки.
     let codex_dynamic = config.module_config_value(ModuleKind::ToolExposure, "codex_dynamic");
     assert_eq!(codex_dynamic["max_hot_tools"], 10);
     assert!(

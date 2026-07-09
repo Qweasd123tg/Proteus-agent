@@ -65,6 +65,9 @@ pub(super) struct SequentialRoleConfig {
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub max_summary_bytes: Option<usize>,
+    /// Token-бюджет запуска: потолок суммы input+output model-запросов.
+    #[serde(default)]
+    pub max_total_tokens: Option<u64>,
 }
 
 fn default_max_depth() -> u64 {
@@ -96,6 +99,8 @@ struct MarkdownRoleFrontmatter {
     timeout_ms: Option<u64>,
     #[serde(default)]
     max_summary_bytes: Option<usize>,
+    #[serde(default)]
+    max_total_tokens: Option<u64>,
 }
 
 /// Собирает итоговые `SubagentRoleSpec` из inline-ролей и `roles_dir`.
@@ -122,6 +127,7 @@ pub(super) fn build_role_specs(
         }
         limits.timeout_ms = role.timeout_ms;
         limits.max_summary_bytes = role.max_summary_bytes;
+        limits.max_total_tokens = role.max_total_tokens;
         let isolation = parse_isolation(role.isolation.as_deref())
             .with_context(|| format!("subagent role {}", role.name))?;
         let mut spec = SubagentRoleSpec::new(role.name, role.description, role.prompt)
@@ -233,5 +239,6 @@ fn parse_markdown_role(path: &Path) -> Result<SequentialRoleConfig> {
         max_iterations: frontmatter.max_iterations,
         timeout_ms: frontmatter.timeout_ms,
         max_summary_bytes: frontmatter.max_summary_bytes,
+        max_total_tokens: frontmatter.max_total_tokens,
     })
 }

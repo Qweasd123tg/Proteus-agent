@@ -563,6 +563,10 @@ max_iterations = 15
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
 # max_summary_bytes = 4096
+# max_total_tokens = 300000 # token-бюджет запуска: потолок суммы input+output
+#                           # всех model-запросов ребёнка; при превышении цикл
+#                           # останавливается со статусом token_budget_exceeded
+#                           # (partial summary + resume по task_id с новым окном)
 ```
 
 Workflow-плагины получают роли через `subagent_roles_json()` и запускают ребёнка
@@ -600,7 +604,8 @@ resume-история оставалась валидной), и не переж
 `roles_dir`. У каждого файла имя без расширения становится именем роли, YAML
 frontmatter обязан содержать `description` и может задавать `exposure_phase`,
 `tools`, `parallel_safe`, `isolation`, `max_iterations`, `timeout_ms`,
-`max_summary_bytes`; тело Markdown-файла используется как prompt роли.
+`max_summary_bytes`, `max_total_tokens`; тело Markdown-файла используется как
+prompt роли.
 
 `modules.subagent = "process"` включает builtin process runner: ребёнок —
 отдельный процесс `proteus server stdio --new-session` со своим named config
@@ -628,6 +633,9 @@ config = "sub-explorer"              # named config или путь к config-ф
 # max_processes = 2                  # пул процессов роли; default 4 при parallel_safe/worktree, иначе 1
 # timeout_ms = 120000
 # max_summary_bytes = 4096
+# max_total_tokens = 300000          # token-бюджет запуска (input+output всех
+#                                    # model-запросов ребёнка, по TokenUsageUpdated);
+#                                    # превышение = cancel + token_budget_exceeded
 ```
 
 Approval/user-input запросы ребёнка форвардятся в родительские transports

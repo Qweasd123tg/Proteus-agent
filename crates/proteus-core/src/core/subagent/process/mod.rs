@@ -44,8 +44,9 @@ use tokio::{
 
 use crate::{
     contracts::{
-        ApprovalRequest, RequestOrigin, RuntimeContext, SubagentHandle, SubagentRequest,
-        SubagentResult, SubagentRoleSpec, SubagentRunner, SubagentStatus, UserInputResponse,
+        ApprovalRequest, BudgetTracker, RequestOrigin, RuntimeContext, SubagentHandle,
+        SubagentRequest, SubagentResult, SubagentRoleSpec, SubagentRunner, SubagentStatus,
+        UserInputResponse,
     },
     domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id, new_thread_id},
     model_standard::TokenUsage,
@@ -460,7 +461,7 @@ impl RunnerInner {
             }
         };
 
-        let mut tracker = TurnTracker::default();
+        let mut tracker = TurnTracker::with_budget(spec.limits.max_total_tokens);
         let forwarder = ChildEventForwarder {
             ctx: &child_ctx,
             child_thread_id,
@@ -641,9 +642,19 @@ struct TurnTracker {
     last_text: Option<String>,
     stream_buffer: String,
     cancel_sent: bool,
+    /// Token-бюджет запуска (`SubagentLimits::max_total_tokens`). Скоупится
+    /// на запуск, не на task_id: resume получает новое окно.
+    budget: BudgetTracker,
 }
 
 impl TurnTracker {
+    fn with_budget(max_total_tokens: Option<u64>) -> Self {
+        Self {
+            budget: BudgetTracker::new(max_total_tokens),
+            ..Self::default()
+        }
+    }
+
     fn observe(&mut self, event: &Event) {
         match event {
             Event::ModelRequestPrepared { .. } => {
@@ -663,6 +674,7 @@ impl TurnTracker {
             Event::TokenUsageUpdated { usage } => {
                 if let Some(actual) = usage.actual.as_ref() {
                     super::child_loop::accumulate_usage(&mut self.usage, Some(actual));
+                    self.budget.record(Some(actual));
                 }
             }
             _ => {}
@@ -796,6 +808,21 @@ async fn drive_turn(
         if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
             return finish_cancelled(child, forwarder, send_id, tracker, cancel_grace).await;
         }
+        // Enforcement бюджета: превышение фиксируется по факту usage-события
+        // (первый запрос всегда разрешён), ребёнок останавливается тем же
+        // cancel-протоколом, но со статусом TokenBudgetExceeded. Partial
+        // summary — tracker.partial_text(), продолжение — resume по task_id.
+        if tracker.budget.exceeded() && !tracker.cancel_sent {
+            return finish_interrupted_with(
+                child,
+                forwarder,
+                send_id,
+                tracker,
+                cancel_grace,
+                SubagentStatus::TokenBudgetExceeded,
+            )
+            .await;
+        }
 
         let output = tokio::select! {
             output = child.next_output() => output,
@@ -824,11 +851,32 @@ async fn finish_cancelled(
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
 ) -> Result<TurnEnd> {
+    finish_interrupted_with(
+        child,
+        forwarder,
+        send_id,
+        tracker,
+        cancel_grace,
+        SubagentStatus::Cancelled,
+    )
+    .await
+}
+
+/// Общий терминатор прерванного turn-а: cancel-протокол (`Cancel` → grace →
+/// kill при грязном завершении) + заданный терминальный статус.
+async fn finish_interrupted_with(
+    child: &mut ChildProcess,
+    forwarder: &ChildEventForwarder<'_>,
+    send_id: &str,
+    tracker: &mut TurnTracker,
+    cancel_grace: Duration,
+    status: SubagentStatus,
+) -> Result<TurnEnd> {
     let clean = cancel_child_turn(child, forwarder, send_id, tracker, cancel_grace).await;
     if !clean {
         child.kill().await;
     }
-    Ok(TurnEnd::Interrupted(SubagentStatus::Cancelled))
+    Ok(TurnEnd::Interrupted(status))
 }
 
 enum OutputVerdict {

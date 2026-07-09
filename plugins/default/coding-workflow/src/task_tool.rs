@@ -6,7 +6,7 @@ use std::{
 use proteus_contracts::{
     contracts::{
         SubagentHandle, SubagentIsolation, SubagentRequest, SubagentResult, SubagentRoleSpec,
-        SubagentWorkspaceRequest, WorkspaceInfo,
+        SubagentStatus, SubagentWorkspaceRequest, WorkspaceInfo,
     },
     domain::{Event, ToolCall, ToolResult, ToolSafety, ToolSpec},
     plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
@@ -435,6 +435,19 @@ fn result_to_tool_result(
 ) -> ToolResult {
     let task_id = child_task_id(&result);
     let mut output = result.summary;
+    // Прерывание по бюджету модель должна видеть текстом, а не только в
+    // metadata: иначе усечённый summary читается как законченный ответ.
+    if result.status == SubagentStatus::TokenBudgetExceeded {
+        let spent = result
+            .usage
+            .as_ref()
+            .map(|usage| usage.total_tokens())
+            .unwrap_or(0);
+        output.push_str(&format!(
+            "\n\n[token budget exhausted ({spent} tokens spent); \
+             the summary above may be incomplete — resume with task_id to continue]"
+        ));
+    }
     if let Some(task_id) = task_id {
         output.push_str("\n\n[task_id: ");
         output.push_str(&task_id);

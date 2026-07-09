@@ -581,6 +581,8 @@ max_iterations = 15
 # tools = ["search", "read_file", "grep", "git_status", "git_diff"]
 # timeout_ms = 60000
 # max_summary_bytes = 4096
+# max_total_tokens = 300000 # token-бюджет запуска (input+output всех model-запросов);
+#                           # превышение = статус token_budget_exceeded, resume по task_id
 ```
 
 `coding-workflow` превращает непустой список ролей в workflow-owned tool `task`.

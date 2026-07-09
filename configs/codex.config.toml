@@ -166,6 +166,9 @@ tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "gr
 parallel_safe = true
 max_iterations = 15
 max_summary_bytes = 8192
+# Потолок суммарного spend запуска (input+output всех model-запросов ребёнка).
+# Первая прикидка; превышение = статус token_budget_exceeded + resume по task_id.
+max_total_tokens = 300000
 
 [[module_config.subagent.sequential.roles]]
 name = "coder"
@@ -184,6 +187,8 @@ tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "gr
 isolation = "worktree"
 max_iterations = 25
 max_summary_bytes = 8192
+# Пишущая роль дороже: больше итераций, растущая история. Тоже первая прикидка.
+max_total_tokens = 1500000
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10

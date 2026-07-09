@@ -16,10 +16,13 @@ use crate::{
     },
     core::{HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore},
     domain::{
-        AgentTask, CacheHints, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentTask, CacheHints, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_call_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
-    model_standard::{CanonicalModelRequest, CanonicalModelResponse},
+    model_standard::{
+        CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
+        TokenUsage,
+    },
     stubs::{
         AllVisibleToolExposure, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory,
         NoSubagent, NullPatchApplier, NullSearch,
@@ -70,12 +73,58 @@ impl ModelClient for FailingModelClient {
     }
 }
 
+/// Всегда отвечает tool call-ом `remember_fact` с заданным usage — цикл
+/// не завершится сам, останавливать должен budget/iterations-лимит.
+struct BusyToolModelClient {
+    usage: TokenUsage,
+}
+
+#[async_trait]
+impl ModelClient for BusyToolModelClient {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("busy-tool")
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> crate::model_standard::ModelCapabilities {
+        FakeModelClient::default().capabilities(model)
+    }
+
+    async fn complete(&self, _request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let call = ToolCall::new(
+            new_call_id(),
+            "remember_fact",
+            json!({ "kind": "fact", "content": "loop" }),
+        );
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall { call: call.clone() }],
+        );
+        Ok(
+            CanonicalModelResponse::new(message, vec![call], FinishReason::ToolCalls)
+                .with_usage(self.usage.clone()),
+        )
+    }
+
+    async fn stream(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<crate::model_standard::ModelStreamEvent>>
+                    + Send,
+            >,
+        >,
+    > {
+        Err(anyhow!("busy-tool has no stream"))
+    }
+}
+
 /// Отменяет переданный токен при первом `complete` и возвращает ошибку —
 /// эмулирует cancel родительского turn-а во время model call ребёнка.
 struct CancellingModelClient {
     token: CancellationToken,
 }
-
 #[async_trait]
 impl ModelClient for CancellingModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
@@ -218,6 +267,7 @@ fn explorer_config() -> Value {
                 "max_iterations": 15,
                 "timeout_ms": 60000,
                 "max_summary_bytes": 2048,
+                "max_total_tokens": 300000,
                 "exposure_phase": "explore_phase",
                 "tools": ["remember_fact"]
             },
@@ -244,6 +294,7 @@ fn parses_roles_and_limits_from_config() {
     assert_eq!(explore.limits.max_iterations, 15);
     assert_eq!(explore.limits.timeout_ms, Some(60000));
     assert_eq!(explore.limits.max_summary_bytes, Some(2048));
+    assert_eq!(explore.limits.max_total_tokens, Some(300_000));
     assert_eq!(explore.effective_exposure_phase(), "explore_phase");
     assert_eq!(
         explore
@@ -260,6 +311,7 @@ fn parses_roles_and_limits_from_config() {
         SubagentLimits::default().max_iterations
     );
     assert_eq!(reviewer.limits.timeout_ms, None);
+    assert_eq!(reviewer.limits.max_total_tokens, None);
     assert_eq!(reviewer.effective_exposure_phase(), "subagent:reviewer");
     assert_eq!(runner.inner.max_depth, 2);
 }
@@ -326,6 +378,7 @@ isolation: worktree\n\
 max_iterations: 3\n\
 timeout_ms: 42\n\
 max_summary_bytes: 7\n\
+max_total_tokens: 9000\n\
 ---\n\
 \n\
 Markdown prompt.\n",
@@ -347,6 +400,7 @@ Markdown prompt.\n",
     assert_eq!(role.limits.max_iterations, 3);
     assert_eq!(role.limits.timeout_ms, Some(42));
     assert_eq!(role.limits.max_summary_bytes, Some(7));
+    assert_eq!(role.limits.max_total_tokens, Some(9_000));
     assert_eq!(role.effective_exposure_phase(), "md_phase");
     assert_eq!(role.isolation, SubagentIsolation::Worktree);
     assert_eq!(
@@ -551,6 +605,63 @@ async fn run_emits_errored_finished_when_model_errors() {
         }
         other => panic!("unexpected event: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn child_loop_stops_on_token_budget() {
+    let runner = SequentialSubagentRunner::from_config(json!({
+        "roles": [
+            {
+                "name": "explore",
+                "description": "Explore",
+                "prompt": "prompt",
+                "max_iterations": 10,
+                // 650 за итерацию: первая (650) проходит, вторая (1300) — сверх.
+                "max_total_tokens": 1000
+            }
+        ]
+    }))
+    .unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = test_runtime_context_with_model(
+        events.clone(),
+        Arc::new(BusyToolModelClient {
+            usage: TokenUsage::new(600, 50),
+        }),
+    );
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("loop", cwd.path().to_path_buf());
+
+    let result = runner
+        .run(SubagentRequest::new("explore", "loop forever", task), ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, SubagentStatus::TokenBudgetExceeded);
+    assert_eq!(
+        result.iterations, 2,
+        "первый ответ в бюджете, второй фиксирует превышение"
+    );
+    let usage = result.usage.expect("accumulated usage");
+    assert_eq!(usage.total_tokens(), 1_300);
+
+    let envelopes = events.envelopes().await;
+    let finished = envelopes
+        .iter()
+        .find(|envelope| matches!(envelope.event, Event::SubagentFinished { .. }))
+        .expect("SubagentFinished");
+    match &finished.event {
+        Event::SubagentFinished { status, .. } => {
+            assert_eq!(status, "token_budget_exceeded");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+    // Tool calls итерации, зафиксировавшей превышение, не исполняются.
+    let tool_requests = envelopes
+        .iter()
+        .filter(|envelope| matches!(envelope.event, Event::ToolCallRequested { .. }))
+        .count();
+    assert_eq!(tool_requests, 1);
 }
 
 #[tokio::test]

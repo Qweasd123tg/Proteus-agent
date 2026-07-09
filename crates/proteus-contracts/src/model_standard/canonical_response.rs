@@ -87,6 +87,36 @@ impl TokenUsage {
         self.reasoning_output_tokens = tokens;
         self
     }
+
+    /// Прибавляет usage другого model-запроса к аккумулятору. Единый сумматор
+    /// для всех потребителей (subagent-раннеры, `BudgetTracker`): опциональные
+    /// категории суммируются, если хотя бы одна сторона их знает.
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cached_input_tokens =
+            sum_optional_tokens(self.cached_input_tokens, other.cached_input_tokens);
+        self.cache_creation_input_tokens = sum_optional_tokens(
+            self.cache_creation_input_tokens,
+            other.cache_creation_input_tokens,
+        );
+        self.reasoning_output_tokens =
+            sum_optional_tokens(self.reasoning_output_tokens, other.reasoning_output_tokens);
+    }
+
+    /// Суммарный spend запроса: input + output. Основа token-бюджетов.
+    pub fn total_tokens(&self) -> u64 {
+        u64::from(self.input_tokens) + u64::from(self.output_tokens)
+    }
+}
+
+fn sum_optional_tokens(left: Option<u32>, right: Option<u32>) -> Option<u32> {
+    match (left, right) {
+        (None, None) => None,
+        (some, None) => some,
+        (None, some) => some,
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+    }
 }
 
 #[cfg(test)]

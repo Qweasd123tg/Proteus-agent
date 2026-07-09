@@ -217,9 +217,17 @@ context (`core/registry.rs:160`) и не попадает в `RuntimeContext` �
 Четыре независимых счётчика: chars/4-оценка
 (`coding-workflow/src/token_accounting.rs`), суммация `TokenUsage` в
 `core/subagent.rs:682`, агрегация в `core/eval_report.rs`, парсеры в
-provider adapters. Контракта `BudgetTracker` нет; субагенты не ограничены
-по токенам вовсе. Второй-третий потребитель уже есть — интейк по
-slot-governance назрел.
+provider adapters. **Реализован первый срез (2026-07-09):** единый сумматор
+`TokenUsage::accumulate` + contract-utility `BudgetTracker`
+(`proteus-contracts/src/contracts/budget.rs`, НЕ slot — по slot-governance
+это instrumentation) и per-child token-бюджеты: `SubagentLimits::max_total_tokens`
+(потолок суммы input+output всех model-запросов запуска), enforcement в обоих
+builtin-раннерах (sequential — проверка после ответа, tool calls сверх бюджета
+не исполняются; process — по `TokenUsageUpdated` с cancel-протоколом), статус
+`SubagentStatus::TokenBudgetExceeded`, partial summary + resume по `task_id`
+с новым окном. Packaged codex/glm роли получили потолки (explore 300k,
+coder 1.5M — первая прикидка). Отложено: phase/turn-бюджеты workflow
+(второй потребитель `BudgetTracker`), host API бюджета, cost-в-долларах.
 
 ### Мелкие подтверждённые дыры
 
@@ -260,8 +268,10 @@ slot-governance назрел.
    lifecycle оркестрирует coding-workflow), батч-гейт расширен до
    parallel_safe ∨ worktree, пул процессов реюзает idle-процесс только при
    совпадении cwd; merge ветки — обязанность родительского агента
-   (авто-merge нет), выделенная merge-роль — следующий срез. Осталось:
-   `BudgetTracker` (Кластер 5), UX дерева потоков в клиенте.
+   (авто-merge нет), выделенная merge-роль — следующий срез.
+   `BudgetTracker` (Кластер 5) реализован в первом срезе (2026-07-09):
+   per-child token-бюджеты через `SubagentLimits::max_total_tokens` в обоих
+   builtin-раннерах. Осталось: UX дерева потоков в клиенте.
 
 ## Этапы
 
@@ -358,8 +368,9 @@ plan/execute/review экспериментов.
   `spawn/wait/cancel_subagent_json`, coding-workflow исполняет батч
   task-вызовов конкурентно, только когда все запрошенные роли
   parallel_safe (spawn всех → wait по порядку; ошибка одного вызова не
-  прерывает остальных). Оставшиеся блокеры: budget/rate-limit учёт
-  (`BudgetTracker`), UX дерева параллельных потоков в клиенте.
+  прерывает остальных). Per-child token-бюджеты реализованы (2026-07-09,
+  `SubagentLimits::max_total_tokens` + `BudgetTracker`). Оставшийся блокер:
+  UX дерева параллельных потоков в клиенте.
   Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude

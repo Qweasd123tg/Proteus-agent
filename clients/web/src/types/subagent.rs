@@ -51,6 +51,7 @@ impl SubagentActivityStatus {
                 "cancelled" => "отменён".to_owned(),
                 "timed_out" => "таймаут".to_owned(),
                 "max_iterations_reached" => "лимит итераций".to_owned(),
+                "token_budget_exceeded" => "бюджет токенов".to_owned(),
                 "errored" => "ошибка".to_owned(),
                 "interrupted" => "прервано".to_owned(),
                 other => other.replace('_', " "),

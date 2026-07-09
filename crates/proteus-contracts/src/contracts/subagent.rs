@@ -129,6 +129,12 @@ pub struct SubagentLimits {
     /// Обрезка итогового summary. None — без обрезки.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_summary_bytes: Option<usize>,
+    /// Token-бюджет цикла: потолок суммы `input + output` по всем
+    /// model-запросам ребёнка (см. `BudgetTracker`). Реализация обязана
+    /// останавливать цикл при превышении и возвращать
+    /// `SubagentStatus::TokenBudgetExceeded`. None — безлимит.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_total_tokens: Option<u64>,
 }
 
 impl Default for SubagentLimits {
@@ -137,6 +143,7 @@ impl Default for SubagentLimits {
             max_iterations: 12,
             timeout_ms: None,
             max_summary_bytes: None,
+            max_total_tokens: None,
         }
     }
 }
@@ -200,6 +207,9 @@ pub enum SubagentStatus {
     TimedOut,
     /// Отменён через cancellation родителя.
     Cancelled,
+    /// Превышен `max_total_tokens` роли; summary — последний доступный
+    /// текст, продолжение возможно через resume по `task_id`.
+    TokenBudgetExceeded,
 }
 
 /// Результат прогона субагента — единственное, что попадает к родителю.

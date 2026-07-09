@@ -8,8 +8,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        RuntimeContext, SubagentRequest, SubagentRoleSpec, SubagentStatus, ToolExposureInput,
-        ToolExposureRequest,
+        BudgetTracker, RuntimeContext, SubagentRequest, SubagentRoleSpec, SubagentStatus,
+        ToolExposureInput, ToolExposureRequest,
     },
     core::ToolOrchestrator,
     domain::{CacheHints, ModelRef, ThreadId, ToolSpec},
@@ -75,6 +75,10 @@ pub(super) async fn run_child_loop(
     tools: &[ToolSpec],
     state: &mut ChildLoopState,
 ) -> Result<SubagentStatus> {
+    // Бюджет скоупится на текущий запуск (fresh или resume), а не на весь
+    // task_id: усечённый по бюджету ребёнок продолжается через resume с
+    // новым окном — иначе продолжение упиралось бы в потолок сразу.
+    let mut budget = BudgetTracker::new(role.limits.max_total_tokens);
     for _ in 0..role.limits.max_iterations {
         if ctx.is_cancelled() {
             return Ok(SubagentStatus::Cancelled);
@@ -102,6 +106,7 @@ pub(super) async fn run_child_loop(
         };
         state.iterations += 1;
         accumulate_usage(&mut state.usage, response.usage.as_ref());
+        budget.record(response.usage.as_ref());
         if let Some(text) = message_text(&response.message) {
             state.last_text = Some(text);
         }
@@ -109,6 +114,13 @@ pub(super) async fn run_child_loop(
 
         if response.tool_calls.is_empty() {
             return Ok(SubagentStatus::Completed);
+        }
+        // Проверка по факту ответа (первый запрос всегда разрешён): при
+        // превышении цикл останавливается до исполнения tool calls — они
+        // не исполняются, история остаётся с незакрытыми calls, их закрывает
+        // штатный snapshot-механизм терминальных статусов.
+        if budget.exceeded() {
+            return Ok(SubagentStatus::TokenBudgetExceeded);
         }
 
         for call in response.tool_calls {
@@ -204,31 +216,15 @@ fn message_text(message: &CanonicalMessage) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+/// Сумматор usage поверх `TokenUsage::accumulate` для Option-аккумуляторов
+/// раннеров (`ChildLoopState.usage`, `TurnTracker.usage`).
 pub(super) fn accumulate_usage(total: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
     let Some(usage) = usage else {
         return;
     };
     match total {
         None => *total = Some(usage.clone()),
-        Some(total) => {
-            total.input_tokens = total.input_tokens.saturating_add(usage.input_tokens);
-            total.output_tokens = total.output_tokens.saturating_add(usage.output_tokens);
-            total.cached_input_tokens =
-                sum_optional_tokens(total.cached_input_tokens, usage.cached_input_tokens);
-            total.cache_creation_input_tokens = sum_optional_tokens(
-                total.cache_creation_input_tokens,
-                usage.cache_creation_input_tokens,
-            );
-            total.reasoning_output_tokens =
-                sum_optional_tokens(total.reasoning_output_tokens, usage.reasoning_output_tokens);
-        }
-    }
-}
-
-fn sum_optional_tokens(left: Option<u32>, right: Option<u32>) -> Option<u32> {
-    match (left, right) {
-        (None, None) => None,
-        (left, right) => Some(left.unwrap_or(0).saturating_add(right.unwrap_or(0))),
+        Some(total) => total.accumulate(usage),
     }
 }
 
@@ -310,6 +306,10 @@ mod tests {
         assert_eq!(
             subagent_status_label(SubagentStatus::Cancelled),
             "cancelled"
+        );
+        assert_eq!(
+            subagent_status_label(SubagentStatus::TokenBudgetExceeded),
+            "token_budget_exceeded"
         );
     }
 

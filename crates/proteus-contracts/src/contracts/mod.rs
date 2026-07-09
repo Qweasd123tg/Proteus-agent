@@ -5,6 +5,7 @@
 
 pub mod approval_policy;
 pub mod approval_transport;
+pub mod budget;
 pub mod context_builder;
 pub mod event_sink;
 pub mod history_compactor;
@@ -25,6 +26,7 @@ pub mod workflow;
 
 pub use approval_policy::*;
 pub use approval_transport::*;
+pub use budget::*;
 pub use context_builder::*;
 pub use event_sink::*;
 pub use history_compactor::*;

@@ -86,3 +86,36 @@ fn turn_tracker_accumulates_actual_usage_only() {
     assert_eq!(usage.input_tokens, 20);
     assert_eq!(usage.output_tokens, 10);
 }
+
+#[test]
+fn turn_tracker_budget_trips_on_accumulated_usage() {
+    let mut tracker = TurnTracker::with_budget(Some(25));
+    assert!(!tracker.budget.exceeded());
+
+    let mut snapshot =
+        TokenUsageSnapshot::new(ModelRef::new("fake", "fake-model"), 100, Vec::new());
+    // Estimate-only снапшоты бюджет не двигают — считаем только actual.
+    tracker.observe(&Event::TokenUsageUpdated {
+        usage: snapshot.clone(),
+    });
+    assert!(!tracker.budget.exceeded());
+
+    snapshot.actual = Some(TokenUsage::new(10, 5));
+    tracker.observe(&Event::TokenUsageUpdated {
+        usage: snapshot.clone(),
+    });
+    assert!(!tracker.budget.exceeded(), "15 <= 25");
+
+    tracker.observe(&Event::TokenUsageUpdated { usage: snapshot });
+    assert!(tracker.budget.exceeded(), "30 > 25");
+}
+
+#[test]
+fn turn_tracker_without_budget_never_trips() {
+    let mut tracker = TurnTracker::with_budget(None);
+    let mut snapshot =
+        TokenUsageSnapshot::new(ModelRef::new("fake", "fake-model"), 100, Vec::new());
+    snapshot.actual = Some(TokenUsage::new(u32::MAX, u32::MAX));
+    tracker.observe(&Event::TokenUsageUpdated { usage: snapshot });
+    assert!(!tracker.budget.exceeded());
+}
