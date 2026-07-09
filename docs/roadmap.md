@@ -117,7 +117,9 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   теперь стабилен на `session_id` и укладывается в provider limit 64 символа,
   builtin/codex selectors
   используют cache-stable hot set и ранжируют по intent только при explicit
-  query, а hidden tools вызываются через deferred search/describe/call.
+  query, hidden tools вызываются через deferred search/describe/call, а
+  ephemeral context собирается перед persistent conversation, чтобы следующий
+  turn продолжал прежний provider-visible prefix.
   Packaged codex/glm снова используют `codex_dynamic`; Playwright MCP остаётся
   opt-in из-за отдельного dogfood UX-наблюдения.
 - (отложено) verification discipline в промпте («останавливайся на самом

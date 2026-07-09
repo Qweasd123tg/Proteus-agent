@@ -57,13 +57,19 @@ impl TurnScaffold {
         let current_user_message_id = user_message.id;
         persistent_messages.push(user_message.clone());
 
-        let mut model_messages = persistent_messages.clone();
+        // Provider prompt caches reuse an unchanged request prefix. Keep the
+        // ephemeral workspace context before durable conversation history so
+        // the next turn can extend `context + history` instead of inserting
+        // new conversation messages in front of the context.
+        let mut model_messages =
+            Vec::with_capacity(bundle.chunks.len() + persistent_messages.len());
         for chunk in bundle.chunks {
             model_messages.push(
                 CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
                     .with_name(CONTEXT_MESSAGE_NAME),
             );
         }
+        model_messages.extend(persistent_messages.iter().cloned());
         let current_turn_messages_start = model_messages.len();
 
         Ok(Self {

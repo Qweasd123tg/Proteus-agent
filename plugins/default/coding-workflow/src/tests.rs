@@ -1,6 +1,8 @@
 use super::*;
 use std::{collections::VecDeque, sync::Mutex};
 
+mod cache;
+
 use serde_json::Value;
 
 use proteus_contracts::{
@@ -256,6 +258,7 @@ struct FakeHost {
     events: Mutex<Vec<Event>>,
     requests: Mutex<Vec<CanonicalModelRequest>>,
     responses: Mutex<VecDeque<CanonicalModelResponse>>,
+    context_text: Mutex<Option<String>>,
     visible_tools: Mutex<Vec<ToolSpec>>,
     selected_tools: Mutex<Vec<ToolSpec>>,
     executed_calls: Mutex<Vec<ToolCall>>,
@@ -288,6 +291,11 @@ impl FakeHost {
     fn with_tools(mut self, visible_tools: Vec<ToolSpec>, selected_tools: Vec<ToolSpec>) -> Self {
         self.visible_tools = Mutex::new(visible_tools);
         self.selected_tools = Mutex::new(selected_tools);
+        self
+    }
+
+    fn with_context_text(mut self, context: impl Into<String>) -> Self {
+        self.context_text = Mutex::new(Some(context.into()));
         self
     }
 
@@ -327,11 +335,14 @@ impl PluginWorkflowHost for FakeHost {
 
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
         let task: AgentTask = serde_json::from_str(task_json.as_str()).expect("task json");
-        let bundle = ContextBundle::new(vec![ContextChunk::new(
-            "test",
-            format!("context for {}", task.text),
-        )])
-        .with_token_estimate(7);
+        let context = self
+            .context_text
+            .lock()
+            .expect("context text")
+            .clone()
+            .unwrap_or_else(|| format!("context for {}", task.text));
+        let bundle =
+            ContextBundle::new(vec![ContextChunk::new("test", context)]).with_token_estimate(7);
         RResult::ROk(RString::from(
             serde_json::to_string(&bundle).expect("bundle json"),
         ))
@@ -1040,6 +1051,8 @@ fn single_loop_calls_host_and_returns_persistent_messages() {
     // Потолок окна из runtime должен оказаться в лимитах запроса —
     // иначе снимок TokenUsageUpdated уедет без max_input_tokens.
     assert_eq!(requests[0].limits.max_input_tokens, Some(16_000));
+    assert_eq!(requests[0].messages[0].name.as_deref(), Some("context"));
+    assert_eq!(requests[0].messages[1].role, MessageRole::User);
     assert!(
         requests[0]
             .messages

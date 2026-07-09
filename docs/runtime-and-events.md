@@ -255,7 +255,11 @@ Provider prompt cache не является локальным response-cache. W
 `prompt_cache_retention`; стандартный workflow использует стабильный routing
 key `proteus:session:<session_id>`. Сам key не гарантирует hit: OpenAI отдельно
 сопоставляет фактический prefix, поэтому tools/instructions должны сохранять
-общую начальную часть. Anthropic получает explicit `cache_control` на
+общую начальную часть. Workflow размещает заново собранный ephemeral context
+перед persistent conversation: при неизменном context следующий turn дописывает
+новые сообщения в конец provider-visible input, а не вставляет их перед
+cacheable context. Изменение самого workspace context ожидаемо начинает новый
+совпадающий prefix. Anthropic получает explicit `cache_control` на
 system/tools prefix; top-level automatic cache-control используется только как
 fallback, если стабильного prefix breakpoint нет. Runtime никогда не возвращает
 старый model response из локального cache:
