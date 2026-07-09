@@ -82,6 +82,14 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   которую никто не просил. Провокатором были `playwright__browser_navigate`/
   `playwright__browser_snapshot` в `always_include` codex/glm конфигов —
   убраны; браузерные tools остаются доступными через dynamic exposure.
+- (закрыто 2026-07-09) потеря prompt cache посреди сессии и у субагентов:
+  `codex_dynamic` пересобирал набор tools лексическим скорингом по тексту
+  каждой задачи (5 свободных слотов на ~30 кандидатов) — менялся и реальный
+  префикс запроса, и `prompt_cache_key` (он хеширует tools). Решение
+  владельца: в packaged codex/glm конфигах `tool_exposure = "all_visible"`,
+  playwright MCP закомментирован (иначе ~20 браузерных схем вернулись бы в
+  каждый запрос). Возврат dynamic exposure — только после стабилизации query
+  в селекторе (session-scoped выбор вместо per-turn).
 - (отложено) verification discipline в промпте («останавливайся на самом
   дешёвом достаточном сигнале; установка софта ради проверки — только
   спросив») — сначала посмотреть dogfood без always-visible браузера.

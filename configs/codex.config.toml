@@ -42,20 +42,27 @@ context = "codex_context"
 policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
-tool_exposure = "codex_dynamic"
+# codex_dynamic отключён (2026-07-09): селектор пересобирал набор tools по тексту
+# каждой задачи, что ломало prompt cache prefix на каждом turn-е. Вернуть можно
+# после стабилизации query в селекторе.
+tool_exposure = "all_visible"
 subagent = "sequential"
 renderer = "statusline"
 
 [tools]
 enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
-[[tools.mcp_servers]]
-name = "playwright"
-command = "npx"
-args = ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--browser", "firefox", "--output-dir", ".playwright-mcp", "--output-mode", "stdout"]
-safety = "Network"
-timeout_ms = 60000
-metadata = { scope = "browser-automation", category = "mcp", tags = ["mcp", "browser", "playwright", "desktop-app"] }
+# playwright закомментирован вместе с отключением codex_dynamic (2026-07-09):
+# при all_visible его ~20 браузерных схем попадали бы в каждый запрос (токены +
+# «браузерный перфекционизм» из dogfood-эвиденса). Раскомментировать при
+# реальной необходимости браузера.
+# [[tools.mcp_servers]]
+# name = "playwright"
+# command = "npx"
+# args = ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--browser", "firefox", "--output-dir", ".playwright-mcp", "--output-mode", "stdout"]
+# safety = "Network"
+# timeout_ms = 60000
+# metadata = { scope = "browser-automation", category = "mcp", tags = ["mcp", "browser", "playwright", "desktop-app"] }
 
 [[tools.configured]]
 name = "apply_patch"
