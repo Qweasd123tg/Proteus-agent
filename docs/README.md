@@ -1,52 +1,95 @@
 # Документация Proteus
 
-Индекс всей документации проекта. Короткий вход и quickstart — корневой
-[README](../README.md). Правила работы для агентов/контрибьюторов —
-[AGENTS.md](../AGENTS.md).
+Эти документы не нужно читать подряд. Начните с задачи, которую решаете, и
+переходите в профильный reference только когда нужен точный контракт.
 
-Правило разделения: reference-доки описывают текущее состояние, governance-доки
-описывают правила принятия решений, research — черновики и архивы. Если факт
-в обзорном документе противоречит профильному, прав профильный.
+Короткий обзор и запуск находятся в корневом [README](../README.md). Правила
+изменения проекта — в [AGENTS.md](../AGENTS.md). Документация ведётся на
+русском; имена traits, API, modules и config keys остаются английскими.
 
-## Начало Работы
+## Быстрый выбор
 
-| Документ | Что внутри |
+- **Запустить Proteus локально:** [README](../README.md#запуск-за-5-минут).
+- **Поднять на другой машине:**
+  [second-pc-bootstrap.md](second-pc-bootstrap.md).
+- **Понять архитектуру:** [architecture.md](architecture.md), затем
+  [modules.md](modules.md).
+- **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
+  runtime, config или policy.
+- **Выбрать следующую работу:** [scope.md](scope.md),
+  [dogfood-gate.md](dogfood-gate.md), затем [roadmap.md](roadmap.md).
+
+## Маршруты по задачам
+
+### Запуск и настройка
+
+1. [README](../README.md) — минимальная установка, запуск, порты и основные
+   команды.
+2. [second-pc-bootstrap.md](second-pc-bootstrap.md) — перенос на новую машину,
+   локальные secrets и проверка установки.
+3. [configuration.md](configuration.md) — providers, config resolution,
+   modules, tools, MCP, instructions и `module_config`.
+
+### Понять или изменить архитектуру
+
+1. [architecture.md](architecture.md) — словарь, слои, границы core и жизнь
+   одного turn-а.
+2. [modules.md](modules.md) — все slot-ы, доступные реализации и правило
+   заменяемости.
+3. [plugin-architecture.md](plugin-architecture.md) — dylib ABI, loader,
+   manifests и граница plugin/core.
+4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, plugin,
+   profile или feature pack.
+
+Для более узких boundary-вопросов:
+
+- [hot-swap.md](hot-swap.md) — что можно reload-ить сейчас и где проходит
+  граница snapshot-а;
+- [pack-contracts.md](pack-contracts.md) — неявные межпаковые ключи и строковые
+  контракты.
+
+### Разобрать runtime или баг
+
+1. [inspect.md](inspect.md) — `proteus inspect topology` и HTTP `/inspect/*`.
+2. [runtime-and-events.md](runtime-and-events.md) — CLI/REPL, session store,
+   event log и AppServer HTTP/SSE/stdio.
+3. [security-and-policy.md](security-and-policy.md) — tools, permission modes,
+   approvals, workspace boundary и exec sandbox.
+4. [testing.md](testing.md) — regression gates, module swap tests и eval
+   harness.
+
+### Планировать следующую работу
+
+Читайте в таком порядке:
+
+1. [scope.md](scope.md) — active, parked, research и замороженные зоны.
+2. [dogfood-gate.md](dogfood-gate.md) — минимальный воспроизводимый рабочий
+   контур и blocking bugs.
+3. [roadmap.md](roadmap.md) — ближайшие этапы и backlog.
+4. [spec.md](spec.md) — долгосрочный замысел и non-goals.
+
+Такой порядок важен: `spec` отвечает «куда проект может прийти», но не
+подтверждает, что возможность уже реализована.
+
+## Где текущее состояние, а где планы
+
+| Тип документа | Как его читать |
 |---|---|
-| [second-pc-bootstrap.md](second-pc-bootstrap.md) | установка агента на новую машину: install, secrets, проверка |
-| [configuration.md](configuration.md) | config schema: providers, secrets, modules, module_config, tools, MCP, instructions |
-| [inspect.md](inspect.md) | диагностика runtime wiring: `proteus inspect topology`, HTTP `/inspect/*` |
+| Корневой `README` | Короткая актуальная точка входа и проверенные команды |
+| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `plugin-architecture`, `inspect`, `testing` | Reference текущей реализации |
+| `scope`, `slot-governance`, `dogfood-gate` | Правила приоритета и принятия решений |
+| `roadmap`, `spec` | План и направление; planned не означает implemented |
+| `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
 
-## Reference
+Если обзорный документ расходится с профильным reference, прав профильный.
+Если reference расходится с кодом или тестами, нужно исправить reference рядом
+с изменением поведения.
 
-| Документ | Что внутри |
-|---|---|
-| [architecture.md](architecture.md) | главный обзор: словарь, карта репо, слои, жизнь turn-а, правила решений, рецепты, грабли |
-| [modules.md](modules.md) | все 13 slots и их реализации: model, search, memory, context, tools, policy, patch, compactor, tool_exposure, subagent, workflow, renderer |
-| [runtime-and-events.md](runtime-and-events.md) | режимы запуска, REPL, event log, session store, app-server protocol (stdio/HTTP/SSE) |
-| [security-and-policy.md](security-and-policy.md) | ToolSafety, permission modes, policies (`ask_write`/`codex_policy`/`opencode_policy`), exec sandbox, approval cache и grants |
-| [plugin-architecture.md](plugin-architecture.md) | plugin ABI: формат dylib, loader, manifest, slots, sync/async решения, волны миграции |
-| [pack-contracts.md](pack-contracts.md) | инвентарь неявных межпаковых контрактов (строковые маркеры, metadata keys) и правила их учёта |
-| [hot-swap.md](hot-swap.md) | границы reload/hot-swap модулей, dynamic MCP flow, deferred tool exposure |
-| [testing.md](testing.md) | что фиксируют текущие тесты, правила для новых модулей/slots, eval harness |
+## Research и архивы
 
-## Правила И Планирование
-
-| Документ | Что внутри |
-|---|---|
-| [spec.md](spec.md) | vision проекта и planned направления (не reference по факту) |
-| [scope.md](scope.md) | active / parked / research зоны и текущий freeze |
-| [slot-governance.md](slot-governance.md) | когда добавлять новый slot, а когда plugin/profile; intake-матрица |
-| [roadmap.md](roadmap.md) | direction checkpoint, этапы v0.x, backlog, аудиты связности |
-| [dogfood-gate.md](dogfood-gate.md) | минимальный v0 dogfood loop, blocking bugs, postmortem rubric |
-
-## Research
-
-Черновики и архивы; не считаются действующими правилами.
-
-| Документ | Что внутри |
-|---|---|
-| [research/memory-research.md](research/memory-research.md) | blueprint memory-плагинов: FFI callbacks, backend-сравнение |
-| [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) | архив завершённого handoff по карточкам субагентов |
-
-Заметки по upstream-агентам (codex, opencode, claude code, forgecode) лежат
-отдельно в [examples/research/](../examples/research/).
+- [research/memory-research.md](research/memory-research.md) — blueprint
+  memory-плагинов и сравнение backend-ов;
+- [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
+  архив завершённого UI handoff по карточкам субагентов;
+- [examples/research/](../examples/research/) — заметки по upstream-агентам:
+  Codex, OpenCode, Claude Code и ForgeCode.

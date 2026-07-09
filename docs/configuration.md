@@ -122,14 +122,21 @@ name = "coding-local"
 `proteus init coding` и `proteus init codex` создают один `config.toml` с
 `active_provider`, `providers.*`, workflow, modules, tools, policy и event log.
 
-`examples/configs/config.example.json` - полный single-file пример/schema
-surface с `active_provider` и `providers`; для обычной локальной работы
-предпочтительнее `configs/config.toml`, созданный через `proteus init`.
+`examples/configs/config.example.json` - широкий single-file пример с
+`active_provider`, `providers`, modules, tools и runtime settings. Это не
+исчерпывающая schema: опциональные `instructions`, configured/MCP tools,
+`web` и новые runtime-поля описаны в профильных разделах ниже.
+Для обычной локальной работы предпочтительнее `config.toml`, созданный
+через `proteus init`.
 
 Packaged configs живут в `configs/` репозитория: `codex.config.toml`,
 `opencode.config.toml`, `proteus.provider.example.toml` и `prompts/*`.
 `./install.sh` копирует их в default config dir; example-профили для чтения и
 прямого запуска лежат в `examples/configs/`.
+Другие tracked-профили в `configs/` (например `config.toml` и
+`glm.config.toml`) считаются repo-local/manual: `install.sh` их не
+копирует. Запускайте их явным путём или используйте config-dir,
+связанный с репозиторием.
 
 `configs/proteus.provider.example.toml` - общий пример provider profile: real
 provider через env key. Его можно подключать из разных behavioral profiles
@@ -141,8 +148,8 @@ provider через env key. Его можно подключать из раз�
 `modules.search = "rg"`, `modules.context = "repo_aware"` и полный coding
 toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 `find_files`, `read_many_files`, `git_diff`, `apply_patch`, `write_file`,
-`shell`, `remember_fact`). `rg`
-приходит из плагина `rg-search`, `modules.patch = "direct"` приходит из
+`shell`, `remember_fact`). `rg` приходит из плагина `rg-search`,
+`modules.patch = "direct"` приходит из
 плагина `direct-patch`, `repo_aware` приходит из `context-pack`, файловые
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
@@ -150,20 +157,22 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `configs/codex.config.toml` - packaged diagnostic Codex-shaped profile для чистой
 проверки Codex-подобной сборки модулей. Он использует
 `coding.codex_loop_diagnostic`, `codex_context`, `rg`,
-`direct`, `codex_policy`, `tool_exposure = "codex_dynamic"` из
-`codex-tool-exposure` и `modules.compactor = "codex"`. Diagnostic workflow
-сохраняет protocol/loop `coding.codex_loop`, но показывает последний
+`direct`, `codex_policy`, `modules.compactor = "codex"` и
+`tool_exposure = "all_visible"`. `codex_dynamic` остаётся доступным модулем,
+но в packaged профиле отключён, потому что per-turn пересборка tool set меняет
+prompt-cache prefix. Diagnostic workflow сохраняет protocol/loop
+`coding.codex_loop`, но показывает последний
 `ToolResult`, если модель после tool call вернула пустой финальный ответ; strict
 parity остаётся в `coding.codex_loop` и может использоваться локальными synced
 configs. В этом profile `apply_patch` регистрируется через `tools.configured`
-как native handler с `surface.kind = "freeform"` и OpenAI custom-tool grammar, а
-Playwright MCP подключается через `tools.mcp_servers` как набор browser tools
-`playwright__browser_*`. Baseline profiles оставляют builtin `apply_patch`
-function tool с JSON аргументом `patch` и не включают этот MCP server. Для
-первого запуска Playwright MCP может потребоваться browser install:
-`npx -y @playwright/mcp@latest install-browser firefox`. После `./install.sh`
-запускается явно через `--config codex` из любой рабочей директории.
-Baseline `coding` от этого профиля не зависит.
+как native handler с `surface.kind = "freeform"` и OpenAI custom-tool grammar.
+Playwright MCP в текущем профиле закомментирован; browser tools не
+регистрируются, пока operator не включит server явно. При ручном включении для
+первого запуска может потребоваться browser install:
+`npx -y @playwright/mcp@latest install-browser firefox`. Baseline profiles
+оставляют builtin `apply_patch`
+function tool с JSON-аргументом `patch` и от Codex profile не зависят. Сам
+profile запускается явно через `--config codex` из любой рабочей директории.
 
 `examples/configs/proteus.example.toml` - safe dev-basic пример с fake model,
 `search = "null"`, `context = "simple"`, `module_config.*` payloads и core
@@ -441,10 +450,12 @@ runtime model, а `permission_mode` — активный permission mode. Пол
 `tools_enabled`, `active_provider` и `permission_mode` в запросе опциональны:
 `null`/отсутствие означает «не трогать».
 
-Builder пишет только `[modules]` и `[module_config]` в активный config file
-(или в `config.toml` внутри активной config-директории). Provider profiles,
-`api_key_file`, `base_url_file`, `tools.enabled`, permissions и secrets этим
-flow не меняются.
+Builder обновляет `[modules]`, `[module_config]`, `[tools].enabled`,
+`active_provider` и `[permissions].mode` в активном config file (или в
+`config.toml` внутри активной config-директории). Он выбирает только
+уже описанный provider: сами `[providers.*]`, `api_key_file`, `base_url_file`,
+configured/MCP executors и secrets не редактируются. Остальные секции
+существующего TOML сохраняются.
 Если `~/.config/Proteus-agent/configs` является symlink на репозиторный
 `configs/`, правки builder-а становятся обычными git-изменениями в репо;
 `~/.config/Proteus-agent/secrets/*.json` остаются локальными.
@@ -876,16 +887,16 @@ proteus server http --port 8787
 ```
 
 Не биндуйте `--host 0.0.0.0` для обычного dogfood: app-server принимает
-prompts, approvals, user input, cancel, reload-tools, history/resume и
-shutdown. Для loopback dogfood token auth по умолчанию выключен, чтобы UI можно
-было открыть напрямую на `http://127.0.0.1:1420/`. Если нужен строгий локальный
-режим, передайте `--token "$PROTEUS_SESSION_TOKEN"`: тогда HTTP boundary
-требует token на все non-trivial endpoints и проверяет Origin для browser
-requests. Для `EventSource` допустим token в query string, потому что browser
-API не даёт ставить headers; для `fetch` используйте `X-Proteus-Session` или
-`Authorization: Bearer <token>`. Raw token не логировать и не хранить в
-`localStorage`; wrapper из `./install.sh` использует token-режим только если
-задан `PROTEUS_SESSION_TOKEN`. Если web dev server запущен не на стандартном
+prompts, approvals, user input, cancel, config/reload, history/resume и
+shutdown. У прямого запуска `proteus server http` token auth по умолчанию
+выключен; включить его можно флагом `--token <token>`.
+
+Установленный wrapper `proteus` работает строже: если
+`PROTEUS_SESSION_TOKEN` не задан, он генерирует ephemeral token на каждый
+запуск. Отключение только явное: `PROTEUS_NO_SESSION_TOKEN=1`.
+Для `EventSource` token можно передать в query string; для `fetch` — в
+`X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token нельзя
+логировать или хранить в `localStorage`. Если web dev server запущен не на стандартном
 `1420` для chat или `1421` для inspector, добавьте его origin через
 `--allow-origin http://127.0.0.1:<port>`.
 

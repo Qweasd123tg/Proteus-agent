@@ -50,10 +50,12 @@ workflow, tool, renderer, memory policy или model adapter. Debug/visibility
 Dylib-плагины через `abi_stable` **уже являются частью v0**: loader, PluginRegistry
 и рабочие примеры есть в `~/.proteus/plugins/`. Stdio MCP tools host для
 `ConfiguredMcpTool` / `tools.mcp_servers` уже работает через `ToolRegistry`.
-Что пока не закрыто — полный MCP provider для resources/prompts/subscriptions и
-перенос builtin-модулей в плагины (Волна 3). Config-defined process/MCP tools
-остаются executor surface-ом для простых shell-обёрток и не дублируют plugin
-boundary.
+Что пока не закрыто — полный MCP provider для resources/prompts/subscriptions,
+non-stdio transports и async plugin ABI для `ModelAdapter`. Большинство
+production-реализаций Волны 3 уже вынесено в `plugins/default`; core сохраняет
+host-bound tools, adapters и безопасные stubs. Config-defined process/MCP
+tools остаются executor surface-ом для простых shell-обёрток и не дублируют
+plugin boundary.
 
 ## Принцип Границ
 
@@ -98,6 +100,9 @@ renderer -> workflow internals
 | Tools | registry и execution boundary |
 | Approval Policy | решение `allow`/`ask`/`deny` |
 | Patch | применение patch/edit операций |
+| Compactor | предлагает сокращённую request-time history; runtime решает persistence |
+| Tool Exposure | subset policy-visible tools для конкретного model request |
+| Subagent | изоляция и запуск дочерних agent loops |
 | Workflow | ход agent loop |
 | Renderer | финальный вывод |
 
@@ -128,30 +133,44 @@ Runtime должен сохранять эти свойства:
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;
 - session resume загружает persistent `messages.jsonl`, не ephemeral context;
-- tool execution только через `ToolRegistry`, mode-aware `ApprovalPolicy` и
-  `ToolOrchestrator`.
+- зарегистрированные tools исполняются через `ToolRegistry`, mode-aware
+  `ApprovalPolicy` и `ToolOrchestrator`; workflow-owned `task` пока является
+  известным исключением, зафиксированным в `security-and-policy.md`.
 
 Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
 
+## Реализованное Основание
+
+Следующие возможности уже существуют и не являются roadmap promises:
+
+- `proteus init` и `proteus doctor`, named configs и диагностика modules/tools;
+- plugin context builders `simple`, `repo_aware` и `codex_context`;
+- file/edit/git/shell/plan tools через `ToolRegistry` и default plugins;
+- approval preview для `apply_patch`, `write_file` и `shell`;
+- plugin workflows `coding.single_loop`, `coding.codex_loop`,
+  `coding.codex_loop_diagnostic` и `coding.plan_execute_review`;
+- `eval report` поверх durable event log;
+- streaming model deltas через canonical model/event path;
+- durable session store, history и resume.
+
 ## Planned Направления
 
-Ближайшие направления должны проверять modular boundary на реальном coding loop,
-а не обходить её. Приоритеты и этапы описаны в `roadmap.md`; ниже остаётся
-общий backlog направлений:
+Непосредственный приоритет — safety stabilization: общий policy path для
+workflow-owned `task`, fail-closed shell sandbox, обязательный token для
+non-loopback HTTP, ownership PTY sessions и bounded retention process-subagent
+pool. Актуальные blockers ведутся в `scope.md`, детали текущих gaps — в
+`security-and-policy.md`.
 
-- usable local-agent profile: `proteus init`, `proteus doctor`, понятная
-  diagnostics вокруг config/tools;
-- усиление `repo_aware`: README/docs providers, provider scoring/budget и git
-  diff summary без записи в conversation history;
-- line-oriented edit/git tools через `ToolRegistry`;
-- diff-first approval для write/patch tools;
-- `coding.codex_loop`, `coding.codex_loop_diagnostic` и
-  `coding.plan_execute_review` как plugin `Workflow`,
-  вынесенные из core;
-- eval report поверх event log для сравнения workflow/context/edit связок;
-- streaming model path;
-- session restore/resume поверх event log;
-- table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits.
+После этого долгосрочный capability backlog должен развивать основание через
+существующие границы:
+
+- улучшение качества и observability `repo_aware` providers без записи
+  ephemeral context в conversation history;
+- расширение structured diff/preview на остальные mutating tools;
+- table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
+- MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
+  contracts, а не параллельный plugin runtime;
+- async plugin ABI для `ModelAdapter` с сохранением streaming.
 
 Каждое направление должно иметь focused tests на boundary, а не только happy
 path CLI smoke test.
@@ -218,11 +237,14 @@ path CLI smoke test.
 2. ✅ dylib loader через `abi_stable` + `libloading`;
 3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
    `search`, `memory`, declarative `memory_policy`, request-time `compactor`,
-   `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`
-   и `workflow`;
-4. 🔜 `ModelAdapter` как плагин — после freeze trait-а и async ABI;
-6. 🔜 Волна 3: перенос встроенных модулей в отдельные плагины по одному;
-7. ⏳ Волна 4: async-ABI для ModelAdapter через `FfiFuture` / `FfiStream`.
+   `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
+   `subagent` и `workflow`;
+4. ✅ большинство production-реализаций Волны 3 уже живёт в
+   `plugins/default`; в core остаются stubs, host-bound tools, builtin
+   `dynamic` ToolExposure, `sequential`/`process` SubagentRunner, provider
+   adapters и runtime wiring;
+5. ⏳ `ModelAdapter` остаётся в core до async ABI через `FfiFuture` /
+   `FfiStream` с поддержкой streaming.
 
 `ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
 простых shell-обёрток и stdio MCP tools, не замена plugin system и не полный

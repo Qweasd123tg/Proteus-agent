@@ -1,11 +1,14 @@
 # Security И Policy
 
-Security v0 держится на четырёх уровнях:
+Security path зарегистрированных tools в v0 держится на четырёх уровнях:
 
 1. tools объявляют `ToolSafety`;
 2. `PermissionMode` оборачивает configured `ApprovalPolicy` в mode-aware policy;
 3. `ToolOrchestrator` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
 4. сами tools проверяют workspace/path ограничения.
+
+Workflow-owned `task` пока не проходит этот общий path; исключение и остальные
+current gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
 
 Этот документ описывает текущую реализацию v0. Более гибкая config-editable
 модель прав остаётся planned и кратко описана в конце.
@@ -24,20 +27,24 @@ protected paths и secrets policy являются следующими слоя
 HTTP endpoints умеют отправлять prompts, approvals, typed input, cancel,
 reload-tools, history/resume, inspect topology diagnostics и shutdown.
 
-Для loopback dogfood HTTP session token по умолчанию выключен: `proteus server
-http --port 8787` должен открываться из web UI без `?session=...`. Строгий
-режим включается явно через `--token <token>`; тогда HTTP boundary требует
-per-server local session token на всех non-trivial endpoints (`/events`,
-`/send`, `/approval`, `/user-input`, `/cancel`, `/mode`, `/model`,
-`/reasoning`, `/effort`, `/config`, `/inspect/topology`,
-`/inspect/topology.runtime`, `/inspect/topology.runtime.mmd`,
-`/inspect/topology.map`, `/inspect/topology.mmd`, `/sessions`, `/history`,
-`/resume`, `/clear`, `/reload-tools`, `/shutdown`; `/health` может оставаться
-публичным). Для SSE допустим query token, потому что browser `EventSource` не
-выставляет произвольные headers; для обычных `fetch` requests предпочтителен
-`X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token не печатать
-в обычные logs, не класть в `localStorage`; in-memory state или
-`sessionStorage` приемлемы для v0.
+У прямого запуска `proteus server http` token auth по умолчанию выключен;
+включить его можно через `--token <token>`. Установленный wrapper из
+`install.sh` строже: если `PROTEUS_SESSION_TOKEN` не задан, он генерирует
+ephemeral token на каждый запуск. Отключение wrapper token-mode только явное:
+`PROTEUS_NO_SESSION_TOKEN=1`.
+
+Когда token-mode включён, session token требуется для любого HTTP endpoint,
+кроме preflight `OPTIONS` и `GET /health`; правило применяется централизованно
+и не зависит от ручного списка routes. Для SSE допустим query token, потому что
+browser `EventSource` не выставляет произвольные headers; для обычных `fetch`
+requests предпочтителен `X-Proteus-Session` или
+`Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
+класть в `localStorage`; in-memory state или `sessionStorage` приемлемы для v0.
+
+Текущий direct CLI не связывает non-loopback bind с обязательным token:
+`--host 0.0.0.0` без `--token` парсится и запускается. Это известный gap, а не
+разрешённый deployment mode; до fail-closed проверки используйте только
+loopback или всегда передавайте token явно.
 
 CORS для защищённых endpoints должен быть allowlist-ом локальных origins,
 например chat `http://127.0.0.1:1420`, inspector
@@ -88,6 +95,7 @@ plan flow UI может просить модель вернуть staged read-o
 | `apply_patch` | `WritesFiles` | применяет workspace-scoped patch через `PatchApplier` |
 | `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
+| `request_user_input` / `AskUserQuestion` | `ReadOnly` | запрашивает typed ответ через `UserInputTransport`; второй id — provider-compatible alias |
 
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` вынесены
@@ -97,8 +105,9 @@ File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 механизмом, что и ядерные.
 
 Plugin tool names валидируются при регистрации: пустое имя и duplicate между
-плагинами отклоняются. Если имя совпало с builtin/configured tool, приоритет
-остаётся у builtin/configured реализации.
+плагинами отклоняются. Если явно включённый plugin tool совпал с
+builtin/configured tool, сборка registry завершается ошибкой конфигурации;
+приоритет или silent skip не применяются.
 
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
 
@@ -306,8 +315,10 @@ OS-песочницу, если в системе доступен `bwrap` (bubb
 через approval (см. `codex_policy` ниже). Если `bwrap` недоступен или выставлен
 `PROTEUS_SHELL_SANDBOX=0`, команды исполняются без песочницы, а политика
 по-прежнему решает visibility/approval. Путь внешнего терминала (Ptyxis) также
-исполняет команды вне песочницы. Metadata результата (`sandbox`, `escalated`)
-отражают фактический режим запуска.
+исполняет команды вне песочницы. Для обычных execution paths metadata
+(`sandbox`, `escalated`) отражает выбранный режим, но текущий Ptyxis path может
+сообщить sandbox metadata, хотя фактически обходит bwrap; это входит в known
+gap ниже.
 
 Независимо от песочницы все команды `shell`/`exec_command` получают
 env-нейтрализацию интерактивности: `PAGER`/`GIT_PAGER`/`GH_PAGER=cat`,
@@ -435,6 +446,31 @@ split_commands = true
 эскалированные вызовы (`with_escalated_permissions`) оцениваются теми же
 правилами группы `bash`. Порядок правил значим — более специфичные правила
 ставьте ниже общих.
+
+## Известные Ограничения Текущей Реализации
+
+Это текущие gaps, а не целевое поведение:
+
+- workflow-owned tool `task` добавляется и исполняется внутри
+  `coding-workflow`, минуя общий `ToolRegistry`/`ToolOrchestrator`. Его
+  `ToolSafety::WritesFiles` пока не обеспечивает mode-aware policy/approval;
+  worktree-isolated роль может создать worktree/branch даже в plan mode;
+- `codex_policy.allow_sandboxed` разрешает неэскалированный `shell`/
+  `exec_command` без approval, но `shell-tool` fail-open: при отсутствии
+  `bwrap`, `PROTEUS_SHELL_SANDBOX=0` или запуске через Ptyxis команда идёт без
+  sandbox. Policy пока не получает фактический sandbox outcome до решения;
+- абсолютный внешний `workdir` добавляется в bwrap как отдельный read-write
+  bind и тем самым расширяет write boundary за исходный workspace;
+- PTY sessions `exec_command`/`write_stdin` хранятся process-wide;
+  `write_stdin` адресует их по предсказуемому numeric id без ownership по
+  caller/session/cwd;
+- `process` SubagentRunner ограничивает concurrent leases semaphore-ом, но
+  idle child processes для разных cwd пока не имеют общего TTL/LRU/cap;
+- direct HTTP CLI допускает non-loopback bind без token, как описано в
+  «App-Server HTTP Boundary» выше.
+
+До устранения этих gaps не считайте `allow_sandboxed`, plan mode, внешний
+`workdir`, shared app-server или unified exec полноценной isolation boundary.
 
 ## Planned Rights Model
 

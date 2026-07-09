@@ -1,90 +1,126 @@
-# Scope
+# Текущий Scope
 
-Этот документ фиксирует текущую рабочую рамку Proteus. Он нужен не как vision,
-а как тормоз против platform bloat: не все возможности в репозитории являются
-active product path.
+Этот документ отвечает только на один вопрос: **что сейчас находится на
+критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
+решений — в [roadmap.md](roadmap.md).
 
-## Active Product Path
+Последнее обновление: 2026-07-09.
 
-На ближайший dogfood Proteus - это локальный coding-agent harness:
+## Короткий Ответ
 
-- `ModelAdapter` / `ModelService`;
-- `Workflow`;
-- `ContextBuilder` и `repo_aware` context providers;
-- `ToolRegistry` / `ToolOrchestrator`;
-- `ApprovalPolicy`;
-- `PatchApplier`;
-- `SearchBackend`;
-- event log и eval report;
-- HTTP/SSE app-server;
-- web client только как dogfood UI.
+Proteus сейчас — личный локальный coding-agent для реального dogfood:
 
-Работа в этой зоне должна улучшать воспроизводимый coding loop: найти контекст,
-позвать модель, выполнить/запросить tools, применить patch, проверить результат
-и оставить понятный trace.
+```text
+model + context + workflow + tools + policy
+  -> app-server
+  -> web client
+  -> durable session и trace
+```
 
-## Parked Capabilities
+Базовый стек уже собран. Текущая фаза — **укрепление safety и lifecycle после
+добавления parallel/worktree subagents**, а не расширение числа features.
 
-Эти части могут жить в коде, но не должны расширять текущую карту задач без
-отдельного решения:
+## Что Работает
 
-- `memory` и `memory_policy`;
-- `sqlite-memory`, `jsonl`, `carry_forward`;
-- `compactor`;
-- renderer polish;
-- dynamic/deferred tool exposure beyond current lexical selector;
-- full hot-swap/reload modules;
-- MCP persistent host;
-- session picker polish;
-- reasoning UI polish.
+- OpenAI, Anthropic и OpenAI-compatible model adapters;
+- configurable workflows, context builders, compaction и tool exposure;
+- file/git/shell/plan tools через default plugins;
+- mode-aware policy, approvals и session-scoped control plane;
+- JSONL sessions, request/config snapshots и pre-compaction archives;
+- HTTP/SSE app-server, chat client и Inspector;
+- sequential и process subagents;
+- параллельные read-only роли и worktree isolation для пишущих ролей;
+- `doctor`, `inspect topology`, `modules list` и `eval report`;
+- root boundary/swap tests и отдельные Trunk builds клиентов.
 
-Parked capability может оставаться no-op, proof-only или выключенной в profile.
-Это нормальное состояние, а не долг, который надо срочно закрывать.
+«Работает» не означает «контракт стабилен навсегда». Проект пока свободно меняет
+ABI и внутренние DTO, если dogfood показывает неправильную границу.
+
+## Текущий Приоритет
+
+До новых subagent/UI возможностей нужно закрыть четыре класса риска.
+
+### 1. Один Safety Path Для Всех Tools
+
+Workflow-owned `task` сейчас является исключением из общего пути
+`ToolRegistry -> ApprovalPolicy -> ToolOrchestrator`. Целевое состояние:
+
+- `task` проходит visibility, validation, approval, timeout и events так же,
+  как остальные model-callable actions;
+- plan mode не создаёт worktree или ветку;
+- worktree lifecycle не протекает как Git-specific API в generic workflow host.
+
+### 2. Shell Должен Быть Fail-Closed
+
+Sandboxed-разрешение допустимо только когда sandbox действительно создан.
+Нужно запретить silent fallback в unsandboxed execution и не давать абсолютному
+`workdir` превращаться в дополнительный RW mount вне workspace. Ptyxis-path
+тоже должен требовать escalation и сообщать фактический sandbox status, а не
+маркироваться как `bwrap` после обхода bwrap.
+
+### 3. Внешний HTTP Только С Auth
+
+Loopback без token остаётся удобным debug-режимом. Любой non-loopback bind
+должен требовать token, а не полагаться на CORS/`Origin`.
+
+### 4. Ограниченный Lifecycle Процессов
+
+Process subagents должны получить bounded idle/resume retention: уникальные
+worktree cwd не должны оставлять неограниченное число живых children.
+Interactive exec уже ограничивает число сессий, но ему нужны session/thread
+ownership, age cleanup и честная cancellation semantics, чтобы один turn не мог
+управлять процессом другого.
+
+## Следующий Checkpoint
+
+Фаза стабилизации закрыта, когда:
+
+1. safety cases выше покрыты regression-тестами;
+2. полный root gate и оба Trunk build зелёные;
+3. `./install.sh` даёт совместимый binary/plugin set;
+4. несколько небольших coding-задач проходят через web/app-server без потери
+   контроля, worktree или процесса;
+5. trace позволяет объяснить failure без ручного чтения исходников runtime.
+
+После этого следующий архитектурный вопрос — canonical turn data:
+parts/storage/replay/eval должны проектироваться вместе, чтобы не мигрировать
+session format несколько раз.
+
+## Не На Критическом Пути
+
+Эти возможности могут существовать в коде или backlog, но не должны вытеснять
+стабилизацию:
+
+- marketplace, signed plugins и внешний package manager;
+- WASM plugin runtime и dylib hot-unload;
+- multi-agent DAG и автоматический merge worktree-веток;
+- большой UI rewrite и cosmetic renderer polish;
+- memory consolidation/background jobs;
+- полноценный RAG/index daemon;
+- MCP resources/prompts/subscriptions и новые transports;
+- LSP integration;
+- внешний onboarding и distribution для незнакомого пользователя.
 
 ## Research / Quarantine
 
-Research-код не считается production/default pack:
+Research-код не считается production path и не должен автоматически попадать в
+root workspace или `install.sh`:
 
-- tool-output artifacts;
-- best-of agent packs;
-- Cursor-like dynamic context experiments;
-- multi-agent DAG (sequential subagents выпущены как slot `subagent` после
-  пересмотра интейка, см. slot-governance.md; parallel-вариант — planned);
-- `SkillCatalog`;
-- `BudgetTracker` / `UsageMeter`;
-- `ArtifactStore`;
-- `ToolResultProcessor`;
-- MCP resources/prompts/subscriptions и non-stdio transports.
+- `plugins/research/tool-output-artifacts`;
+- новые best-of packs до появления измеримого eval;
+- `ArtifactStore` и `ToolResultProcessor`;
+- новые slots без двух-трёх независимых реализаций;
+- provider/product-specific идеи, ещё не разложенные по существующим contracts.
 
-Research может иметь README и tests, но не должен быть root workspace member,
-не должен устанавливаться через `install.sh` и не должен появляться в default
-dogfood path.
+## Правило Для Новой Задачи
 
-## Frozen Until Slim Dogfood
+- Меняет порядок agent loop → `Workflow`.
+- Меняет контекст → `ContextBuilder`.
+- Меняет видимость tools → `ToolExposure`.
+- Меняет разрешения → `ApprovalPolicy`/`ToolOrchestrator`.
+- Добавляет model-callable действие → обычный policy-gated `Tool`.
+- Не укладывается в существующую границу → сначала research и второй use case,
+  потом новый contract.
 
-До slim-profile и нескольких dogfood прогонов по самому Proteus не добавлять:
-
-- новые slots;
-- новые feature packs;
-- memory polish;
-- renderer polish;
-- artifact pipeline;
-- MCP resources/prompts/subscriptions;
-- marketplace/package manager;
-- большой web UI rewrite;
-- RAG/index daemon.
-
-Если новая идея не ломает этот freeze, сначала попытайтесь выразить её через
-существующие `Tool`, `Workflow`, `ContextBuilder`, `ToolExposure`,
-`SearchBackend`, `MemoryPolicy`, `ApprovalPolicy`, `PatchApplier`,
-`Compactor`, `Renderer` или `ModelAdapter`.
-
-## First Cuts
-
-Текущий narrow-mode cleanup:
-
-- `examples/configs/proteus.dev-slim.example.toml` для разработки самого Proteus;
-- `examples/configs/proteus.external-tools.example.toml` вместо misleading advanced example;
-- `plugins/research/tool-output-artifacts` вне root workspace;
-- `inspect topology --format runtime` для человеческой runtime path карты;
-- `inspect topology --format map` остаётся full diagnostic graph.
+Подробное дерево решений находится в
+[slot-governance.md](slot-governance.md).

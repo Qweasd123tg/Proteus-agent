@@ -1,9 +1,32 @@
 # Roadmap
 
-Этот документ фиксирует направление проекта после первичного архитектурного
-опроса. Он не заменяет reference-доки: фактическое состояние находится в
-`architecture.md`, `modules.md`, `configuration.md`, `runtime-and-events.md`,
-`security-and-policy.md` и `testing.md`.
+Roadmap хранит порядок работ и журнал уже принятых решений. Это не reference:
+фактическое состояние описывают `architecture.md`, `modules.md`,
+`configuration.md`, `runtime-and-events.md`, `security-and-policy.md` и
+`testing.md`.
+
+## Как Читать Этот Файл
+
+Если нужен ответ «что делать сейчас», прочитайте следующий раздел и
+[scope.md](scope.md). Ниже находятся этапы, backlog и датированные разборы,
+которые объясняют, почему проект пришёл к текущему плану. Их не нужно читать для
+первого знакомства.
+
+## Ближайший Порядок
+
+1. Вернуть **один safety path** всем model-callable actions: workflow-owned
+   `task` должен проходить policy/approval/orchestrator, как обычный tool.
+2. Сделать shell sandbox fail-closed, запретить RW-доступ вне workspace без
+   escalation и требовать token для non-loopback HTTP.
+3. Ограничить lifecycle процессов: bounded idle/resume retention для process
+   subagents; ownership, age cleanup и cancellation для уже count-bounded
+   interactive exec sessions.
+4. После safety-среза решить canonical turn data как один кластер:
+   parts + storage + replay + eval.
+5. Прогнать несколько маленьких dogfood-задач и только по их результатам
+   добавлять merge-role, новый UI или feature packs.
+
+До закрытия пунктов 1–3 новые platform features не являются приоритетом.
 
 ## Цель
 
@@ -30,7 +53,10 @@ module implementations без переписывания core или форка 
 5. Tests before platform claims: каждый новый slot/module behavior получает
    focused tests на boundary.
 
-## Direction Checkpoint
+## Журнал Направления
+
+Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
+текущий порядок выше.
 
 Обновление на 2026-07-06: identity проекта зафиксирована как **платформа для
 себя** — идеальный личный конструктор, который позже можно превратить во что
@@ -55,7 +81,9 @@ profile/pack на выбранном для dogfood provider-е; agent boundary 
 references.
 
 Состояние parity-паков: codex pack (named config `codex`, `codex_context` с
-provider `environment`, `codex_policy`, `codex`-compactor, `codex_dynamic`)
+provider `environment`, `codex_policy`, `codex`-compactor, стабильный
+`all_visible` tool surface; `codex_dynamic` оставлен как экспериментальный
+module, но не активен в packaged profile)
 и opencode pack (named config `opencode`, `opencode_policy` с
 last-match-wins wildcard permissions, `edit_file`, реюз codex-модулей)
 собраны и ставятся через `install.sh`; сравнение поведения при смене паков —
@@ -63,8 +91,8 @@ last-match-wins wildcard permissions, `edit_file`, реюз codex-модулей
 `docs/pack-contracts.md`).
 
 Операционный критерий для ближайшего этапа вынесен в
-`docs/dogfood-gate.md`: сначала нужен один воспроизводимый dogfood loop через
-текущий внешний клиент или app-server harness, который показывает, где ломается
+`docs/dogfood-gate.md`: нужны небольшие воспроизводимые dogfood loops через
+текущий внешний клиент или app-server harness, которые показывают, где ломается
 стек, а не новый набор feature packs или большой UI rewrite.
 
 Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped профиль,
@@ -81,7 +109,7 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   запуск, но модель ещё ~35 сообщений ставила Firefox ради визуальной проверки,
   которую никто не просил. Провокатором были `playwright__browser_navigate`/
   `playwright__browser_snapshot` в `always_include` codex/glm конфигов —
-  убраны; браузерные tools остаются доступными через dynamic exposure.
+  убраны; Playwright MCP в packaged profiles сейчас закомментирован.
 - (закрыто 2026-07-09) потеря prompt cache посреди сессии и у субагентов:
   `codex_dynamic` пересобирал набор tools лексическим скорингом по тексту
   каждой задачи (5 свободных слотов на ~30 кандидатов) — менялся и реальный
@@ -168,7 +196,7 @@ pipeline) почти бесплатно.
   не только snapshot).
 - Следствие для порядка работ: parallel subagents требуют per-child
   cancellation (готово), approval queue с атрибуцией (готово, v0.3) и
-  бюджетов (`BudgetTracker` — остаётся) — control plane почти собран.
+  бюджетов (первый срез `BudgetTracker` готов) — control plane почти собран.
 - Хорошая новость: stdio-протокол (`Send{id}` / `Cancel{target_id}` /
   `Approval`, `app_server/stdio.rs:98-229`) уже достаточен для пути B
   «ребёнок = процесс proteus».
@@ -212,7 +240,7 @@ context (`core/registry.rs:160`) и не попадает в `RuntimeContext` �
 решить один раз: расширяемый контейнер runtime-фактов vs типизированные
 поля по одному.
 
-### Кластер 5: учёт токенов рассыпан, бюджета нет
+### Кластер 5: первый budget есть, общий учёт ещё рассыпан
 
 Четыре независимых счётчика: chars/4-оценка
 (`coding-workflow/src/token_accounting.rs`), суммация `TokenUsage` в
@@ -256,8 +284,8 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
    расширен provider-neutral spawn/wait/cancel (`SubagentHandle`,
    default-методы «не поддерживается»; `run` = `spawn` + `wait` у обоих
    builtin-runner-ов, дети — detached-таски на child-токенах, cap
-   `max_parallel`), роли объявляют `parallel_safe`, process runner держит
-   пул до `max_processes` процессов на роль (resume по конкретному
+   `max_parallel`), роли объявляют `parallel_safe`, process runner ограничивает
+   до `max_processes` **одновременных** детей на роль (resume по конкретному
    process id; ClearHistory хоронит старые task_id-ы процесса),
    coding-workflow исполняет батч task-вызовов конкурентно только когда
    все роли parallel_safe. Stage 2 реализован (2026-07-09):
@@ -271,7 +299,8 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
    (авто-merge нет), выделенная merge-роль — следующий срез.
    `BudgetTracker` (Кластер 5) реализован в первом срезе (2026-07-09):
    per-child token-бюджеты через `SubagentLimits::max_total_tokens` в обоих
-   builtin-раннерах. Осталось: UX дерева потоков в клиенте.
+   builtin-раннерах. До UX дерева потоков нужно закрыть общий policy path для
+   `task` и bounded eviction idle process children.
 
 ## Этапы
 
@@ -284,10 +313,13 @@ UI/business logic в CLI.
 
 - domain/contracts/plugin_adapters/stubs/adapters разделены;
 - model provider проходит через canonical model protocol;
-- tools исполняются через `ToolRegistry`, `ApprovalPolicy` и `ToolOrchestrator`;
+- обычные tools исполняются через `ToolRegistry`, `ApprovalPolicy` и
+  `ToolOrchestrator`; workflow-owned `task` — известное исключение, которое
+  нужно вернуть в общий path;
 - session/events/history отделены от ephemeral context;
 - CLI/UI зафиксирован как внешний слой;
-- process stdout/stderr bounded до общего truncation.
+- результаты обычных tools проходят общий bounded truncation; workflow-owned
+  `task` пока остаётся вне этого path вместе с policy gap;
 - `repo_aware` context вынесен в `context-pack` и добавляет provider pipeline
   за `ContextBuilder` slot.
 
@@ -358,19 +390,21 @@ plan/execute/review экспериментов.
   конфигом ребёнка структурно), форвардинг tool-событий под child
   `ThreadId`, approvals/user-inputs — в родительские transports с меткой
   роли, cancel = `Cancel` + grace + kill, свежая задача = `ClearHistory`,
-  resume по `task_id` продолжает живую session ребёнка. Путь A
-  (in-process tokio tasks) не реализуется, пока process-путь не упрётся
-  в цену старта. Parallel stage 1 реализован (2026-07-08): контракт слота
+  resume по `task_id` продолжает живую session ребёнка. In-process
+  `sequential` runner и process runner теперь оба реализуют detached
+  spawn/wait/cancel; process-путь нужен для структурно отдельного профиля и
+  lifecycle. Parallel stage 1 реализован (2026-07-08): контракт слота
   расширен spawn/wait/cancel (`SubagentHandle`; `run` = `spawn` + `wait`,
   дети — detached-таски на child-токенах, реестр запущенных с cap
-  `max_parallel`), роли несут флаг `parallel_safe`, process runner держит
-  пул до `max_processes` процессов на роль, workflow host получил
+  `max_parallel`), роли несут флаг `parallel_safe`, process runner ограничивает
+  до `max_processes` одновременных детей на роль, workflow host получил
   `spawn/wait/cancel_subagent_json`, coding-workflow исполняет батч
   task-вызовов конкурентно, только когда все запрошенные роли
   parallel_safe (spawn всех → wait по порядку; ошибка одного вызова не
   прерывает остальных). Per-child token-бюджеты реализованы (2026-07-09,
-  `SubagentLimits::max_total_tokens` + `BudgetTracker`). Оставшийся блокер:
-  UX дерева параллельных потоков в клиенте.
+  `SubagentLimits::max_total_tokens` + `BudgetTracker`). Перед UI остаются
+  safety/lifecycle блокеры: `task` должен проходить общий policy path, а idle
+  process children — иметь bounded eviction.
   Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
@@ -385,7 +419,10 @@ plan/execute/review экспериментов.
   resume попадает в тот же worktree по in-memory реестру, батч-гейт —
   parallel_safe ∨ worktree, пул процессов реюзает только совпадающий cwd;
   merge выполняет родитель своими git-тулами (решение владельца
-  2026-07-08), выделенная merge-роль — следующий срез. Packaged
+  2026-07-08). Последующий аудит показал, что Git-specific workspace API в
+  generic workflow host — неправильная долгосрочная граница; lifecycle нужно
+  вернуть внутрь policy-gated subagent/isolation capability до развития
+  merge-role. Packaged
   glm/codex-конфиги получили роль `coder` (worktree-writer).
   Dogfood-evidence по sequential (первые прогоны, 2026-07-06):
   (a) ребёнок читал файлы по одному `read_file` на итерацию при доступном
@@ -433,7 +470,9 @@ state.
 
 Scope:
 
-- расширить interrupt/cancel beyond stdio target cancel;
+- ✅ cancel доступен через stdio и HTTP, parent cancellation каскадируется в
+  child tokens; остаются ownership долгоживущих exec sessions и доставка
+  partial subagent summary в родительский transcript;
 - ✅ approval queue с атрибуцией (2026-07-07): `ApprovalRequest.origin`
   (thread/turn + метка роли субагента через `RuntimeContext.thread_label`),
   wire-поля `AppApprovalRequest.origin`/`seq` (serde-tolerant), сортировка
@@ -451,8 +490,9 @@ Scope:
   изолированы структурно (`child_context` в `core/subagent.rs` даёт пустые
   grants — `escalated_exec` родителя не протекает, кластер 2 аудита частично
   закрыт);
-- session resume/restore;
-- durable task/session metadata;
+- ✅ session resume/restore;
+- 🟡 session/request/config metadata персистится частично; canonical task/turn
+  record и replay ещё не определены;
 - event-log based debugging. Аудит 2026-07-06: текущий `events.jsonl` — это
   телеметрия, а не replay-лог. Для replay ("тот же вход, другой
   модуль/промпт") критично не хватает: (a) полного `CanonicalModelRequest`
@@ -477,8 +517,9 @@ Scope:
 Scope:
 
 - стабилизировать app-server JSONL DTO;
-- добавить HTTP/SSE/WebSocket adapter поверх той же app-server boundary;
-- добавить protocol tests;
+- ✅ HTTP/SSE adapter поверх той же app-server boundary; WebSocket остаётся
+  возможным будущим transport, но не требуется текущему web client;
+- ✅ базовые protocol/HTTP tests; расширять вместе с новыми endpoints;
 - описать commands/events как client contract;
 - при проектировании DTO оценить parts-модель сообщений (typed parts:
   text/reasoning/tool со state transitions, как в opencode) против текущего
@@ -548,8 +589,9 @@ Scope:
   `allow_all`/`ask_write`/`codex_policy`/`opencode_policy` вынесены в
   `policy-pack`, `plain`/`statusline`
   вынесены в `renderer-pack`.
-  В ядре остались только slot-dependent tools: `apply_patch`, `search`,
-  `remember_fact`, плюс безопасные stubs `workflow = "none"`,
+  В ядре остаются builtin model adapters, builtin subagent runners
+  (`sequential`, `process`), slot-dependent facade tools `apply_patch`, `search`,
+  `remember_fact`, `request_user_input` и безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, builtin selector `tool_exposure = "dynamic"`,
   `renderer = "text"`.
@@ -625,8 +667,9 @@ Scope:
 - Длинные tool/terminal outputs сохранять как artifacts и возвращать модели
   краткий summary + path/tail. Черновик живёт в `plugins/research/tool-output-artifacts`;
   публичный contract пока не стабилизирован.
-- Исследовать generic `BudgetTracker` / `UsageMeter`, `ArtifactStore` и
-  `ToolResultProcessor`, но добавлять contract только после второго use case.
+- Расширить уже реализованный `BudgetTracker` до phase/turn budget при появлении
+  второго runtime-потребителя; `UsageMeter`, `ArtifactStore` и
+  `ToolResultProcessor` добавлять как contracts только после второго use case.
 
 ### Best-Of Packs
 
@@ -645,16 +688,16 @@ Scope:
 
 ### Web Client / Control Plane
 
-- Сделать Leptos web client основным внешним client: session list/resume,
+- ✅ Leptos web client является основным внешним client; session list/resume,
   transcript, composer, approval queue, typed user-input form, mode control,
   token/context/debug views и streaming readability остаются client concerns.
-- Начальный `clients/web` уже заведён как standalone Leptos/Trunk shell:
+- `clients/web` работает как standalone Leptos/Trunk client:
   transcript, composer, mode controls, approval queue, typed user-input form,
   cancel action, `/resume` session picker и HTTP/SSE client без зависимости на
   `proteus-core`.
-- `clients/inspector` отделён от chat loop и владеет редкими
-  config/architecture экранами (`/configs`, `/architecture`) поверх read-only
-  diagnostic endpoints.
+- `clients/inspector` отделён от chat loop и владеет редкими config/architecture
+  экранами (`/configs`, `/architecture`); topology endpoints read-only, а
+  Config Builder сохраняет разрешённые config-поля через `POST /config/builder`.
 - Reference snapshots для web-переезда лежат в `examples/source/leptos` и
   `examples/source/oxide-agent-web-transport`; tracked заметка находится в
   `examples/research/web-client-references.md`.
@@ -662,12 +705,13 @@ Scope:
   core: tool cards, markdown links/images/tables/code, blockquotes,
   status/footer, transcript spacing и reasoning placement/colors. Это не новый
   core renderer slot.
-- App-server protocol tests для submit, stream, tool call, approval
-  request/resolve, cancel, timeout, disconnect/reconnect, resume и shutdown.
-- Durable task/session metadata и event-log based debugging для UI/evals.
+- ✅ Базовые app-server/protocol tests существуют; расширить сценарии timeout,
+  disconnect/reconnect и parallel-session/subagent ownership.
+- 🟡 Request/config snapshots и event-log debugging реализованы; canonical
+  durable task/turn record для UI/eval/replay остаётся общей data-задачей.
 - MCP resources/prompts/subscriptions и non-stdio transports: execution tools
   уже проходят через `ToolRegistry`, policy visibility и approval.
-- Hot-swap/reload для config-defined tools и MCP discovery: агент может
+- ✅ Hot-swap/reload для config-defined tools и MCP discovery: агент может
   добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
   snapshot видит discovered tools, старые turns доживают на прежнем snapshot.
 - Subagent UI follow-up: опциональный streaming текста дочернего цикла.
@@ -737,8 +781,9 @@ Scope:
   сначала extract в scaffold/lib внутри пака, при 2-3 правдоподобных
   реализациях — intake по slot-governance (прецедент: subagent); (b)
   feature-specific методы в `PluginWorkflowHost` — красный флаг раньше любого
-  размера; (c) `token_accounting.rs` в coding-workflow — первый кандидат на
-  выход в `BudgetTracker`, когда учёт понадобится второму потребителю.
+  размера; (c) `token_accounting.rs` в coding-workflow — кандидат на общий
+  phase/turn `BudgetTracker`, когда появится второй потребитель помимо
+  subagents.
 - Снижать неявную связанность между plugin packs: инвентарь межпаковых
   contracts (строковые маркеры, metadata keys, tool-имена в config) и
   направления фиксов живут в `docs/pack-contracts.md`. Перед сборкой нового

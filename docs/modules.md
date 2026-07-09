@@ -60,6 +60,13 @@ executors, но external process modules и package manager ещё не реал
 То же относится к MCP hot-swap: discovery и visibility проходят через
 `ToolRegistry`/`ToolExposure`, а не через отдельный feature-specific slot.
 
+`ModuleKind` содержит 13 вариантов. Одиннадцать из них выбираются полями
+`modules.*`; `Model` выбирается отдельно через `active_provider`/`providers`,
+а `Tool` служит catalog/registry kind для concrete tools и не имеет
+`modules.tool`. Поэтому таблица ниже показывает 12 выбираемых behavior slots:
+model provider плюс одиннадцать ключей `modules.*`. Сам `ToolRegistry`
+остаётся execution boundary, а не ещё одним config-selectable slot.
+
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
 | Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
@@ -284,8 +291,9 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   `docs/security-and-policy.md`.
 
 Plugin tool names должны быть непустыми и уникальными между плагинами. Если
-plugin tool совпадает с builtin/configured tool, builtin/configured реализация
-остаётся активной, а plugin tool пропускается при сборке registry.
+явно включённый через `tools.enabled` plugin tool совпадает с
+builtin/configured tool, сборка registry завершается ошибкой конфигурации:
+runtime не выбирает победителя и не пропускает конфликт молча.
 
 Имена `shell` и `exec_command` несут неявный контракт ядра: оркестратор
 перехватывает их вызовы вида `apply_patch <<'EOF' ...` и переписывает в

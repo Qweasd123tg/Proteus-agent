@@ -302,15 +302,24 @@ system-строку в transcript.
 - `TurnOutput` - итоговый `AgentOutput`;
 - `ApprovalRequested` - tool approval ждёт решения UI-клиента;
 - `ApprovalResolved` - approval закрыт;
+- `UserInputRequested` - tool `request_user_input`/`AskUserQuestion` ждёт
+  typed ответа UI;
+- `UserInputResolved` - pending user-input request закрыт;
+- `ModulesReloaded` - опубликован новый runtime snapshot после reload tools;
+- `SessionActivityUpdated` - изменилось running/pending состояние live session;
 - `Error` - ошибка app-server/runtime;
+- `EventStreamLagged` - broadcast stream потерял события и клиенту нужна
+  пересинхронизация;
 - `Shutdown` - процесс/сессия закрывается.
 
 `ApprovalRequested` несёт `AppApprovalRequest`: `approval_id`, исходный
 `ToolCall`, `cwd`, человекочитаемый `reason`, optional `tool_spec` и optional
 `preview`. `preview` является UI-метаданными, а не новым contract-ом
 исполнения. Клиент может показать affected files, diff/body или shell command
-до approve/deny, но runtime всё равно исполняет tool только через
-`ToolRegistry`, `ApprovalPolicy`, `ToolSafety` и validation самого tool.
+до approve/deny, но показанный здесь registered tool всё равно исполняется
+через `ToolRegistry`, `ApprovalPolicy`, `ToolSafety` и validation самого tool.
+Workflow-owned `task` пока является отдельным известным исключением, см.
+`docs/security-and-policy.md`.
 
 Текущий WIP app-server генерирует `preview` для трёх approval UX:
 
@@ -355,6 +364,8 @@ HTTP/SSE transport:
   навсегда;
 - `GET /config` - текущий config summary, включая активный `session_dir`, если
   runtime подключён к session store;
+- `GET /config/builder` - snapshot selectable modules/tools/providers и
+  текущих значений Config Builder;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
 - `GET /inspect/topology.runtime` - короткий runtime path из того же snapshot;
 - `GET /inspect/topology.runtime.mmd` - короткая Mermaid runtime-схема;
@@ -362,6 +373,8 @@ HTTP/SSE transport:
 - `GET /inspect/topology.mmd` - Mermaid export/debug view из того же snapshot;
 - `GET /sessions` - durable session summaries из config store с optional
   live `activity` для sessions, открытых в текущем app-server process;
+- `GET /sessions/current` - тот же список, ограниченный workspace текущего
+  app-server;
 - `GET /pending` - snapshot pending approval/user-input запросов выбранной
   session для восстановления UI после initial load или SSE reconnect;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
@@ -371,16 +384,24 @@ HTTP/SSE transport:
 - `GET /context` - diagnostic context map текущей live session; `GET
   /context?session_dir=<path>` читает карту указанной session с fallback из
   event log/history и без обязательного cold resume;
-- `POST /send`, `/cancel`, `/approval`, `/user-input`, `/mode`, `/model`,
-  `/reasoning`, `/effort` - короткие endpoint'ы над соответствующими
-  `StdioRequest` вариантами; mutating request bodies могут передать
-  `session_dir`, чтобы команда ушла в конкретную live session, а не в
-  process-wide текущую session;
+- `POST /send` - запускает turn и держит HTTP request до финального
+  `AgentOutput`;
+- `POST /send-async` - принимает turn без ожидания финального ответа; progress,
+  `TurnOutput` или `Error` приходят через `GET /events`;
+- `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
+  `/effort` - короткие endpoint'ы над соответствующими командами; mutating
+  request bodies могут передать `session_dir`, чтобы команда ушла в конкретную
+  live session, а не в process-wide текущую session;
+- `POST /config/builder` - сохраняет выбор Config Builder; `POST /config/web`
+  обновляет поддержанные web preferences;
 - `POST /resume` - переключает текущий HTTP app-server на выбранный
   `session_dir` без отмены running turn старой session;
 - `POST /new-session` - выбирает новый пустой runtime, не отменяя фоновые
   turns других sessions;
-- `POST /clear` и `/shutdown` - control-plane команды без body.
+- `POST /delete-session` - удаляет указанную durable session и отменяет только
+  связанную с ней live работу;
+- `POST /clear`, `/reload-tools` и `/shutdown` - control-plane команды без
+  body.
 
 Live `activity` в session summary и `SessionActivityUpdated` содержит
 `status`, счётчики pending/running и `running_turn_ids`. Этот snapshot является
@@ -394,6 +415,9 @@ HTTP `send` держит request до завершения turn'а и парал
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
 исходного `send` и сигналит тот же turn-level `CancellationToken`, даже если
 пользователь уже переключился на другую session.
+`send-async` возвращает acceptance/protocol response сразу после постановки
+turn-а в работу; его завершение не возвращается вторым HTTP-ответом и должно
+наблюдаться через SSE (`TurnOutput` или `Error`).
 HTTP app-server принимает только один running turn на session: второй
 `/send-async` в ту же session получает protocol error, а разные sessions могут
 работать параллельно. `POST /request` сохраняет stdio-compatible поведение и

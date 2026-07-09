@@ -1,7 +1,7 @@
 # v0 Dogfood Gate
 
 Этот документ фиксирует минимальный контур проверки реальности для v0. Его
-цель - не доказать, что агент уже хороший продукт, а получить один
+цель - не доказать, что агент уже хороший продукт, а регулярно получать
 воспроизводимый loop, в котором видно, где именно ломается стек:
 `core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
 app-server или текущий внешний UI-клиент.
@@ -151,6 +151,11 @@ postmortem, а не как блокер web/app-server boundary.
 - UI зависает так, что непонятно, turn ещё идёт или уже умер.
 - HTTP app-server для web dogfood не требует local token или оставляет wildcard
   CORS на защищённых endpoints.
+- model-callable action обходит `ToolRegistry`, mode-aware policy или approval;
+- sandboxed tool фактически запускается без sandbox либо получает RW-доступ вне
+  workspace без escalation;
+- process/session lifecycle не имеет owner-а или оставляет неограниченное число
+  живых child processes.
 
 ## Non-Blocking Irritants
 
@@ -169,9 +174,9 @@ postmortem, а не как блокер web/app-server boundary.
 Такие пункты идут в UI polish backlog или профильный research doc, а не
 становятся причиной переписывать UI-контур до завершения dogfood run-а.
 
-## Первый v0 Manual Test
+## Шаблон Маленького Manual Test
 
-Первый тест должен быть маленьким и конкретным. Пример формата:
+Каждый диагностический тест должен быть маленьким и конкретным. Пример формата:
 
 ```text
 Repo: <path>
@@ -180,7 +185,7 @@ Expected artifact: diff, test result или structured explanation
 Success: task completed or failure localized
 ```
 
-Не использовать как первый тест большую фичу, repo split, новый slot или UI
+Не использовать для такого теста большую фичу, repo split, новый slot или UI
 rewrite. Цель - проверить loop, а не максимальную способность агента.
 
 ## Postmortem Rubric
@@ -211,7 +216,8 @@ proteus eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
 
 ## Временно Не На Критическом Пути
 
-До первого воспроизводимого dogfood loop не начинать как blocking scope:
+До завершения текущего safety/lifecycle checkpoint не начинать как blocking
+scope:
 
 - разделение репозиториев;
 - большой retained/native UI rewrite;
