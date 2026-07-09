@@ -252,8 +252,8 @@ Provider prompt cache не является локальным response-cache. W
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
 активный adapter заявил `supports_cache_hints`, а provider adapter переводит их
 в свой API. OpenAI получает request-level `prompt_cache_key` и optional
-`prompt_cache_retention`; стандартный workflow держит routing key стабильным
-для `(provider, model, session_id)`. Сам key не гарантирует hit: OpenAI отдельно
+`prompt_cache_retention`; стандартный workflow использует стабильный routing
+key `proteus:session:<session_id>`. Сам key не гарантирует hit: OpenAI отдельно
 сопоставляет фактический prefix, поэтому tools/instructions должны сохранять
 общую начальную часть. Anthropic получает explicit `cache_control` на
 system/tools prefix; top-level automatic cache-control используется только как

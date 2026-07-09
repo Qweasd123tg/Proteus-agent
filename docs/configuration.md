@@ -241,8 +241,8 @@ metadata запроса или явного `providers.*.prompt_cache_key`; ес
 задан `prompt_cache_retention`, adapter прокидывает его как
 `prompt_cache_retention`. Значение retention не выставляется по умолчанию:
 для `24h`/`in_memory` это provider policy, а не поведение workflow. Стандартные
-coding workflows используют routing key, стабильный для
-`(provider, model, session_id)`. Это не fingerprint содержимого: provider
+coding workflows используют короткий routing key `proteus:session:<session_id>`.
+Это не fingerprint содержимого: provider
 отдельно хеширует фактически сериализованный prefix и переиспользует только
 совпавшую часть. Anthropic Messages получает
 `cache_control = { type = "ephemeral" }` как explicit breakpoint на system

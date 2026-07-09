@@ -611,7 +611,7 @@ cap не занимали tools, которые роль всё равно от�
 
 Model-запросы дочернего цикла включают prompt cache: `CacheHints(true, true)`
 и стабильный `prompt_cache_key` вида
-`proteus:subagent:<provider>:<model>:<child_thread_id>` — история ребёнка
+`proteus:thread:<child_thread_id>` — история ребёнка
 append-only, поэтому ключ на child thread даёт консистентный prefix-cache
 routing между итерациями и продолжается после resume по `task_id`. Ребёнок
 наследует модель и reasoning-настройки родителя; per-role model/effort в

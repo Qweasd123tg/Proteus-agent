@@ -788,7 +788,8 @@ async fn child_loop_model_requests_enable_prompt_cache() {
     let first_key = metadatas[0]["prompt_cache_key"]
         .as_str()
         .expect("prompt_cache_key present");
-    assert!(first_key.starts_with("proteus:subagent:"));
+    assert!(first_key.starts_with("proteus:thread:"));
+    assert!(first_key.len() <= 64);
     assert!(
         metadatas
             .iter()

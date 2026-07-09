@@ -126,29 +126,5 @@ pub(crate) fn insert_request_metadata_value(
 /// key tools/instructions, любое легитимное изменение prefix разбрасывает одну
 /// conversation по разным cache buckets и убивает reuse последующих turn-ов.
 pub(crate) fn prompt_cache_key(input: &PluginWorkflowInput) -> String {
-    let provider = sanitize_cache_key_component(&input.runtime.model_ref.provider);
-    let model = sanitize_cache_key_component(&input.runtime.model_ref.model);
-    format!(
-        "proteus:workflow:{provider}:{model}:{}",
-        input.runtime.session_id
-    )
-}
-
-fn sanitize_cache_key_component(value: &str) -> String {
-    let mut out = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    out.truncate(64);
-    if out.is_empty() {
-        "model".to_owned()
-    } else {
-        out
-    }
+    format!("proteus:session:{}", input.runtime.session_id)
 }

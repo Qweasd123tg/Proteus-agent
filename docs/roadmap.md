@@ -114,7 +114,8 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   каждой задачи (5 свободных слотов на ~30 кандидатов) — менялся и реальный
   префикс запроса, и старый `prompt_cache_key`, который ошибочно хешировал
   tools/instructions. Временный переход на `all_visible` снят: workflow key
-  теперь стабилен на `(provider, model, session_id)`, builtin/codex selectors
+  теперь стабилен на `session_id` и укладывается в provider limit 64 символа,
+  builtin/codex selectors
   используют cache-stable hot set и ранжируют по intent только при explicit
   query, а hidden tools вызываются через deferred search/describe/call.
   Packaged codex/glm снова используют `codex_dynamic`; Playwright MCP остаётся

@@ -159,10 +159,8 @@ fn prompt_cache_key_is_stable_for_session() {
 
     let key = prompt_cache_key(&input);
     assert_eq!(key, prompt_cache_key(&next_turn));
-    assert_eq!(
-        key,
-        format!("proteus:workflow:fake:model:{}", input.runtime.session_id)
-    );
+    assert_eq!(key, format!("proteus:session:{}", input.runtime.session_id));
+    assert!(key.len() <= 64);
 }
 
 #[test]

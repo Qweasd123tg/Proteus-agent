@@ -12,7 +12,7 @@ use crate::{
         ToolExposureInput, ToolExposureRequest,
     },
     core::ToolOrchestrator,
-    domain::{CacheHints, ModelRef, ThreadId, ToolSpec},
+    domain::{CacheHints, ThreadId, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, MessageRole,
         TokenUsage,
@@ -102,7 +102,7 @@ pub(super) async fn run_child_loop(
                 .with_cache(CacheHints::new(true, true))
                 .with_metadata(json!({
                     "suppress_stream_deltas": true,
-                    "prompt_cache_key": child_prompt_cache_key(&ctx.model_ref, ctx.thread_id),
+                    "prompt_cache_key": child_prompt_cache_key(ctx.thread_id),
                 }));
         let response = match complete_model(ctx, model_request).await {
             Ok(response) => response,
@@ -148,40 +148,13 @@ pub(super) async fn run_child_loop(
 }
 
 /// Стабильный prompt-cache ключ дочернего цикла. История ребёнка растёт
-/// append-only, поэтому ключа на `(provider, model, child_thread_id)`
+/// append-only, поэтому ключа на `child_thread_id`
 /// достаточно для консистентного prefix-cache routing между итерациями;
 /// resume по `task_id` переиспользует тот же `child_thread_id`, так что кеш
-/// продолжается и после resume. Схема согласована с workflow-ключом
-/// (`proteus:{provider}:{model}:...`), но с явным пространством `subagent`,
-/// чтобы дочерние префиксы не смешивались с родительскими.
-pub(super) fn child_prompt_cache_key(model_ref: &ModelRef, thread_id: ThreadId) -> String {
-    format!(
-        "proteus:subagent:{}:{}:{}",
-        sanitize_cache_key_component(&model_ref.provider),
-        sanitize_cache_key_component(&model_ref.model),
-        thread_id
-    )
-}
-
-/// Копия sanitize-правила workflow-ключа: ASCII alnum/-/_/. остаются,
-/// остальное заменяется на `_`, компонент обрезается до 64 символов.
-fn sanitize_cache_key_component(value: &str) -> String {
-    let mut out = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    out.truncate(64);
-    if out.is_empty() {
-        "model".to_owned()
-    } else {
-        out
-    }
+/// продолжается и после resume. Короткий namespace оставляет key в лимите
+/// 64 символов, который применяют OpenAI-compatible providers.
+pub(super) fn child_prompt_cache_key(thread_id: ThreadId) -> String {
+    format!("proteus:thread:{thread_id}")
 }
 
 /// Model call с таймаутом родительского runtime и отменой через
@@ -336,11 +309,11 @@ mod tests {
     }
 
     #[test]
-    fn child_prompt_cache_key_is_stable_and_sanitized() {
-        let model_ref = ModelRef::new("open ai", "gpt/5.5");
+    fn child_prompt_cache_key_is_stable_and_bounded() {
         let thread_id = new_thread_id();
-        let key = child_prompt_cache_key(&model_ref, thread_id);
-        assert_eq!(key, format!("proteus:subagent:open_ai:gpt_5.5:{thread_id}"));
-        assert_eq!(key, child_prompt_cache_key(&model_ref, thread_id));
+        let key = child_prompt_cache_key(thread_id);
+        assert_eq!(key, format!("proteus:thread:{thread_id}"));
+        assert_eq!(key, child_prompt_cache_key(thread_id));
+        assert!(key.len() <= 64);
     }
 }
