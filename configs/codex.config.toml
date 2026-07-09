@@ -5,7 +5,7 @@ active_provider = "openai"
 
 [providers.openai]
 provider = "openai"
-model = "gpt-5.5"
+model = "gpt-5.6-luna"
 stream = true
 api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 api_key_json_key = "openai_api_key"
