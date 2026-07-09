@@ -40,10 +40,10 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 До новых subagent/UI возможностей нужно закрыть четыре класса риска.
 
-### 1. Один Safety Path Для Всех Tools
+### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
-Workflow-owned `task` сейчас является исключением из общего пути
-`ToolRegistry -> ApprovalPolicy -> ToolOrchestrator`. Целевое состояние:
+`task` переведён в общий путь
+`ToolRegistry -> ApprovalPolicy -> ToolOrchestrator -> Tool::invoke`:
 
 - `task` проходит visibility, validation, approval, timeout и events так же,
   как остальные model-callable actions;

@@ -531,9 +531,10 @@ tool-search/ranking можно вынести в плагин, не обходя
 опциональная тройка `spawn(SubagentRequest) -> SubagentHandle` /
 `wait(&SubagentHandle) -> SubagentResult` / `cancel(&SubagentHandle)` для
 фонового запуска нескольких детей (default-реализации возвращают «не
-поддерживается»). Workflow не получает прямой доступ к runner-у: плагинный
-workflow вызывает host-методы `subagent_roles_json()`,
-`run_subagent_json(request_json)` и их spawn/wait/cancel-аналоги.
+поддерживается»). Workflow не получает прямой доступ к runner-у. Core
+регистрирует facade-tool `task` в `ToolRegistry`, если `roles()` непустой, а
+на время `Tool::invoke` связывает его с текущим runner/thread/turn через узкий
+`SubagentToolHost`.
 
 Оба builtin-runner-а (`sequential`, `process`) реализуют spawn/wait/cancel:
 `run` = `spawn` + `wait`, дочерний цикл живёт detached tokio-таской в
@@ -550,21 +551,20 @@ turn. Побочный эффект detached-исполнения: обрыв р
 read-only — через `tools` allowlist у `sequential` или read-only config
 ребёнка у `process`). Пишущая роль получает право на конкурентность через
 `isolation = "worktree"`: каждый fresh запуск исполняется в собственном git
-worktree (см. ниже). `coding-workflow` использует оба флага как гейт: батч
-из нескольких `task`-вызовов одного ответа модели исполняется конкурентно
-(spawn всех → wait по порядку) только если каждая запрошенная роль
+worktree (см. ниже). Core host batch использует оба флага как гейт: батч из
+нескольких `task`-вызовов одного ответа модели исполняется конкурентно только
+если каждая запрошенная роль
 `parallel_safe` либо worktree-изолирована; любая другая комбинация идёт
 последовательно. Ошибка одного вызова (аргументы, workspace, spawn, wait)
 даёт error `ToolResult` и не прерывает остальных детей батча.
 
-Worktree-lifecycle оркестрирует родительский workflow, не слот: перед
-spawn-ом fresh задачи изолированной роли `coding-workflow` просит хост
-(`create_subagent_workspace_json`) создать
+Worktree-lifecycle принадлежит facade-tool `task`: после policy/approval и до
+запуска fresh задачи изолированной роли он создаёт
 `<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
 HEAD (каталог исключён через `.git/info/exclude`) и подменяет `task.cwd`
 ребёнка; одиночные вызовы изолируются так же — пишущий ребёнок никогда не
-трогает родительский checkout. После `wait` чистый worktree удаляется
-(`cleanup_subagent_workspace_json`), изменённый остаётся и аннотируется в
+трогает родительский checkout. После завершения чистый worktree удаляется,
+изменённый остаётся и аннотируется в
 результате `task` путём и веткой: merge — обязанность родительского агента,
 автоматического merge нет, конфликты — штатная работа. Resume по `task_id`
 попадает в тот же worktree (реестр in-memory, живёт как
@@ -595,11 +595,12 @@ max_iterations = 15
 #                           # превышение = статус token_budget_exceeded, resume по task_id
 ```
 
-`coding-workflow` превращает непустой список ролей в workflow-owned tool `task`.
-Модель передаёт `agent_type`, `prompt` и короткое `description`; workflow
-собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка как
-обычный `ToolResult`. Tool calls ребёнка идут через тот же policy/approval/tool
-контур, что и родительские. Ребёнок исполняется на child-токене отмены
+Facade-tool `task` получает `agent_type`, `prompt` и короткое `description`,
+собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка
+как обычный `ToolResult`. Сам `task` и tool calls ребёнка проходят общий
+policy/approval/tool контур. В `PermissionMode::Plan` task скрыт как
+`ToolSafety::WritesFiles`, поэтому worktree/branch не создаются. Ребёнок
+исполняется на child-токене отмены
 (`CancellationToken::child_token()`): cancel родительского turn-а каскадится
 ребёнку, а отмена ребёнка не трогает родителя; resumable snapshot сохраняется
 при любом терминальном статусе (включая `Cancelled`/`TimedOut`), так что

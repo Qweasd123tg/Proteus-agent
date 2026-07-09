@@ -545,12 +545,12 @@ calls дополнительно отклоняются handler-ом.
 
 ## Subagent
 
-`modules.subagent = "none"` отключает делегирование: workflow host возвращает
-пустой список ролей, и `coding-workflow` не добавляет model-facing tool `task`.
+`modules.subagent = "none"` отключает делегирование: runner возвращает пустой
+список ролей, поэтому core не регистрирует model-facing tool `task`.
 
 `modules.subagent = "sequential"` включает builtin sequential runner. Он читает
 роли из `module_config.subagent.sequential`; при пустом списке ролей поведение
-эквивалентно выключенному делегированию для workflow.
+эквивалентно выключенному делегированию.
 
 ```toml
 [modules]
@@ -582,12 +582,11 @@ max_iterations = 15
 #                           # (partial summary + resume по task_id с новым окном)
 ```
 
-Workflow-плагины получают роли через `subagent_roles_json()` и запускают ребёнка
-через `run_subagent_json(SubagentRequest)` либо фоново через
-`spawn_subagent_json`/`wait_subagent_json`/`cancel_subagent_json`
-(`SubagentHandle`). В `coding-workflow` это surface tool
-`task` с аргументами `agent_type`, `prompt`, optional `description` и optional
-`task_id`. Батч из нескольких `task`-вызовов одного ответа модели исполняется
+При непустом списке ролей core регистрирует facade-tool `task` с аргументами
+`agent_type`, `prompt`, optional `description` и optional `task_id`. Он проходит
+обычный `ToolRegistry`/policy/approval/orchestrator path и только внутри
+`Tool::invoke` вызывает выбранный `SubagentRunner` через `SubagentToolHost`.
+Батч из нескольких `task`-вызовов одного ответа модели исполняется
 конкурентно, только если каждая запрошенная роль объявлена `parallel_safe`
 или `isolation = "worktree"`; иначе — последовательно.
 У роли можно задать `tools = [...]`: после общего `ToolExposure` дочерний цикл

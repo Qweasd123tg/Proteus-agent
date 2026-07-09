@@ -1,11 +1,10 @@
 //! Git worktree-workspace для пишущих субагентов (stage 2 параллельных
 //! субагентов).
 //!
-//! Lifecycle оркестрирует родительский workflow (см. решение в
-//! docs/roadmap.md): он просит хост создать worktree, подменяет `task.cwd`
-//! ребёнка на его путь и после `wait` просит cleanup. Здесь — только
-//! механика поверх системного `git` (sync: вызывается с blocking-потока
-//! workflow-хоста).
+//! Lifecycle оркестрирует policy-gated facade-tool `task`: после approval он
+//! создаёт worktree, подменяет `task.cwd` ребёнка и после завершения просит
+//! cleanup. Здесь — только sync-механика поверх системного `git`; async tool
+//! вызывает её через `spawn_blocking`.
 
 use std::{
     fs,

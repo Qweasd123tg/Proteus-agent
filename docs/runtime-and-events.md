@@ -220,9 +220,9 @@ streaming text дочернего цикла не является частью 
 результата (`ToolResult.metadata` как есть — core имён tools не знает), и
 клиент реконструирует карточку субагента из `metadata` результата `task`
 (статус, итерации, `child_thread_id`) без списка вложенных вызовов.
-Сам workflow-owned вызов `task` также испускает live `ToolCallRequested` и
-`ToolFinished`, хотя не является registry tool: это synthetic tool
-`coding-workflow`, который вручную имитирует события orchestrator-а для UI.
+Вызов `task` является обычным registry tool. `ToolCallRequested`, approval
+events и `ToolFinished` испускает `ToolOrchestrator`; workflow и UI не создают
+для него synthetic lifecycle.
 
 Статус tool-карточки в `/history` терминализуется на границах: в committed
 history `ToolCall` без парного `ToolResult` отдаётся как `interrupted`
@@ -323,8 +323,8 @@ system-строку в transcript.
 исполнения. Клиент может показать affected files, diff/body или shell command
 до approve/deny, но показанный здесь registered tool всё равно исполняется
 через `ToolRegistry`, `ApprovalPolicy`, `ToolSafety` и validation самого tool.
-Workflow-owned `task` пока является отдельным известным исключением, см.
-`docs/security-and-policy.md`.
+Facade-tool `task` следует тому же пути; отказ approval завершается error
+`ToolResult` до запуска ребёнка или создания worktree.
 
 Текущий WIP app-server генерирует `preview` для трёх approval UX:
 

@@ -133,9 +133,8 @@ Runtime должен сохранять эти свойства:
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;
 - session resume загружает persistent `messages.jsonl`, не ephemeral context;
-- зарегистрированные tools исполняются через `ToolRegistry`, mode-aware
-  `ApprovalPolicy` и `ToolOrchestrator`; workflow-owned `task` пока является
-  известным исключением, зафиксированным в `security-and-policy.md`.
+- зарегистрированные tools, включая facade-tool `task`, исполняются через
+  `ToolRegistry`, mode-aware `ApprovalPolicy` и `ToolOrchestrator`.
 
 Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
 
@@ -155,10 +154,10 @@ Runtime должен сохранять эти свойства:
 
 ## Planned Направления
 
-Непосредственный приоритет — safety stabilization: общий policy path для
-workflow-owned `task`, fail-closed shell sandbox, обязательный token для
-non-loopback HTTP, ownership PTY sessions и bounded retention process-subagent
-pool. Актуальные blockers ведутся в `scope.md`, детали текущих gaps — в
+Непосредственный приоритет — safety stabilization: fail-closed shell sandbox,
+обязательный token для non-loopback HTTP, ownership PTY sessions и bounded
+retention process-subagent pool. Общий policy path для `task` закрыт
+2026-07-10. Актуальные blockers ведутся в `scope.md`, детали текущих gaps — в
 `security-and-policy.md`.
 
 После этого долгосрочный capability backlog должен развивать основание через

@@ -555,6 +555,17 @@ impl BuiltinModuleCatalog {
             )?;
         }
 
+        // `task` — facade над выбранным SubagentRunner, а не config/plugin
+        // tool. Регистрируем его в каждом ToolRegistry builder path (runtime,
+        // doctor, tools list, topology), чтобы observability не расходилась с
+        // фактическим model-visible surface.
+        let subagent = self.build_subagent(&ctx.config.modules.subagent, ctx)?;
+        crate::tools::register_task_tool(
+            &mut tools,
+            subagent.roles(),
+            ctx.config.runtime.workflow_timeout_ms,
+        )?;
+
         Ok(tools)
     }
 }

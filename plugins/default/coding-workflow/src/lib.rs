@@ -14,7 +14,6 @@ mod host;
 mod metadata;
 mod output_text;
 mod scaffold;
-mod task_tool;
 mod token_accounting;
 mod validation;
 mod workflows;
@@ -38,9 +37,7 @@ use serde_json::json;
 
 #[cfg(test)]
 pub(crate) use proteus_contracts::{
-    contracts::{
-        CompactionInput, SubagentRequest, SubagentResult, SubagentRoleSpec, SubagentStatus,
-    },
+    contracts::CompactionInput,
     domain::{ContextBundle, TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolResult, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,

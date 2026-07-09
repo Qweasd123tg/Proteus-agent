@@ -1,9 +1,6 @@
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
-    contracts::{
-        CompactionInput, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
-        SubagentWorkspaceRequest, ToolExposureRequest, WorkspaceInfo,
-    },
+    contracts::{CompactionInput, ToolExposureRequest},
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
     },
@@ -18,7 +15,6 @@ use serde_json::json;
 use super::{
     dynamic_tools,
     metadata::{insert_request_metadata_u32, insert_request_metadata_value, prompt_cache_key},
-    task_tool,
     token_accounting::{LastModelUsage, effective_token_estimate, request_token_usage_snapshot},
 };
 
@@ -116,10 +112,6 @@ fn request_from_state_with_instruction_blocks_and_options(
     if dynamic_tools_enabled {
         dynamic_tools::append_meta_tools(&mut tools, phase);
     }
-    if options.expose_tools {
-        let roles = subagent_roles(host)?;
-        task_tool::append_task_tool(&mut tools, &roles);
-    }
     if let Some(developer_instructions) = developer_instructions {
         instructions.push(InstructionBlock::new(
             InstructionKind::Developer,
@@ -177,24 +169,6 @@ pub(super) fn execute_or_handle_tool(
 ) -> Result<ToolResult, PluginWorkflowError> {
     if dynamic_tools::is_meta_tool(&call.name) {
         dynamic_tools::handle_meta_tool_call(host, input, call, phase)
-    } else if task_tool::is_task_tool(&call.name) {
-        emit_event(host, &Event::ToolCallRequested { call: call.clone() })?;
-        let result = match task_tool::handle_task_tool_call(host, input, call) {
-            Ok(result) => result,
-            Err(error) => {
-                let failed = ToolResult::error(call.id.clone(), error.message.as_str())
-                    .with_metadata(json!({ "tool": task_tool::TASK_TOOL }));
-                let _ = emit_event(host, &Event::ToolFinished { result: failed });
-                return Err(error);
-            }
-        };
-        emit_event(
-            host,
-            &Event::ToolFinished {
-                result: result.clone(),
-            },
-        )?;
-        Ok(result)
     } else {
         execute_tool(host, input, call)
     }
@@ -303,29 +277,20 @@ fn visible_tools(
     })
 }
 
-/// Выполняет батч tool calls одного ответа модели. Батч из нескольких
-/// task-вызовов, где все запрошенные роли `parallel_safe`, исполняется
-/// конкурентно через spawn/wait слота `subagent`. Meta-tools динамической
-/// экспозиции обрабатываются локально, поэтому при их наличии (или одном
-/// вызове) используется последовательный путь; иначе — batch host API, где
-/// подряд идущие ReadOnly tools выполняются конкурентно.
+/// Выполняет батч tool calls одного ответа модели. Workflow-owned meta-tools
+/// динамической экспозиции обрабатываются локально; зарегистрированные tools
+/// (включая facade-tool `task`) уходят в host batch API, где core применяет
+/// registry/policy/orchestrator и выбирает допустимую concurrency.
 pub(super) fn execute_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
     calls: &[ToolCall],
     phase: &str,
 ) -> Result<Vec<ToolResult>, PluginWorkflowError> {
-    if calls.len() >= 2 && calls.iter().all(|call| task_tool::is_task_tool(&call.name)) {
-        let roles = subagent_roles(host)?;
-        if task_tool::all_roles_parallel_eligible(calls, &roles) {
-            return task_tool::handle_parallel_task_calls(host, input, calls, &roles);
-        }
-    }
     if calls.len() <= 1
         || calls
             .iter()
             .any(|call| dynamic_tools::is_meta_tool(&call.name))
-        || calls.iter().any(|call| task_tool::is_task_tool(&call.name))
     {
         return calls
             .iter()
@@ -342,88 +307,6 @@ pub(super) fn execute_tools(
         RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
     };
     from_json_string(results_json.as_str())
-}
-
-pub(super) fn subagent_roles(
-    host: &mut PluginWorkflowHostMut<'_>,
-) -> Result<Vec<SubagentRoleSpec>, PluginWorkflowError> {
-    ensure_not_cancelled(host)?;
-    let roles_json = match host.subagent_roles_json() {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(roles_json.as_str())
-}
-
-pub(super) fn run_subagent(
-    host: &mut PluginWorkflowHostMut<'_>,
-    request: &SubagentRequest,
-) -> Result<SubagentResult, PluginWorkflowError> {
-    ensure_not_cancelled(host)?;
-    let request_json = to_json_string(request)?;
-    let result_json = match host.run_subagent_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(result_json.as_str())
-}
-
-pub(super) fn spawn_subagent(
-    host: &mut PluginWorkflowHostMut<'_>,
-    request: &SubagentRequest,
-) -> Result<SubagentHandle, PluginWorkflowError> {
-    ensure_not_cancelled(host)?;
-    let request_json = to_json_string(request)?;
-    let handle_json = match host.spawn_subagent_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(handle_json.as_str())
-}
-
-/// Дожидается запущенного ребёнка. Cancelled-проверка перед wait намеренно
-/// отсутствует: даже при отменённом turn-е нужно забрать результат уже
-/// работающего ребёнка (runner сам завершит его по каскаду отмены).
-pub(super) fn wait_subagent(
-    host: &mut PluginWorkflowHostMut<'_>,
-    handle: &SubagentHandle,
-) -> Result<SubagentResult, PluginWorkflowError> {
-    let handle_json = to_json_string(handle)?;
-    let result_json = match host.wait_subagent_json(RString::from(handle_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(result_json.as_str())
-}
-
-/// Создаёт git worktree для пишущего ребёнка (роль с `isolation = worktree`).
-pub(super) fn create_subagent_workspace(
-    host: &mut PluginWorkflowHostMut<'_>,
-    request: &SubagentWorkspaceRequest,
-) -> Result<WorkspaceInfo, PluginWorkflowError> {
-    ensure_not_cancelled(host)?;
-    let request_json = to_json_string(request)?;
-    let info_json = match host.create_subagent_workspace_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(info_json.as_str())
-}
-
-/// Убирает worktree, если ребёнок ничего не изменил (`true`); изменения
-/// есть — worktree остаётся родителю на merge (`false`). Без
-/// cancelled-гейта: cleanup должен проходить и в размотке отменённого
-/// turn-а, иначе worktree-ы копятся.
-pub(super) fn cleanup_subagent_workspace(
-    host: &mut PluginWorkflowHostMut<'_>,
-    info: &WorkspaceInfo,
-) -> Result<bool, PluginWorkflowError> {
-    let info_json = to_json_string(info)?;
-    let removed_json = match host.cleanup_subagent_workspace_json(RString::from(info_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
-    from_json_string(removed_json.as_str())
 }
 
 pub(super) fn execute_tool(

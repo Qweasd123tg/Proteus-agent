@@ -610,50 +610,6 @@ pub trait PluginWorkflowHost: Send + Sync {
         task_json: RString,
         calls_json: RString,
     ) -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Output JSON: `Vec<SubagentRoleSpec>` из slot'а `subagent`. Пустой
-    /// список — делегирование выключено, task-тул генерировать не надо.
-    fn subagent_roles_json(&self) -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Input JSON: `SubagentRequest`. Output JSON: `SubagentResult`.
-    /// Блокирует до завершения дочернего цикла.
-    fn run_subagent_json(&self, request_json: RString)
-    -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Input JSON: `SubagentRequest`. Output JSON: `SubagentHandle`.
-    /// Запускает ребёнка в фоне и сразу возвращает handle; ошибка, если
-    /// реализация slot'а `subagent` не поддерживает spawn/wait.
-    fn spawn_subagent_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Input JSON: `SubagentHandle`. Output JSON: `SubagentResult`.
-    /// Блокирует до завершения запущенного ребёнка; каждый handle можно
-    /// wait-ить ровно один раз.
-    fn wait_subagent_json(&self, handle_json: RString)
-    -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Input JSON: `SubagentHandle`. Отменяет запущенного ребёнка, не
-    /// трогая остальных; результат забирается через `wait_subagent_json`.
-    fn cancel_subagent_json(&self, handle_json: RString) -> RResult<(), PluginWorkflowHostError>;
-
-    /// Input JSON: `SubagentWorkspaceRequest`. Output JSON: `WorkspaceInfo`.
-    /// Создаёт git worktree для пишущего ребёнка (роль с
-    /// `isolation = worktree`); workflow подменяет `task.cwd` на его путь
-    /// перед spawn. Не-git cwd или занятое имя — обычная ошибка.
-    fn create_subagent_workspace_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError>;
-
-    /// Input JSON: `WorkspaceInfo`. Output JSON: `bool` — `true`, если
-    /// worktree был чист (нет изменений относительно base_commit) и удалён;
-    /// `false` — изменения есть, worktree оставлен родителю на merge.
-    fn cleanup_subagent_workspace_json(
-        &self,
-        info_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError>;
 }
 
 #[repr(C)]

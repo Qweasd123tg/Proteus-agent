@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use tokio::sync::Notify;
 
 use crate::{
-    contracts::UserInputTransport,
-    domain::{ToolCall, ToolResult, ToolSpec},
+    contracts::{SubagentToolHost, UserInputTransport},
+    domain::{AgentTask, ToolCall, ToolResult, ToolSpec},
 };
 
 #[derive(Clone)]
@@ -22,6 +22,12 @@ pub struct ToolContext {
     pub cwd: PathBuf,
     pub cancellation: CancellationToken,
     pub user_input: Option<Arc<dyn UserInputTransport>>,
+    /// Текущий canonical task. Обычным tools достаточно `cwd`; facade-tools,
+    /// создающие дочернюю работу, сохраняют исходный task как parent context.
+    pub task: Option<AgentTask>,
+    /// Runtime-bound capability для facade-tool `task`. Dylib tools её не
+    /// получают через свой ABI и не могут вызывать subagent slot напрямую.
+    pub subagent: Option<Arc<dyn SubagentToolHost>>,
 }
 
 impl ToolContext {
@@ -30,6 +36,8 @@ impl ToolContext {
             cwd,
             cancellation: CancellationToken::new(),
             user_input: None,
+            task: None,
+            subagent: None,
         }
     }
 }

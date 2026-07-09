@@ -173,13 +173,12 @@ ToolRegistry
   -> Tool::invoke
 ```
 
-Core-owned `apply_patch`, `search`, `remember_fact` и `request_user_input` —
-facade tools: алгоритм всё равно делегируется выбранному slot/module.
-
-Текущий workflow-owned `task` является известным исключением: он создаётся и
-исполняется внутри `coding-workflow`, а worktree lifecycle проброшен отдельными
-host capabilities. Это не целевая архитектура; путь должен быть сведён к тому же
-policy-gated tool execution и стабилизирован до расширения subagent UX.
+Core-owned `apply_patch`, `search`, `remember_fact`, `request_user_input` и
+`task` — facade tools: алгоритм всё равно делегируется выбранному slot/module.
+`task` регистрируется только при непустом `SubagentRunner::roles()` и вызывает
+runner через узкий runtime-bound `SubagentToolHost`; generic workflow host не
+получает subagent/worktree capabilities. Поэтому task visibility, validation,
+approval, timeout, events и bounded output проходят тот же orchestrator path.
 
 ### Providers
 

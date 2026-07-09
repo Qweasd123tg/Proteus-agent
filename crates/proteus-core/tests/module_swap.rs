@@ -540,6 +540,151 @@ fn subagent_slot_swaps_none_and_sequential_roles() {
 }
 
 #[tokio::test]
+async fn task_tool_uses_registry_policy_approval_and_plan_mode() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.subagent = "sequential".to_owned();
+    set_module_config(
+        &mut config,
+        "subagent",
+        "sequential",
+        json!({
+            "roles": [{
+                "name": "explore",
+                "description": "Read-only exploration",
+                "prompt": "Inspect the repository without editing.",
+                "parallel_safe": true,
+                "max_iterations": 2
+            }]
+        }),
+    );
+    set_ask_write_config(&mut config, &["search"], &["task"]);
+    let registry = registry_from_test_config(&config, dir.path());
+    let task_spec = registry.tools.spec("task").expect("registered task tool");
+    assert_eq!(task_spec.safety, ToolSafety::WritesFiles);
+
+    let denied_events = Arc::new(InMemoryEventStore::new());
+    let denied_ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(denied_events.clone())),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+    assert!(
+        ToolOrchestrator::default()
+            .visible_tool_specs(&denied_ctx, dir.path())
+            .iter()
+            .any(|spec| spec.name == "task")
+    );
+    let denied = ToolOrchestrator::default()
+        .execute(
+            &denied_ctx,
+            &AgentTask::new("delegate", dir.path().to_path_buf()),
+            ToolCall::new(
+                "task-denied",
+                "task",
+                json!({"agent_type": "explore", "prompt": "inspect"}),
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(!denied.ok);
+    assert_eq!(denied.error.as_deref(), Some("test approval denied"));
+    let records = denied_events.events().await;
+    assert!(records.iter().any(|record| matches!(
+        record,
+        Event::ApprovalRequested { call_id, .. } if call_id == "task-denied"
+    )));
+    assert!(
+        records
+            .iter()
+            .all(|record| !matches!(record, Event::SubagentStarted { .. }))
+    );
+
+    let plan_events = Arc::new(InMemoryEventStore::new());
+    let plan_ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(plan_events.clone())),
+        Arc::new(ApprovingApprovalTransport),
+        PermissionMode::Plan,
+    );
+    assert!(
+        ToolOrchestrator::default()
+            .visible_tool_specs(&plan_ctx, dir.path())
+            .iter()
+            .all(|spec| spec.name != "task")
+    );
+    let blocked = ToolOrchestrator::default()
+        .execute(
+            &plan_ctx,
+            &AgentTask::new("plan", dir.path().to_path_buf()),
+            ToolCall::new(
+                "task-plan",
+                "task",
+                json!({"agent_type": "explore", "prompt": "inspect"}),
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(!blocked.ok);
+    assert!(
+        blocked
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("plan allows only read-only"))
+    );
+    assert!(!dir.path().join(".proteus/worktrees").exists());
+    assert!(
+        plan_events
+            .events()
+            .await
+            .iter()
+            .all(|record| !matches!(record, Event::SubagentStarted { .. }))
+    );
+
+    let approved_events = Arc::new(InMemoryEventStore::new());
+    let approved_ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(approved_events.clone())),
+        Arc::new(ApprovingApprovalTransport),
+        PermissionMode::Normal,
+    );
+    let approved = ToolOrchestrator::default()
+        .execute(
+            &approved_ctx,
+            &AgentTask::new("delegate", dir.path().to_path_buf()),
+            ToolCall::new(
+                "task-approved",
+                "task",
+                json!({"agent_type": "explore", "prompt": "inspect"}),
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(approved.ok, "{:?}", approved.error);
+    let approved_records = approved_events.events().await;
+    assert!(
+        approved_records
+            .iter()
+            .any(|record| matches!(record, Event::SubagentStarted { .. }))
+    );
+    assert!(matches!(
+        approved_records.first(),
+        Some(Event::ToolCallRequested { call }) if call.id == "task-approved"
+    ));
+    assert!(matches!(
+        approved_records.last(),
+        Some(Event::ToolFinished { result }) if result.call_id == "task-approved" && result.ok
+    ));
+}
+
+#[tokio::test]
 async fn builtin_dynamic_tool_exposure_can_be_built_and_selects_tools() {
     disable_plugin_loader();
     let catalog = BuiltinModuleCatalog::new();

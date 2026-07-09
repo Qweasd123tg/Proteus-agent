@@ -14,8 +14,8 @@ Roadmap хранит порядок работ и журнал уже приня
 
 ## Ближайший Порядок
 
-1. Вернуть **один safety path** всем model-callable actions: workflow-owned
-   `task` должен проходить policy/approval/orchestrator, как обычный tool.
+1. ✅ `task` переведён в единый safety path: это registry facade-tool через
+   policy/approval/orchestrator; worktree создаётся только после разрешения.
 2. Сделать shell sandbox fail-closed, запретить RW-доступ вне workspace без
    escalation и требовать token для non-loopback HTTP.
 3. Ограничить lifecycle процессов: bounded idle/resume retention для process
@@ -290,21 +290,22 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
    builtin-runner-ов, дети — detached-таски на child-токенах, cap
    `max_parallel`), роли объявляют `parallel_safe`, process runner ограничивает
    до `max_processes` **одновременных** детей на роль (resume по конкретному
-   process id; ClearHistory хоронит старые task_id-ы процесса),
-   coding-workflow исполняет батч task-вызовов конкурентно только когда
-   все роли parallel_safe. Stage 2 реализован (2026-07-09):
+   process id; ClearHistory хоронит старые task_id-ы процесса). После safety
+   cleanup 2026-07-10 core host batch исполняет task-вызовы конкурентно только
+   когда все роли parallel-safe/worktree-eligible. Stage 2 реализован
+   (2026-07-09):
    worktree-per-child для пишущих — роль с `isolation = "worktree"`
    получает на каждый fresh запуск свой git worktree
    (`<repo>/.proteus/worktrees/<имя>`, ветка `proteus/<имя>`, механика в
-   `core/workspace.rs`, host API `create/cleanup_subagent_workspace_json`,
-   lifecycle оркестрирует coding-workflow), батч-гейт расширен до
+   `core/workspace.rs`; после safety cleanup lifecycle принадлежит facade-tool
+   `task`, а не generic workflow host), батч-гейт расширен до
    parallel_safe ∨ worktree, пул процессов реюзает idle-процесс только при
    совпадении cwd; merge ветки — обязанность родительского агента
    (авто-merge нет), выделенная merge-роль — следующий срез.
    `BudgetTracker` (Кластер 5) реализован в первом срезе (2026-07-09):
    per-child token-бюджеты через `SubagentLimits::max_total_tokens` в обоих
-   builtin-раннерах. До UX дерева потоков нужно закрыть общий policy path для
-   `task` и bounded eviction idle process children.
+   builtin-раннерах. До UX дерева потоков остаётся bounded eviction idle
+   process children.
 
 ## Этапы
 
@@ -317,13 +318,12 @@ UI/business logic в CLI.
 
 - domain/contracts/plugin_adapters/stubs/adapters разделены;
 - model provider проходит через canonical model protocol;
-- обычные tools исполняются через `ToolRegistry`, `ApprovalPolicy` и
-  `ToolOrchestrator`; workflow-owned `task` — известное исключение, которое
-  нужно вернуть в общий path;
+- все model-callable tools, включая facade-tool `task`, исполняются через
+  `ToolRegistry`, `ApprovalPolicy` и `ToolOrchestrator`;
 - session/events/history отделены от ephemeral context;
 - CLI/UI зафиксирован как внешний слой;
-- результаты обычных tools проходят общий bounded truncation; workflow-owned
-  `task` пока остаётся вне этого path вместе с policy gap;
+- результаты всех tools, включая summary/error `task`, проходят общий bounded
+  truncation;
 - `repo_aware` context вынесен в `context-pack` и добавляет provider pipeline
   за `ContextBuilder` slot.
 
@@ -407,8 +407,7 @@ plan/execute/review экспериментов.
   parallel_safe (spawn всех → wait по порядку; ошибка одного вызова не
   прерывает остальных). Per-child token-бюджеты реализованы (2026-07-09,
   `SubagentLimits::max_total_tokens` + `BudgetTracker`). Перед UI остаются
-  safety/lifecycle блокеры: `task` должен проходить общий policy path, а idle
-  process children — иметь bounded eviction.
+  safety/lifecycle блокер: idle process children должны иметь bounded eviction.
   Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
@@ -416,17 +415,16 @@ plan/execute/review экспериментов.
   родительского workflow/tools, не слот; merge результатов — отдельная
   роль/фаза, конфликты — штатный случай. Этап 2 реализован (2026-07-09):
   `isolation = "worktree"` у роли (sequential + process + frontmatter),
-  worktree-механика в `core/workspace.rs` за host API
-  `create/cleanup_subagent_workspace_json`, coding-workflow подменяет cwd
-  ребёнка перед spawn (изоляция и для одиночных вызовов), чистый worktree
+  worktree-механика в `core/workspace.rs`; после cleanup 2026-07-10 facade-tool
+  `task` подменяет cwd ребёнка после policy/approval (изоляция и для одиночных
+  вызовов), чистый worktree
   убирается после wait, изменённый аннотируется в результате путём/веткой,
   resume попадает в тот же worktree по in-memory реестру, батч-гейт —
   parallel_safe ∨ worktree, пул процессов реюзает только совпадающий cwd;
   merge выполняет родитель своими git-тулами (решение владельца
-  2026-07-08). Последующий аудит показал, что Git-specific workspace API в
-  generic workflow host — неправильная долгосрочная граница; lifecycle нужно
-  вернуть внутрь policy-gated subagent/isolation capability до развития
-  merge-role. Packaged
+  2026-07-08). Git-specific workspace API удалён из generic workflow host;
+  lifecycle теперь внутри policy-gated facade-tool до развития merge-role.
+  Packaged
   glm/codex-конфиги получили роль `coder` (worktree-writer).
   Dogfood-evidence по sequential (первые прогоны, 2026-07-06):
   (a) ребёнок читал файлы по одному `read_file` на итерацию при доступном

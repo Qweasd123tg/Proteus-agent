@@ -169,14 +169,14 @@ non-stdio transports — отдельная задача. Если они поя
   `ToolExposureInput.config`.
 - **subagent** - `PluginSubagent::roles_json() -> Vec<SubagentRoleSpec>` и
   `run_json(request_json) -> SubagentResult`. Это ABI для дочерних agent loops:
-  workflow видит только роли и вызывает прогон через host, а реализация slot-а
-  владеет изоляцией истории, thread_id, tool exposure phase и лимитами.
+  facade-tool `task` делегирует выбранной реализации через core adapter, а
+  реализация slot-а владеет изоляцией истории, thread_id, tool exposure phase
+  и лимитами.
 - **workflow** - `PluginWorkflow::run_json(input_json, host) ->
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
   `complete_model`, `compact_history`, `select_tools`, `visible_tools`,
-  `execute_tool`, `subagent_roles_json`, `run_subagent_json` и его
-  spawn/wait/cancel-аналоги, `emit_event`). Runtime metadata, включая model/ref,
+  `execute_tool`, `execute_tools`, `emit_event`). Runtime metadata, включая model/ref,
   reasoning, timeout-ы и base `InstructionBlock` prompt, приходит в
   `PluginWorkflowInput.runtime`.
 

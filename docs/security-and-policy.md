@@ -451,10 +451,6 @@ split_commands = true
 
 Это текущие gaps, а не целевое поведение:
 
-- workflow-owned tool `task` добавляется и исполняется внутри
-  `coding-workflow`, минуя общий `ToolRegistry`/`ToolOrchestrator`. Его
-  `ToolSafety::WritesFiles` пока не обеспечивает mode-aware policy/approval;
-  worktree-isolated роль может создать worktree/branch даже в plan mode;
 - `codex_policy.allow_sandboxed` разрешает неэскалированный `shell`/
   `exec_command` без approval, но `shell-tool` fail-open: при отсутствии
   `bwrap`, `PROTEUS_SHELL_SANDBOX=0` или запуске через Ptyxis команда идёт без

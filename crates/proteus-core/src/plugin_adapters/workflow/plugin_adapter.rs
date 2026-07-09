@@ -22,14 +22,14 @@ use tokio::{runtime::Handle, time::timeout};
 
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, RuntimeContext, SubagentHandle, SubagentRequest,
-        SubagentWorkspaceRequest, ToolExposureInput, ToolExposureRequest, Workflow, WorkflowOutput,
-        WorkspaceInfo,
+        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput, ToolExposureRequest,
+        Workflow, WorkflowOutput,
     },
-    core::{ToolOrchestrator, workspace},
+    core::ToolOrchestrator,
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
     plugin_adapters::compactor::RuntimeCompactionHost,
+    tools::{TASK_TOOL, calls_are_parallel_eligible},
 };
 
 pub struct PluginWorkflowAdapter {
@@ -314,114 +314,6 @@ impl PluginWorkflowHost for WorkflowHost {
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }
     }
-
-    fn subagent_roles_json(&self) -> RResult<RString, PluginWorkflowHostError> {
-        if self.ctx.is_cancelled() {
-            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
-        }
-        match serde_json::to_string(&self.ctx.subagent.roles()) {
-            Ok(json) => RResult::ROk(RString::from(json)),
-            Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        }
-    }
-
-    fn run_subagent_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
-        let request: SubagentRequest = match serde_json::from_str(request_json.as_str()) {
-            Ok(request) => request,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move { ctx.subagent.run(request, ctx.clone()).await })
-    }
-
-    fn spawn_subagent_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
-        let request: SubagentRequest = match serde_json::from_str(request_json.as_str()) {
-            Ok(request) => request,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move { ctx.subagent.spawn(request, ctx.clone()).await })
-    }
-
-    fn wait_subagent_json(
-        &self,
-        handle_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
-        let handle: SubagentHandle = match serde_json::from_str(handle_json.as_str()) {
-            Ok(handle) => handle,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move { ctx.subagent.wait(&handle).await })
-    }
-
-    fn cancel_subagent_json(&self, handle_json: RString) -> RResult<(), PluginWorkflowHostError> {
-        let handle: SubagentHandle = match serde_json::from_str(handle_json.as_str()) {
-            Ok(handle) => handle,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        let ctx = self.ctx.clone();
-        // Cancel не гейтится select-ом на родительскую отмену: он должен
-        // проходить и в размотке уже отменённого turn-а.
-        match self
-            .handle
-            .block_on(async move { ctx.subagent.cancel(&handle).await })
-        {
-            Ok(()) => RResult::ROk(()),
-            Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
-        }
-    }
-
-    fn create_subagent_workspace_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
-        let request: SubagentWorkspaceRequest = match serde_json::from_str(request_json.as_str()) {
-            Ok(request) => request,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        if self.ctx.is_cancelled() {
-            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
-        }
-        // Sync git-механика: host-методы и так живут на blocking-потоке
-        // workflow-а, в async runtime ходить незачем.
-        to_json_rresult(workspace::create_worktree(
-            &request.parent_cwd,
-            &request.name,
-        ))
-    }
-
-    fn cleanup_subagent_workspace_json(
-        &self,
-        info_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
-        let info: WorkspaceInfo = match serde_json::from_str(info_json.as_str()) {
-            Ok(info) => info,
-            Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        };
-        // Без cancelled-гейта: cleanup должен проходить и в размотке уже
-        // отменённого turn-а, иначе worktree-ы копятся.
-        to_json_rresult(workspace::cleanup_worktree_if_unchanged(&info))
-    }
-}
-
-/// Сериализует результат sync host-метода в JSON-`RResult`.
-fn to_json_rresult<T: serde::Serialize>(
-    result: Result<T>,
-) -> RResult<RString, PluginWorkflowHostError> {
-    match result {
-        Ok(value) => match serde_json::to_string(&value) {
-            Ok(json) => RResult::ROk(RString::from(json)),
-            Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        },
-        Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
-    }
 }
 
 /// Выполняет батч tool calls: подряд идущие ReadOnly tools конкурентно
@@ -446,6 +338,28 @@ async fn execute_tool_batch(
     let mut results = Vec::with_capacity(calls.len());
     let mut queue = calls.into_iter().peekable();
     while let Some(call) = queue.next() {
+        if call.name == TASK_TOOL {
+            let mut group = vec![call];
+            while queue.peek().is_some_and(|call| call.name == TASK_TOOL) {
+                group.push(queue.next().expect("peeked task call"));
+            }
+            if calls_are_parallel_eligible(&group, &ctx.subagent.roles()) {
+                let outputs = futures_util::future::join_all(
+                    group
+                        .into_iter()
+                        .map(|call| orchestrator.execute(ctx, task, call)),
+                )
+                .await;
+                for output in outputs {
+                    results.push(output?);
+                }
+            } else {
+                for call in group {
+                    results.push(orchestrator.execute(ctx, task, call).await?);
+                }
+            }
+            continue;
+        }
         if read_only(&call) {
             let mut group = vec![call];
             while queue.peek().is_some_and(&read_only) {

@@ -1,16 +1,18 @@
 use std::{
+    future,
     path::Path,
     time::{Duration, Instant},
 };
 
 use anyhow::{Result, anyhow};
+use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::time::timeout;
+use tokio::time::sleep;
 
 use crate::{
     contracts::{
         ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
-        ToolContext,
+        SubagentRequest, SubagentResult, SubagentToolHost, ToolContext,
     },
     domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
 };
@@ -185,35 +187,54 @@ impl ToolOrchestrator {
             .and_then(|spec| spec.timeout_ms)
             .unwrap_or(self.default_timeout_ms);
         let started = Instant::now();
+        // Per-call child token lets an orchestrator timeout stop nested work
+        // (notably a detached subagent) without cancelling the whole turn.
+        // Parent turn cancellation still cascades into this token.
+        let tool_cancellation = ctx.cancellation.child_token();
         // user_input оборачивается attribution-обёрткой: запросы tool-а несут
         // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
             cwd: task.cwd.clone(),
-            cancellation: ctx.cancellation.clone(),
+            cancellation: tool_cancellation.clone(),
             user_input: Some(std::sync::Arc::new(
                 crate::core::AttributedUserInputTransport::new(
                     ctx.user_input.clone(),
                     request_origin(ctx),
                 ),
             )),
+            task: Some(task.clone()),
+            subagent: Some(std::sync::Arc::new(RuntimeSubagentToolHost {
+                ctx: ctx.clone().with_cancellation(tool_cancellation.clone()),
+            })),
         };
+        let timeout_future = async move {
+            if timeout_ms == 0 {
+                future::pending::<()>().await;
+            } else {
+                sleep(Duration::from_millis(timeout_ms)).await;
+            }
+        };
+        tokio::pin!(timeout_future);
         let result = tokio::select! {
-            result = timeout(Duration::from_millis(timeout_ms), tool.invoke(call, tool_ctx)) => {
+            result = tool.invoke(call, tool_ctx) => {
                 match result {
-                    Ok(Ok(result)) => result,
-                    Ok(Err(error)) => ToolResult::error(call.id.clone(), error.to_string())
+                    Ok(result) => result,
+                    Err(error) => ToolResult::error(call.id.clone(), error.to_string())
                         .with_metadata(json!({ "tool": call.name })),
-                    Err(_) => ToolResult::error(
-                        call.id.clone(),
-                        format!("tool timed out after {timeout_ms}ms"),
-                    )
-                    .with_metadata(json!({
-                        "tool": call.name,
-                        "timed_out": true,
-                        "timeout_ms": timeout_ms,
-                    })),
                 }
             }
+            _ = &mut timeout_future => {
+                tool_cancellation.cancel();
+                ToolResult::error(
+                    call.id.clone(),
+                    format!("tool timed out after {timeout_ms}ms"),
+                )
+                .with_metadata(json!({
+                    "tool": call.name,
+                    "timed_out": true,
+                    "timeout_ms": timeout_ms,
+                }))
+            },
             _ = ctx.cancellation.cancelled() => {
                 ToolResult::error(call.id.clone(), "tool call canceled")
                     .with_metadata(json!({
@@ -275,6 +296,20 @@ impl ToolOrchestrator {
         }
 
         result
+    }
+}
+
+/// Per-invocation adapter from the narrow tool capability back to the current
+/// runtime context. `TaskTool` cannot retain or construct RuntimeContext on its
+/// own; every call is therefore bound to the caller's thread/turn here.
+struct RuntimeSubagentToolHost {
+    ctx: RuntimeContext,
+}
+
+#[async_trait]
+impl SubagentToolHost for RuntimeSubagentToolHost {
+    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
+        self.ctx.subagent.run(request, self.ctx.clone()).await
     }
 }
 

@@ -4,6 +4,7 @@ use crate::{
     contracts::ToolSource,
     core::AppConfig,
     domain::{ToolSafety, ToolSpec},
+    tools::TASK_TOOL,
 };
 
 use super::{ToolTopology, TopologyWarning, plugins::PluginToolSource};
@@ -77,6 +78,7 @@ pub(super) fn build_tools(
 
 fn tool_enabled(config: &AppConfig, source: &ToolSource, name: &str) -> bool {
     config.tools.enabled.iter().any(|enabled| enabled == name)
+        || name == TASK_TOOL
         || matches!(source, ToolSource::Config { .. } | ToolSource::Mcp { .. })
 }
 

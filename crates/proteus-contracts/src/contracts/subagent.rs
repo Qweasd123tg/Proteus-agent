@@ -393,3 +393,12 @@ pub trait SubagentRunner: Send + Sync {
         bail!("this subagent runner does not support spawn/wait/cancel");
     }
 }
+
+/// Узкая capability, которую runtime выдаёт facade-tool `task` на время
+/// обычного `Tool::invoke`. Tool не получает весь [`RuntimeContext`] и не
+/// знает concrete runner: host сам связывает запрос с текущим thread/turn,
+/// policy, cancellation и event emitter.
+#[async_trait]
+pub trait SubagentToolHost: Send + Sync {
+    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult>;
+}
