@@ -42,20 +42,18 @@ context = "codex_context"
 policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
-# codex_dynamic отключён (2026-07-09): селектор пересобирал набор tools по тексту
-# каждой задачи, что ломало prompt cache prefix на каждом turn-е. Вернуть можно
-# после стабилизации query в селекторе.
-tool_exposure = "all_visible"
+# Cache-stable hot set + deferred discovery: task text больше не пересобирает
+# схемы на каждом turn-е, редкие tools доступны через proteus_tool_search/call.
+tool_exposure = "codex_dynamic"
 subagent = "sequential"
 renderer = "statusline"
 
 [tools]
 enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
-# playwright закомментирован вместе с отключением codex_dynamic (2026-07-09):
-# при all_visible его ~20 браузерных схем попадали бы в каждый запрос (токены +
-# «браузерный перфекционизм» из dogfood-эвиденса). Раскомментировать при
-# реальной необходимости браузера.
+# playwright остаётся opt-in: dynamic exposure не отправит все его схемы в
+# каждый запрос, но dogfood показал непрошеную браузерную верификацию. Включать
+# только для реальной браузерной задачи.
 # [[tools.mcp_servers]]
 # name = "playwright"
 # command = "npx"
@@ -192,7 +190,7 @@ max_total_tokens = 1500000
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin"]
+always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "environment", "git_status", "git_diff", "repo_tree", "manifest", "search"]

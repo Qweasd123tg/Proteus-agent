@@ -158,9 +158,9 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 проверки Codex-подобной сборки модулей. Он использует
 `coding.codex_loop_diagnostic`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `modules.compactor = "codex"` и
-`tool_exposure = "all_visible"`. `codex_dynamic` остаётся доступным модулем,
-но в packaged профиле отключён, потому что per-turn пересборка tool set меняет
-prompt-cache prefix. Diagnostic workflow сохраняет protocol/loop
+cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
+текста очередного turn-а, а редкие tools доступны через deferred
+search/describe/call. Diagnostic workflow сохраняет protocol/loop
 `coding.codex_loop`, но показывает последний
 `ToolResult`, если модель после tool call вернула пустой финальный ответ; strict
 parity остаётся в `coding.codex_loop` и может использоваться локальными synced
@@ -241,9 +241,10 @@ metadata запроса или явного `providers.*.prompt_cache_key`; ес
 задан `prompt_cache_retention`, adapter прокидывает его как
 `prompt_cache_retention`. Значение retention не выставляется по умолчанию:
 для `24h`/`in_memory` это provider policy, а не поведение workflow. Стандартные
-coding workflows строят key из модели, workspace и hash стабильного prompt
-prefix (`instructions` + exposed tool schemas), но не из текущего user message,
-history или tool results. Anthropic Messages получает
+coding workflows используют routing key, стабильный для
+`(provider, model, session_id)`. Это не fingerprint содержимого: provider
+отдельно хеширует фактически сериализованный prefix и переиспользует только
+совпавшую часть. Anthropic Messages получает
 `cache_control = { type = "ephemeral" }` как explicit breakpoint на system
 block; если system block отсутствует, adapter ставит breakpoint на последний
 tool. Top-level automatic `cache_control` остаётся fallback-ом только когда
@@ -503,12 +504,12 @@ phase-aware фильтрация работает только в соответ
 `codex_dynamic`. Плагинная реализация может искать, ранжировать или
 ограничивать tools через тот же host callback `select_tools_json`.
 
-`modules.tool_exposure = "dynamic"` включает builtin lexical selector. Это
-opt-in режим: он оставляет tools с `ToolSpec.metadata.hot = true` или именами
-из `module_config.tool_exposure.dynamic.always_include`, затем добирает
-остальные tools по совпадениям с task/query, description, schema и
-`ToolSpec.metadata`, но использует только candidates, уже разрешённые
-`ApprovalPolicy` visibility.
+`modules.tool_exposure = "dynamic"` включает builtin selector. Это opt-in
+режим: он оставляет tools с `ToolSpec.metadata.hot = true` или именами из
+`module_config.tool_exposure.dynamic.always_include`, затем стабильно добирает
+остальные policy-visible candidates. Текст очередной task автоматически не
+становится query и не меняет model-facing schemas между turn-ами; явный
+`ToolExposureRequest.query` по-прежнему включает lexical ranking.
 В `ToolExposureOutput.metadata` появляются `selected_tools`, `hidden_count` и
 грубая оценка сэкономленных schema tokens.
 
@@ -523,10 +524,11 @@ always_include = ["request_user_input"]
 
 `modules.tool_exposure = "codex_dynamic"` включает плагин
 `codex-tool-exposure`, предназначенный для Codex-shaped profile. Он держит
-`request_user_input` и профильные `always_include` tools в первом слое, ранжирует common coding tools
-Codex-oriented порядком и добавляет intent boosts для `shell`, `apply_patch`,
-`write_file` и `remember_fact`. Плагин видит только policy-visible candidates и
-не исполняет tools. Его metadata расширяет dynamic output полем
+`request_user_input` и профильные `always_include` tools в первом слое и
+стабильно ранжирует common coding tools Codex-oriented порядком. Intent boosts
+для `shell`, `apply_patch`, `write_file` и `remember_fact` применяются только
+при явно переданном query, не от текста каждого turn-а. Плагин видит только
+policy-visible candidates и не исполняет tools. Его metadata расширяет output полем
 `selected_tool_reasons`. `module_config.tool_exposure.codex_dynamic`
 передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
 `always_include`.

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{ToolExposure, ToolExposureInput, ToolExposureOutput},
-    domain::{AgentTask, ToolSafety, ToolSpec},
+    domain::{ToolSafety, ToolSpec},
 };
 
 const DEFAULT_MAX_HOT_TOOLS: usize = 10;
@@ -62,7 +62,7 @@ fn select_dynamic_tools(
         .max_tools
         .unwrap_or(config.max_hot_tools)
         .max(1);
-    let query = tool_query(&input.request.task, input.request.query.as_deref());
+    let query = tool_query(input.request.query.as_deref());
 
     if candidate_count <= max_tools {
         let before = estimate_tool_schema_tokens(&input.candidates);
@@ -77,8 +77,9 @@ fn select_dynamic_tools(
             break;
         }
         if let Some(tool) = input.candidates.iter().find(|tool| &tool.name == name) {
-            selected_names.insert(tool.name.clone());
-            selected.push(tool.clone());
+            if selected_names.insert(tool.name.clone()) {
+                selected.push(tool.clone());
+            }
         }
     }
     let mut hot_tools = input
@@ -137,6 +138,7 @@ fn output(
     output.metadata = json!({
             "selector": "dynamic",
             "query": query,
+            "query_source": if query.is_empty() { "stable_hot_set" } else { "explicit" },
             "candidate_count": candidate_count,
             "selected_count": selected_tools.len(),
             "hidden_count": candidate_count.saturating_sub(selected_tools.len()),
@@ -157,10 +159,10 @@ fn estimate_tool_schema_tokens(tools: &[ToolSpec]) -> usize {
         .sum()
 }
 
-fn tool_query(task: &AgentTask, query: Option<&str>) -> String {
+fn tool_query(query: Option<&str>) -> String {
     query
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&task.text)
+        .unwrap_or_default()
         .to_owned()
 }
 
@@ -171,7 +173,7 @@ fn score_tool(tool: &ToolSpec, query: &str) -> f32 {
             1.0
         } else {
             0.0
-        };
+        } + safety_adjustment(&tool.safety);
     }
 
     let mut score = 0.0;
@@ -335,5 +337,56 @@ mod tests {
             .unwrap();
 
         assert_eq!(output.tools[0].name, "git_log");
+    }
+
+    #[tokio::test]
+    async fn implicit_task_text_keeps_cache_stable_hot_set() {
+        let candidates = vec![
+            spec("alpha_docs", "Read docs", ToolSafety::ReadOnly),
+            spec("beta_config", "Inspect config", ToolSafety::ReadOnly),
+            spec("shell", "Run commands", ToolSafety::RunsCommands),
+        ];
+        let select_task = |text: &str| {
+            let candidates = candidates.clone();
+            let text = text.to_owned();
+            async move {
+                let task = AgentTask::new(text, std::env::current_dir().unwrap());
+                let request = crate::contracts::ToolExposureRequest::new(task).with_max_tools(1);
+                DynamicToolExposure::default()
+                    .select(ToolExposureInput::new(request, candidates))
+                    .await
+                    .unwrap()
+            }
+        };
+
+        let docs = select_task("read documentation").await;
+        let shell = select_task("run a shell command").await;
+        assert_eq!(docs.tools[0].name, shell.tools[0].name);
+        assert_eq!(docs.metadata["query"], "");
+        assert_eq!(docs.metadata["query_source"], "stable_hot_set");
+    }
+
+    #[tokio::test]
+    async fn always_include_deduplicates_names() {
+        let selector = DynamicToolExposure::new(DynamicToolExposureConfig {
+            max_hot_tools: 2,
+            always_include: vec!["read_file".to_owned(), "read_file".to_owned()],
+        });
+        let task = AgentTask::new("stable", std::env::current_dir().unwrap());
+        let request = crate::contracts::ToolExposureRequest::new(task).with_max_tools(2);
+        let output = selector
+            .select(ToolExposureInput::new(
+                request,
+                vec![
+                    spec("read_file", "Read", ToolSafety::ReadOnly),
+                    spec("grep", "Search", ToolSafety::ReadOnly),
+                    spec("shell", "Run", ToolSafety::RunsCommands),
+                ],
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(output.tools.len(), 2);
+        assert_eq!(output.tools[0].name, "read_file");
     }
 }

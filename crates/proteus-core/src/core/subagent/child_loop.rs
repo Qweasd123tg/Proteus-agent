@@ -28,16 +28,21 @@ pub(super) struct ChildLoopState {
     pub usage: Option<TokenUsage>,
 }
 
-/// Отбор tools ребёнка: сперва policy-видимость (тот же гейт, что
-/// `visible_tool_specs` у workflow host), затем `ToolExposure::select` с
-/// фазой роли. Tool `task` выкидывается из итогового списка.
+/// Отбор tools ребёнка: сперва policy-видимость и role allowlist, затем
+/// `ToolExposure::select` с фазой роли. Allowlist применяется до selector-а,
+/// чтобы его cap не занимали tools, которые роль всё равно отбросит: иначе
+/// dynamic exposure мог скрыть разрешённую capability без доступного ребёнку
+/// deferred-search path. Tool `task` выкидывается на обеих границах.
 pub(super) async fn select_child_tools(
     ctx: &RuntimeContext,
     orchestrator: &ToolOrchestrator,
     request: &SubagentRequest,
     role: &SubagentRoleSpec,
 ) -> Result<Vec<ToolSpec>> {
-    let candidates = orchestrator.visible_tool_specs(ctx, &request.task.cwd);
+    let candidates = apply_child_tool_filters(
+        orchestrator.visible_tool_specs(ctx, &request.task.cwd),
+        role,
+    );
     let exposure_request =
         ToolExposureRequest::new(request.task.clone()).with_phase(role.effective_exposure_phase());
     let output = ctx

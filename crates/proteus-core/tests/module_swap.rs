@@ -3397,14 +3397,14 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
-    // all_visible с 2026-07-09: codex_dynamic пересобирал набор tools по
-    // тексту задачи и ломал prompt cache prefix (см. configs/codex.config.toml).
-    assert_eq!(config.modules.tool_exposure, "all_visible");
+    // codex_dynamic держит стабильный hot set; per-turn task text не меняет
+    // model-facing schemas, редкие tools доступны через deferred meta-tools.
+    assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
-    // Playwright MCP закомментирован вместе с отключением codex_dynamic:
-    // при all_visible его схемы попадали бы в каждый запрос.
+    // Playwright MCP остаётся opt-in после dogfood с непрошеной браузерной
+    // верификацией; dynamic exposure при включении не сделает его always-visible.
     assert!(
         !config
             .tools
@@ -3421,8 +3421,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
         .expect("configured apply_patch");
     assert!(matches!(apply_patch.surface, ToolSurface::Freeform { .. }));
 
-    // Конфиг codex_dynamic остаётся в файле (инертен при all_visible),
-    // чтобы возврат dynamic exposure был правкой одной строки.
+    // Stable hot-set config активен в packaged Codex profile.
     let codex_dynamic = config.module_config_value(ModuleKind::ToolExposure, "codex_dynamic");
     assert_eq!(codex_dynamic["max_hot_tools"], 10);
     assert!(
@@ -3432,10 +3431,16 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "request_user_input")
     );
-    // Браузерные MCP tools не должны быть always-visible: они остаются
-    // доступными через dynamic exposure, когда задача реально про браузер
-    // (dogfood 2026-07-06: always-visible браузер провоцировал непрошеную
-    // «визуальную верификацию»).
+    assert!(
+        codex_dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "apply_patch")
+    );
+    // Если Playwright будет включён вручную, его tools не должны попасть в
+    // stable hot set (dogfood 2026-07-06: always-visible браузер провоцировал
+    // непрошеную «визуальную верификацию»).
     assert!(
         !codex_dynamic["always_include"]
             .as_array()

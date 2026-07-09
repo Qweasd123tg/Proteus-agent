@@ -484,8 +484,10 @@ request. Он не учитывает `ToolExposureRequest.phase`; фазовы�
 `modules.tool_exposure = "dynamic"` — core selector для первого слоя экономии
 tool schemas. Он берёт только уже policy-visible candidates, сначала оставляет
 tools с `ToolSpec.metadata.hot = true` или именами из
-`module_config.tool_exposure.dynamic.always_include`, затем лексически ранжирует
-остальные tools по task/query, description, schema и `ToolSpec.metadata`.
+`module_config.tool_exposure.dynamic.always_include`, затем стабильно ранжирует
+остальные tools. Per-turn task text не используется как неявный query, поэтому
+hot set не ломает provider prompt-cache prefix; явный request query оставляет
+лексическое ранжирование доступным вызывающей стороне.
 Selector пишет observability metadata:
 `selector`, `candidate_count`, `selected_count`, `hidden_count`,
 `selected_tools` и грубую оценку schema-token savings.
@@ -493,8 +495,8 @@ Selector пишет observability metadata:
 `modules.tool_exposure = "codex_dynamic"` поставляет плагин
 `codex-tool-exposure`. Он сохраняет Codex-oriented hot set:
 `request_user_input` держится в `always_include`, common coding tools получают
-стабильный приоритет, а `shell`, `apply_patch`, `write_file` и
-`remember_fact` поднимаются только при явном intent match в task/query. Как и
+стабильный приоритет, а explicit query может поднять `shell`, `apply_patch`,
+`write_file` и `remember_fact` по intent match. Как и
 `dynamic`, selector видит только policy-visible candidates и пишет
 `selected_tool_reasons` в metadata. Selector phase-aware: workflow передаёт
 `ToolExposureRequest.phase`, и в `plan`-фазе non-ReadOnly кандидаты не
@@ -602,9 +604,10 @@ max_iterations = 15
 ребёнку, а отмена ребёнка не трогает родителя; resumable snapshot сохраняется
 при любом терминальном статусе (включая `Cancelled`/`TimedOut`), так что
 прерванную работу можно продолжить по `task_id`. Для роли можно задать
-per-role `tools` allowlist:
-после exposure-фильтра runner оставит только перечисленные tools. Это особенно
-важно при `tool_exposure = "all_visible"`, где `exposure_phase` игнорируется.
+per-role `tools` allowlist: runner применяет его до exposure, чтобы selector
+cap не занимали tools, которые роль всё равно отбросит, и повторно проверяет
+итог. Это особенно важно для dynamic exposure: sequential child пока не имеет
+собственного deferred-search handler-а.
 
 Model-запросы дочернего цикла включают prompt cache: `CacheHints(true, true)`
 и стабильный `prompt_cache_key` вида

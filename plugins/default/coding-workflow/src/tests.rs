@@ -151,75 +151,27 @@ fn token_usage_snapshot_adds_provider_cache_categories_without_changing_estimate
 }
 
 #[test]
-fn prompt_cache_key_ignores_volatile_messages() {
-    let input = workflow_input("change code");
-    let instructions = vec![InstructionBlock::new(
-        InstructionKind::System,
-        "stable project instructions",
-        100,
-    )];
-    let tools = vec![test_tool("read_file", "Read file", ToolSafety::ReadOnly)];
-    let first = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
-        vec![CanonicalMessage::text(MessageRole::User, "first turn")],
-    )
-    .with_instructions(instructions.clone())
-    .with_tools(tools.clone());
-    let second = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
-        vec![CanonicalMessage::text(MessageRole::User, "second turn")],
-    )
-    .with_instructions(instructions)
-    .with_tools(tools);
+fn prompt_cache_key_is_stable_for_session() {
+    let input = workflow_input("first turn");
+    let mut next_turn = input.clone();
+    next_turn.task.text = "second turn with another tool intent".to_owned();
+    next_turn.runtime.turn_id = new_turn_id();
 
+    let key = prompt_cache_key(&input);
+    assert_eq!(key, prompt_cache_key(&next_turn));
     assert_eq!(
-        prompt_cache_key(&input, &first),
-        prompt_cache_key(&input, &second)
+        key,
+        format!("proteus:workflow:fake:model:{}", input.runtime.session_id)
     );
 }
 
 #[test]
-fn prompt_cache_key_changes_when_stable_prefix_changes() {
-    let input = workflow_input("change code");
-    let base = CanonicalModelRequest::new(input.runtime.model_ref.clone(), Vec::new())
-        .with_instructions(vec![InstructionBlock::new(
-            InstructionKind::System,
-            "stable project instructions",
-            100,
-        )])
-        .with_tools(vec![test_tool(
-            "read_file",
-            "Read file",
-            ToolSafety::ReadOnly,
-        )]);
-    let changed_instruction =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), Vec::new())
-            .with_instructions(vec![InstructionBlock::new(
-                InstructionKind::System,
-                "changed project instructions",
-                100,
-            )])
-            .with_tools(vec![test_tool(
-                "read_file",
-                "Read file",
-                ToolSafety::ReadOnly,
-            )]);
-    let changed_tool = CanonicalModelRequest::new(input.runtime.model_ref.clone(), Vec::new())
-        .with_instructions(vec![InstructionBlock::new(
-            InstructionKind::System,
-            "stable project instructions",
-            100,
-        )])
-        .with_tools(vec![test_tool(
-            "write_file",
-            "Write file",
-            ToolSafety::WritesFiles,
-        )]);
+fn prompt_cache_key_changes_between_sessions() {
+    let first = workflow_input("change code");
+    let mut second = first.clone();
+    second.runtime.session_id = new_session_id();
 
-    let base_key = prompt_cache_key(&input, &base);
-
-    assert_ne!(base_key, prompt_cache_key(&input, &changed_instruction));
-    assert_ne!(base_key, prompt_cache_key(&input, &changed_tool));
+    assert_ne!(prompt_cache_key(&first), prompt_cache_key(&second));
 }
 
 fn category_tokens(usage: &TokenUsageSnapshot, name: &str) -> Option<u32> {

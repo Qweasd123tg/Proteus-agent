@@ -90,15 +90,19 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     let query = tool_query(&input);
     let phase = input.request.phase.clone();
     let before = estimate_tool_schema_tokens(&input.candidates);
+    let candidates = input
+        .candidates
+        .into_iter()
+        .filter(|tool| phase_allows(tool, phase.as_deref()))
+        .collect::<Vec<_>>();
 
-    if candidate_count <= max_tools {
-        let reasons = input
-            .candidates
+    if candidates.len() <= max_tools {
+        let reasons = candidates
             .iter()
             .map(|tool| (tool.name.clone(), "all_candidates_fit".to_owned()))
             .collect();
         return output(
-            input.candidates,
+            candidates,
             candidate_count,
             max_tools,
             query,
@@ -117,23 +121,17 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         if selected.len() >= max_tools {
             break;
         }
-        if let Some(tool) = input
-            .candidates
-            .iter()
-            .filter(|tool| phase_allows(tool, phase.as_deref()))
-            .find(|tool| tool.name == name.as_str())
-        {
-            selected_names.insert(tool.name.clone());
-            selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
-            selected.push(tool.clone());
+        if let Some(tool) = candidates.iter().find(|tool| tool.name == name.as_str()) {
+            if selected_names.insert(tool.name.clone()) {
+                selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
+                selected.push(tool.clone());
+            }
         }
     }
 
-    let mut ranked = input
-        .candidates
+    let mut ranked = candidates
         .iter()
         .filter(|tool| !selected_names.contains(&tool.name))
-        .filter(|tool| phase_allows(tool, phase.as_deref()))
         .map(|tool| {
             let scored = score_tool(tool, &query_terms);
             (scored.score, scored.reason, tool)
@@ -195,9 +193,7 @@ impl CodexDynamicConfig {
                 .filter(|name| !name.trim().is_empty())
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            if !values.is_empty() {
-                config.always_include = values;
-            }
+            config.always_include = values;
         }
 
         config
@@ -328,6 +324,7 @@ fn output(
     output.metadata = json!({
         "selector": MODULE_ID,
         "query": query,
+        "query_source": if query.is_empty() { "stable_hot_set" } else { "explicit" },
         "phase": phase,
         "candidate_count": candidate_count,
         "selected_count": selected_tools.len(),
@@ -348,7 +345,7 @@ fn tool_query(input: &ToolExposureInput) -> String {
         .query
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&input.request.task.text)
+        .unwrap_or_default()
         .to_owned()
 }
 
@@ -593,6 +590,90 @@ mod tests {
         assert_eq!(
             output.metadata["selected_tool_reasons"]["git_status"],
             "always_include"
+        );
+    }
+
+    #[test]
+    fn implicit_task_text_keeps_cache_stable_hot_set() {
+        let candidates = vec![
+            spec("shell", "Run commands", ToolSafety::RunsCommands),
+            spec("apply_patch", "Apply patch", ToolSafety::WritesFiles),
+            spec("read_file", "Read a file", ToolSafety::ReadOnly),
+            spec("grep", "Search files", ToolSafety::ReadOnly),
+        ];
+        let select_task = |text: &str| {
+            let task = AgentTask::new(text, std::env::current_dir().unwrap());
+            let request = ToolExposureRequest::new(task).with_max_tools(2);
+            select_with_input(ToolExposureInput::new(request, candidates.clone()))
+        };
+
+        let run = select_task("run the tests in a shell");
+        let edit = select_task("apply a patch to the code");
+        let names = |output: &ToolExposureOutput| {
+            output
+                .tools
+                .iter()
+                .map(|tool| tool.name.clone())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(names(&run), names(&edit));
+        assert_eq!(run.metadata["query"], "");
+        assert_eq!(run.metadata["query_source"], "stable_hot_set");
+    }
+
+    #[test]
+    fn plan_phase_filters_writes_even_when_all_candidates_fit() {
+        let task = AgentTask::new("plan changes", std::env::current_dir().unwrap());
+        let request = ToolExposureRequest::new(task)
+            .with_max_tools(10)
+            .with_phase("plan");
+        let output = select_with_input(ToolExposureInput::new(
+            request,
+            vec![
+                spec("read_file", "Read", ToolSafety::ReadOnly),
+                spec("write_file", "Write", ToolSafety::WritesFiles),
+                spec("shell", "Run", ToolSafety::RunsCommands),
+            ],
+        ));
+
+        assert_eq!(
+            output
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read_file"]
+        );
+    }
+
+    #[test]
+    fn always_include_is_deduplicated_and_can_clear_defaults() {
+        let task = AgentTask::new("stable", std::env::current_dir().unwrap());
+        let request = ToolExposureRequest::new(task).with_max_tools(2);
+        let candidates = vec![
+            spec("request_user_input", "Ask", ToolSafety::ReadOnly),
+            spec("read_file", "Read", ToolSafety::ReadOnly),
+            spec("grep", "Search", ToolSafety::ReadOnly),
+        ];
+        let deduplicated = select_with_input(
+            ToolExposureInput::new(request.clone(), candidates.clone()).with_config(json!({
+                "always_include": ["request_user_input", "request_user_input"]
+            })),
+        );
+        assert_eq!(deduplicated.tools.len(), 2);
+        assert_eq!(deduplicated.tools[0].name, "request_user_input");
+
+        let cleared = select_with_input(
+            ToolExposureInput::new(request, candidates)
+                .with_config(json!({ "always_include": [] })),
+        );
+        assert_eq!(cleared.tools[0].name, "read_file");
+        assert!(
+            !cleared
+                .tools
+                .iter()
+                .any(|tool| tool.name == "request_user_input")
         );
     }
 }

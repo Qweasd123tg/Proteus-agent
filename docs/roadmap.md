@@ -81,9 +81,8 @@ profile/pack на выбранном для dogfood provider-е; agent boundary 
 references.
 
 Состояние parity-паков: codex pack (named config `codex`, `codex_context` с
-provider `environment`, `codex_policy`, `codex`-compactor, стабильный
-`all_visible` tool surface; `codex_dynamic` оставлен как экспериментальный
-module, но не активен в packaged profile)
+provider `environment`, `codex_policy`, `codex`-compactor и cache-stable
+`codex_dynamic` с deferred tool discovery)
 и opencode pack (named config `opencode`, `opencode_policy` с
 last-match-wins wildcard permissions, `edit_file`, реюз codex-модулей)
 собраны и ставятся через `install.sh`; сравнение поведения при смене паков —
@@ -110,14 +109,16 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   которую никто не просил. Провокатором были `playwright__browser_navigate`/
   `playwright__browser_snapshot` в `always_include` codex/glm конфигов —
   убраны; Playwright MCP в packaged profiles сейчас закомментирован.
-- (закрыто 2026-07-09) потеря prompt cache посреди сессии и у субагентов:
+- (закрыто 2026-07-10) потеря prompt cache посреди сессии и у субагентов:
   `codex_dynamic` пересобирал набор tools лексическим скорингом по тексту
   каждой задачи (5 свободных слотов на ~30 кандидатов) — менялся и реальный
-  префикс запроса, и `prompt_cache_key` (он хеширует tools). Решение
-  владельца: в packaged codex/glm конфигах `tool_exposure = "all_visible"`,
-  playwright MCP закомментирован (иначе ~20 браузерных схем вернулись бы в
-  каждый запрос). Возврат dynamic exposure — только после стабилизации query
-  в селекторе (session-scoped выбор вместо per-turn).
+  префикс запроса, и старый `prompt_cache_key`, который ошибочно хешировал
+  tools/instructions. Временный переход на `all_visible` снят: workflow key
+  теперь стабилен на `(provider, model, session_id)`, builtin/codex selectors
+  используют cache-stable hot set и ранжируют по intent только при explicit
+  query, а hidden tools вызываются через deferred search/describe/call.
+  Packaged codex/glm снова используют `codex_dynamic`; Playwright MCP остаётся
+  opt-in из-за отдельного dogfood UX-наблюдения.
 - (отложено) verification discipline в промпте («останавливайся на самом
   дешёвом достаточном сигнале; установка софта ради проверки — только
   спросив») — сначала посмотреть dogfood без always-visible браузера.
