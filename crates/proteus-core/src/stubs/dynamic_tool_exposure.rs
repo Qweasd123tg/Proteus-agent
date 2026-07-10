@@ -76,10 +76,10 @@ fn select_dynamic_tools(
         if selected.len() >= max_tools {
             break;
         }
-        if let Some(tool) = input.candidates.iter().find(|tool| &tool.name == name) {
-            if selected_names.insert(tool.name.clone()) {
-                selected.push(tool.clone());
-            }
+        if let Some(tool) = input.candidates.iter().find(|tool| &tool.name == name)
+            && selected_names.insert(tool.name.clone())
+        {
+            selected.push(tool.clone());
         }
     }
     let mut hot_tools = input

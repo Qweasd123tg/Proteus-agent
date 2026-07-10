@@ -121,11 +121,11 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         if selected.len() >= max_tools {
             break;
         }
-        if let Some(tool) = candidates.iter().find(|tool| tool.name == name.as_str()) {
-            if selected_names.insert(tool.name.clone()) {
-                selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
-                selected.push(tool.clone());
-            }
+        if let Some(tool) = candidates.iter().find(|tool| tool.name == name.as_str())
+            && selected_names.insert(tool.name.clone())
+        {
+            selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
+            selected.push(tool.clone());
         }
     }
 
