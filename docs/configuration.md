@@ -887,10 +887,11 @@ loopback:
 proteus server http --port 8787
 ```
 
-Не биндуйте `--host 0.0.0.0` для обычного dogfood: app-server принимает
-prompts, approvals, user input, cancel, config/reload, history/resume и
-shutdown. У прямого запуска `proteus server http` token auth по умолчанию
-выключен; включить его можно флагом `--token <token>`.
+Для loopback direct-запуск `proteus server http` допускает выключенный token
+auth. Любой non-loopback `--host` требует непустой `--token`; без него CLI и
+server boundary завершаются ошибкой до bind. App-server принимает prompts,
+approvals, user input, cancel, config/reload, history/resume и shutdown, поэтому
+даже authenticated bind не следует считать production-ready public service.
 
 Установленный wrapper `proteus` работает строже: если
 `PROTEUS_SESSION_TOKEN` не задан, он генерирует ephemeral token на каждый

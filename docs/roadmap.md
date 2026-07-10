@@ -16,12 +16,13 @@ Roadmap хранит порядок работ и журнал уже приня
 
 1. ✅ `task` переведён в единый safety path: это registry facade-tool через
    policy/approval/orchestrator; worktree создаётся только после разрешения.
-2. Сделать shell sandbox fail-closed, запретить RW-доступ вне workspace без
-   escalation и требовать token для non-loopback HTTP.
+2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
+   не расширяет RW boundary без escalation, Ptyxis требует escalation, а
+   non-loopback HTTP требует token.
 3. Ограничить lifecycle процессов: bounded idle/resume retention для process
    subagents; ownership, age cleanup и cancellation для уже count-bounded
    interactive exec sessions.
-4. После safety-среза решить canonical turn data как один кластер:
+4. После lifecycle checkpoint решить canonical turn data как один кластер:
    parts + storage + replay + eval.
 5. Прогнать несколько маленьких dogfood-задач и только по их результатам
    добавлять merge-role, новый UI или feature packs.
@@ -495,17 +496,15 @@ Scope:
 - ✅ session resume/restore;
 - 🟡 session/request/config metadata персистится частично; canonical task/turn
   record и replay ещё не определены;
-- event-log based debugging. Аудит 2026-07-06: текущий `events.jsonl` — это
-  телеметрия, а не replay-лог. Для replay ("тот же вход, другой
-  модуль/промпт") критично не хватает: (a) полного `CanonicalModelRequest`
-  (instructions, context, tools, sampling) — `ModelRequestPrepared` несёт
-  только `ModelRef`, `ContextBuilt` — только счётчики; (b) config/profile
-  снапшота на момент turn (`session.json` хранит только id+workspace);
-  дополнительно: compaction перезаписывает до-compaction историю
-  (`replace_messages`), tool output усекается до записи в лог, ephemeral
-  context messages вырезаны из persistent history. Вывод: до реализации
-  replay-фичи нужно сначала начать персистить request-снапшот и
-  config-снапшот, иначе к моменту фичи данных не будет.
+- event-log based debugging. Аудит 2026-07-06 подтвердил, что `events.jsonl` —
+  телеметрия, а не replay-лог. Дешёвый evidence-срез после аудита уже сделан:
+  полный shaped `CanonicalModelRequest` пишется в `requests.jsonl`, resolved
+  config/profile — в `config_snapshot.json`, а до-compaction history
+  архивируется. Для replay ("тот же вход, другой модуль/промпт") по-прежнему
+  нет canonical task/turn record; оригинальный tool output может быть усечён до
+  durable event, а ephemeral context не входит в persistent conversation.
+  Parts/storage/replay/eval поэтому остаются одним data-кластером, а не
+  независимыми фичами.
 - ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
   `StdioRequest::ReloadTools`, HTTP `POST /reload-tools` и событие
   `ModulesReloaded`, без выгрузки dylib и без in-place мутации активного

@@ -154,11 +154,11 @@ Runtime должен сохранять эти свойства:
 
 ## Planned Направления
 
-Непосредственный приоритет — safety stabilization: fail-closed shell sandbox,
-обязательный token для non-loopback HTTP, ownership PTY sessions и bounded
-retention process-subagent pool. Общий policy path для `task` закрыт
-2026-07-10. Актуальные blockers ведутся в `scope.md`, детали текущих gaps — в
-`security-and-policy.md`.
+Непосредственный приоритет — lifecycle stabilization: ownership PTY sessions и
+bounded retention process-subagent pool. Общий policy path для `task` закрыт
+2026-07-10, fail-closed shell sandbox и обязательный token для non-loopback
+HTTP — 2026-07-11. Актуальные blockers ведутся в `scope.md`, детали текущих
+gaps — в `security-and-policy.md`.
 
 После этого долгосрочный capability backlog должен развивать основание через
 существующие границы:

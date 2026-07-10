@@ -81,8 +81,10 @@ cargo run --bin proteus -- \
   tool/search/context/workflow/policy/patch/memory/renderer реализации
   поставляются как dylib-плагины.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
-  approval policy и session approval cache. Известные safety-исключения свежего
-  subagent/shell слоя перечислены в [scope](docs/scope.md).
+  approval policy и session approval cache. Оставшиеся lifecycle-ограничения —
+  отсутствие bounded idle/resume retention у process-subagents и ownership у
+  shared exec sessions — перечислены в [scope](docs/scope.md) и
+  [security reference](docs/security-and-policy.md).
 - Внешний интерфейс: HTTP/SSE app-server, Leptos chat для ежедневного loop-а и
   отдельный Inspector для config/topology.
 - Диагностика: проверка config/plugins/tools без model request, runtime topology
@@ -181,6 +183,11 @@ cargo run --bin proteus -- server http \
   --allow-origin http://127.0.0.1:1420 \
   --allow-origin http://localhost:1420
 ```
+
+Direct loopback-запуск может работать без token для local debug. Любой
+non-loopback `--host` без непустого `--token` отклоняется до запуска runtime и
+bind; authenticated app-server всё равно не является публичным production
+service.
 
 В другом терминале:
 

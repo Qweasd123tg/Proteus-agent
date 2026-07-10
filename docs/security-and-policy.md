@@ -7,8 +7,10 @@ Security path зарегистрированных tools в v0 держится 
 3. `ToolOrchestrator` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
 4. сами tools проверяют workspace/path ограничения.
 
-Workflow-owned `task` пока не проходит этот общий path; исключение и остальные
-current gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
+Facade-tool `task` проходит тот же путь
+`ToolRegistry -> mode-aware ApprovalPolicy -> ToolOrchestrator -> Tool::invoke`;
+worktree для пишущей роли создаётся только после разрешения. Остальные current
+gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
 
 Этот документ описывает текущую реализацию v0. Более гибкая config-editable
 модель прав остаётся planned и кратко описана в конце.
@@ -27,10 +29,12 @@ protected paths и secrets policy являются следующими слоя
 HTTP endpoints умеют отправлять prompts, approvals, typed input, cancel,
 reload-tools, history/resume, inspect topology diagnostics и shutdown.
 
-У прямого запуска `proteus server http` token auth по умолчанию выключен;
-включить его можно через `--token <token>`. Установленный wrapper из
-`install.sh` строже: если `PROTEUS_SESSION_TOKEN` не задан, он генерирует
-ephemeral token на каждый запуск. Отключение wrapper token-mode только явное:
+У прямого запуска `proteus server http` token auth по умолчанию выключен только
+для loopback bind; включить его можно через `--token <token>`. Любой
+non-loopback bind требует непустой token и отклоняется до запуска runtime и
+`bind`, если auth не включён. Установленный wrapper из `install.sh` строже: если
+`PROTEUS_SESSION_TOKEN` не задан, он генерирует ephemeral token на каждый
+запуск. Отключение wrapper token-mode только явное:
 `PROTEUS_NO_SESSION_TOKEN=1`.
 
 Когда token-mode включён, session token требуется для любого HTTP endpoint,
@@ -41,10 +45,10 @@ requests предпочтителен `X-Proteus-Session` или
 `Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
 класть в `localStorage`; in-memory state или `sessionStorage` приемлемы для v0.
 
-Текущий direct CLI не связывает non-loopback bind с обязательным token:
-`--host 0.0.0.0` без `--token` парсится и запускается. Это известный gap, а не
-разрешённый deployment mode; до fail-closed проверки используйте только
-loopback или всегда передавайте token явно.
+Direct CLI и HTTP server boundary fail-closed связывают non-loopback bind с
+обязательным token: например, `--host 0.0.0.0` или `--host ::` без `--token`
+завершаются ошибкой. CORS/`Origin` не заменяют auth; наличие token также не
+превращает app-server в production-ready public service.
 
 CORS для защищённых endpoints должен быть allowlist-ом локальных origins,
 например chat `http://127.0.0.1:1420`, inspector
@@ -297,8 +301,8 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 
 ## Exec Sandbox В shell-tool
 
-Плагин `shell-tool` (tools `shell`, `exec_command`) сам заворачивает команды в
-OS-песочницу, если в системе доступен `bwrap` (bubblewrap):
+Плагин `shell-tool` (tools `shell`, `exec_command`) сам заворачивает
+неэскалированные команды в OS-песочницу `bwrap` (bubblewrap):
 
 - `--unshare-net`: у каждой команды собственный network namespace, внешней сети
   нет. Важное следствие: localhost-сервер, поднятый одним sandboxed-вызовом,
@@ -307,18 +311,19 @@ OS-песочницу, если в системе доступен `bwrap` (bubb
   `with_escalated_permissions: true`. Это поведение задокументировано для модели
   в описаниях tools и в секции «Sandbox and escalation» prompt-профиля
   `codex-default.md`.
-- корень ФС монтируется read-only, workspace (и внешний `workdir`, если задан)
-  — read-write, `/tmp` — свежий tmpfs, `/dev` и `/proc` — новые;
+- корень ФС монтируется read-only, только workspace — read-write, `/tmp` —
+  свежий tmpfs, `/dev` и `/proc` — новые. Неэскалированный `workdir` обязан
+  находиться внутри workspace; проверка canonical path учитывает `..` и
+  symlink;
 - `--die-with-parent`: команда умирает вместе с host-процессом.
 
 Вызов с `with_escalated_permissions: true` исполняется без песочницы и проходит
-через approval (см. `codex_policy` ниже). Если `bwrap` недоступен или выставлен
-`PROTEUS_SHELL_SANDBOX=0`, команды исполняются без песочницы, а политика
-по-прежнему решает visibility/approval. Путь внешнего терминала (Ptyxis) также
-исполняет команды вне песочницы. Для обычных execution paths metadata
-(`sandbox`, `escalated`) отражает выбранный режим, но текущий Ptyxis path может
-сообщить sandbox metadata, хотя фактически обходит bwrap; это входит в known
-gap ниже.
+через approval (см. `codex_policy` ниже). Если `bwrap` недоступен, не executable
+через `PATH` или выставлен `PROTEUS_SHELL_SANDBOX=0`, неэскалированный вызов
+завершается ошибкой до spawn; для явно запрошенного unsandboxed run нужна
+эскалация. Путь внешнего терминала (Ptyxis) также считается unsandboxed,
+допускается только для эскалированного вызова и сообщает `sandbox: null`,
+`escalated: true`.
 
 Независимо от песочницы все команды `shell`/`exec_command` получают
 env-нейтрализацию интерактивности: `PAGER`/`GIT_PAGER`/`GH_PAGER=cat`,
@@ -345,7 +350,8 @@ mode-aware wrapper.
 1. если tool name в `deny`, запретить — deny побеждает всё, включая
    `allow_sandboxed`;
 2. если tool name в `allow_sandboxed`: не-эскалированный вызов разрешается без
-   approval (tool сам исполняет команду в песочнице), а вызов с
+   approval (tool обязан создать песочницу или завершиться ошибкой без запуска;
+   unsandboxed fallback запрещён), а вызов с
    `with_escalated_permissions: true` требует approval — кроме случая, когда на
    этот ход уже выдан грант `escalated_exec` (см. ниже);
 3. если tool name в `allow`, разрешить;
@@ -451,22 +457,16 @@ split_commands = true
 
 Это текущие gaps, а не целевое поведение:
 
-- `codex_policy.allow_sandboxed` разрешает неэскалированный `shell`/
-  `exec_command` без approval, но `shell-tool` fail-open: при отсутствии
-  `bwrap`, `PROTEUS_SHELL_SANDBOX=0` или запуске через Ptyxis команда идёт без
-  sandbox. Policy пока не получает фактический sandbox outcome до решения;
-- абсолютный внешний `workdir` добавляется в bwrap как отдельный read-write
-  bind и тем самым расширяет write boundary за исходный workspace;
 - PTY sessions `exec_command`/`write_stdin` хранятся process-wide;
   `write_stdin` адресует их по предсказуемому numeric id без ownership по
   caller/session/cwd;
 - `process` SubagentRunner ограничивает concurrent leases semaphore-ом, но
   idle child processes для разных cwd пока не имеют общего TTL/LRU/cap;
-- direct HTTP CLI допускает non-loopback bind без token, как описано в
-  «App-Server HTTP Boundary» выше.
 
-До устранения этих gaps не считайте `allow_sandboxed`, plan mode, внешний
-`workdir`, shared app-server или unified exec полноценной isolation boundary.
+До устранения этих gaps не считайте plan mode или shared unified exec
+полноценной process isolation boundary. Внешний `workdir` допустим только для
+явно эскалированного unsandboxed вызова и сам по себе isolation boundary не
+создаёт.
 
 ## Planned Rights Model
 

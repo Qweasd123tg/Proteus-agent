@@ -53,8 +53,9 @@ App-server запускается только на loopback (`127.0.0.1`) дл�
 Wrapper `proteus` включает ephemeral session token по умолчанию
 (отключение — явное, `PROTEUS_NO_SESSION_TOKEN=1`); прямой запуск
 `proteus server http` без `--token` остаётся допустимым для loopback debug и
-ограничивает CORS локальным или явно разрешённым web origin. Строгий token
-режим включается через `--token`; тогда `/events`, `/send`,
+ограничивает CORS локальным или явно разрешённым web origin. Non-loopback bind
+без token отклоняется до startup. Строгий token режим включается через
+`--token`; тогда `/events`, `/send`,
 approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
 требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
 для SSE допустим query token; для `fetch` предпочтителен header
@@ -149,7 +150,7 @@ postmortem, а не как блокер web/app-server boundary.
 - session/transcript/event log не сохраняется или не читается;
 - `eval report` не может разобрать event log после run-а;
 - UI зависает так, что непонятно, turn ещё идёт или уже умер.
-- HTTP app-server для web dogfood не требует local token или оставляет wildcard
+- HTTP app-server принимает non-loopback bind без token или оставляет wildcard
   CORS на защищённых endpoints.
 - model-callable action обходит `ToolRegistry`, mode-aware policy или approval;
 - sandboxed tool фактически запускается без sandbox либо получает RW-доступ вне

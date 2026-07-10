@@ -71,6 +71,13 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 `plugins/default/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
 `apply_patch` в активный `PatchApplier`.
 
+Тесты `shell-tool` отдельно фиксируют fail-closed boundary: невозможность или
+явное отключение sandbox не запускает команду, внешний canonical `workdir`
+отклоняется без escalation, Ptyxis требует escalation, а metadata отражает
+фактический sandbox mode. HTTP regression-тесты разрешают loopback без token,
+отклоняют non-loopback без token до bind и разрешают authenticated
+non-loopback config.
+
 Codex-style request-time compactor `modules.compactor = "codex"` покрывается
 unit-тестами в `plugins/default/codex-compactor/src/lib.rs`: model-backed
 summary path, ошибки model summary вместо fallback, фильтрация generated user

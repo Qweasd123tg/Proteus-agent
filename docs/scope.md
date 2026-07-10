@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-09.
+Последнее обновление: 2026-07-11.
 
 ## Короткий Ответ
 
@@ -17,8 +17,10 @@ model + context + workflow + tools + policy
   -> durable session и trace
 ```
 
-Базовый стек уже собран. Текущая фаза — **укрепление safety и lifecycle после
-добавления parallel/worktree subagents**, а не расширение числа features.
+Базовый стек уже собран. Текущая фаза — **укрепление lifecycle после добавления
+parallel/worktree subagents**, а не расширение числа features. Общий safety
+path, fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
+закрыты regression-тестами.
 
 ## Что Работает
 
@@ -38,7 +40,8 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-До новых subagent/UI возможностей нужно закрыть четыре класса риска.
+До новых subagent/UI возможностей остаётся закрыть lifecycle процессов и
+пройти полный stabilization checkpoint.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -50,18 +53,19 @@ ABI и внутренние DTO, если dogfood показывает непр�
 - plan mode не создаёт worktree или ветку;
 - worktree lifecycle не протекает как Git-specific API в generic workflow host.
 
-### 2. Shell Должен Быть Fail-Closed
+### 2. Shell Fail-Closed — закрыто 2026-07-11
 
-Sandboxed-разрешение допустимо только когда sandbox действительно создан.
-Нужно запретить silent fallback в unsandboxed execution и не давать абсолютному
-`workdir` превращаться в дополнительный RW mount вне workspace. Ptyxis-path
-тоже должен требовать escalation и сообщать фактический sandbox status, а не
-маркироваться как `bwrap` после обхода bwrap.
+Неэскалированный `shell`/`exec_command` запускается только через реально
+доступный `bwrap`; отсутствие или отключение sandbox завершает tool ошибкой до
+spawn. Canonical `workdir` вне workspace требует escalation и больше не
+становится дополнительным RW mount. Ptyxis-path считается unsandboxed, требует
+escalation и сообщает фактический sandbox status.
 
-### 3. Внешний HTTP Только С Auth
+### 3. Внешний HTTP Только С Auth — закрыто 2026-07-11
 
 Loopback без token остаётся удобным debug-режимом. Любой non-loopback bind
-должен требовать token, а не полагаться на CORS/`Origin`.
+требует непустой token и отклоняется до запуска runtime/bind без него;
+CORS/`Origin` не используются как замена auth.
 
 ### 4. Ограниченный Lifecycle Процессов
 

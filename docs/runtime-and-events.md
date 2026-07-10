@@ -59,7 +59,10 @@ cargo run -- server http --port 8787
 
 `server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/proteus-core/src/app_server/stdio.rs` поверх `crates/proteus-core/src/app_server.rs`, а не новая runtime-логика.
 Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие.
-`server http` поднимает локальный HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs` поверх той же границы.
+`server http` поднимает HTTP/SSE transport в
+`crates/proteus-core/src/app_server/http.rs` поверх той же границы. Loopback
+может работать без token для local debug; любой non-loopback bind без непустого
+token отклоняется до запуска runtime и bind.
 
 ## REPL Commands
 
