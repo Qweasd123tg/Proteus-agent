@@ -74,6 +74,7 @@ pub async fn run_http_app_server(
     resume_session_dir: Option<PathBuf>,
     http_config: HttpServerConfig,
 ) -> Result<()> {
+    http_config.validate()?;
     let server = if let Some(session_dir) = resume_session_dir {
         AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir)?
     } else {

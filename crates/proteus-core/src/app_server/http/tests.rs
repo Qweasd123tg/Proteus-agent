@@ -515,6 +515,7 @@ tool_exposure = "all_visible"
 #[test]
 fn default_http_config_does_not_require_session_token() {
     let config = HttpServerConfig::default();
+    config.validate().expect("loopback debug config");
     let security = HttpSecurity::from_config(&config);
 
     assert!(!config.require_session_token);
@@ -523,6 +524,34 @@ fn default_http_config_does_not_require_session_token() {
         "/config",
         &security
     ));
+}
+
+#[test]
+fn http_config_requires_non_empty_token_for_non_loopback_bind() {
+    let mut config = HttpServerConfig {
+        bind: "0.0.0.0:8787".parse().expect("bind"),
+        ..HttpServerConfig::default()
+    };
+    assert!(
+        config
+            .validate()
+            .expect_err("external bind without auth must fail")
+            .to_string()
+            .contains("requires --token")
+    );
+
+    config.require_session_token = true;
+    config.session_token.clear();
+    assert!(
+        config
+            .validate()
+            .expect_err("empty required token must fail")
+            .to_string()
+            .contains("must not be empty")
+    );
+
+    config.session_token = "secret".to_owned();
+    config.validate().expect("external authenticated bind");
 }
 
 #[test]

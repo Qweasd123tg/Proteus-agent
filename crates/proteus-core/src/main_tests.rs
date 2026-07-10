@@ -155,27 +155,44 @@ fn app_server_http_command_parses_defaults_and_bind_options() {
     assert_eq!(default_config.bind.to_string(), "127.0.0.1:8787");
     assert!(!default_config.require_session_token);
 
-    let custom_config = parse_app_server_http_command(&[
+    let custom_loopback_config = parse_app_server_http_command(&[
         "server".to_owned(),
         "http".to_owned(),
         "--host".to_owned(),
-        "0.0.0.0".to_owned(),
+        "::1".to_owned(),
         "--port".to_owned(),
         "9000".to_owned(),
     ])
     .expect("parse")
     .expect("http command");
-    assert_eq!(custom_config.bind.to_string(), "0.0.0.0:9000");
+    assert_eq!(custom_loopback_config.bind.to_string(), "[::1]:9000");
 
-    let token_config = parse_app_server_http_command(&[
+    let external_token_config = parse_app_server_http_command(&[
         "server".to_owned(),
         "http".to_owned(),
+        "--host".to_owned(),
+        "0.0.0.0".to_owned(),
         "--token".to_owned(),
         "secret".to_owned(),
     ])
     .expect("parse")
     .expect("http command");
-    assert!(token_config.require_session_token);
+    assert_eq!(external_token_config.bind.to_string(), "0.0.0.0:8787");
+    assert!(external_token_config.require_session_token);
+
+    for host in ["0.0.0.0", "::", "192.0.2.1"] {
+        let error = parse_app_server_http_command(&[
+            "server".to_owned(),
+            "http".to_owned(),
+            "--host".to_owned(),
+            host.to_owned(),
+        ])
+        .expect_err("non-loopback bind without token must fail");
+        assert!(
+            error.to_string().contains("requires --token"),
+            "unexpected error for {host}: {error}"
+        );
+    }
 
     assert!(
         parse_app_server_http_command(&["server".to_owned(), "web".to_owned()])

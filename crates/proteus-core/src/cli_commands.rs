@@ -76,6 +76,7 @@ pub(crate) fn parse_app_server_http_command(task: &[String]) -> Result<Option<Ht
         }
     }
     config.bind = std::net::SocketAddr::new(host, port);
+    config.validate()?;
     Ok(Some(config))
 }
 
