@@ -1,0 +1,395 @@
+# Варианты Архитектуры Subagents
+
+Статус: research note, решение не принято. Последнее обновление: 2026-07-11.
+
+Эта заметка сохраняет факты и развилки, которые выяснились после реализации
+первого subagent-среза. Она не является reference текущего контракта и не
+разрешает начинать рефакторинг без отдельного решения.
+
+## Зачем Зафиксирован Этот Разбор
+
+На subagent-направление уже ушло больше времени, чем ожидалось, но получившаяся
+заменяемость оказалась не той, ради которой создавался slot. В config доступны
+`none`, `sequential` и `process`, однако это в первую очередь способы исполнения
+и изоляции. Они не дают пользователю выбрать Codex-like или OpenCode-like
+модель координации.
+
+Перед следующими lifecycle-правками нужно отделить четыре вопроса:
+
+1. какой model-facing protocol видит родительский агент;
+2. чем является ребёнок в state model;
+3. где исполняется ребёнок;
+4. как задаются его model/tools/policy/workflow и workspace isolation.
+
+## Источники И Срезы
+
+Локальные upstream-снапшоты на момент разбора:
+
+- Codex: `examples/source/codex`, commit `98d28aa` от 2026-07-03,
+  upstream <https://github.com/openai/codex>;
+- OpenCode: `examples/source/opencode`, commit `bcbbf32` от 2026-07-04,
+  upstream <https://github.com/sst/opencode>.
+
+Дополнительная live-проверка upstream на 2026-07-11:
+
+- Codex HEAD `c0ea3c4d0a2fb99a0f5978bfa7d2bbab467d7a77` от
+  2026-07-10;
+- OpenCode HEAD `9976269ab1accfc9f9dc98a4a688c516934de422` от
+  2026-07-10; актуальный canonical repository —
+  <https://github.com/anomalyco/opencode>.
+
+Pinned source links ниже относятся к live-проверке и не меняются вслед за
+веткой upstream:
+
+- Codex `AgentControl`:
+  <https://github.com/openai/codex/blob/c0ea3c4d0a2fb99a0f5978bfa7d2bbab467d7a77/codex-rs/core/src/agent/control.rs#L88-L107>;
+- Codex V2 spawn:
+  <https://github.com/openai/codex/blob/c0ea3c4d0a2fb99a0f5978bfa7d2bbab467d7a77/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs#L40-L225>;
+- Codex residency/LRU:
+  <https://github.com/openai/codex/blob/c0ea3c4d0a2fb99a0f5978bfa7d2bbab467d7a77/codex-rs/core/src/agent/control/residency.rs#L79-L149>;
+- OpenCode `task`:
+  <https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/packages/opencode/src/tool/task.ts#L43-L343>;
+- OpenCode subagent permissions:
+  <https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/packages/opencode/src/agent/subagent-permissions.ts#L4-L26>;
+- OpenCode background jobs:
+  <https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/packages/core/src/background-job.ts#L99-L285>.
+
+Текущая официальная документация:
+
+- Codex subagents:
+  <https://learn.chatgpt.com/docs/agent-configuration/subagents>;
+- OpenCode agents:
+  <https://opencode.ai/docs/agents/>.
+
+Caveats: pinned commits — branch snapshots, не release tags; в Codex V1 и V2
+сосуществуют, поэтому tool surface зависит от активного режима; OpenCode
+background subagents остаются experimental. Между локальными срезами 3–4 июля
+и live-проверкой 10 июля lifecycle существенно не изменился. В Codex менялось
+представление collaboration events в canonical turn items — это аргумент для
+общего turn-data кластера, но не новая subagent semantics.
+
+Существующие подробные заметки, которые не нужно удалять или переписывать этой
+сводкой:
+
+- `examples/research/codex/notes/05-multi-agent-i-subagenty.md`;
+- `examples/research/codex/graphs/06-subagent-flow.md`;
+- `examples/research/opencode/OPENCODE_ARCHITECTURE.md`;
+- `examples/research/opencode/OPENCODE_CORE_ANALYSIS.md`;
+- `examples/research/opencode/deep-research-opencode.md`;
+- `examples/research/claude code/res/08-agenttool/README.md`.
+
+## Что Реально Есть В Proteus
+
+### Contract
+
+`SubagentRunner` сейчас владеет дочерним циклом целиком: role discovery,
+`run`, optional `spawn`/`wait`/`cancel`, child history, model→tools loop,
+budget, timeout и summary. Контракт прямо запрещает вызывать `Workflow` из
+runner-а, чтобы не получить цикл зависимостей между slots.
+
+Это делает slot крупнее простого execution backend: реализация одновременно
+выбирает state model ребёнка и исполняет agent loop.
+
+### Model-facing Surface
+
+Модель видит только policy-gated facade-tool `task`:
+
+- один вызов выбирает `agent_type`, prompt и optional `task_id`;
+- tool вызывает `SubagentToolHost::run_subagent` и ждёт итог;
+- несколько `task` calls одного model response могут быть исполнены core
+  конкурентно, но модель не получает самостоятельные handles и lifecycle tools.
+
+`spawn`/`wait`/`cancel` существуют в Rust trait для внутренней оркестрации, но
+не представлены модели как отдельные `spawn_agent`, `send`, `wait`, `list` или
+`close` операции. Plugin ABI для subagent также экспонирует только roles + run,
+поэтому внешний dylib-модуль не может реализовать полный lifecycle текущего
+builtin-runner-а.
+
+По пользовательской семантике это ближе к OpenCode foreground `task`, чем к
+Codex collaboration surface.
+
+### Реализации
+
+- `sequential`: in-process child loop с отдельным `ThreadId`, history,
+  cancellation token, tool selection и resumable snapshot;
+- `process`: отдельный `proteus server stdio` с named child config, bridge
+  событий/approval/user-input, process pool и resume, привязанным к живому
+  процессу;
+- `none`: делегирование выключено.
+
+Packaged `codex` и `glm` profiles сейчас выбирают `sequential`, поэтому
+`process` не является активным default dogfood path.
+
+### Где Появился Жир
+
+`core/subagent/process/mod.rs` смешивает:
+
+1. role config и routing;
+2. semaphore/pool/lease/reuse процессов;
+3. `task_id` registry и resume;
+4. stdio protocol drive, clear и cancel;
+5. forwarding approvals и user inputs;
+6. filtering/remap событий;
+7. token/iteration/partial-text tracking;
+8. реализацию `SubagentRunner`.
+
+Архитектурная гипотеза: даже если `process` останется, эти обязанности стоит
+разрезать на маленькие private-компоненты. Для такого внутреннего разреза новый
+slot не нужен.
+
+### Lifecycle Уже Разнесён Между Владельцами
+
+- sequential resume ограничен своим `ResumableStore`;
+- process resume живёт, пока жив конкретный child process;
+- worktree resume отдельно хранится facade-tool-ом в process-global map;
+- runner eviction не уведомляет worktree map;
+- process resume record не имеет той же session ownership проверки, что
+  sequential snapshot.
+
+Оценка риска: добавление TTL/LRU только в process pool может создать ещё один
+источник истины и orphaned worktree/task records. Это нужно проверить в ADR, а
+не считать уже принятым решением.
+
+### Оценка Текущего Baseline
+
+Текущий срез можно сохранить как полноценный alpha-baseline; это не одноразовый
+прототип. В нём уже есть:
+
+- policy-gated facade-tool;
+- отдельные child context/thread/history;
+- parallel-safe batching;
+- cancellation и resumable results;
+- iteration/token/time budgets;
+- worktree isolation для пишущих ролей;
+- attribution approvals/events и UI-группировка.
+
+Большая часть этой работы переиспользуется любым будущим вариантом. Проблема не
+в отсутствии полезного поведения, а в неверно выбранной оси заменяемости и
+смешении lifecycle owners.
+
+Не следует называть этот baseline `codex` или `opencode`: он не повторяет
+полностью stop conditions, tool surface и child state model ни одного из них.
+Рабочие нейтральные имена поведения:
+
+- `proteus_task` — подчёркивает собственную реализацию;
+- `task_alpha` — допустимо временно, но версия/зрелость попадёт в постоянный id.
+
+Предпочтительная форма для обсуждения: стабильный semantic id `proteus_task`,
+а `alpha`/`experimental` — status metadata и документация.
+`sequential`/`process` в такой модели являются execution backend-ами, а не
+названиями рыночных agent behaviors.
+
+## Codex-like Модель
+
+В исследованном Codex child — полноценный thread того же runtime, а не отдельный
+специализированный loop внутри tool handler-а.
+
+Устойчивые primitives:
+
+- `AgentControl` один на root session/thread tree;
+- session-scoped `AgentRegistry` и typed parent/depth/role/path metadata;
+- model-facing операции `spawn_agent`, message/follow-up, `wait_agent`, list,
+  interrupt/close/resume (конкретный набор меняется между v1/v2 surface);
+- ребёнку можно посылать следующие операции после spawn;
+- wait основан на событиях/mailbox, а не на polling;
+- approvals и events проходят через отдельный parent/child bridge;
+- лимиты concurrency и rollout budget принадлежат общему control plane.
+
+В live-срезе V2 также есть bounded residency: при давлении на лимит Codex
+выгружает только terminal/interrupted idle threads с пустым mailbox, сохраняет
+rollout/edges и затем умеет лениво восстановить известный thread. Active turn
+limit и resident thread limit — разные механизмы. Это не простой TTL process
+pool и не удержание всех детей навсегда.
+
+Роли являются config overlays поверх того же child runtime, но в live V2 есть
+важное ограничение: named role/model/reasoning overrides применимы только к
+не-`FullHistory` spawn. `fork_turns=all` (текущий default) явно отвергает такие
+overrides. Для допустимого spawn child наследует актуальные
+model/provider/approval/sandbox/cwd, затем может применяться named role config.
+`fork_turns` управляет переносом transcript context (`none`, `all` или последние
+N turns), а не Git worktree. Встроенного worktree-per-child в этом пути нет;
+filesystem по умолчанию общий.
+
+Ключевая мысль: Codex-like — это не «process runner». Это явный control plane
+дерева живых agent threads и набор самостоятельных lifecycle tools.
+
+Полезные source anchors локального снапшота:
+
+- `codex-rs/core/src/agent/control.rs`;
+- `codex-rs/core/src/agent/registry.rs`;
+- `codex-rs/core/src/tools/handlers/multi_agents_v2.rs`;
+- `codex-rs/core/src/tools/handlers/multi_agents_spec.rs`;
+- `codex-rs/protocol/src/protocol.rs` (`SessionSource::SubAgent`).
+
+## OpenCode-like Модель
+
+OpenCode строит subagent вокруг `task` и child session:
+
+- agent — профиль `prompt + permissions + tool surface + model + mode`;
+- `task` создаёт session с `parentID` или продолжает child session по
+  `task_id`;
+- child получает собственный permission envelope;
+- ребёнок проходит через тот же `SessionPrompt` machinery, что и основной
+  агент;
+- foreground `task` ждёт результат и возвращает его как tool output;
+- в исследованном снапшоте есть experimental `background=true`: job возвращает
+  сразу, а результат позже синтетически инжектится в parent session;
+- это иерархия sessions, а не peer-to-peer сеть агентов.
+
+Live source review показывает несколько важных caveats:
+
+- `task_id` загружает существующую session без строгой проверки, что она
+  принадлежит текущему parent tree и тому же agent type;
+- derived permission envelope применяется при создании, а продолженная session
+  сохраняет старый snapshot;
+- background registry process-local и недолговечный, без subagent-specific
+  TTL/LRU/cap в проверенном срезе;
+- child session использует тот же project directory/worktree, отдельного
+  workspace allocator в `task` нет.
+
+То есть OpenCode уже не сводится строго к blocking call, но его основной
+model-facing primitive по-прежнему один `task`, а background orchestration
+спрятана за флагом и job/session machinery.
+
+Полезные source anchors локального снапшота:
+
+- `packages/opencode/src/tool/task.ts`;
+- `packages/opencode/src/agent/agent.ts`;
+- `packages/opencode/src/agent/subagent-permissions.ts`;
+- `packages/opencode/src/session/session.ts`;
+- `packages/opencode/src/session/prompt.ts`.
+
+## Независимые Оси, Которые Нельзя Снова Склеить
+
+Третий столбец — proposal input для варианта B, а не описание принятого
+контракта.
+
+| Ось | Возможные варианты | Кандидат владельца / гипотеза |
+|---|---|---|
+| Model-facing delegation protocol | blocking `task`; Codex collaboration tools | facade/tool pack за policy boundary |
+| Child state model | child thread/session; resumable one-shot snapshot | session-scoped agent control contract |
+| Execution backend | in-process; stdio process; remote | runner/executor implementation |
+| Agent profile | model, prompt, tools, policy, workflow | named child config/profile |
+| Workspace isolation | shared cwd; worktree; future remote workspace | policy-gated core facade/lifecycle |
+
+Рыночное имя (`codex`, `opencode`) не должно одновременно означать transport,
+pool policy, prompt и workspace mechanism. Иначе получится один fat module с
+необъяснимыми ветвями.
+
+## Архитектурные Варианты
+
+### A. Заморозить Текущий Baseline
+
+Признать `task + sequential` OpenCode-like baseline. `process` перевести в
+experimental и не вкладываться в его retention до реального dogfood use case.
+
+Плюсы: почти нет нового кода. Минусы: Codex-like UX не появляется, а nominal
+slot остаётся неравноценным plugin boundary.
+
+### B. Общий Control Plane + Несколько Facade Surfaces
+
+Один provider-neutral session-scoped control plane владеет `AgentRecord`,
+parent/child edges, spawn/send/wait/interrupt/close, budget, ownership и
+retention. Поверх него подключаются model-facing tool surfaces:
+
+- `proteus_task`/OpenCode-like: один foreground/background `task`;
+- `codex_collab`: отдельные spawn/message/follow-up/wait/list/interrupt tools.
+
+Execution backend (`in_process`, `stdio_process`, future remote) выбирается
+отдельно от facade. Agent profile также остаётся config composition.
+
+Это рекомендуемая гипотеза для следующего ADR, но не принятое решение. Главный
+неразрешённый вопрос: оформить facade как обычный host-bound `ToolProvider`, как
+отдельный generic slot или как capability текущего subagent contract. Выбор
+нужно прогнать через `slot-governance.md` и минимум два реальных surface-а.
+
+### C. Один Rich Collaboration Module, Но Не Один Fat File
+
+Оставить один concept-level subagent module, внутри которого private-компоненты:
+
+- `AgentRegistry`;
+- `ChildExecutor`;
+- `ResumeStore`;
+- `EventBridge`;
+- `RetentionPolicy`;
+- facade adapters.
+
+Codex/OpenCode различаются named mode/profile и tool surface. Это проще wiring-ом,
+но риск снова смешать несовместимые stop/failure/interaction semantics очень
+высок. Upstream-compatible режимы не должны расходиться через эвристики внутри
+одной ветки.
+
+### Рабочее Направление После Обсуждения
+
+Зафиксирована пользовательская склонность к Codex semantics; это ещё не ADR,
+но достаточная причина не тратить время на преждевременную OpenCode parity.
+Практическая последовательность, если к теме вернёмся:
+
+1. сохранить текущий baseline как нейтральный `proteus_task` alpha;
+2. сделать одну серьёзную отдельную реализацию `codex_threads`/`codex_collab`;
+3. внутри неё разделить control, registry/tree, mailbox, persistence,
+   residency, roles/config и tool handlers — один cohesive module, не один fat
+   file;
+4. OpenCode-compatible `opencode_task` добавлять позже только при реальной
+   потребности и с его точными stop/failure/resume semantics;
+5. общие abstractions выносить после второго реального implementation, а не
+   заранее.
+
+Так slot получает минимум две осмысленные behavior implementations: текущую
+Proteus alpha и Codex-like. `sequential`/`process` перестают изображать рыночные
+варианты и становятся backend/detail либо experimental executor. Это сохраняет
+уже сделанную работу, но не цементирует случайную transport architecture.
+
+Для будущего Codex-like модуля полезно клонировать primitives, а не весь код:
+root-owned typed tree, logical task path + opaque thread id, explicit history
+fork policy, queue-vs-follow-up-vs-interrupt, event/mailbox wait, отдельные
+active/resident limits, durable edges/rollouts, lazy reload и role overlays.
+Git worktree provisioning оставить за отдельной policy-gated workspace
+capability: оба исследованных upstream-а по умолчанию разделяют filesystem.
+
+## Действующие Инварианты
+
+- Не переносить model-facing orchestration обратно в workflow adapter с
+  обходом `ToolRegistry`/policy.
+- Не связывать subagent plugin напрямую с git/worktree implementation.
+- Не делать один upstream-compatible режим с fallback-ами «немного Codex,
+  немного OpenCode».
+- Не удалять текущие research notes и source snapshots после принятия решения;
+  новый ADR должен ссылаться на них.
+
+## Рекомендации До Будущего ADR
+
+- Не добавлять TTL/LRU только в process pool до единого owner-а agent record,
+  resume и worktree lifecycle.
+- Не объявлять `sequential` «Codex implementation»: это backend, а не Codex
+  collaboration semantics.
+
+## Открытые Вопросы Для Будущего ADR
+
+1. Является ли model-facing delegation protocol отдельным заменяемым классом
+   поведения, заслуживающим slot, или достаточно host-bound tool provider?
+2. Должен ли current `SubagentRunner` стать тонким execution/control contract,
+   а child agent запускаться через обычный configured `Workflow`?
+3. Как один `AgentRecord` связывает child session/thread, backend process,
+   worktree, permissions, budget и retention?
+4. Какие операции нужны для первой Codex-like parity версии: spawn, message,
+   follow-up, wait, list, interrupt, close, resume?
+5. Должен ли `wait` потреблять result один раз или возвращать durable status?
+6. Как plugin ABI получает lifecycle capabilities без прямой зависимости
+   modules друг от друга?
+7. Нужен ли `process` production path после появления полноценного in-process
+   child session, или это experimental isolation backend?
+8. Какие два маленьких dogfood-сценария реально различают `proteus_task` и
+   `codex_collab`, а не только сравнивают названия tools?
+
+## Предлагаемый Следующий Шаг Когда Вернёмся
+
+Не писать implementation сразу. Сначала короткий ADR с одной диаграммой и
+ответами на вопросы 1–4, затем два executable contract tests:
+
+1. Codex-like: spawn ребёнка, продолжить работу родителя, послать follow-up,
+   дождаться, закрыть и проверить persisted parent edge;
+2. Task-like: запустить foreground child session, продолжить по `task_id`,
+   проверить отдельный permission envelope и parent result.
+
+Только после этих тестов выбирать новый contract/slot и переносить lifecycle.

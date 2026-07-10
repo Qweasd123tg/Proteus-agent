@@ -91,5 +91,8 @@
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
   архив завершённого UI handoff по карточкам субагентов;
+- [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —
+  незакрытый разбор Codex/OpenCode semantics, текущего subagent slot и вариантов
+  будущего control plane;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code и ForgeCode.
