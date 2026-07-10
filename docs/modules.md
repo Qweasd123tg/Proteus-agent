@@ -531,10 +531,16 @@ tool-search/ranking можно вынести в плагин, не обходя
 опциональная тройка `spawn(SubagentRequest) -> SubagentHandle` /
 `wait(&SubagentHandle) -> SubagentResult` / `cancel(&SubagentHandle)` для
 фонового запуска нескольких детей (default-реализации возвращают «не
-поддерживается»). Workflow не получает прямой доступ к runner-у. Core
-регистрирует facade-tool `task` в `ToolRegistry`, если `roles()` непустой, а
-на время `Tool::invoke` связывает его с текущим runner/thread/turn через узкий
-`SubagentToolHost`.
+поддерживается»). `supports_collaboration()` по умолчанию также возвращает
+`false`, поэтому старый plugin ABI с `roles + run` не выдаёт обещание полного
+lifecycle. Workflow не получает прямой доступ к runner-у. На время
+`Tool::invoke` core связывает выбранный facade с текущими runner/thread/turn и
+`SessionId` через узкий `SubagentToolHost`.
+
+`[subagents] surface = "task" | "collaboration" | "none"` выбирает
+model-facing facade независимо от `modules.subagent`; это typed core config, а
+не новый module slot. Default `task` сохраняет прежнее поведение. `none`
+скрывает обе поверхности, а `both` не является допустимым значением.
 
 Оба builtin-runner-а (`sequential`, `process`) реализуют spawn/wait/cancel:
 `run` = `spawn` + `wait`, дочерний цикл живёт detached tokio-таской в
@@ -545,6 +551,32 @@ tool-search/ranking можно вынести в плагин, не обходя
 turn. Побочный эффект detached-исполнения: обрыв родительского future
 (отмена turn-а на границе block_on) не роняет ребёнка на полпути — цикл
 доводится до терминального статуса и сохраняет resumable snapshot.
+
+### Collaboration Surface
+
+Экспериментальный `surface = "collaboration"` — Proteus Codex-shaped первый
+slice без parity claim. Он регистрирует через обычный `ToolRegistry` только
+`spawn_agent`, `list_agents`, `wait_agent` и `interrupt_agent`; blocking `task`
+в этом режиме не регистрируется. `spawn_agent` принимает one-segment
+`task_name`, задачу `message` и `agent_type`, сразу возвращает canonical path
+`/root/<task_name>`, а монитор завершения продолжает работать после окончания
+родительского turn-а.
+
+Control plane process-resident, но ownership проверяется по `SessionId`:
+другая session не может list/wait/interrupt чужой path. Текущие caps — 64
+session records, 64 agent records на session и до 8 completion updates за один
+`wait_agent`; при заполнении вытесняются только старые terminal records, active
+records не вытесняются. Terminal summary/error сохраняются bounded, но records
+не переживают restart процесса и не являются durable session storage.
+
+Этот surface допускает только явно `parallel_safe` роли с
+`isolation = "none"`. `parallel_safe` остаётся декларацией оператора и должен
+подтверждаться read-only tool allowlist/config. Worktree/writer роли доступны
+через `surface = "task"`. В первом slice отсутствуют send/follow-up/fork,
+close/resume после restart и nesting; все subagent facade tools удаляются из
+toolset дочернего цикла. Plugin runner с текущим blocking-only ABI не может
+использовать collaboration: registry build отклоняет непустой runner без
+`supports_collaboration()`.
 
 Роль объявляется безопасной для конкурентного запуска флагом
 `parallel_safe = true` (декларация оператора: роль должна быть фактически
@@ -571,7 +603,8 @@ HEAD (каталог исключён через `.git/info/exclude`) и под�
 resumable-снапшоты). Process runner при этом реюзает idle-процесс только с
 совпадающим cwd — `--cwd` фиксируется при спавне процесса.
 
-Builtin `none` возвращает пустой список ролей и отключает делегирование.
+Builtin `none` возвращает пустой список ролей и делает fresh spawn невозможным;
+чтобы скрыть также list/wait/interrupt facade, выберите `surface = "none"`.
 Builtin `sequential` исполняет дочерний цикл in-process.
 Роли задаются в module-owned payload:
 
@@ -595,7 +628,7 @@ max_iterations = 15
 #                           # превышение = статус token_budget_exceeded, resume по task_id
 ```
 
-Facade-tool `task` получает `agent_type`, `prompt` и короткое `description`,
+При `surface = "task"` facade-tool `task` получает `agent_type`, `prompt` и короткое `description`,
 собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка
 как обычный `ToolResult`. Сам `task` и tool calls ребёнка проходят общий
 policy/approval/tool контур. В `PermissionMode::Plan` task скрыт как

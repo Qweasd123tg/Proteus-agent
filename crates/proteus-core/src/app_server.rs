@@ -119,7 +119,7 @@ impl AppServerHandle {
         // прогресс очищаем до эмита TurnOutput — чтобы /history, вызванный по
         // TurnOutput, не отдал текст хода дважды. Отмена и таймауты тоже
         // проходят здесь, у форвардера событий такой гарантии нет.
-        self.turn_progress.lock().await.clear();
+        self.turn_progress.lock().await.finish_parent_turn();
         match result {
             Ok(output) => {
                 let _ = self.events.send(AppServerEvent::TurnOutput {

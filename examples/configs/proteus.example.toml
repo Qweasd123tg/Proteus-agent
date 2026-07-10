@@ -20,6 +20,9 @@ tool_exposure = "all_visible"
 subagent = "sequential"
 renderer = "statusline"
 
+[subagents]
+surface = "task"
+
 [tools]
 # Core-resident slot facade tools. File I/O, git helpers, and shell come from
 # plugins: install file-tools, git-tools, and shell-tool into ~/.proteus/plugins/

@@ -3,15 +3,18 @@
 //! `process`).
 //!
 //! Жизненный цикл записи: `reserve` (жёсткий cap по `max_parallel`) →
-//! `attach` (JoinHandle после `tokio::spawn`) → `remove` в `wait`. Ребёнок,
-//! которого так и не дождались (workflow упал между spawn и wait),
-//! доработает detached-таской; его завершённая запись вытесняется при
-//! следующем `reserve`, когда реестр упирается в cap.
+//! `attach` (detached monitor забирает JoinHandle) → кешированный terminal
+//! outcome. Waiter никогда не владеет JoinHandle, поэтому его отмена не теряет
+//! результат; завершённая запись вытесняется при следующем `reserve`, когда
+//! реестр упирается в cap.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Result, anyhow, bail};
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 
 use crate::contracts::{CancellationToken, SubagentResult};
 
@@ -24,7 +27,14 @@ pub(super) struct PendingChildren {
 pub(super) struct PendingChild {
     seq: u64,
     cancel: CancellationToken,
-    join: Option<JoinHandle<Result<SubagentResult>>>,
+    outcome: Arc<PendingOutcome>,
+    evictable_when_ready: bool,
+}
+
+#[derive(Default)]
+pub(super) struct PendingOutcome {
+    result: Mutex<Option<std::result::Result<SubagentResult, String>>>,
+    notify: Notify,
 }
 
 impl PendingChildren {
@@ -36,6 +46,7 @@ impl PendingChildren {
         spawn_id: &str,
         cancel: CancellationToken,
         max_parallel: usize,
+        evictable_when_ready: bool,
     ) -> Result<()> {
         if self.entries.contains_key(spawn_id) {
             bail!("duplicate subagent spawn_id: {spawn_id}");
@@ -44,7 +55,7 @@ impl PendingChildren {
             let finished_oldest = self
                 .entries
                 .iter()
-                .filter(|(_, entry)| entry.join.as_ref().is_some_and(|join| join.is_finished()))
+                .filter(|(_, entry)| entry.evictable_when_ready && entry.outcome.is_ready())
                 .min_by_key(|(_, entry)| entry.seq)
                 .map(|(id, _)| id.clone());
             match finished_oldest {
@@ -64,7 +75,8 @@ impl PendingChildren {
             PendingChild {
                 seq,
                 cancel,
-                join: None,
+                outcome: Arc::new(PendingOutcome::default()),
+                evictable_when_ready,
             },
         );
         Ok(())
@@ -73,7 +85,15 @@ impl PendingChildren {
     /// Прикрепляет JoinHandle к зарезервированному слоту.
     pub(super) fn attach(&mut self, spawn_id: &str, join: JoinHandle<Result<SubagentResult>>) {
         if let Some(entry) = self.entries.get_mut(spawn_id) {
-            entry.join = Some(join);
+            let outcome = entry.outcome.clone();
+            tokio::spawn(async move {
+                let result = match join.await {
+                    Ok(Ok(result)) => Ok(result),
+                    Ok(Err(error)) => Err(format!("{error:#}")),
+                    Err(error) => Err(format!("subagent child task failed: {error}")),
+                };
+                outcome.complete(result);
+            });
         } else {
             // Слот сняли между reserve и attach (не должен случаться:
             // оба вызова идут подряд в spawn) — не оставляем таску без
@@ -87,20 +107,26 @@ impl PendingChildren {
         self.entries.remove(spawn_id);
     }
 
-    /// Забирает ребёнка для `wait`. Каждый spawn_id выдаётся один раз.
-    pub(super) fn take(&mut self, spawn_id: &str) -> Result<JoinHandle<Result<SubagentResult>>> {
-        let entry = self.entries.remove(spawn_id).ok_or_else(|| {
+    /// Возвращает разделяемый terminal outcome для cancellation-safe wait.
+    pub(super) fn outcome(&self, spawn_id: &str) -> Result<Arc<PendingOutcome>> {
+        let entry = self.entries.get(spawn_id).ok_or_else(|| {
             anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
         })?;
-        match entry.join {
-            Some(join) => Ok(join),
-            None => {
-                // Резервация без таски: вернём запись на место, чтобы spawn
-                // мог корректно завершить attach.
-                self.entries.insert(spawn_id.to_owned(), entry);
-                bail!("subagent spawn is still being attached; retry wait");
-            }
+        Ok(entry.outcome.clone())
+    }
+
+    /// Помечает terminal result забранным. Вызывается только после await:
+    /// отменённый waiter не потребляет handle, а два конкурентных waiter-а
+    /// всё равно не могут оба успешно вернуть один результат.
+    pub(super) fn consume(&mut self, spawn_id: &str) -> Result<()> {
+        let entry = self.entries.get(spawn_id).ok_or_else(|| {
+            anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
+        })?;
+        if !entry.outcome.is_ready() {
+            bail!("subagent result is not ready to consume");
         }
+        self.entries.remove(spawn_id);
+        Ok(())
     }
 
     /// Отменяет запущенного ребёнка по spawn_id (запись остаётся до `wait`).
@@ -110,6 +136,40 @@ impl PendingChildren {
         })?;
         entry.cancel.cancel();
         Ok(())
+    }
+}
+
+impl PendingOutcome {
+    fn is_ready(&self) -> bool {
+        self.result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+
+    fn complete(&self, result: std::result::Result<SubagentResult, String>) {
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+        self.notify.notify_waiters();
+    }
+
+    pub(super) async fn wait(&self) -> Result<SubagentResult> {
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(result) = self
+                .result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+            {
+                return result.map_err(anyhow::Error::msg);
+            }
+            notified.as_mut().await;
+        }
     }
 }
 
@@ -126,24 +186,25 @@ mod tests {
     async fn reserve_attach_take_round_trip() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), 4)
+            .reserve("a", CancellationToken::new(), 4, true)
             .expect("reserve");
         pending.attach("a", dummy_join());
-        let join = pending.take("a").expect("take");
-        let result = join.await.expect("join").expect("result");
+        let outcome = pending.outcome("a").expect("outcome");
+        let result = outcome.wait().await.expect("result");
         assert_eq!(result.status, SubagentStatus::Completed);
-        assert!(pending.take("a").is_err(), "handle выдаётся один раз");
+        let repeated = outcome.wait().await.expect("repeatable result");
+        assert_eq!(repeated.status, SubagentStatus::Completed);
     }
 
     #[tokio::test]
     async fn reserve_respects_max_parallel_for_active_children() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), 1)
+            .reserve("a", CancellationToken::new(), 1, true)
             .expect("reserve");
         // Слот занят активной (не завершённой) резервацией: cap жёсткий.
         let error = pending
-            .reserve("b", CancellationToken::new(), 1)
+            .reserve("b", CancellationToken::new(), 1, true)
             .expect_err("cap");
         assert!(error.to_string().contains("max_parallel"));
     }
@@ -152,18 +213,36 @@ mod tests {
     async fn reserve_evicts_finished_unclaimed_entries() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), 1)
+            .reserve("a", CancellationToken::new(), 1, true)
             .expect("reserve");
-        let join = dummy_join();
-        // Дожидаемся завершения таски, не забирая запись из реестра.
-        while !join.is_finished() {
+        pending.attach("a", dummy_join());
+        let outcome = pending.outcome("a").expect("outcome");
+        while !outcome.is_ready() {
             tokio::task::yield_now().await;
         }
-        pending.attach("a", join);
         pending
-            .reserve("b", CancellationToken::new(), 1)
+            .reserve("b", CancellationToken::new(), 1, true)
             .expect("evicts finished entry");
-        assert!(pending.take("a").is_err(), "запись вытеснена");
+        assert!(pending.outcome("a").is_err(), "запись вытеснена");
+    }
+
+    #[tokio::test]
+    async fn reserve_does_not_evict_control_owned_completion_before_monitor_waits() {
+        let mut pending = PendingChildren::default();
+        pending
+            .reserve("a", CancellationToken::new(), 1, false)
+            .expect("reserve retained child");
+        pending.attach("a", dummy_join());
+        let outcome = pending.outcome("a").expect("outcome");
+        while !outcome.is_ready() {
+            tokio::task::yield_now().await;
+        }
+
+        let error = pending
+            .reserve("b", CancellationToken::new(), 1, true)
+            .expect_err("control-owned result must remain addressable");
+        assert!(error.to_string().contains("max_parallel"));
+        assert!(pending.outcome("a").is_ok());
     }
 
     #[tokio::test]
@@ -171,11 +250,29 @@ mod tests {
         let mut pending = PendingChildren::default();
         let first = CancellationToken::new();
         let second = CancellationToken::new();
-        pending.reserve("a", first.clone(), 4).expect("reserve a");
-        pending.reserve("b", second.clone(), 4).expect("reserve b");
+        pending
+            .reserve("a", first.clone(), 4, true)
+            .expect("reserve a");
+        pending
+            .reserve("b", second.clone(), 4, true)
+            .expect("reserve b");
         pending.cancel("a").expect("cancel");
         assert!(first.is_cancelled());
         assert!(!second.is_cancelled());
         assert!(pending.cancel("missing").is_err());
+    }
+
+    #[tokio::test]
+    async fn cancel_remains_available_while_wait_is_active() {
+        let mut pending = PendingChildren::default();
+        let token = CancellationToken::new();
+        pending
+            .reserve("a", token.clone(), 1, true)
+            .expect("reserve");
+        pending.attach("a", dummy_join());
+        let outcome = pending.outcome("a").expect("outcome");
+        pending.cancel("a").expect("cancel during wait");
+        assert!(token.is_cancelled());
+        let _ = outcome.wait().await;
     }
 }

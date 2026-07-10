@@ -1,18 +1,41 @@
 # Варианты Архитектуры Subagents
 
-Статус: research note, решение не принято. Последнее обновление: 2026-07-11.
+Статус: research note; первый surface/control slice принят и реализован,
+долгосрочный contract не выбран. Последнее обновление: 2026-07-11.
 
 Эта заметка сохраняет факты и развилки, которые выяснились после реализации
 первого subagent-среза. Она не является reference текущего контракта и не
-разрешает начинать рефакторинг без отдельного решения.
+разрешает считать первый slice Codex parity или начинать следующий рефакторинг
+без отдельного решения.
+
+## Принятое Решение И Граница Первого Slice
+
+2026-07-11 model-facing protocol отделён от runner-а top-level config-ом
+`[subagents] surface = "task" | "collaboration" | "none"`. Новый module slot
+не добавлялся: core регистрирует host-bound facade tools через обычный
+`ToolRegistry`, а активный `SubagentRunner` остаётся execution/state boundary.
+Default `task` сохраняет прежний foreground protocol; `none` скрывает обе
+поверхности.
+
+Реализованный `collaboration` — экспериментальный Proteus Codex-shaped slice,
+не compatibility/parity mode. Он содержит только session-owned bounded
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; допускает лишь
+`parallel_safe`, `isolation = none` роли и не предоставляет send/follow-up,
+fork, nesting, writer/worktree spawn, durable restart или resume закрытого
+handle. Control records process-resident; app-server и web сохраняют live
+background child card после завершения parent turn.
+
+Таким образом, решён только вопрос первого model-facing facade и его
+ownership. Общий persistent agent tree, mailbox, history fork, role overlays,
+residency/reload и будущая plugin ABI остаются предметом следующего ADR после
+dogfood этого slice.
 
 ## Зачем Зафиксирован Этот Разбор
 
-На subagent-направление уже ушло больше времени, чем ожидалось, но получившаяся
-заменяемость оказалась не той, ради которой создавался slot. В config доступны
-`none`, `sequential` и `process`, однако это в первую очередь способы исполнения
-и изоляции. Они не дают пользователю выбрать Codex-like или OpenCode-like
-модель координации.
+Этот разбор начался после того, как `none`, `sequential` и `process` оказались
+в первую очередь способами исполнения и изоляции, а не model-facing моделями
+координации. Реализованный позже `subagents.surface` закрыл только первый
+выбор facade; остальные оси ниже всё ещё нельзя считать решёнными.
 
 Перед следующими lifecycle-правками нужно отделить четыре вопроса:
 
@@ -92,21 +115,17 @@ runner-а, чтобы не получить цикл зависимостей м
 
 ### Model-facing Surface
 
-Модель видит только policy-gated facade-tool `task`:
+Модель видит ровно одну из трёх policy-gated поверхностей:
 
-- один вызов выбирает `agent_type`, prompt и optional `task_id`;
-- tool вызывает `SubagentToolHost::run_subagent` и ждёт итог;
-- несколько `task` calls одного model response могут быть исполнены core
-  конкурентно, но модель не получает самостоятельные handles и lifecycle tools.
+- `task` — foreground вызов с `agent_type`, prompt и optional `task_id`, который
+  вызывает `SubagentToolHost::run_subagent` и ждёт итог;
+- `collaboration` — четыре async lifecycle tools первого slice;
+- `none` — delegation tools отсутствуют.
 
-`spawn`/`wait`/`cancel` существуют в Rust trait для внутренней оркестрации, но
-не представлены модели как отдельные `spawn_agent`, `send`, `wait`, `list` или
-`close` операции. Plugin ABI для subagent также экспонирует только roles + run,
-поэтому внешний dylib-модуль не может реализовать полный lifecycle текущего
-builtin-runner-а.
-
-По пользовательской семантике это ближе к OpenCode foreground `task`, чем к
-Codex collaboration surface.
+Builtin runners объявляют working spawn/wait/cancel через
+`supports_collaboration()`. Plugin ABI для subagent по-прежнему экспонирует
+только roles + run, поэтому внешний dylib-модуль не может выбрать collaboration
+с непустыми ролями: registry build возвращает ошибку без fallback.
 
 ### Реализации
 
@@ -286,7 +305,7 @@ experimental и не вкладываться в его retention до реал�
 Плюсы: почти нет нового кода. Минусы: Codex-like UX не появляется, а nominal
 slot остаётся неравноценным plugin boundary.
 
-### B. Общий Control Plane + Несколько Facade Surfaces
+### B. Общий Control Plane + Несколько Facade Surfaces — частично принято
 
 Один provider-neutral session-scoped control plane владеет `AgentRecord`,
 parent/child edges, spawn/send/wait/interrupt/close, budget, ownership и
@@ -298,10 +317,10 @@ retention. Поверх него подключаются model-facing tool surf
 Execution backend (`in_process`, `stdio_process`, future remote) выбирается
 отдельно от facade. Agent profile также остаётся config composition.
 
-Это рекомендуемая гипотеза для следующего ADR, но не принятое решение. Главный
-неразрешённый вопрос: оформить facade как обычный host-bound `ToolProvider`, как
-отдельный generic slot или как capability текущего subagent contract. Выбор
-нужно прогнать через `slot-governance.md` и минимум два реальных surface-а.
+Первый slice выбрал host-bound core facade без нового slot-а и оставил
+`SubagentRunner` execution boundary. Реализован только bounded session-owned
+spawn/list/wait/interrupt control; полный `AgentRecord` contract из этого
+варианта, persistence и несколько interchangeable implementations не приняты.
 
 ### C. Один Rich Collaboration Module, Но Не Один Fat File
 
@@ -323,22 +342,25 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
 
 Зафиксирована пользовательская склонность к Codex semantics; это ещё не ADR,
 но достаточная причина не тратить время на преждевременную OpenCode parity.
-Практическая последовательность, если к теме вернёмся:
+Практическая последовательность после первого slice:
 
-1. сохранить текущий baseline как нейтральный `proteus_task` alpha;
-2. сделать одну серьёзную отдельную реализацию `codex_threads`/`codex_collab`;
-3. внутри неё разделить control, registry/tree, mailbox, persistence,
+1. ✅ сохранить текущий foreground baseline как `surface = "task"`;
+2. ✅ проверить отдельный Codex-shaped surface минимальным bounded
+   spawn/list/wait/interrupt slice без parity claim;
+3. прогнать dogfood и только после него решать, нужен ли отдельный
+   `codex_threads`/`codex_collab` contract;
+4. внутри будущей полной реализации разделить control, registry/tree, mailbox, persistence,
    residency, roles/config и tool handlers — один cohesive module, не один fat
    file;
-4. OpenCode-compatible `opencode_task` добавлять позже только при реальной
+5. OpenCode-compatible `opencode_task` добавлять позже только при реальной
    потребности и с его точными stop/failure/resume semantics;
-5. общие abstractions выносить после второго реального implementation, а не
+6. общие abstractions выносить после второго реального implementation, а не
    заранее.
 
-Так slot получает минимум две осмысленные behavior implementations: текущую
-Proteus alpha и Codex-like. `sequential`/`process` перестают изображать рыночные
-варианты и становятся backend/detail либо experimental executor. Это сохраняет
-уже сделанную работу, но не цементирует случайную transport architecture.
+Текущий slice даёт две model-facing поверхности поверх тех же runner-ов, а не
+две реализации subagent slot. `sequential`/`process` остаются именами execution
+реализаций и не изображают рыночные agent behaviors. Отдельный Codex-shaped
+control contract появится только после нового решения.
 
 Для будущего Codex-like модуля полезно клонировать primitives, а не весь код:
 root-owned typed tree, logical task path + opaque thread id, explicit history
@@ -364,17 +386,19 @@ capability: оба исследованных upstream-а по умолчани�
 - Не объявлять `sequential` «Codex implementation»: это backend, а не Codex
   collaboration semantics.
 
-## Открытые Вопросы Для Будущего ADR
+## Оставшиеся Вопросы Для Будущего ADR
 
-1. Является ли model-facing delegation protocol отдельным заменяемым классом
-   поведения, заслуживающим slot, или достаточно host-bound tool provider?
+1. Должен ли host-bound surface после второго implementation стать отдельным
+   generic slot или оставаться core composition?
 2. Должен ли current `SubagentRunner` стать тонким execution/control contract,
    а child agent запускаться через обычный configured `Workflow`?
 3. Как один `AgentRecord` связывает child session/thread, backend process,
    worktree, permissions, budget и retention?
-4. Какие операции нужны для первой Codex-like parity версии: spawn, message,
+4. Какие операции нужны для отдельного compatibility-кандидата после
+   экспериментального slice: message,
    follow-up, wait, list, interrupt, close, resume?
-5. Должен ли `wait` потреблять result один раз или возвращать durable status?
+5. Должен ли будущий compatibility-кандидат сохранить текущую consumable
+   completion queue или перейти к иной mailbox/durable semantics?
 6. Как plugin ABI получает lifecycle capabilities без прямой зависимости
    modules друг от друга?
 7. Нужен ли `process` production path после появления полноценного in-process
@@ -384,8 +408,9 @@ capability: оба исследованных upstream-а по умолчани�
 
 ## Предлагаемый Следующий Шаг Когда Вернёмся
 
-Не писать implementation сразу. Сначала короткий ADR с одной диаграммой и
-ответами на вопросы 1–4, затем два executable contract tests:
+Не расширять implementation до dogfood первого slice. Затем короткий ADR с
+одной диаграммой и ответами на вопросы 1–4, плюс executable contract tests для
+ещё отсутствующих semantics:
 
 1. Codex-like: spawn ребёнка, продолжить работу родителя, послать follow-up,
    дождаться, закрыть и проверить persisted parent edge;

@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::TASK_TOOL_NAME;
+use super::SUBAGENT_FACADE_TOOLS;
 
 pub(super) struct ChildLoopState {
     pub history: Vec<CanonicalMessage>,
@@ -32,7 +32,8 @@ pub(super) struct ChildLoopState {
 /// `ToolExposure::select` с фазой роли. Allowlist применяется до selector-а,
 /// чтобы его cap не занимали tools, которые роль всё равно отбросит: иначе
 /// dynamic exposure мог скрыть разрешённую capability без доступного ребёнку
-/// deferred-search path. Tool `task` выкидывается на обеих границах.
+/// deferred-search path. Все root-owned subagent facade tools выкидываются на
+/// обеих границах.
 pub(super) async fn select_child_tools(
     ctx: &RuntimeContext,
     orchestrator: &ToolOrchestrator,
@@ -64,7 +65,7 @@ pub(super) fn apply_child_tool_filters(
 
     tools
         .into_iter()
-        .filter(|spec| spec.name != TASK_TOOL_NAME)
+        .filter(|spec| !SUBAGENT_FACADE_TOOLS.contains(&spec.name.as_str()))
         .filter(|spec| match &allowlist {
             Some(allowed) => allowed.iter().any(|name| *name == spec.name),
             None => true,
@@ -299,13 +300,39 @@ mod tests {
             vec![
                 ToolSpec::new("remember_fact", "Remember", json!({}), ToolSafety::ReadOnly),
                 ToolSpec::new("search", "Search", json!({}), ToolSafety::ReadOnly),
-                ToolSpec::new(TASK_TOOL_NAME, "Delegate", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new("task", "Delegate", json!({}), ToolSafety::ReadOnly),
+                ToolSpec::new(
+                    "spawn_agent",
+                    "Collaborate",
+                    json!({}),
+                    ToolSafety::ReadOnly,
+                ),
             ],
             &role,
         );
 
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "remember_fact");
+    }
+
+    #[test]
+    fn child_tools_strip_every_root_owned_subagent_facade() {
+        let role = crate::contracts::SubagentRoleSpec::new("explore", "Explore", "prompt");
+        let mut tools = vec![ToolSpec::new(
+            "search",
+            "Search",
+            json!({}),
+            ToolSafety::ReadOnly,
+        )];
+        tools.extend(
+            SUBAGENT_FACADE_TOOLS
+                .iter()
+                .map(|name| ToolSpec::new(*name, "Facade", json!({}), ToolSafety::ReadOnly)),
+        );
+
+        let filtered = apply_child_tool_filters(tools, &role);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "search");
     }
 
     #[test]

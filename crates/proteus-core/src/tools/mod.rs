@@ -1,3 +1,4 @@
+mod collaboration;
 mod configured;
 mod patch;
 mod provider;
@@ -6,6 +7,7 @@ mod request_user_input;
 mod search;
 mod task;
 
+pub use collaboration::*;
 pub use configured::*;
 pub use patch::*;
 pub use provider::*;

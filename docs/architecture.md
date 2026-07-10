@@ -135,6 +135,19 @@ docs/                     документация
 - `sequential` — дочерний loop в процессе родителя;
 - `process` — отдельный `proteus server stdio` с собственным профилем.
 
+Runner и model-facing protocol выбираются по разным осям. Top-level
+`subagents.surface` не является slot-ом:
+
+- `task` (default) — один foreground facade-tool, который ждёт результат;
+- `collaboration` — экспериментальные `spawn_agent`/`list_agents`/
+  `wait_agent`/`interrupt_agent` поверх session-owned process-resident control;
+- `none` — model-facing subagent tools не регистрируются.
+
+Collaboration slice переиспользует тот же `SubagentRunner`, но требует от него
+реального spawn/wait/cancel lifecycle. Он ограничен root-owned детьми,
+`parallel_safe` ролями без worktree isolation и bounded in-process records; это
+не общий multi-agent DAG и не restart-durable control plane.
+
 Read-only роли можно запускать параллельно. Роль с
 `isolation = "worktree"` получает отдельную git-ветку и worktree; изменения не
 мержатся автоматически. Этот слой свежий и пока считается зоной стабилизации,
@@ -175,10 +188,12 @@ ToolRegistry
 
 Core-owned `apply_patch`, `search`, `remember_fact`, `request_user_input` и
 `task` — facade tools: алгоритм всё равно делегируется выбранному slot/module.
-`task` регистрируется только при непустом `SubagentRunner::roles()` и вызывает
-runner через узкий runtime-bound `SubagentToolHost`; generic workflow host не
-получает subagent/worktree capabilities. Поэтому task visibility, validation,
-approval, timeout, events и bounded output проходят тот же orchestrator path.
+Subagent facade выбирается через `subagents.surface` и регистрируется в
+`ToolRegistry` при сборке snapshot-а. `task` вызывает blocking `run`, а четыре
+collaboration tools используют session-bound spawn/wait/cancel capability того
+же `SubagentToolHost`; generic workflow host не получает subagent/worktree
+capabilities. Поэтому visibility, validation, approval, timeout, events и
+bounded output любого subagent facade проходят тот же orchestrator path.
 
 ### Providers
 
@@ -238,7 +253,9 @@ UI-state через generic host API, сначала стоит перепров
 - dylib unload и общий `reload_modules` не реализованы;
 - MCP поддерживает tools через stdio, но не полный resources/prompts surface;
 - app protocol и UI DTO ещё не стабилизированы как внешний API;
-- subagent/worktree policy и process lifecycle требуют укрепления;
+- process-runner idle retention, subagent/worktree policy и restart-durable
+  collaboration state требуют дальнейшего решения; текущий collaboration
+  control bounded, но живёт только в процессе;
 - eval report анализирует trace, но автоматического benchmark runner пока нет.
 
 Актуальный рабочий фокус находится в [scope.md](scope.md), порядок следующих

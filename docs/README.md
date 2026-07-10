@@ -92,7 +92,7 @@
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
   архив завершённого UI handoff по карточкам субагентов;
 - [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —
-  незакрытый разбор Codex/OpenCode semantics, текущего subagent slot и вариантов
-  будущего control plane;
+  research-разбор Codex/OpenCode semantics, граница реализованного первого
+  collaboration slice и открытые варианты будущего control plane;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code и ForgeCode.

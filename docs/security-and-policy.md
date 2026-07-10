@@ -100,6 +100,9 @@ plan flow UI может просить модель вернуть staged read-o
 | `remember_fact` | `WritesFiles` | кладёт preference/fact в `MemoryStore` (пишет в SQLite/JSONL, не в workspace-файлы) |
 | `search` | `ReadOnly` | вызывает выбранный `SearchBackend` |
 | `request_user_input` / `AskUserQuestion` | `ReadOnly` | запрашивает typed ответ через `UserInputTransport`; второй id — provider-compatible alias |
+| `task` | `WritesFiles` | foreground subagent facade; может запустить writing/worktree роль и потому проходит write approval boundary |
+| `spawn_agent` | `WritesFiles` | экспериментальный async subagent spawn; доступен только для `parallel_safe`, `isolation = none` ролей, но сохраняет консервативный safety floor |
+| `list_agents` / `wait_agent` / `interrupt_agent` | `ReadOnly` | session-owned collaboration control без прямой записи workspace; `interrupt_agent` меняет только lifecycle принадлежащего session ребёнка |
 
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` вынесены
@@ -112,6 +115,22 @@ Plugin tool names валидируются при регистрации: пус
 плагинами отклоняются. Если явно включённый plugin tool совпал с
 builtin/configured tool, сборка registry завершается ошибкой конфигурации;
 приоритет или silent skip не применяются.
+
+Subagent facade выбирается top-level полем `subagents.surface`. В режиме
+`task` регистрируется только `task`; в `collaboration` — только
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; `none` не
+регистрирует ни одну поверхность. Это реальные registry tools, а не workflow
+side-channel, поэтому mode-aware visibility, approval, timeout и result bounds
+остаются обязательными.
+
+Collaboration control скоупится по `SessionId`: path `/root/<task_name>` нельзя
+адресовать из другой session. Запуск допускает только явно `parallel_safe`
+роль без worktree isolation, а дочерний toolset лишён всех subagent facade
+tools, поэтому nesting в первом slice невозможен. Records и terminal payloads
+bounded, active records не вытесняются; состояние process-resident и теряется
+при restart. Send/follow-up/fork и writer/worktree spawn в этом режиме не
+реализованы, а несовместимый blocking-only plugin runner отклоняется при сборке
+registry без fallback.
 
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
 
@@ -462,6 +481,8 @@ split_commands = true
   caller/session/cwd;
 - `process` SubagentRunner ограничивает concurrent leases semaphore-ом, но
   idle child processes для разных cwd пока не имеют общего TTL/LRU/cap;
+- collaboration records имеют session ownership и caps, но живут только в
+  памяти процесса: после restart нет list/wait/resume прежних handles;
 
 До устранения этих gaps не считайте plan mode или shared unified exec
 полноценной process isolation boundary. Внешний `workdir` допустим только для

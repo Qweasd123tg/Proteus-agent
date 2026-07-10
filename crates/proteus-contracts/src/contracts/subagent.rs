@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::workflow::RuntimeContext,
-    domain::{AgentTask, ThreadId},
+    domain::{AgentTask, SessionId, ThreadId},
     model_standard::TokenUsage,
 };
 
@@ -358,6 +358,13 @@ pub trait SubagentRunner: Send + Sync {
     /// выключено (workflow не генерирует task-тул).
     fn roles(&self) -> Vec<SubagentRoleSpec>;
 
+    /// Whether this implementation owns a working spawn/wait/cancel
+    /// lifecycle. False is the safe default for legacy/plugin adapters whose
+    /// ABI currently exposes only blocking `run`.
+    fn supports_collaboration(&self) -> bool {
+        false
+    }
+
     /// Прогоняет дочерний цикл и возвращает результат. `ctx` — контекст
     /// родительского turn'а; реализация сама изолирует ребёнка (свой
     /// thread_id, своя история, свой отбор tools по фазе роли).
@@ -378,8 +385,10 @@ pub trait SubagentRunner: Send + Sync {
     }
 
     /// Дожидается завершения запущенного ребёнка и отдаёт результат.
-    /// Каждый handle выдаёт результат ровно один раз: повторный `wait`
-    /// по тому же handle — ошибка.
+    /// Реализации с фоновым control plane должны кешировать terminal result:
+    /// отмена future ожидания не отменяет ребёнка и не потребляет handle, так
+    /// что `wait` можно повторить. Успешно полученный результат потребляет
+    /// handle ровно один раз.
     async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
         let _ = handle;
         bail!("this subagent runner does not support spawn/wait/cancel");
@@ -400,5 +409,26 @@ pub trait SubagentRunner: Send + Sync {
 /// policy, cancellation и event emitter.
 #[async_trait]
 pub trait SubagentToolHost: Send + Sync {
+    /// Session owner of model-facing facade calls. Collaboration handles are
+    /// scoped to this id and cannot be addressed from another session.
+    fn session_id(&self) -> Option<SessionId> {
+        None
+    }
+
     async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult>;
+
+    async fn spawn_subagent(&self, request: SubagentRequest) -> Result<SubagentHandle> {
+        let _ = request;
+        bail!("subagent host does not support collaboration control");
+    }
+
+    async fn wait_subagent(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+        let _ = handle;
+        bail!("subagent host does not support collaboration control");
+    }
+
+    async fn cancel_subagent(&self, handle: &SubagentHandle) -> Result<()> {
+        let _ = handle;
+        bail!("subagent host does not support collaboration control");
+    }
 }

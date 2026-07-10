@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::tool_names::TASK_TOOL;
+use crate::tool_names::{SPAWN_AGENT_TOOL, TASK_TOOL};
 use crate::types::{
     Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity,
     ToolActivityStatus, TransportStatus,
@@ -154,8 +154,8 @@ pub(crate) fn push_assistant_message_if_missing(
     }
 }
 
-/// Если хвост загруженного транскрипта — незавершённое streaming-сообщение
-/// ассистента (сервер отдал прогресс бегущего хода), делаем его целью для
+/// Если в загруженном транскрипте есть незавершённое streaming-сообщение
+/// ассистента (сервер отдал прогресс бегущего хода), делаем последнее из них целью для
 /// последующих SSE-дельт: текст продолжит дописываться в него, а TurnOutput
 /// в конце перезапишет его финальным текстом.
 pub(crate) fn adopt_streaming_tail(
@@ -163,13 +163,13 @@ pub(crate) fn adopt_streaming_tail(
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     set_streamed_this_turn: WriteSignal<bool>,
 ) {
-    let Some(last) = transcript.last() else {
+    let Some(last) = transcript.iter().rev().find(|message| {
+        message.role == MessageRole::Assistant && message.streaming && message.tool.is_none()
+    }) else {
         return;
     };
-    if last.role == MessageRole::Assistant && last.streaming && last.tool.is_none() {
-        set_active_stream_message_id.set(Some(last.id));
-        set_streamed_this_turn.set(true);
-    }
+    set_active_stream_message_id.set(Some(last.id));
+    set_streamed_this_turn.set(true);
 }
 
 /// Подкладывает историю с сервера перед уже накопленными живыми сообщениями:
@@ -190,12 +190,14 @@ pub(crate) fn prepend_history_messages(
         message.id = base + index as u64;
     }
     set_next_message_id.set(base + transcript.len() as u64);
-    let history_has_streaming_tail = transcript.last().is_some_and(|message| {
-        message.role == MessageRole::Assistant && message.streaming && message.tool.is_none()
-    });
-    let streaming_tail_id = history_has_streaming_tail
-        .then(|| transcript.last().map(|message| message.id))
-        .flatten();
+    let streaming_tail_id = transcript
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Assistant && message.streaming && message.tool.is_none()
+        })
+        .map(|message| message.id);
+    let history_has_streaming_tail = streaming_tail_id.is_some();
     set_messages.update(|items| {
         // Стрим-хвост из снапшота прогресса уже содержит текст, который SSE
         // успел доставить живьём после подключения, — локальный стрим-дубль
@@ -472,6 +474,20 @@ pub(crate) fn finalize_running_activity(
                 changed |= interrupt_tool(tool, now_ms);
             }
             if let Some(subagent) = message.subagent.as_mut() {
+                // `spawn_agent` возвращает управление сразу, а ребёнок
+                // продолжает жить между родительскими turn-ами. Его карточку
+                // и вложенные tools закроет настоящий SubagentFinished;
+                // граница TurnOutput родителя для них не терминальна.
+                let background = message
+                    .tool
+                    .as_ref()
+                    .is_some_and(|tool| tool.name == SPAWN_AGENT_TOOL);
+                if background {
+                    if changed {
+                        message.version += 1;
+                    }
+                    continue;
+                }
                 if subagent.is_running() {
                     subagent.status = SubagentActivityStatus::Finished("interrupted".to_owned());
                     subagent.finished_at_ms = Some(now_ms);
@@ -525,7 +541,10 @@ pub(crate) fn push_subagent_message(
                 && message
                     .tool
                     .as_ref()
-                    .is_some_and(|tool| tool.name == TASK_TOOL && !tool.status.is_terminal())
+                    .is_some_and(|tool| {
+                        matches!(tool.name.as_str(), TASK_TOOL | SPAWN_AGENT_TOOL)
+                            && !tool.status.is_terminal()
+                    })
         }) {
             message.subagent = Some(activity);
             message.version += 1;
@@ -905,6 +924,36 @@ mod tests {
     }
 
     #[test]
+    fn push_subagent_message_attaches_to_running_spawn_agent_card() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut spawn_tool = tool_activity("call-spawn", ToolActivityStatus::Running);
+            spawn_tool.name = SPAWN_AGENT_TOOL.to_owned();
+            let mut spawn_message = history_message(1, MessageRole::System, "");
+            spawn_message.tool = Some(spawn_tool);
+            let (messages, set_messages) = signal(vec![spawn_message]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("child-thread", SubagentActivityStatus::Running),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].version, 1);
+            assert_eq!(
+                items[0].tool.as_ref().map(|tool| tool.name.as_str()),
+                Some(SPAWN_AGENT_TOOL)
+            );
+            assert!(items[0].subagent.is_some());
+            assert_eq!(next_message_id.get_untracked(), 2);
+        });
+    }
+
+    #[test]
     fn push_subagent_message_skips_finished_task_card_and_falls_back_to_standalone() {
         let owner = Owner::new();
         owner.with(|| {
@@ -1228,6 +1277,36 @@ mod tests {
             let rail = tool_activities.get_untracked();
             assert_eq!(rail[0].status, ToolActivityStatus::Interrupted);
             assert_eq!(rail[1].status, ToolActivityStatus::Done);
+        });
+    }
+
+    #[test]
+    fn finalize_running_activity_preserves_spawned_background_subagent() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut activity = subagent_activity(
+                "background-thread",
+                SubagentActivityStatus::Running,
+            );
+            activity
+                .tools
+                .push(tool_activity("nested", ToolActivityStatus::Running));
+            let mut message = subagent_message(1, activity);
+            let mut spawn_tool = tool_activity("spawn", ToolActivityStatus::Done);
+            spawn_tool.name = SPAWN_AGENT_TOOL.to_owned();
+            message.tool = Some(spawn_tool);
+            let (messages, set_messages) = signal(vec![message]);
+            let (tool_activities, set_tool_activities) = signal(Vec::new());
+
+            finalize_running_activity(set_tool_activities, set_messages, 99);
+
+            let items = messages.get_untracked();
+            let subagent = items[0].subagent.as_ref().expect("background subagent");
+            assert_eq!(subagent.status, SubagentActivityStatus::Running);
+            assert_eq!(subagent.finished_at_ms, None);
+            assert_eq!(subagent.tools[0].status, ToolActivityStatus::Running);
+            assert_eq!(items[0].version, 0);
+            assert!(tool_activities.get_untracked().is_empty());
         });
     }
 

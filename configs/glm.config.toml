@@ -48,6 +48,10 @@ tool_exposure = "codex_dynamic"
 subagent = "sequential"
 renderer = "statusline"
 
+[subagents]
+# GLM-профиль пока сохраняет прежний foreground task surface.
+surface = "task"
+
 [tools]
 enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 

@@ -32,6 +32,8 @@ path, fail-closed shell isolation и обязательный auth для non-lo
 - HTTP/SSE app-server, chat client и Inspector;
 - sequential и process subagents;
 - параллельные read-only роли и worktree isolation для пишущих ролей;
+- экспериментальный session-owned collaboration surface для bounded async
+  spawn/list/wait/interrupt read-only детей и background UI lifecycle;
 - `doctor`, `inspect topology`, `modules list` и `eval report`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
@@ -40,8 +42,10 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-До новых subagent/UI возможностей остаётся закрыть lifecycle процессов и
-пройти полный stabilization checkpoint.
+Непосредственно дальше остаётся закрыть lifecycle процессов и пройти полный
+stabilization checkpoint. Первый collaboration/UI slice не заменяет эту работу:
+его records bounded, но process-resident, а idle pool process runner-а живёт по
+старым правилам.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -74,6 +78,10 @@ worktree cwd не должны оставлять неограниченное �
 Interactive exec уже ограничивает число сессий, но ему нужны session/thread
 ownership, age cleanup и честная cancellation semantics, чтобы один turn не мог
 управлять процессом другого.
+
+Отдельный collaboration facade уже имеет session ownership и hard caps, но
+намеренно не поддерживает durable restart, send/follow-up/fork, nesting и
+writer/worktree spawn. Эти ограничения не следует выдавать за Codex parity.
 
 ## Следующий Checkpoint
 

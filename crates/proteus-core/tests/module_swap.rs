@@ -42,7 +42,7 @@ use proteus_core::{
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
         ConfiguredToolConfig, ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore,
-        ModelService, ToolOrchestrator,
+        ModelService, SubagentSurface, ToolOrchestrator,
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
@@ -537,6 +537,47 @@ fn subagent_slot_swaps_none_and_sequential_roles() {
     assert_eq!(roles[0].name, "explore");
     assert_eq!(roles[0].limits.timeout_ms, Some(60000));
     assert_eq!(roles[0].config["config"], "sub-explorer");
+}
+
+#[test]
+fn subagent_surface_swaps_task_collaboration_and_none_without_mixing_tools() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.subagent = "sequential".to_owned();
+    set_module_config(
+        &mut config,
+        "subagent",
+        "sequential",
+        json!({
+            "roles": [{
+                "name": "explore",
+                "description": "Read-only exploration",
+                "prompt": "Inspect without editing.",
+                "parallel_safe": true
+            }]
+        }),
+    );
+
+    let task_registry = registry_from_test_config(&config, dir.path());
+    assert!(task_registry.tools.spec("task").is_ok());
+    assert!(task_registry.tools.spec("spawn_agent").is_err());
+
+    config.subagents.surface = SubagentSurface::Collaboration;
+    let collaboration = registry_from_test_config(&config, dir.path());
+    assert!(collaboration.tools.spec("task").is_err());
+    for name in [
+        "spawn_agent",
+        "list_agents",
+        "wait_agent",
+        "interrupt_agent",
+    ] {
+        assert!(collaboration.tools.spec(name).is_ok(), "missing {name}");
+    }
+
+    config.subagents.surface = SubagentSurface::None;
+    let none = registry_from_test_config(&config, dir.path());
+    assert!(none.tools.spec("task").is_err());
+    assert!(none.tools.spec("spawn_agent").is_err());
 }
 
 #[tokio::test]
@@ -3547,6 +3588,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
+    assert_eq!(config.subagents.surface, SubagentSurface::Collaboration);
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
     // Playwright MCP остаётся opt-in после dogfood с непрошеной браузерной
     // верификацией; dynamic exposure при включении не сделает его always-visible.
@@ -3582,6 +3624,14 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .unwrap()
             .iter()
             .any(|tool| tool == "apply_patch")
+    );
+    assert!(
+        !codex_dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "spawn_agent"),
+        "surface switch must not require editing always_include"
     );
     // Если Playwright будет включён вручную, его tools не должны попасть в
     // stable hot set (dogfood 2026-07-06: always-visible браузер провоцировал

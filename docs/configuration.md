@@ -351,6 +351,9 @@ custom URL.
     "tool_exposure": "all_visible",
     "subagent": "sequential",
     "renderer": "plain"
+  },
+  "subagents": {
+    "surface": "task"
   }
 }
 ```
@@ -423,6 +426,11 @@ Core не читает отдельные typed sections конкретных п
 Plugin-specific настройки живут только в `module_config`, чтобы core не
 расширял `AppConfig` под каждую реализацию.
 
+Model-facing способ делегирования выбирается отдельно от runner-а top-level
+секцией `[subagents]`: это core wiring, а не ещё один module slot. Config
+Builder пока не показывает для него отдельный selector; при любом сохранении
+он записывает текущее загруженное значение `subagents.surface` обратно в TOML.
+
 ## Config Builder
 
 Inspector route `/configs` содержит Config builder для редактирования
@@ -443,15 +451,15 @@ Inspector route `/configs` содержит Config builder для редакти
 выбранный `module_id` зарегистрирован для своего slot-а и что
 `active_provider` определён в `[providers]`, проверяет, что `module_config`
 сериализуется в TOML, строит новый runtime registry и только после успешной
-сборки пишет TOML (`[modules]`, `[module_config]`, `[tools].enabled`,
-`active_provider`, `[permissions] mode`). После записи app-server применяет
+сборки пишет TOML (`[modules]`, `[subagents]`, `[module_config]`,
+`[tools].enabled`, `active_provider`, `[permissions] mode`). После записи app-server применяет
 `runtime.reload_registry`, поэтому новый module selection начинает действовать
 без перезапуска процесса; смена `active_provider` дополнительно обновляет
 runtime model, а `permission_mode` — активный permission mode. Поля
 `tools_enabled`, `active_provider` и `permission_mode` в запросе опциональны:
 `null`/отсутствие означает «не трогать».
 
-Builder обновляет `[modules]`, `[module_config]`, `[tools].enabled`,
+Builder обновляет `[modules]`, `[subagents]`, `[module_config]`, `[tools].enabled`,
 `active_provider` и `[permissions].mode` в активном config file (или в
 `config.toml` внутри активной config-директории). Он выбирает только
 уже описанный provider: сами `[providers.*]`, `api_key_file`, `base_url_file`,
@@ -545,8 +553,51 @@ calls дополнительно отклоняются handler-ом.
 
 ## Subagent
 
-`modules.subagent = "none"` отключает делегирование: runner возвращает пустой
-список ролей, поэтому core не регистрирует model-facing tool `task`.
+`modules.subagent` выбирает исполнение дочернего цикла, а top-level
+`subagents.surface` — какой facade видит модель:
+
+```toml
+[modules]
+subagent = "sequential"
+
+[subagents]
+surface = "task" # task | collaboration | none
+```
+
+`surface = "task"` является default для обратной совместимости и регистрирует
+только прежний foreground `task`: вызов ждёт итог ребёнка и может продолжить
+его по `task_id`. `surface = "none"` не регистрирует ни `task`, ни
+collaboration tools. Значение `both` не поддерживается.
+
+`surface = "collaboration"` — экспериментальный Proteus Codex-shaped режим,
+а не заявление о parity. Вместо `task` он регистрирует четыре независимых
+registry tools:
+
+- `spawn_agent` сразу возвращает session-owned путь `/root/<task_name>`;
+- `list_agents` показывает retained состояние детей текущей session;
+- `wait_agent` ждёт и забирает следующую очередь terminal updates; timeout не
+  отменяет ребёнка и не потребляет будущий update;
+- `interrupt_agent` запрашивает отмену одного ребёнка по path или `task_name`.
+
+Первый slice намеренно узкий: spawn разрешён только для ролей с
+`parallel_safe = true` и `isolation = "none"`. В нём нет send/follow-up,
+history fork, nesting, restart-durable registry, worktree writers или resume
+прежнего collaboration handle. Control plane принадлежит session, bounded и
+живёт только в runtime process; после restart его records исчезают.
+Builtin `sequential` и `process` поддерживают этот lifecycle, а текущий
+`PluginSubagent` ABI (`roles + run`) — нет: выбор collaboration с непустыми
+ролями такого runner-а завершает сборку registry ошибкой без fallback.
+
+Packaged `codex` profile включает `surface = "collaboration"`; `glm` и основные
+full/coding/JSON examples явно сохраняют `surface = "task"`, а частичные
+examples без секции наследуют тот же default. Для writing/worktree ролей нужно
+использовать task surface. Collaboration tools помечены metadata `hot`, поэтому
+в packaged `codex` переключение между `collaboration` и `task` требует изменить
+только `subagents.surface`: дублировать их имена в `always_include` не нужно.
+
+`modules.subagent = "none"` возвращает пустой список ролей. При task surface
+это полностью убирает `task`; для явного отключения любой model-facing
+делегации задавайте также `subagents.surface = "none"`.
 
 `modules.subagent = "sequential"` включает builtin sequential runner. Он читает
 роли из `module_config.subagent.sequential`; при пустом списке ролей поведение
@@ -595,7 +646,7 @@ phase-aware exposure модулем; `all_visible` фазу не учитыва�
 allowlist остаётся страховкой для ограниченных ролей.
 
 Роль с `isolation = "worktree"` всегда (включая одиночный вызов) исполняется в
-собственном git worktree: workflow просит хост создать
+собственном git worktree: policy-gated facade-tool `task` создаёт
 `<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
 HEAD (каталог исключается через `.git/info/exclude`) и подменяет cwd ребёнка.
 После завершения чистый worktree удаляется; изменённый остаётся, а результат

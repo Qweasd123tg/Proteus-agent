@@ -370,6 +370,14 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     doc["modules"]["subagent"] = toml_edit::value(config.modules.subagent.clone());
     doc["modules"]["renderer"] = toml_edit::value(config.modules.renderer.clone());
 
+    if doc
+        .get("subagents")
+        .is_none_or(|item| !item.is_table_like())
+    {
+        doc["subagents"] = toml_edit::table();
+    }
+    doc["subagents"]["surface"] = toml_edit::value(config.subagents.surface.as_str());
+
     let module_config_doc = module_config_toml_document(&config.module_config)?;
     if let Some(item) = module_config_doc.as_table().get("module_config") {
         doc["module_config"] = item.clone();

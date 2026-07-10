@@ -20,6 +20,8 @@ pub struct SessionConfigSnapshot {
     pub model: ModelRef,
     pub reasoning: ReasoningConfig,
     pub modules: SessionConfigModules,
+    #[serde(default = "default_subagent_surface")]
+    pub subagent_surface: String,
     pub tools: Vec<SessionConfigTool>,
     pub permission_mode_default: PermissionMode,
 }
@@ -80,10 +82,15 @@ impl SessionConfigSnapshot {
                 subagent: config.modules.subagent.clone(),
                 renderer: config.modules.renderer.clone(),
             },
+            subagent_surface: config.subagents.surface.as_str().to_owned(),
             tools,
             permission_mode_default,
         }
     }
+}
+
+fn default_subagent_surface() -> String {
+    "task".to_owned()
 }
 
 pub fn write_config_snapshot(session_dir: &Path, snapshot: &SessionConfigSnapshot) -> Result<()> {

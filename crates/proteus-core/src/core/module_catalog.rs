@@ -555,16 +555,32 @@ impl BuiltinModuleCatalog {
             )?;
         }
 
-        // `task` — facade над выбранным SubagentRunner, а не config/plugin
-        // tool. Регистрируем его в каждом ToolRegistry builder path (runtime,
-        // doctor, tools list, topology), чтобы observability не расходилась с
-        // фактическим model-visible surface.
+        // Facade над выбранным SubagentRunner регистрируется в каждом
+        // ToolRegistry builder path (runtime, doctor, tools list, topology),
+        // чтобы observability не расходилась с model-visible surface.
         let subagent = self.build_subagent(&ctx.config.modules.subagent, ctx)?;
-        crate::tools::register_task_tool(
-            &mut tools,
-            subagent.roles(),
-            ctx.config.runtime.workflow_timeout_ms,
-        )?;
+        match ctx.config.subagents.surface {
+            crate::core::SubagentSurface::Task => crate::tools::register_task_tool(
+                &mut tools,
+                subagent.roles(),
+                ctx.config.runtime.workflow_timeout_ms,
+            )?,
+            crate::core::SubagentSurface::Collaboration => {
+                let roles = subagent.roles();
+                if !roles.is_empty() && !subagent.supports_collaboration() {
+                    bail!(
+                        "subagent module '{}' does not support the spawn/wait/cancel lifecycle required by subagents.surface=collaboration",
+                        ctx.config.modules.subagent
+                    );
+                }
+                crate::tools::register_collaboration_tools(
+                    &mut tools,
+                    roles,
+                    ctx.config.runtime.workflow_timeout_ms,
+                )?
+            }
+            crate::core::SubagentSurface::None => {}
+        }
 
         Ok(tools)
     }

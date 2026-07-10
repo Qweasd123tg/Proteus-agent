@@ -19,9 +19,10 @@ Roadmap хранит порядок работ и журнал уже приня
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. Ограничить lifecycle процессов: bounded idle/resume retention для process
-   subagents; ownership, age cleanup и cancellation для уже count-bounded
-   interactive exec sessions.
+3. 🟡 Первый async collaboration control закрыт session ownership и hard caps,
+   но остаются bounded idle/resume retention для process subagents, а также
+   ownership, age cleanup и cancellation для уже count-bounded interactive
+   exec sessions.
 4. После lifecycle checkpoint решить canonical turn data как один кластер:
    parts + storage + replay + eval.
 5. Прогнать несколько маленьких dogfood-задач и только по их результатам
@@ -407,8 +408,12 @@ plan/execute/review экспериментов.
   task-вызовов конкурентно, только когда все запрошенные роли
   parallel_safe (spawn всех → wait по порядку; ошибка одного вызова не
   прерывает остальных). Per-child token-бюджеты реализованы (2026-07-09,
-  `SubagentLimits::max_total_tokens` + `BudgetTracker`). Перед UI остаются
-  safety/lifecycle блокер: idle process children должны иметь bounded eviction.
+  `SubagentLimits::max_total_tokens` + `BudgetTracker`). Первый model-facing
+  collaboration slice добавлен 2026-07-11 отдельно от foreground `task`:
+  session-owned bounded spawn/list/wait/interrupt для read-only
+  `parallel_safe` ролей без worktree. Idle process children всё ещё должны
+  получить bounded eviction — новый surface не закрывает lifecycle самого
+  process pool.
   Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude
@@ -493,6 +498,13 @@ Scope:
   изолированы структурно (`child_context` в `core/subagent.rs` даёт пустые
   grants — `escalated_exec` родителя не протекает, кластер 2 аудита частично
   закрыт);
+- ✅ экспериментальный async collaboration surface (2026-07-11): top-level
+  `subagents.surface` взаимно исключительно выбирает foreground `task`, четыре
+  tools `spawn_agent`/`list_agents`/`wait_agent`/`interrupt_agent` или `none`;
+  control plane session-owned, process-resident и bounded, background child
+  остаётся видимым в app-server/web после завершения parent turn. Это первый
+  Proteus Codex-shaped slice без send/follow-up/fork/nesting, durable restart,
+  writer/worktree spawn или parity claim;
 - ✅ session resume/restore;
 - 🟡 session/request/config metadata персистится частично; canonical task/turn
   record и replay ещё не определены;
@@ -715,10 +727,13 @@ Scope:
 - ✅ Hot-swap/reload для config-defined tools и MCP discovery: агент может
   добавить `[[tools.mcp_servers]]`, затем запросить explicit reload; новый
   snapshot видит discovered tools, старые turns доживают на прежнем snapshot.
+- ✅ Background collaboration UI lifecycle: `spawn_agent` возвращает управление
+  сразу, а app-server/web сохраняют child card между parent turns, вкладывают
+  поздние tool events и закрывают карточку по реальному terminal event.
 - Subagent UI follow-up: опциональный streaming текста дочернего цикла.
   Текущий sequential runner использует `complete`, поэтому UI видит live
-  карточку `task`, subagent activity, nested tools и итоговый summary, но не
-  текстовые deltas ребёнка.
+  карточку `task` или background collaboration activity, nested tools и итог,
+  но не текстовые deltas ребёнка.
 - UX backlog для web-клиента. Сделано: очередь composer requests во время
   running turn (несколько карточек, ручная отправка), persistent layout sizes
   для sidebar/composer, message copy/collapse, streaming transcript по deltas,

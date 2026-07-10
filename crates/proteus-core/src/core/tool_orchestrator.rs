@@ -308,8 +308,30 @@ struct RuntimeSubagentToolHost {
 
 #[async_trait]
 impl SubagentToolHost for RuntimeSubagentToolHost {
+    fn session_id(&self) -> Option<crate::domain::SessionId> {
+        Some(self.ctx.session_id)
+    }
+
     async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
         self.ctx.subagent.run(request, self.ctx.clone()).await
+    }
+
+    async fn spawn_subagent(
+        &self,
+        request: SubagentRequest,
+    ) -> Result<crate::contracts::SubagentHandle> {
+        self.ctx.subagent.spawn(request, self.ctx.clone()).await
+    }
+
+    async fn wait_subagent(
+        &self,
+        handle: &crate::contracts::SubagentHandle,
+    ) -> Result<SubagentResult> {
+        self.ctx.subagent.wait(handle).await
+    }
+
+    async fn cancel_subagent(&self, handle: &crate::contracts::SubagentHandle) -> Result<()> {
+        self.ctx.subagent.cancel(handle).await
     }
 }
 

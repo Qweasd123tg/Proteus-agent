@@ -33,6 +33,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
+    pub subagents: SubagentsConfig,
+    #[serde(default)]
     pub permissions: PermissionsConfig,
     #[serde(default)]
     pub app_server: AppServerConfig,
@@ -42,6 +44,31 @@ pub struct AppConfig {
     pub event_log: EventLogConfig,
     #[serde(default)]
     pub web: WebConfig,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentSurface {
+    #[default]
+    Task,
+    Collaboration,
+    None,
+}
+
+impl SubagentSurface {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Collaboration => "collaboration",
+            Self::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubagentsConfig {
+    #[serde(default)]
+    pub surface: SubagentSurface,
 }
 
 impl AppConfig {
@@ -957,6 +984,29 @@ fn expand_user_path_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subagent_surface_defaults_to_task_and_rejects_unknown_values() {
+        let default =
+            serde_json::from_value::<AppConfig>(serde_json::json!({})).expect("default config");
+        assert_eq!(default.subagents.surface, SubagentSurface::Task);
+
+        let collaboration = serde_json::from_value::<AppConfig>(serde_json::json!({
+            "subagents": { "surface": "collaboration" }
+        }))
+        .expect("collaboration config");
+        assert_eq!(
+            collaboration.subagents.surface,
+            SubagentSurface::Collaboration
+        );
+
+        assert!(
+            serde_json::from_value::<AppConfig>(serde_json::json!({
+                "subagents": { "surface": "both" }
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn configured_tool_default_schema_allows_additional_properties() {

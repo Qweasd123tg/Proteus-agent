@@ -18,3 +18,7 @@ pub(crate) const APPLY_PATCH_TOOL: &str = "apply_patch";
 /// субагента (`SubagentStarted` прикрепляется к бегущему вызову `task`, а не
 /// создаёт вторую карточку рядом).
 pub(crate) const TASK_TOOL: &str = "task";
+
+/// Асинхронный запуск collaboration-агента. Его карточка, в отличие от
+/// blocking `task`, переживает завершение родительского turn-а.
+pub(crate) const SPAWN_AGENT_TOOL: &str = "spawn_agent";

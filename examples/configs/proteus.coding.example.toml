@@ -19,6 +19,9 @@ tool_exposure = "all_visible"
 subagent = "sequential"
 renderer = "statusline"
 
+[subagents]
+surface = "task"
+
 [tools]
 # Full local coding toolset. File I/O and repo navigation come from
 # file-tools, git helpers come from git-tools, shell comes from shell-tool,

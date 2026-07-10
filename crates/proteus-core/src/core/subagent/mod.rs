@@ -51,9 +51,15 @@ use pending::PendingChildren;
 use resumable::{ResumableSnapshot, ResumableStore};
 use roles::{SequentialSubagentConfig, build_role_specs};
 
-/// Имя tool'а делегирования, который workflow генерирует из ролей.
-/// Убирается из тулсета ребёнка, чтобы запретить рекурсию на уровне тулсета.
-const TASK_TOOL_NAME: &str = "task";
+/// Facade tools are removed from child toolsets to keep the first
+/// collaboration slice root-owned and non-recursive.
+const SUBAGENT_FACADE_TOOLS: &[&str] = &[
+    "task",
+    "spawn_agent",
+    "list_agents",
+    "wait_agent",
+    "interrupt_agent",
+];
 
 pub struct SequentialSubagentRunner {
     inner: Arc<RunnerInner>,
@@ -331,6 +337,10 @@ impl SubagentRunner for SequentialSubagentRunner {
         self.inner.roles.clone()
     }
 
+    fn supports_collaboration(&self) -> bool {
+        true
+    }
+
     /// `run` = `spawn` + `wait`: цикл ребёнка исполняется detached-таской,
     /// поэтому обрыв родительского future (например, отмена turn'а на
     /// границе block_on в workflow host) не роняет ребёнка на полпути —
@@ -349,6 +359,11 @@ impl SubagentRunner for SequentialSubagentRunner {
             &spawn_id,
             child_ctx.cancellation.clone(),
             self.inner.max_parallel,
+            !request
+                .metadata
+                .get("control_plane_owned")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         )?;
 
         // Started/Finished эмитятся под родительским thread_id; события
@@ -385,9 +400,10 @@ impl SubagentRunner for SequentialSubagentRunner {
     }
 
     async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
-        let join = self.inner.lock_pending()?.take(&handle.spawn_id)?;
-        join.await
-            .map_err(|join_error| anyhow!("subagent child task failed: {join_error}"))?
+        let outcome = self.inner.lock_pending()?.outcome(&handle.spawn_id)?;
+        let result = outcome.wait().await;
+        self.inner.lock_pending()?.consume(&handle.spawn_id)?;
+        result
     }
 
     async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {

@@ -5,7 +5,7 @@ use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
 use crate::api::{encode_query_component, get_json};
 use crate::messages::{adopt_streaming_tail, prepend_history_messages, report_error};
-use crate::tool_names::TASK_TOOL;
+use crate::tool_names::{SPAWN_AGENT_TOOL, TASK_TOOL};
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
@@ -264,17 +264,24 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         let tool = item.tool.map(transcript_tool_activity);
         let subagent = item.subagent.map(transcript_subagent_activity);
         if let Some(activity) = subagent {
-            if item.text.trim().is_empty()
-                && tool.is_none()
-                && let Some(previous) = messages.last_mut()
-                && previous.subagent.is_none()
-                && previous
-                    .tool
-                    .as_ref()
-                    .is_some_and(|tool| tool.name == TASK_TOOL)
-            {
-                previous.subagent = Some(activity);
-                continue;
+            if item.text.trim().is_empty() && tool.is_none() {
+                let matching_parent = messages.iter_mut().rev().find(|message| {
+                    message.subagent.is_none()
+                        && message.tool.as_ref().is_some_and(|tool| {
+                            if tool.name == TASK_TOOL {
+                                return true;
+                            }
+                            tool.name == SPAWN_AGENT_TOOL
+                                && activity.description.as_deref().is_some_and(|task_name| {
+                                    tool.args.get("task_name").and_then(Value::as_str)
+                                        == Some(task_name)
+                                })
+                        })
+                });
+                if let Some(parent) = matching_parent {
+                    parent.subagent = Some(activity);
+                    continue;
+                }
             }
             messages.push(Message {
                 id: 0,
@@ -994,6 +1001,56 @@ mod tests {
         let subagent = messages[0].subagent.as_ref().expect("merged subagent");
         assert_eq!(subagent.child_thread_id, "child-thread");
         assert!(subagent.is_running());
+    }
+
+    #[test]
+    fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
+        let messages = transcript_messages(vec![
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: Some(TranscriptTool {
+                    call_id: "call-spawn".to_owned(),
+                    name: SPAWN_AGENT_TOOL.to_owned(),
+                    args: serde_json::json!({
+                        "task_name": "scan",
+                        "message": "look around",
+                        "agent_type": "explore"
+                    }),
+                    status: "done".to_owned(),
+                    result: Some("started".to_owned()),
+                    metadata: Value::Null,
+                }),
+                subagent: None,
+                streaming: false,
+            },
+            TranscriptMessage {
+                role: "assistant".to_owned(),
+                text: "Продолжаю основной ход".to_owned(),
+                tool: None,
+                subagent: None,
+                streaming: true,
+            },
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: None,
+                subagent: Some(TranscriptSubagent {
+                    child_thread_id: "child-thread".to_owned(),
+                    role: "explore".to_owned(),
+                    description: Some("scan".to_owned()),
+                    status: "running".to_owned(),
+                    iterations: None,
+                    tools: Vec::new(),
+                }),
+                streaming: false,
+            },
+        ]);
+
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].subagent.is_some());
+        assert!(messages[1].streaming);
+        assert_eq!(messages[1].text, "Продолжаю основной ход");
     }
 
     #[test]

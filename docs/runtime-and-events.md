@@ -160,7 +160,8 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 config для этой сессии. Он перезаписывается при открытии существующей сессии и
 при первой материализации новой сессии. В snapshot входят profile name, active
 provider, active model ref, reasoning config, выбранные module ids, список
-зарегистрированных tools с source/spec и default permission mode. Изменения
+зарегистрированных tools с source/spec, `subagent_surface` и default permission
+mode. Изменения
 посреди session (например смена model из UI) остаются событиями runtime и не
 дублируются в этом файле.
 
@@ -200,19 +201,24 @@ request metadata `suppress_stream_deltas`: delta-контекст `ModelService`
 хода (запомненному из envelope `TurnStarted`) — дельты чужих threads в
 основной текст не подмешиваются.
 
-Web-клиент рендерит работу субагента одной карточкой: `SubagentStarted`
-прикрепляет активность к бегущей tool-карточке `task` (карточка вызова и
-карточка субагента не дублируются), а если workflow вызвал `SubagentRunner`
-без tool `task` — создаёт отдельную карточку; закрывается она по
-`SubagentFinished`. Чтобы вложить tool-вызовы ребёнка внутрь этой карточки,
-клиент сравнивает `EventEnvelope.thread_id` у tool-событий с
-`child_thread_id` активных карточек. Если совпадения нет, tool-вызов
-показывается обычной плоской tool-карточкой. Summary ребёнка остаётся обычным
-`ToolResult` вызова `task` и виден в развёрнутой карточке секцией «итог»;
-streaming text дочернего цикла не является частью текущего client contract-а.
-Пока субагент работает, карточка раскрыта и показывает живой прогресс; после
-`SubagentFinished` она сворачивается в строку со статусом, числом вызовов,
-итерациями и длительностью.
+Web-клиент рендерит работу субагента одной карточкой. При task surface
+`SubagentStarted` прикрепляет активность к бегущей tool-карточке `task`
+(карточка вызова и карточка субагента не дублируются). При collaboration
+surface тот же event прикрепляется к `spawn_agent`, но успешный spawn
+завершает только tool call: child-карточка остаётся running после финала
+родительского turn-а, принимает поздние nested tools и закрывается лишь по
+`SubagentFinished`. Если runner вызван без facade,
+создаётся отдельная карточка.
+
+Чтобы вложить tool-вызовы ребёнка внутрь карточки, клиент сравнивает
+`EventEnvelope.thread_id` у tool-событий с `child_thread_id` активных карточек.
+Если совпадения нет, tool-вызов показывается обычной плоской tool-карточкой.
+Summary foreground-ребёнка остаётся обычным `ToolResult` вызова `task`;
+collaboration completion приходит через `wait_agent`, а `list_agents` хранит
+только retained status без terminal payload. Streaming text дочернего цикла не
+является частью текущего client contract-а. Пока субагент работает, карточка
+раскрыта и показывает живой прогресс; после `SubagentFinished` она сворачивается
+в строку со статусом, числом вызовов, итерациями и длительностью.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как
@@ -223,6 +229,12 @@ streaming text дочернего цикла не является частью 
 результата (`ToolResult.metadata` как есть — core имён tools не знает), и
 клиент реконструирует карточку субагента из `metadata` результата `task`
 (статус, итерации, `child_thread_id`) без списка вложенных вызовов.
+
+Collaboration background cards app-server держит отдельно от progress текущего
+parent turn: следующий `TurnStarted` и `TurnFinished` их не очищают, а snapshot
+ограничивает число карточек, nested tools и размер tool payload. Это live
+process-resident UI state, не durable transcript: restart app-server-а не
+восстанавливает collaboration handles или незавершённые background cards.
 Вызов `task` является обычным registry tool. `ToolCallRequested`, approval
 events и `ToolFinished` испускает `ToolOrchestrator`; workflow и UI не создают
 для него synthetic lifecycle.

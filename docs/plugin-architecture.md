@@ -169,9 +169,11 @@ non-stdio transports — отдельная задача. Если они поя
   `ToolExposureInput.config`.
 - **subagent** - `PluginSubagent::roles_json() -> Vec<SubagentRoleSpec>` и
   `run_json(request_json) -> SubagentResult`. Это ABI для дочерних agent loops:
-  facade-tool `task` делегирует выбранной реализации через core adapter, а
-  реализация slot-а владеет изоляцией истории, thread_id, tool exposure phase
-  и лимитами.
+  foreground facade-tool `task` делегирует выбранной реализации через core
+  adapter, а реализация slot-а владеет изоляцией истории, thread_id, tool
+  exposure phase и лимитами. ABI пока не содержит spawn/wait/cancel, поэтому
+  plugin runner не может использовать `subagents.surface = "collaboration"` с
+  непустыми ролями; registry build отклоняет такую комбинацию без fallback.
 - **workflow** - `PluginWorkflow::run_json(input_json, host) ->
   PluginWorkflowOutput`. Это capability-based ABI: workflow-плагин не
   получает `RuntimeContext`, а вызывает host API (`build_context`,
@@ -366,7 +368,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   TextRenderer, FakeModelClient.
 - `SequentialSubagentRunner` и `ProcessSubagentRunner` остаются concrete
   core-owned реализациями subagent slot.
-- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
+- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо `spawn_agent`/`list_agents`/`wait_agent`/`interrupt_agent` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
   стартовать без plugin pack; для полноценного runtime нужен workflow plugin,

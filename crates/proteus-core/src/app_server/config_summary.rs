@@ -50,6 +50,10 @@ pub(super) fn render_config_summary(
     lines.push(format!("  memory_policy: {}", config.modules.memory_policy));
     lines.push(format!("  compactor: {}", config.modules.compactor));
     lines.push(format!("  subagent: {}", config.modules.subagent));
+    lines.push(format!(
+        "subagent surface: {}",
+        config.subagents.surface.as_str()
+    ));
     lines.push(format!("  renderer: {}", config.modules.renderer));
 
     lines.push("tools.enabled:".to_owned());

@@ -41,6 +41,9 @@
     "subagent": "sequential",
     "renderer": "statusline"
   },
+  "subagents": {
+    "surface": "task"
+  },
   "module_config": {
     "policy": {
       "ask_write": {
