@@ -28,7 +28,8 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 
 use crate::{
-    EXEC_COMMAND_ENV, SandboxKind, bwrap_args, omitted_marker, resolve_workdir, sandbox_kind,
+    omitted_marker,
+    sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir},
 };
 
 const DEFAULT_EXEC_YIELD_MS: u64 = 10_000;
@@ -55,7 +56,7 @@ impl PluginTool for ExecCommandTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "exec_command",
-            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Commands run in the same sandbox as `shell` (no network, read-only outside the workspace) when available. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
+            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Non-escalated commands require bwrap and run with no network access and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -242,17 +243,36 @@ fn exec_command_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(|args| args.get("cmd"))
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("exec_command requires string arg 'cmd'"))?;
-    let workdir = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")))?;
-    let yield_time_ms = resolve_yield_time_ms(args, DEFAULT_EXEC_YIELD_MS);
-    let max_output_bytes = resolve_max_output_bytes(args);
     let escalated = args
         .and_then(|args| args.get("with_escalated_permissions"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let sandbox = if escalated { None } else { sandbox_kind(cwd) };
+    execute_command(
+        call_id,
+        args,
+        cmd,
+        cwd,
+        escalated,
+        SandboxPolicy::detect(cwd),
+    )
+}
+
+fn execute_command(
+    call_id: String,
+    args: Option<&Value>,
+    cmd: &str,
+    cwd: &str,
+    escalated: bool,
+    sandbox_policy: SandboxPolicy,
+) -> Result<String> {
+    let resolved = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")), escalated)?;
+    let yield_time_ms = resolve_yield_time_ms(args, DEFAULT_EXEC_YIELD_MS);
+    let max_output_bytes = resolve_max_output_bytes(args);
+    let sandbox = sandbox_policy.select(escalated, false)?;
 
     let started = Instant::now();
-    let (session_id, session) = spawn_session(cmd, cwd, &workdir, sandbox)?;
+    let (session_id, session) =
+        spawn_session(cmd, &resolved.workspace, &resolved.workdir, sandbox)?;
     let collected = wait_and_collect(&session, Duration::from_millis(yield_time_ms));
     let wall_time = started.elapsed();
     if collected.exited {
@@ -261,8 +281,8 @@ fn exec_command_impl(call_json: &str, cwd: &str) -> Result<String> {
 
     let metadata = json!({
         "yield_time_ms": yield_time_ms,
-        "workdir": workdir,
-        "sandbox": sandbox.map(SandboxKind::label),
+        "workdir": resolved.workdir,
+        "sandbox": session.sandbox.as_ref().map(SandboxKind::label),
         "escalated": escalated,
     });
     Ok(render_result(
@@ -328,7 +348,7 @@ fn write_stdin_impl(call_json: &str) -> Result<String> {
     let metadata = json!({
         "yield_time_ms": yield_time_ms,
         "stdin_bytes": chars.len(),
-        "sandbox": session.sandbox.map(SandboxKind::label),
+        "sandbox": session.sandbox.as_ref().map(SandboxKind::label),
     });
     Ok(render_result(
         &call_id,
@@ -374,9 +394,9 @@ fn spawn_session(
         })
         .map_err(|error| anyhow!("failed to open PTY: {error}"))?;
 
-    let mut builder = match sandbox {
-        Some(SandboxKind::Bwrap) => {
-            let mut builder = CommandBuilder::new("bwrap");
+    let mut builder = match sandbox.as_ref() {
+        Some(sandbox @ SandboxKind::Bwrap(_)) => {
+            let mut builder = CommandBuilder::new(sandbox.executable().display().to_string());
             builder.args(bwrap_args(command, workspace, workdir));
             builder
         }
@@ -733,6 +753,45 @@ mod tests {
             .expect_err("missing cmd must error");
 
         assert!(error.to_string().contains("requires string arg 'cmd'"));
+    }
+
+    #[test]
+    fn exec_command_fails_closed_without_bwrap() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let marker = dir.path().join("must-not-exist");
+        let args = json!({ "cmd": "touch must-not-exist" });
+
+        let error = execute_command(
+            "call_exec".to_owned(),
+            Some(&args),
+            args["cmd"].as_str().unwrap(),
+            &dir.path().display().to_string(),
+            false,
+            SandboxPolicy::unavailable_for_test(),
+        )
+        .expect_err("missing bwrap must reject non-escalated exec_command");
+
+        assert!(error.to_string().contains("requires executable 'bwrap'"));
+        assert!(!marker.exists(), "command must not be spawned");
+    }
+
+    #[test]
+    fn exec_command_rejects_external_workdir_without_escalation() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let external = tempfile::tempdir().expect("external workdir");
+        let call = json!({
+            "id": "call_exec",
+            "name": "exec_command",
+            "args": { "cmd": "pwd", "workdir": external.path() }
+        });
+
+        let error = exec_command_impl(&call.to_string(), &workspace.path().display().to_string())
+            .expect_err("external workdir must require escalation");
+
+        assert!(
+            error.to_string().contains("outside the workspace"),
+            "{error}"
+        );
     }
 
     #[test]

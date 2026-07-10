@@ -44,7 +44,10 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+mod sandbox;
 mod unified_exec;
+
+use sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir};
 
 /// Максимум stdout/stderr. Reader продолжает дренировать pipe после лимита,
 /// но сохраняет только head+tail: модель видит и начало вывода, и хвост
@@ -66,7 +69,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Commands run in a sandbox with no network access and read-only filesystem outside the workspace when the sandbox is available. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Non-escalated commands require bwrap and run with no network access and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. External-terminal execution is unsandboxed and therefore also requires escalation. Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -122,25 +125,53 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(|args| args.get("command"))
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("shell requires string arg 'command'"))?;
-    let workdir = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")))?;
-    let timeout_ms = args
-        .and_then(|args| args.get("timeout_ms"))
-        .and_then(Value::as_u64)
-        .map_or(TIMEOUT_MS, |requested| requested.clamp(1, TIMEOUT_MS));
     let escalated = args
         .and_then(|args| args.get("with_escalated_permissions"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let sandbox = if escalated { None } else { sandbox_kind(cwd) };
+    invoke_command(
+        call_id,
+        args,
+        command,
+        cwd,
+        escalated,
+        SandboxPolicy::detect(cwd),
+        should_use_ptyxis(),
+    )
+}
 
-    let (output, timed_out, external_terminal) = if should_use_ptyxis() {
-        let (output, timed_out) =
-            run_in_ptyxis(command, &workdir, Duration::from_millis(timeout_ms))
-                .with_context(|| "failed to run shell in Ptyxis")?;
+fn invoke_command(
+    call_id: String,
+    args: Option<&Value>,
+    command: &str,
+    cwd: &str,
+    escalated: bool,
+    sandbox_policy: SandboxPolicy,
+    external_terminal_requested: bool,
+) -> Result<String> {
+    let resolved = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")), escalated)?;
+    let timeout_ms = args
+        .and_then(|args| args.get("timeout_ms"))
+        .and_then(Value::as_u64)
+        .map_or(TIMEOUT_MS, |requested| requested.clamp(1, TIMEOUT_MS));
+    let sandbox = sandbox_policy.select(escalated, external_terminal_requested)?;
+
+    let (output, timed_out, external_terminal) = if external_terminal_requested {
+        let (output, timed_out) = run_in_ptyxis(
+            command,
+            &resolved.workdir,
+            Duration::from_millis(timeout_ms),
+        )
+        .with_context(|| "failed to run shell in Ptyxis")?;
         (output, timed_out, Some(PTYXIS_TERMINAL))
     } else {
-        let child = spawn_shell(command, cwd, &workdir, sandbox)
-            .with_context(|| "failed to spawn shell")?;
+        let child = spawn_shell(
+            command,
+            &resolved.workspace,
+            &resolved.workdir,
+            sandbox.as_ref(),
+        )
+        .with_context(|| "failed to spawn shell")?;
         let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(timeout_ms))
             .with_context(|| "failed to wait for shell")?;
         (output, timed_out, None)
@@ -178,8 +209,8 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "stderr_truncated": output.stderr.truncated(),
         "timed_out": timed_out,
         "timeout_ms": timeout_ms,
-        "workdir": workdir,
-        "sandbox": sandbox.map(SandboxKind::label),
+        "workdir": resolved.workdir,
+        "sandbox": sandbox.as_ref().map(SandboxKind::label),
         "escalated": escalated,
         "external_terminal": external_terminal,
     });
@@ -193,34 +224,6 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         "metadata": metadata
     });
     Ok(result.to_string())
-}
-
-/// Резолвит `workdir` арг: относительный путь — от workspace root. Директория
-/// обязана существовать, иначе модель получает понятную ошибку вместо
-/// сбоя spawn.
-fn resolve_workdir(cwd: &str, workdir: Option<&Value>) -> Result<String> {
-    let Some(workdir) = workdir else {
-        return Ok(cwd.to_owned());
-    };
-    let workdir = workdir
-        .as_str()
-        .ok_or_else(|| anyhow!("shell arg 'workdir' must be a string"))?;
-    if workdir.trim().is_empty() {
-        return Ok(cwd.to_owned());
-    }
-    let path = Path::new(workdir);
-    let resolved = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        Path::new(cwd).join(path)
-    };
-    if !resolved.is_dir() {
-        return Err(anyhow!(
-            "shell workdir does not exist or is not a directory: {}",
-            resolved.display()
-        ));
-    }
-    Ok(resolved.display().to_string())
 }
 
 fn should_use_ptyxis() -> bool {
@@ -431,88 +434,15 @@ fn exit_status_from_code(code: i32) -> ExitStatus {
     ExitStatus::from_raw(code as u32)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SandboxKind {
-    Bwrap,
-}
-
-impl SandboxKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Bwrap => "bwrap",
-        }
-    }
-}
-
-/// Sandbox доступен, если найден bubblewrap. `PROTEUS_SHELL_SANDBOX=0`
-/// выключает его целиком (эскалация тогда не нужна, но и изоляции нет).
-fn sandbox_kind(_cwd: &str) -> Option<SandboxKind> {
-    if std::env::var("PROTEUS_SHELL_SANDBOX").is_ok_and(|value| value == "0") {
-        return None;
-    }
-    let available = std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("bwrap").is_file()));
-    available.then_some(SandboxKind::Bwrap)
-}
-
-/// Env запускаемых команд: нейтрализует интерактивность (pagers), цвет и
-/// локаль, чтобы `git diff`/`gh` и подобные не повисали на pager-е и не
-/// мусорили escape-кодами. Копия `UNIFIED_EXEC_ENV` из upstream Codex;
-/// брендовый маркер `CODEX_CI` заменён на `PROTEUS_CI`.
-pub(crate) const EXEC_COMMAND_ENV: [(&str, &str); 10] = [
-    ("NO_COLOR", "1"),
-    ("TERM", "dumb"),
-    ("LANG", "C.UTF-8"),
-    ("LC_CTYPE", "C.UTF-8"),
-    ("LC_ALL", "C.UTF-8"),
-    ("COLORTERM", ""),
-    ("PAGER", "cat"),
-    ("GIT_PAGER", "cat"),
-    ("GH_PAGER", "cat"),
-    ("PROTEUS_CI", "1"),
-];
-
-/// argv для bwrap: read-only корень, rw-bind workspace (и workdir, если он
-/// вне workspace), без сети, свежие /dev,/proc,/tmp.
-fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
-    let mut args = vec![
-        "--die-with-parent".to_owned(),
-        "--unshare-net".to_owned(),
-        "--ro-bind".to_owned(),
-        "/".to_owned(),
-        "/".to_owned(),
-        "--dev".to_owned(),
-        "/dev".to_owned(),
-        "--proc".to_owned(),
-        "/proc".to_owned(),
-        "--tmpfs".to_owned(),
-        "/tmp".to_owned(),
-        "--bind".to_owned(),
-        workspace.to_owned(),
-        workspace.to_owned(),
-    ];
-    if !Path::new(workdir).starts_with(workspace) {
-        args.extend(["--bind".to_owned(), workdir.to_owned(), workdir.to_owned()]);
-    }
-    args.extend([
-        "--chdir".to_owned(),
-        workdir.to_owned(),
-        EXEC_SHELL.to_owned(),
-        "-lc".to_owned(),
-        command.to_owned(),
-    ]);
-    args
-}
-
 fn spawn_shell(
     command: &str,
     workspace: &str,
     workdir: &str,
-    sandbox: Option<SandboxKind>,
+    sandbox: Option<&SandboxKind>,
 ) -> std::io::Result<Child> {
     let mut command_builder = match sandbox {
-        Some(SandboxKind::Bwrap) => {
-            let mut builder = Command::new("bwrap");
+        Some(sandbox @ SandboxKind::Bwrap(_)) => {
+            let mut builder = Command::new(sandbox.executable());
             builder.args(bwrap_args(command, workspace, workdir));
             builder
         }
@@ -902,12 +832,78 @@ mod tests {
     }
 
     #[test]
-    fn bwrap_args_bind_external_workdir() {
+    fn bwrap_args_never_bind_external_workdir() {
         let args = bwrap_args("pwd", "/ws", "/opt/elsewhere");
         assert!(
-            args.windows(3)
+            !args
+                .windows(3)
                 .any(|w| w == ["--bind", "/opt/elsewhere", "/opt/elsewhere"])
         );
+    }
+
+    #[test]
+    fn non_escalated_shell_fails_closed_without_bwrap() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let marker = dir.path().join("must-not-exist");
+        let args = json!({ "command": "touch must-not-exist" });
+
+        let error = invoke_command(
+            "call_shell".to_owned(),
+            Some(&args),
+            args["command"].as_str().unwrap(),
+            &dir.path().display().to_string(),
+            false,
+            SandboxPolicy::disabled_for_test(),
+            false,
+        )
+        .expect_err("missing bwrap must reject non-escalated shell");
+
+        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=0"));
+        assert!(!marker.exists(), "command must not be spawned");
+    }
+
+    #[test]
+    fn non_escalated_shell_rejects_external_workdir() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let external = tempfile::tempdir().expect("external workdir");
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": "pwd", "workdir": external.path() }
+        });
+
+        let error = invoke_impl(&call.to_string(), &workspace.path().display().to_string())
+            .expect_err("external workdir must require escalation");
+
+        assert!(
+            error.to_string().contains("outside the workspace"),
+            "{error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("with_escalated_permissions=true"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn non_escalated_shell_rejects_unsandboxed_external_terminal() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let args = json!({ "command": "true" });
+
+        let error = invoke_command(
+            "call_shell".to_owned(),
+            Some(&args),
+            "true",
+            &dir.path().display().to_string(),
+            false,
+            SandboxPolicy::unavailable_for_test(),
+            true,
+        )
+        .expect_err("Ptyxis requires escalation");
+
+        assert!(error.to_string().contains("external terminal"), "{error}");
     }
 
     #[test]
@@ -934,10 +930,13 @@ mod tests {
 
     #[test]
     fn sandboxed_run_blocks_network_when_bwrap_available() {
-        if sandbox_kind(".").is_none() {
+        let dir = tempfile::tempdir().expect("workspace");
+        if SandboxPolicy::detect(&dir.path().display().to_string())
+            .select(false, false)
+            .is_err()
+        {
             return; // окружение без bwrap — интеграцию пропускаем
         }
-        let dir = tempfile::tempdir().expect("workspace");
 
         let ok = invoke(dir.path(), "printf sandboxed");
         assert_eq!(ok["ok"], true);
