@@ -3579,7 +3579,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.modules.workflow, "coding.codex_loop_diagnostic");
+    assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
@@ -3671,15 +3671,12 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(deny[0], "playwright__browser_run_code_unsafe");
 
     let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
-    assert!(
-        codex_context["providers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|provider| provider == "git_diff")
+    assert_eq!(
+        codex_context["providers"],
+        json!(["project_instructions", "environment"])
     );
     assert_eq!(codex_context["max_context_bytes"], 60000);
-    assert_eq!(codex_context["git_diff_max_bytes"], 16000);
+    assert!(codex_context.get("git_diff_max_bytes").is_none());
     assert!(
         codex_context["project_instruction_files"]
             .as_array()

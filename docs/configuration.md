@@ -154,18 +154,19 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
-`configs/codex.config.toml` - packaged diagnostic Codex-shaped profile для чистой
+`configs/codex.config.toml` - packaged strict Codex-shaped profile для чистой
 проверки Codex-подобной сборки модулей. Он использует
-`coding.codex_loop_diagnostic`, `codex_context`, `rg`,
+`coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `modules.compactor = "codex"` и
 cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
 текста очередного turn-а, а редкие tools доступны через deferred
-search/describe/call. Diagnostic workflow сохраняет protocol/loop
-`coding.codex_loop`, но показывает последний
-`ToolResult`, если модель после tool call вернула пустой финальный ответ; strict
-parity остаётся в `coding.codex_loop` и может использоваться локальными synced
-configs. В этом profile `apply_patch` регистрируется через `tools.configured`
-как native handler с `surface.kind = "freeform"` и OpenAI custom-tool grammar.
+search/describe/call. `codex_context` добавляет только project instructions и
+`environment_context`; git diff, repo tree, manifests и targeted search модель
+получает через tools, а не как заранее инжектированный prompt. Diagnostic
+workflow `coding.codex_loop_diagnostic` остаётся отдельным явно выбираемым
+variant для smoke-профилей. В `codex` profile `apply_patch` регистрируется через
+`tools.configured` как native handler с `surface.kind = "freeform"` и OpenAI
+custom-tool grammar.
 Playwright MCP в текущем профиле закомментирован; browser tools не
 регистрируются, пока operator не включит server явно. При ручном включении для
 первого запуска может потребоваться browser install:

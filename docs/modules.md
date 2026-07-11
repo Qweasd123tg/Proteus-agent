@@ -742,13 +742,13 @@ model request, считаются ошибкой workflow. Это относит
 через обычный host/orchestrator path.
 
 `modules.workflow = "coding.codex_loop_diagnostic"` — явно названный variant для
-packaged diagnostic profile `codex` (`configs/codex.config.toml`) и smoke-проверок. Он
+smoke-проверок и профилей, которые осознанно выбирают diagnostic fallback. Он
 сохраняет тот же model/tool loop и protocol validation, что
 `coding.codex_loop`, но user-facing `AgentOutput` для пустого финального ответа
 после tool call заменяет на диагностическое сообщение с последним `ToolResult`.
 Это осознанная UX-divergence: MCP/tool smoke-тесты не выглядят как зависание с
-`<empty model response>`, а strict Codex-shaped behavior остаётся доступным
-через `coding.codex_loop` и может использоваться локальными synced configs.
+`<empty model response>`. Packaged `codex` profile использует strict
+`coding.codex_loop`; diagnostic variant остаётся opt-in.
 
 ## Renderer
 
