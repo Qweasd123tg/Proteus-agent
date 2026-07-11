@@ -383,16 +383,21 @@ mode-aware wrapper.
 
 ```toml
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "git_diff", "request_user_input", "write_stdin"]
+allow = ["search", "read_file", "git_diff", "request_user_input", "apply_patch", "write_file", "write_stdin"]
 allow_sandboxed = ["shell", "exec_command"]
-ask_before = ["apply_patch", "write_file", "shell", "exec_command", "request_permissions", "remember_fact"]
+ask_before = ["shell", "exec_command", "request_permissions", "remember_fact"]
 deny = []
 ```
 
-Такой профиль делает Codex-подобный hot path явным: read-only tools видны без
-approval, write/shell/memory-write tools остаются видимыми только при
-интерактивном approval transport, а network/dangerous tools не появляются у
-модели без явной правки config.
+Packaged `codex` profile разрешает workspace-scoped `apply_patch` и
+`write_file` без отдельного approval: оба handler-а проверяют workspace
+boundary до записи. Эскалированные `shell` / `exec_command`, изменение durable
+memory и остальные явно перечисленные действия сохраняют approval boundary.
+
+Такой профиль делает Codex-подобный hot path явным: read-only и bounded
+workspace-write tools видны без approval, неэскалированный shell работает в
+sandbox, approval-gated actions требуют интерактивный transport, а
+network/dangerous tools не появляются у модели без явной правки config.
 
 ### Approval-gated grants и request_permissions
 

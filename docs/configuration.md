@@ -160,7 +160,8 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `direct`, `codex_policy`, `modules.compactor = "codex"` и
 cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
 текста очередного turn-а, а редкие tools доступны через deferred
-search/describe/call. `codex_context` добавляет только project instructions и
+search/describe/call. `codex_context` добавляет только Codex-style
+`AGENTS.override.md` / `AGENTS.md` project instructions и
 `environment_context`; git diff, repo tree, manifests и targeted search модель
 получает через tools, а не как заранее инжектированный prompt. Diagnostic
 workflow `coding.codex_loop_diagnostic` остаётся отдельным явно выбираемым

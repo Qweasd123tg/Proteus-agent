@@ -110,11 +110,9 @@ handler = "apply_patch"
 mode = "normal"
 
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "write_stdin"]
+allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "write_stdin"]
 allow_sandboxed = ["shell", "exec_command"]
 ask_before = [
-  "apply_patch",
-  "write_file",
   "shell",
   "exec_command",
   "request_permissions",
@@ -203,7 +201,7 @@ always_include = ["request_user_input", "update_plan", "request_permissions", "e
 providers = ["project_instructions", "environment"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
-project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
 
 [app_server]
 approval_timeout_ms = 0

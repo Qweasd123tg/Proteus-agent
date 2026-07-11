@@ -3652,6 +3652,22 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|tool| tool == "git_diff")
     );
+    for workspace_write in ["apply_patch", "write_file"] {
+        assert!(
+            codex_policy["allow"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool == workspace_write)
+        );
+        assert!(
+            !codex_policy["ask_before"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool == workspace_write)
+        );
+    }
     assert!(
         codex_policy["ask_before"]
             .as_array()
@@ -3677,12 +3693,9 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     );
     assert_eq!(codex_context["max_context_bytes"], 60000);
     assert!(codex_context.get("git_diff_max_bytes").is_none());
-    assert!(
-        codex_context["project_instruction_files"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|entry| entry == "AGENTS.override.md")
+    assert_eq!(
+        codex_context["project_instruction_files"],
+        json!(["AGENTS.override.md", "AGENTS.md"])
     );
 }
 
