@@ -19,8 +19,8 @@ Roadmap хранит порядок работ и журнал уже приня
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. 🟡 Первый async collaboration control закрыт session ownership и hard caps,
-   но остаются bounded idle/resume retention для process subagents, а также
+3. 🟡 Async collaboration control закрыт session ownership, hard caps и
+   sequential mailbox/follow-up generations, но остаются bounded idle/resume retention для process subagents, а также
    ownership, age cleanup и cancellation для уже count-bounded interactive
    exec sessions.
 4. После lifecycle checkpoint решить canonical turn data как один кластер:
@@ -424,7 +424,8 @@ envelopes verbatim. Responses Lite и websocket transport остаются plann
   `SubagentLimits::max_total_tokens` + `BudgetTracker`). Первый model-facing
   collaboration slice добавлен 2026-07-11 отдельно от foreground `task`:
   session-owned bounded spawn/list/wait/interrupt для read-only
-  `parallel_safe` ролей без worktree. Idle process children всё ещё должны
+  `parallel_safe` ролей без worktree; 2026-07-12 sequential получил bounded
+  mailbox, `send_message`, `followup_task` и immutable generations. Idle process children всё ещё должны
   получить bounded eviction — новый surface не закрывает lifecycle самого
   process pool.
   Стратегия записи (2026-07-06):
@@ -511,12 +512,16 @@ Scope:
   изолированы структурно (`child_context` в `core/subagent.rs` даёт пустые
   grants — `escalated_exec` родителя не протекает, кластер 2 аудита частично
   закрыт);
-- ✅ экспериментальный async collaboration surface (2026-07-11): top-level
-  `subagents.surface` взаимно исключительно выбирает foreground `task`, четыре
-  tools `spawn_agent`/`list_agents`/`wait_agent`/`interrupt_agent` или `none`;
+- ✅ экспериментальный async collaboration surface (2026-07-11, messaging
+  slice 2026-07-12): top-level `subagents.surface` взаимно исключительно
+  выбирает foreground `task`, lifecycle tools
+  `spawn_agent`/`list_agents`/`wait_agent`/`interrupt_agent` или `none`;
   control plane session-owned, process-resident и bounded, background child
-  остаётся видимым в app-server/web после завершения parent turn. Это первый
-  Proteus Codex-shaped slice без send/follow-up/fork/nesting, durable restart,
+  остаётся видимым в app-server/web после завершения parent turn. Sequential
+  runner дополнительно даёт bounded `send_message`/`followup_task`, real
+  model/tool-boundary delivery, immutable completion generations и resumable
+  terminal follow-up. Process runner пока остаётся без message capability.
+  Это Proteus Codex-shaped slice без fork/nesting, durable restart,
   writer/worktree spawn или parity claim;
 - ✅ session resume/restore;
 - 🟡 session/request/config metadata персистится частично; canonical task/turn

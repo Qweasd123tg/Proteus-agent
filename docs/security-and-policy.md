@@ -102,6 +102,7 @@ plan flow UI может просить модель вернуть staged read-o
 | `request_user_input` / `AskUserQuestion` | `ReadOnly` | запрашивает typed ответ через `UserInputTransport`; второй id — provider-compatible alias |
 | `task` | `WritesFiles` | foreground subagent facade; может запустить writing/worktree роль и потому проходит write approval boundary |
 | `spawn_agent` | `WritesFiles` | экспериментальный async subagent spawn; доступен только для `parallel_safe`, `isolation = none` ролей, но сохраняет консервативный safety floor |
+| `send_message` / `followup_task` | `WritesFiles` | сообщение способно направить активный child tool loop, а follow-up — запустить resumable turn; оба сохраняют тот же консервативный approval boundary |
 | `list_agents` / `wait_agent` / `interrupt_agent` | `ReadOnly` | session-owned collaboration control без прямой записи workspace; `interrupt_agent` меняет только lifecycle принадлежащего session ребёнка |
 
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
@@ -117,8 +118,9 @@ builtin/configured tool, сборка registry завершается ошибк
 приоритет или silent skip не применяются.
 
 Subagent facade выбирается top-level полем `subagents.surface`. В режиме
-`task` регистрируется только `task`; в `collaboration` — только
-`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; `none` не
+`task` регистрируется только `task`; в `collaboration` — базовые
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent` и, для runner-а с
+message capability, `send_message`/`followup_task`; `none` не
 регистрирует ни одну поверхность. Это реальные registry tools, а не workflow
 side-channel, поэтому mode-aware visibility, approval, timeout и result bounds
 остаются обязательными.

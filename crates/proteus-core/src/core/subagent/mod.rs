@@ -13,6 +13,7 @@
 //! ребёнка на полпути. `run` = `spawn` + `wait`.
 
 mod child_loop;
+mod mailbox;
 mod pending;
 mod process;
 mod resumable;
@@ -44,9 +45,10 @@ use crate::{
 };
 
 use child_loop::{
-    ChildLoopState, run_child_loop, select_child_tools, subagent_status_label,
-    truncate_at_char_boundary,
+    ChildLoopState, append_mailbox_messages, run_child_loop, select_child_tools,
+    subagent_status_label, truncate_at_char_boundary,
 };
+use mailbox::ChildMailbox;
 use pending::PendingChildren;
 use resumable::{ResumableSnapshot, ResumableStore};
 use roles::{SequentialSubagentConfig, build_role_specs};
@@ -59,6 +61,8 @@ const SUBAGENT_FACADE_TOOLS: &[&str] = &[
     "list_agents",
     "wait_agent",
     "interrupt_agent",
+    "send_message",
+    "followup_task",
 ];
 
 pub struct SequentialSubagentRunner {
@@ -90,6 +94,16 @@ struct PreparedChild {
     role: SubagentRoleSpec,
     child_thread_id: ThreadId,
     history: Vec<CanonicalMessage>,
+}
+
+struct ChildExecution {
+    role: SubagentRoleSpec,
+    request: SubagentRequest,
+    ctx: RuntimeContext,
+    child_ctx: RuntimeContext,
+    child_thread_id: ThreadId,
+    history: Vec<CanonicalMessage>,
+    mailbox: Arc<ChildMailbox>,
 }
 
 impl SequentialSubagentRunner {
@@ -224,15 +238,16 @@ impl RunnerInner {
     /// статуса, resumable snapshot и `SubagentFinished`. Живёт detached
     /// tokio-таской (`spawn`), поэтому события эмитятся через собственные
     /// клоны контекстов, а не через ссылки на caller.
-    async fn execute(
-        self: Arc<Self>,
-        role: SubagentRoleSpec,
-        request: SubagentRequest,
-        ctx: RuntimeContext,
-        child_ctx: RuntimeContext,
-        child_thread_id: ThreadId,
-        history: Vec<CanonicalMessage>,
-    ) -> Result<SubagentResult> {
+    async fn execute(self: Arc<Self>, execution: ChildExecution) -> Result<SubagentResult> {
+        let ChildExecution {
+            role,
+            request,
+            ctx,
+            child_ctx,
+            child_thread_id,
+            history,
+            mailbox,
+        } = execution;
         // Ребёнок не наследует родительские ctx.instructions: system-слой —
         // только prompt роли.
         let mut state = ChildLoopState {
@@ -242,7 +257,7 @@ impl RunnerInner {
             usage: None,
         };
 
-        let body_result: Result<(SubagentResult, String)> = async {
+        let mut body_result: Result<(SubagentResult, String)> = async {
             let orchestrator = ToolOrchestrator::default();
             let tools = select_child_tools(&child_ctx, &orchestrator, &request, &role).await?;
 
@@ -257,6 +272,7 @@ impl RunnerInner {
                             &orchestrator,
                             &tools,
                             &mut state,
+                            &mailbox,
                         ),
                     )
                     .await
@@ -273,6 +289,7 @@ impl RunnerInner {
                         &orchestrator,
                         &tools,
                         &mut state,
+                        &mailbox,
                     )
                     .await?
                 }
@@ -293,6 +310,11 @@ impl RunnerInner {
             Ok((result, status_label))
         }
         .await;
+
+        match mailbox.close_and_drain() {
+            Ok(messages) => append_mailbox_messages(&mut state, messages),
+            Err(error) => body_result = Err(error),
+        }
 
         match body_result {
             Ok((mut result, status)) => {
@@ -341,6 +363,10 @@ impl SubagentRunner for SequentialSubagentRunner {
         true
     }
 
+    fn supports_collaboration_messages(&self) -> bool {
+        true
+    }
+
     /// `run` = `spawn` + `wait`: цикл ребёнка исполняется detached-таской,
     /// поэтому обрыв родительского future (например, отмена turn'а на
     /// границе block_on в workflow host) не роняет ребёнка на полпути —
@@ -355,9 +381,11 @@ impl SubagentRunner for SequentialSubagentRunner {
         let prepared = self.inner.prepare(&request, &ctx)?;
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.role.name);
         let spawn_id = new_call_id();
+        let mailbox = Arc::new(ChildMailbox::default());
         self.inner.lock_pending()?.reserve(
             &spawn_id,
             child_ctx.cancellation.clone(),
+            mailbox.clone(),
             self.inner.max_parallel,
             !request
                 .metadata
@@ -387,14 +415,15 @@ impl SubagentRunner for SequentialSubagentRunner {
             prepared.role.name.clone(),
             prepared.child_thread_id,
         );
-        let join = tokio::spawn(self.inner.clone().execute(
-            prepared.role,
+        let join = tokio::spawn(self.inner.clone().execute(ChildExecution {
+            role: prepared.role,
             request,
-            ctx.clone(),
+            ctx: ctx.clone(),
             child_ctx,
-            prepared.child_thread_id,
-            prepared.history,
-        ));
+            child_thread_id: prepared.child_thread_id,
+            history: prepared.history,
+            mailbox,
+        }));
         self.inner.lock_pending()?.attach(&spawn_id, join);
         Ok(handle)
     }
@@ -408,6 +437,13 @@ impl SubagentRunner for SequentialSubagentRunner {
 
     async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
         self.inner.lock_pending()?.cancel(&handle.spawn_id)
+    }
+
+    async fn send(&self, handle: &SubagentHandle, message: String) -> Result<()> {
+        self.inner
+            .lock_pending()?
+            .send(&handle.spawn_id, &message)?;
+        Ok(())
     }
 }
 

@@ -1,6 +1,6 @@
 # Варианты Архитектуры Subagents
 
-Статус: research note; первый surface/control slice принят и реализован,
+Статус: research note; surface/control и bounded messaging slices реализованы,
 долгосрочный contract не выбран. Последнее обновление: 2026-07-11.
 
 Эта заметка сохраняет факты и развилки, которые выяснились после реализации
@@ -18,17 +18,29 @@ Default `task` сохраняет прежний foreground protocol; `none` с�
 поверхности.
 
 Реализованный `collaboration` — экспериментальный Proteus Codex-shaped slice,
-не compatibility/parity mode. Он содержит только session-owned bounded
-`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; допускает лишь
-`parallel_safe`, `isolation = none` роли и не предоставляет send/follow-up,
-fork, nesting, writer/worktree spawn, durable restart или resume закрытого
-handle. Control records process-resident; app-server и web сохраняют live
-background child card после завершения parent turn.
+не compatibility/parity mode. Он содержит session-owned bounded
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; builtin
+`sequential` дополнительно предоставляет bounded `send_message` и
+`followup_task`. Активный child получает сообщения на model/tool boundaries,
+terminal follow-up запускает resumable generation того же logical path/thread.
+Surface допускает лишь `parallel_safe`, `isolation = none` роли и не
+предоставляет fork, nesting, writer/worktree spawn или durable restart. Control
+records process-resident; app-server и web сохраняют live background child card
+после завершения parent turn.
 
-Таким образом, решён только вопрос первого model-facing facade и его
-ownership. Общий persistent agent tree, mailbox, history fork, role overlays,
-residency/reload и будущая plugin ABI остаются предметом следующего ADR после
-dogfood этого slice.
+Таким образом, решены model-facing facade, ownership и первый in-process
+mailbox/follow-up lifecycle. Общий persistent agent tree, process/plugin
+mailbox, history fork, role overlays, residency/reload и будущая plugin ABI
+остаются предметом следующего ADR.
+
+## Dogfood Первого Slice
+
+Ручной двухходовый smoke 2026-07-12 подтвердил: три handles сохранились между
+parent turns; два ребёнка завершились, адресный interrupt дал `cancelled`;
+completion updates не потерялись, не повторились и не противоречили retained
+status. Карточки закрылись по terminal events. Отдельный late-nested-tool путь
+в ручном прогоне не возник, поэтому он закреплён автоматическими app-server/web
+regression tests, а не объявлен проверенным по отсутствию события.
 
 ## Зачем Зафиксирован Этот Разбор
 
@@ -119,7 +131,8 @@ runner-а, чтобы не получить цикл зависимостей м
 
 - `task` — foreground вызов с `agent_type`, prompt и optional `task_id`, который
   вызывает `SubagentToolHost::run_subagent` и ждёт итог;
-- `collaboration` — четыре async lifecycle tools первого slice;
+- `collaboration` — четыре async lifecycle tools и, у message-capable runner-а,
+  `send_message`/`followup_task`;
 - `none` — delegation tools отсутствуют.
 
 Builtin runners объявляют working spawn/wait/cancel через
@@ -317,10 +330,11 @@ retention. Поверх него подключаются model-facing tool surf
 Execution backend (`in_process`, `stdio_process`, future remote) выбирается
 отдельно от facade. Agent profile также остаётся config composition.
 
-Первый slice выбрал host-bound core facade без нового slot-а и оставил
-`SubagentRunner` execution boundary. Реализован только bounded session-owned
-spawn/list/wait/interrupt control; полный `AgentRecord` contract из этого
-варианта, persistence и несколько interchangeable implementations не приняты.
+Первые slices выбрали host-bound core facade без нового slot-а и оставили
+`SubagentRunner` execution boundary. Реализованы bounded session-owned
+spawn/list/wait/interrupt control и optional sequential mailbox/follow-up;
+полный `AgentRecord` contract, persistence и несколько interchangeable
+message-capable implementations не приняты.
 
 ### C. Один Rich Collaboration Module, Но Не Один Fat File
 
@@ -347,14 +361,15 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
 1. ✅ сохранить текущий foreground baseline как `surface = "task"`;
 2. ✅ проверить отдельный Codex-shaped surface минимальным bounded
    spawn/list/wait/interrupt slice без parity claim;
-3. прогнать dogfood и только после него решать, нужен ли отдельный
-   `codex_threads`/`codex_collab` contract;
-4. внутри будущей полной реализации разделить control, registry/tree, mailbox, persistence,
+3. ✅ прогнать dogfood первого slice;
+4. ✅ добавить bounded sequential mailbox и follow-up generations без нового
+   slot-а и без ложной capability у process/plugin runners;
+5. внутри будущей полной реализации разделить control, registry/tree, mailbox, persistence,
    residency, roles/config и tool handlers — один cohesive module, не один fat
    file;
-5. OpenCode-compatible `opencode_task` добавлять позже только при реальной
+6. OpenCode-compatible `opencode_task` добавлять позже только при реальной
    потребности и с его точными stop/failure/resume semantics;
-6. общие abstractions выносить после второго реального implementation, а не
+7. общие abstractions выносить после второго реального implementation, а не
    заранее.
 
 Текущий slice даёт две model-facing поверхности поверх тех же runner-ов, а не
@@ -408,13 +423,9 @@ capability: оба исследованных upstream-а по умолчани�
 
 ## Предлагаемый Следующий Шаг Когда Вернёмся
 
-Не расширять implementation до dogfood первого slice. Затем короткий ADR с
-одной диаграммой и ответами на вопросы 1–4, плюс executable contract tests для
-ещё отсутствующих semantics:
-
-1. Codex-like: spawn ребёнка, продолжить работу родителя, послать follow-up,
-   дождаться, закрыть и проверить persisted parent edge;
-2. Task-like: запустить foreground child session, продолжить по `task_id`,
-   проверить отдельный permission envelope и parent result.
-
-Только после этих тестов выбирать новый contract/slot и переносить lifecycle.
+Не расширять mailbox на `process` creative fallback-ом. Следующий ADR должен
+решить persistent `AgentRecord`/tree, residency и reload, а затем определить,
+нужен ли отдельный `codex_threads` contract и как plugin ABI объявляет
+message-delivery capability. До ADR полезны только targeted dogfood/regression
+фиксы текущих six-tool semantics; fork, nesting и durable edges не добавляются
+по одному в существующий control record.

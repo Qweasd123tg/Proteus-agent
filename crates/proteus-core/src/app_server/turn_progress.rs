@@ -15,8 +15,8 @@ const MAX_BACKGROUND_TOOL_JSON_BYTES: usize = 8_000;
 #[derive(Default)]
 pub(super) struct TurnProgress {
     messages: Vec<AppTranscriptMessage>,
-    /// Collaboration-дети, запущенные через `spawn_agent`, живут дольше
-    /// родительского turn-а. Их карточки хранятся отдельно, чтобы
+    /// Collaboration-дети, запущенные через `spawn_agent`/`followup_task`,
+    /// живут дольше родительского turn-а. Их карточки хранятся отдельно, чтобы
     /// TurnFinished/следующий TurnStarted не превращали поздние child events
     /// в плоские фантомные tool-карточки.
     background_subagents: Vec<AppTranscriptMessage>,
@@ -82,7 +82,7 @@ impl TurnProgress {
                     }),
                     streaming: false,
                 };
-                if self.spawn_agent_is_running(description.as_deref()) {
+                if self.background_agent_parent_is_running(description.as_deref()) {
                     self.push_background_subagent(message);
                 } else {
                     self.messages.push(message);
@@ -205,17 +205,27 @@ impl TurnProgress {
         );
     }
 
-    fn spawn_agent_is_running(&self, description: Option<&str>) -> bool {
+    fn background_agent_parent_is_running(&self, description: Option<&str>) -> bool {
         self.messages.iter().rev().any(|message| {
             message.tool.as_ref().is_some_and(|tool| {
-                tool.name == "spawn_agent"
-                    && tool.status == "running"
-                    && description.is_none_or(|task_name| {
-                        tool.args
-                            .get("task_name")
-                            .and_then(serde_json::Value::as_str)
-                            == Some(task_name)
-                    })
+                tool.status == "running"
+                    && match tool.name.as_str() {
+                        "spawn_agent" => description.is_none_or(|task_name| {
+                            tool.args
+                                .get("task_name")
+                                .and_then(serde_json::Value::as_str)
+                                == Some(task_name)
+                        }),
+                        "followup_task" => description.is_none_or(|task_name| {
+                            tool.args
+                                .get("target")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|target| {
+                                    target == task_name || target == format!("/root/{task_name}")
+                                })
+                        }),
+                        _ => false,
+                    }
             })
         })
     }
@@ -654,5 +664,55 @@ mod tests {
                 .map(|subagent| subagent.status.as_str()),
             Some("completed")
         );
+    }
+
+    #[test]
+    fn collaboration_followup_owns_a_background_card() {
+        let mut progress = TurnProgress::default();
+        let child_thread_id = child_thread_id();
+
+        apply(
+            &mut progress,
+            Event::ToolCallRequested {
+                call: ToolCall::new(
+                    "followup-1",
+                    "followup_task",
+                    json!({ "target": "/root/scan", "message": "continue" }),
+                ),
+            },
+        );
+        apply(
+            &mut progress,
+            Event::SubagentStarted {
+                role: "explore".to_owned(),
+                description: Some("scan".to_owned()),
+                child_thread_id,
+            },
+        );
+        apply(
+            &mut progress,
+            Event::ToolFinished {
+                result: ToolResult::ok("followup-1".to_owned(), "resumed"),
+            },
+        );
+        apply(
+            &mut progress,
+            Event::TurnFinished {
+                output: crate::domain::AgentOutput::text("follow-up started"),
+            },
+        );
+        progress.apply(&envelope(
+            child_thread_id,
+            Event::ToolCallRequested {
+                call: ToolCall::new("child-late", "grep", json!({ "pattern": "mailbox" })),
+            },
+        ));
+
+        let snapshot = progress.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        let subagent = snapshot[0].subagent.as_ref().expect("follow-up child");
+        assert_eq!(subagent.status, "running");
+        assert_eq!(subagent.tools.len(), 1);
+        assert_eq!(subagent.tools[0].call_id, "child-late");
     }
 }

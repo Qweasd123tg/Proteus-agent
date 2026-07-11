@@ -15,6 +15,7 @@ use crate::{
 const MAX_SESSIONS: usize = 64;
 const MAX_AGENTS_PER_SESSION: usize = 64;
 const MAX_COMPLETIONS_PER_WAIT: usize = 8;
+pub(super) const MAX_OUTSTANDING_COMPLETIONS: usize = 64;
 const MAX_RETAINED_SUMMARY_BYTES: usize = 16_000;
 const MAX_RETAINED_ERROR_BYTES: usize = 4_000;
 
@@ -33,7 +34,7 @@ struct SessionState {
     seq: u64,
     notify: Arc<Notify>,
     agents: BTreeMap<String, AgentRecord>,
-    completions: VecDeque<String>,
+    completions: VecDeque<AgentView>,
 }
 
 struct AgentRecord {
@@ -43,6 +44,8 @@ struct AgentRecord {
     handle: Option<SubagentHandle>,
     owner: Option<Arc<dyn SubagentToolHost>>,
     interrupt_requested: bool,
+    generation: u64,
+    reserved_generation: Option<u64>,
     outcome: Option<AgentOutcome>,
 }
 
@@ -61,6 +64,7 @@ pub(super) struct AgentView {
     pub path: String,
     pub task_name: String,
     pub agent_type: String,
+    pub generation: u64,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_thread_id: Option<String>,
@@ -68,6 +72,30 @@ pub(super) struct AgentView {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+pub(super) struct AgentReservation {
+    pub path: String,
+    pub generation: u64,
+}
+
+pub(super) struct RunningAgent {
+    pub path: String,
+    pub owner: Arc<dyn SubagentToolHost>,
+    pub handle: SubagentHandle,
+}
+
+pub(super) struct IdleFollowup {
+    pub path: String,
+    pub task_name: String,
+    pub role: String,
+    pub task_id: String,
+    pub generation: u64,
+}
+
+pub(super) enum FollowupRequest {
+    Running(RunningAgent),
+    Idle(IdleFollowup),
 }
 
 pub(super) struct InterruptRequest {
@@ -87,7 +115,7 @@ impl CollaborationControl {
         session_id: SessionId,
         task_name: &str,
         role: &str,
-    ) -> Result<String> {
+    ) -> Result<AgentReservation> {
         validate_task_name(task_name)?;
         let path = canonical_path(task_name);
         let mut state = self.lock()?;
@@ -102,6 +130,7 @@ impl CollaborationControl {
             bail!("task_name '{task_name}' is already owned by this session");
         }
         session.prune_for_spawn()?;
+        session.ensure_completion_capacity()?;
         session.agents.insert(
             path.clone(),
             AgentRecord {
@@ -111,10 +140,15 @@ impl CollaborationControl {
                 handle: None,
                 owner: None,
                 interrupt_requested: false,
+                generation: 1,
+                reserved_generation: None,
                 outcome: None,
             },
         );
-        Ok(path)
+        Ok(AgentReservation {
+            path,
+            generation: 1,
+        })
     }
 
     pub(super) fn release_reservation(&self, session_id: SessionId, path: &str) {
@@ -129,6 +163,7 @@ impl CollaborationControl {
         &self,
         session_id: SessionId,
         path: &str,
+        generation: u64,
         handle: SubagentHandle,
         owner: Arc<dyn SubagentToolHost>,
     ) -> Result<bool> {
@@ -141,6 +176,9 @@ impl CollaborationControl {
         if record.handle.is_some() {
             bail!("collaboration agent handle is already attached");
         }
+        if record.generation != generation || record.reserved_generation.is_some() {
+            bail!("collaboration agent generation changed before attach");
+        }
         record.handle = Some(handle);
         record.owner = Some(owner);
         Ok(record.interrupt_requested)
@@ -150,6 +188,7 @@ impl CollaborationControl {
         &self,
         session_id: SessionId,
         path: &str,
+        generation: u64,
         result: Result<SubagentResult>,
     ) {
         let notify = {
@@ -162,6 +201,9 @@ impl CollaborationControl {
             let Some(record) = session.agents.get_mut(path) else {
                 return;
             };
+            if record.generation != generation || record.outcome.is_some() {
+                return;
+            }
             record.outcome = Some(match result {
                 Ok(result) => compact_result(result),
                 Err(error) => AgentOutcome::Error(truncate_utf8(
@@ -174,7 +216,9 @@ impl CollaborationControl {
             // and is needed only while the child is addressable.
             record.owner = None;
             record.handle = None;
-            session.completions.push_back(path.to_owned());
+            record.interrupt_requested = false;
+            let completion = view(path, record, true);
+            session.completions.push_back(completion);
             session.notify.clone()
         };
         notify.notify_waiters();
@@ -215,16 +259,7 @@ impl CollaborationControl {
             return Ok(Vec::new());
         };
         let count = session.completions.len().min(MAX_COMPLETIONS_PER_WAIT);
-        let paths = session.completions.drain(..count).collect::<Vec<_>>();
-        Ok(paths
-            .iter()
-            .filter_map(|path| {
-                session
-                    .agents
-                    .get(path)
-                    .map(|record| view(path, record, true))
-            })
-            .collect())
+        Ok(session.completions.drain(..count).collect())
     }
 
     pub(super) fn session_notify(&self, session_id: SessionId) -> Result<Arc<Notify>> {
@@ -236,6 +271,130 @@ impl CollaborationControl {
             .expect("session inserted by ensure_session")
             .notify
             .clone())
+    }
+
+    pub(super) fn running_agent(
+        &self,
+        session_id: SessionId,
+        target: &str,
+    ) -> Result<RunningAgent> {
+        let path = normalize_target(target)?;
+        let state = self.lock()?;
+        let record = state
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.agents.get(&path))
+            .ok_or_else(|| anyhow!("unknown collaboration agent '{path}' in this session"))?;
+        if record.outcome.is_some() && record.reserved_generation.is_none() {
+            bail!("collaboration agent '{path}' is idle; use followup_task to start another turn");
+        }
+        let (owner, handle) = record
+            .owner
+            .clone()
+            .zip(record.handle.clone())
+            .ok_or_else(|| anyhow!("collaboration agent '{path}' is still starting"))?;
+        Ok(RunningAgent {
+            path,
+            owner,
+            handle,
+        })
+    }
+
+    pub(super) fn begin_followup(
+        &self,
+        session_id: SessionId,
+        target: &str,
+    ) -> Result<FollowupRequest> {
+        let path = normalize_target(target)?;
+        let mut state = self.lock()?;
+        let session = state
+            .sessions
+            .get_mut(&session_id)
+            .ok_or_else(|| anyhow!("unknown collaboration agent '{path}' in this session"))?;
+
+        if let Some((owner, handle)) = session
+            .agents
+            .get(&path)
+            .and_then(|record| record.owner.clone().zip(record.handle.clone()))
+        {
+            return Ok(FollowupRequest::Running(RunningAgent {
+                path,
+                owner,
+                handle,
+            }));
+        }
+        session.ensure_completion_capacity()?;
+        let record = session
+            .agents
+            .get_mut(&path)
+            .ok_or_else(|| anyhow!("unknown collaboration agent '{path}' in this session"))?;
+        if record.reserved_generation.is_some() {
+            bail!("collaboration agent '{path}' already has a follow-up starting");
+        }
+        let task_id = match &record.outcome {
+            Some(AgentOutcome::Result {
+                child_thread_id: Some(task_id),
+                ..
+            }) => task_id.clone(),
+            Some(AgentOutcome::Result { .. }) => {
+                bail!("collaboration agent '{path}' has no resumable task id")
+            }
+            Some(AgentOutcome::Error(_)) => {
+                bail!("collaboration agent '{path}' errored and cannot be resumed")
+            }
+            None => bail!("collaboration agent '{path}' is still starting"),
+        };
+        let generation = record.generation.wrapping_add(1);
+        record.reserved_generation = Some(generation);
+        Ok(FollowupRequest::Idle(IdleFollowup {
+            path,
+            task_name: record.task_name.clone(),
+            role: record.role.clone(),
+            task_id,
+            generation,
+        }))
+    }
+
+    pub(super) fn attach_followup(
+        &self,
+        session_id: SessionId,
+        followup: &IdleFollowup,
+        handle: SubagentHandle,
+        owner: Arc<dyn SubagentToolHost>,
+    ) -> Result<bool> {
+        let mut state = self.lock()?;
+        let record = state
+            .sessions
+            .get_mut(&session_id)
+            .and_then(|session| session.agents.get_mut(&followup.path))
+            .ok_or_else(|| anyhow!("collaboration follow-up reservation was lost"))?;
+        if record.reserved_generation != Some(followup.generation)
+            || record.handle.is_some()
+            || record.outcome.is_none()
+        {
+            bail!("collaboration follow-up generation changed before attach");
+        }
+        let interrupt_requested = record.interrupt_requested;
+        record.generation = followup.generation;
+        record.reserved_generation = None;
+        record.handle = Some(handle);
+        record.owner = Some(owner);
+        record.outcome = None;
+        record.interrupt_requested = false;
+        Ok(interrupt_requested)
+    }
+
+    pub(super) fn abort_followup(&self, session_id: SessionId, path: &str, generation: u64) {
+        if let Ok(mut state) = self.lock()
+            && let Some(record) = state
+                .sessions
+                .get_mut(&session_id)
+                .and_then(|session| session.agents.get_mut(path))
+            && record.reserved_generation == Some(generation)
+        {
+            record.reserved_generation = None;
+            record.interrupt_requested = false;
+        }
     }
 
     pub(super) fn request_interrupt(
@@ -250,7 +409,7 @@ impl CollaborationControl {
             .get_mut(&session_id)
             .and_then(|session| session.agents.get_mut(&path))
             .ok_or_else(|| anyhow!("unknown collaboration agent '{path}' in this session"))?;
-        let terminal = record.outcome.is_some();
+        let terminal = record.outcome.is_some() && record.reserved_generation.is_none();
         if !terminal {
             record.interrupt_requested = true;
         }
@@ -307,7 +466,9 @@ impl ControlState {
 
 impl SessionState {
     fn all_terminal(&self) -> bool {
-        self.agents.values().all(|record| record.outcome.is_some())
+        self.agents
+            .values()
+            .all(|record| record.outcome.is_some() && record.reserved_generation.is_none())
     }
 
     fn prune_for_spawn(&mut self) -> Result<()> {
@@ -315,13 +476,15 @@ impl SessionState {
             let evict = self
                 .agents
                 .iter()
-                .filter(|(_, record)| record.outcome.is_some())
+                .filter(|(_, record)| {
+                    record.outcome.is_some() && record.reserved_generation.is_none()
+                })
                 .min_by_key(|(_, record)| record.seq)
                 .map(|(path, _)| path.clone());
             match evict {
                 Some(path) => {
                     self.agents.remove(&path);
-                    self.completions.retain(|queued| queued != &path);
+                    self.completions.retain(|queued| queued.path != path);
                 }
                 None => bail!(
                     "collaboration agent capacity reached ({MAX_AGENTS_PER_SESSION}); active agents are not evicted"
@@ -330,10 +493,25 @@ impl SessionState {
         }
         Ok(())
     }
+
+    fn ensure_completion_capacity(&self) -> Result<()> {
+        let active = self
+            .agents
+            .values()
+            .filter(|record| record.outcome.is_none() || record.reserved_generation.is_some())
+            .count();
+        if self.completions.len().saturating_add(active) >= MAX_OUTSTANDING_COMPLETIONS {
+            bail!(
+                "collaboration completion capacity reached ({MAX_OUTSTANDING_COMPLETIONS}); drain updates with wait_agent before starting more work"
+            );
+        }
+        Ok(())
+    }
 }
 
 fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentView {
     let (status, child_thread_id, summary, error) = match &record.outcome {
+        _ if record.reserved_generation.is_some() => ("starting".to_owned(), None, None, None),
         Some(AgentOutcome::Result {
             status,
             child_thread_id,
@@ -357,6 +535,7 @@ fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentView {
         path: path.to_owned(),
         task_name: record.task_name.clone(),
         agent_type: record.role.clone(),
+        generation: record.reserved_generation.unwrap_or(record.generation),
         status,
         child_thread_id,
         summary,

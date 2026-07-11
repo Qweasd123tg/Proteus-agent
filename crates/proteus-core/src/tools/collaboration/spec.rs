@@ -98,6 +98,40 @@ pub(super) fn interrupt_spec(timeout_ms: u64) -> ToolSpec {
     .with_metadata(collaboration_metadata())
 }
 
+pub(super) fn send_message_spec(timeout_ms: u64) -> ToolSpec {
+    ToolSpec::new(
+        "send_message",
+        "Queue a message for one running session-owned collaboration agent. Delivery occurs at the nearest model/tool boundary and does not start an idle turn; use followup_task for an idle agent.",
+        message_schema(),
+        ToolSafety::WritesFiles,
+    )
+    .with_timeout(timeout_ms)
+    .with_metadata(collaboration_metadata())
+}
+
+pub(super) fn followup_spec(timeout_ms: u64) -> ToolSpec {
+    ToolSpec::new(
+        "followup_task",
+        "Send a follow-up to one session-owned collaboration agent. Running agents receive it at the nearest model/tool boundary; an idle terminal agent starts a resumable turn with the same logical path and thread id.",
+        message_schema(),
+        ToolSafety::WritesFiles,
+    )
+    .with_timeout(timeout_ms)
+    .with_metadata(collaboration_metadata())
+}
+
+fn message_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "target": { "type": "string", "description": "Canonical /root/<task_name> path or task_name." },
+            "message": { "type": "string", "minLength": 1, "maxLength": 16000 }
+        },
+        "required": ["target", "message"],
+        "additionalProperties": false
+    })
+}
+
 fn collaboration_metadata() -> serde_json::Value {
     json!({
         "hot": true,

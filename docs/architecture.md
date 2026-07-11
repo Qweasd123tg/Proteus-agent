@@ -189,9 +189,9 @@ ToolRegistry
 Core-owned `apply_patch`, `search`, `remember_fact`, `request_user_input` и
 `task` — facade tools: алгоритм всё равно делегируется выбранному slot/module.
 Subagent facade выбирается через `subagents.surface` и регистрируется в
-`ToolRegistry` при сборке snapshot-а. `task` вызывает blocking `run`, а четыре
-collaboration tools используют session-bound spawn/wait/cancel capability того
-же `SubagentToolHost`; generic workflow host не получает subagent/worktree
+`ToolRegistry` при сборке snapshot-а. `task` вызывает blocking `run`, а
+collaboration tools используют session-bound spawn/wait/cancel и optional
+message capability того же `SubagentToolHost`; generic workflow host не получает subagent/worktree
 capabilities. Поэтому visibility, validation, approval, timeout, events и
 bounded output любого subagent facade проходят тот же orchestrator path.
 

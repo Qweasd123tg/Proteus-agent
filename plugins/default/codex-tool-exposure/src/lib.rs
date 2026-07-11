@@ -82,7 +82,7 @@ impl PluginToolExposure for CodexDynamicToolExposurePlugin {
 fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     let config = CodexDynamicConfig::from_value(&input.config);
     let candidate_count = input.candidates.len();
-    let max_tools = input
+    let configured_max_tools = input
         .request
         .max_tools
         .unwrap_or(config.max_hot_tools)
@@ -95,6 +95,26 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         .into_iter()
         .filter(|tool| phase_allows(tool, phase.as_deref()))
         .collect::<Vec<_>>();
+    // Root-owned collaboration tools form one protocol: exposing spawn but
+    // hiding wait/follow-up (or vice versa) leaves the model with a broken
+    // control surface. Keep the group atomic and grow the stable hot-set floor
+    // only while those candidates are actually registered. Switching
+    // subagents.surface back to task removes the group without config edits.
+    let required_names = config
+        .always_include
+        .iter()
+        .filter(|name| candidates.iter().any(|tool| tool.name == name.as_str()))
+        .map(String::as_str)
+        .chain(
+            candidates
+                .iter()
+                .filter(|tool| {
+                    metadata_category(&tool.metadata) == Some("proteus_subagent_control")
+                })
+                .map(|tool| tool.name.as_str()),
+        )
+        .collect::<HashSet<_>>();
+    let max_tools = configured_max_tools.max(required_names.len());
 
     if candidates.len() <= max_tools {
         let reasons = candidates
@@ -125,6 +145,16 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
             && selected_names.insert(tool.name.clone())
         {
             selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
+            selected.push(tool.clone());
+        }
+    }
+
+    for tool in candidates
+        .iter()
+        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))
+    {
+        if selected_names.insert(tool.name.clone()) {
+            selected_reasons.insert(tool.name.clone(), "control_group".to_owned());
             selected.push(tool.clone());
         }
     }
@@ -405,6 +435,10 @@ fn metadata_hot(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn metadata_category(metadata: &Value) -> Option<&str> {
+    metadata.get("category").and_then(Value::as_str)
+}
+
 fn exposure_err(error: impl std::fmt::Display) -> RResult<RString, PluginToolExposureError> {
     RResult::RErr(PluginToolExposureError::new(error.to_string()))
 }
@@ -439,6 +473,13 @@ mod tests {
 
     fn spec(name: &str, description: &str, safety: ToolSafety) -> ToolSpec {
         ToolSpec::new(name, description, json!({ "type": "object" }), safety)
+    }
+
+    fn control_spec(name: &str, safety: ToolSafety) -> ToolSpec {
+        spec(name, "Collaboration control", safety).with_metadata(json!({
+            "hot": true,
+            "category": "proteus_subagent_control"
+        }))
     }
 
     fn select(query: &str, max_tools: usize, candidates: Vec<ToolSpec>) -> ToolExposureOutput {
@@ -590,6 +631,48 @@ mod tests {
         assert_eq!(
             output.metadata["selected_tool_reasons"]["git_status"],
             "always_include"
+        );
+    }
+
+    #[test]
+    fn collaboration_control_group_is_atomic_above_configured_cap() {
+        let task = AgentTask::new("stable", std::env::current_dir().unwrap());
+        let request = ToolExposureRequest::new(task).with_max_tools(2);
+        let input = ToolExposureInput::new(
+            request,
+            vec![
+                spec("request_user_input", "Ask", ToolSafety::ReadOnly),
+                control_spec("spawn_agent", ToolSafety::WritesFiles),
+                control_spec("list_agents", ToolSafety::ReadOnly),
+                control_spec("wait_agent", ToolSafety::ReadOnly),
+                control_spec("interrupt_agent", ToolSafety::ReadOnly),
+                control_spec("send_message", ToolSafety::WritesFiles),
+                control_spec("followup_task", ToolSafety::WritesFiles),
+                spec("read_file", "Read", ToolSafety::ReadOnly),
+            ],
+        );
+
+        let output = select_with_input(input);
+        let names = output
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<HashSet<_>>();
+        for required in [
+            "request_user_input",
+            "spawn_agent",
+            "list_agents",
+            "wait_agent",
+            "interrupt_agent",
+            "send_message",
+            "followup_task",
+        ] {
+            assert!(names.contains(required), "missing {required}: {names:?}");
+        }
+        assert_eq!(output.metadata["max_tools"], 7);
+        assert_eq!(
+            output.metadata["selected_tool_reasons"]["followup_task"],
+            "control_group"
         );
     }
 

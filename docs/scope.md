@@ -33,7 +33,8 @@ path, fail-closed shell isolation и обязательный auth для non-lo
 - sequential и process subagents;
 - параллельные read-only роли и worktree isolation для пишущих ролей;
 - экспериментальный session-owned collaboration surface для bounded async
-  spawn/list/wait/interrupt read-only детей и background UI lifecycle;
+  spawn/list/wait/interrupt read-only детей, sequential messaging/follow-up и
+  background UI lifecycle;
 - `doctor`, `inspect topology`, `modules list` и `eval report`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
@@ -80,8 +81,9 @@ ownership, age cleanup и честная cancellation semantics, чтобы од
 управлять процессом другого.
 
 Отдельный collaboration facade уже имеет session ownership и hard caps, но
-намеренно не поддерживает durable restart, send/follow-up/fork, nesting и
-writer/worktree spawn. Эти ограничения не следует выдавать за Codex parity.
+намеренно не поддерживает durable restart, fork, nesting, writer/worktree spawn
+и message capability у process/plugin runners. Эти ограничения не следует
+выдавать за Codex parity.
 
 ## Следующий Checkpoint
 

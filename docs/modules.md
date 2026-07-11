@@ -544,6 +544,12 @@ lifecycle. Workflow не получает прямой доступ к runner-у
 `Tool::invoke` core связывает выбранный facade с текущими runner/thread/turn и
 `SessionId` через узкий `SubagentToolHost`.
 
+Messaging является отдельной optional capability:
+`supports_collaboration_messages()` + `send(&SubagentHandle, message)`.
+Разделение сохраняет честный tool surface: builtin `sequential` принимает
+сообщения в bounded mailbox на model/tool boundaries, а `process` и текущий
+plugin ABI не рекламируют `send_message`/`followup_task`.
+
 `[subagents] surface = "task" | "collaboration" | "none"` выбирает
 model-facing facade независимо от `modules.subagent`; это typed core config, а
 не новый module slot. Default `task` сохраняет прежнее поведение. `none`
@@ -561,9 +567,10 @@ turn. Побочный эффект detached-исполнения: обрыв р
 
 ### Collaboration Surface
 
-Экспериментальный `surface = "collaboration"` — Proteus Codex-shaped первый
-slice без parity claim. Он регистрирует через обычный `ToolRegistry` только
-`spawn_agent`, `list_agents`, `wait_agent` и `interrupt_agent`; blocking `task`
+Экспериментальный `surface = "collaboration"` — Proteus Codex-shaped режим без
+parity claim. Он регистрирует через обычный `ToolRegistry`
+`spawn_agent`, `list_agents`, `wait_agent` и `interrupt_agent`; runner с
+message capability добавляет `send_message` и `followup_task`. Blocking `task`
 в этом режиме не регистрируется. `spawn_agent` принимает one-segment
 `task_name`, задачу `message` и `agent_type`, сразу возвращает canonical path
 `/root/<task_name>`, а монитор завершения продолжает работать после окончания
@@ -573,14 +580,24 @@ Control plane process-resident, но ownership проверяется по `Sess
 другая session не может list/wait/interrupt чужой path. Текущие caps — 64
 session records, 64 agent records на session и до 8 completion updates за один
 `wait_agent`; при заполнении вытесняются только старые terminal records, active
-records не вытесняются. Terminal summary/error сохраняются bounded, но records
+records не вытесняются. Сумма queued completion generations и активных запусков
+также ограничена 64: перед новой работой control просит освободить очередь через
+`wait_agent`, а не теряет старый update. Terminal summary/error сохраняются bounded, но records
 не переживают restart процесса и не являются durable session storage.
+
+У `sequential` каждый активный child имеет mailbox: сообщение либо
+принимается bounded-очередью и добавляется в canonical history на ближайшей
+model/tool boundary, либо явно отклоняется после atomic close. `followup_task`
+для terminal record резервирует новую `generation`, запускает resume по
+прежнему `child_thread_id` и сохраняет старый completion как immutable update.
+Generation-check не даёт позднему monitor предыдущего запуска перезаписать
+новый turn. Одновременно стартовать два follow-up для одного path нельзя.
 
 Этот surface допускает только явно `parallel_safe` роли с
 `isolation = "none"`. `parallel_safe` остаётся декларацией оператора и должен
 подтверждаться read-only tool allowlist/config. Worktree/writer роли доступны
-через `surface = "task"`. В первом slice отсутствуют send/follow-up/fork,
-close/resume после restart и nesting; все subagent facade tools удаляются из
+через `surface = "task"`. В текущем slice отсутствуют fork, close/resume после
+restart и nesting; все subagent facade tools удаляются из
 toolset дочернего цикла. Plugin runner с текущим blocking-only ABI не может
 использовать collaboration: registry build отклоняет непустой runner без
 `supports_collaboration()`.

@@ -333,6 +333,14 @@ impl SubagentToolHost for RuntimeSubagentToolHost {
     async fn cancel_subagent(&self, handle: &crate::contracts::SubagentHandle) -> Result<()> {
         self.ctx.subagent.cancel(handle).await
     }
+
+    async fn send_subagent(
+        &self,
+        handle: &crate::contracts::SubagentHandle,
+        message: String,
+    ) -> Result<()> {
+        self.ctx.subagent.send(handle, message).await
+    }
 }
 
 /// Attribution control-plane запроса (approval, user input) к исполняющему

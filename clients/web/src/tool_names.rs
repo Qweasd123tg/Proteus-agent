@@ -22,3 +22,7 @@ pub(crate) const TASK_TOOL: &str = "task";
 /// Асинхронный запуск collaboration-агента. Его карточка, в отличие от
 /// blocking `task`, переживает завершение родительского turn-а.
 pub(crate) const SPAWN_AGENT_TOOL: &str = "spawn_agent";
+
+/// Возобновление terminal collaboration-агента. Как и `spawn_agent`, новый
+/// дочерний turn может пережить завершение вызвавшего parent turn-а.
+pub(crate) const FOLLOWUP_TASK_TOOL: &str = "followup_task";

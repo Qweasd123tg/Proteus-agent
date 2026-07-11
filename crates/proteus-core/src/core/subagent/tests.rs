@@ -2,7 +2,10 @@
 //! контекста, дочерний цикл, resumable snapshots и cancel-safety.
 //! Unit-тесты helpers живут рядом с кодом в `child_loop` и `resumable`.
 
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{
+    Arc, Mutex as StdMutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -174,6 +177,72 @@ impl RecordingFakeModelClient {
 
     fn caches(&self) -> Vec<CacheHints> {
         self.caches.lock().expect("caches lock").clone()
+    }
+}
+
+struct BoundaryMessageModelClient {
+    calls: AtomicUsize,
+    entered: tokio::sync::Semaphore,
+    release: tokio::sync::Semaphore,
+    histories: StdMutex<Vec<Vec<CanonicalMessage>>>,
+}
+
+impl BoundaryMessageModelClient {
+    fn new() -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            entered: tokio::sync::Semaphore::new(0),
+            release: tokio::sync::Semaphore::new(0),
+            histories: StdMutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl ModelClient for BoundaryMessageModelClient {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("boundary-message")
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> crate::model_standard::ModelCapabilities {
+        FakeModelClient::default().capabilities(model)
+    }
+
+    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        self.histories
+            .lock()
+            .expect("histories lock")
+            .push(request.messages);
+        if call == 0 {
+            self.entered.add_permits(1);
+            let permit = self.release.acquire().await.expect("release permit");
+            permit.forget();
+        }
+        let text = if call == 0 {
+            "first answer"
+        } else {
+            "answer after mailbox"
+        };
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, text),
+            Vec::new(),
+            FinishReason::Stop,
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<crate::model_standard::ModelStreamEvent>>
+                    + Send,
+            >,
+        >,
+    > {
+        Err(anyhow!("boundary-message has no stream"))
     }
 }
 
@@ -1210,6 +1279,55 @@ async fn spawned_children_run_concurrently() {
     assert_eq!(second_result.status, SubagentStatus::Completed);
     assert!(first_result.summary.contains("concurrent done"));
     assert!(second_result.summary.contains("concurrent done"));
+}
+
+#[tokio::test]
+async fn running_child_consumes_mailbox_at_model_boundary() {
+    let runner = SequentialSubagentRunner::from_config(parallel_roles_config()).unwrap();
+    let events = Arc::new(InMemoryEventStore::new());
+    let model = Arc::new(BoundaryMessageModelClient::new());
+    let ctx = test_runtime_context_with_model(events, model.clone());
+    let cwd = tempfile::tempdir().expect("workspace");
+    let task = AgentTask::new("explore", cwd.path().to_path_buf());
+
+    let handle = runner
+        .spawn(
+            SubagentRequest::new("explore", "initial question", task),
+            ctx,
+        )
+        .await
+        .expect("spawn");
+    let entered = tokio::time::timeout(Duration::from_secs(5), model.entered.acquire())
+        .await
+        .expect("first request entered")
+        .expect("entered permit");
+    entered.forget();
+    runner
+        .send(&handle, "mailbox follow-up".to_owned())
+        .await
+        .expect("queue message");
+    runner
+        .send(&handle, "second mailbox message".to_owned())
+        .await
+        .expect("queue second message");
+    model.release.add_permits(1);
+
+    let result = tokio::time::timeout(Duration::from_secs(5), runner.wait(&handle))
+        .await
+        .expect("wait must not hang")
+        .expect("child result");
+    assert_eq!(result.status, SubagentStatus::Completed);
+    assert_eq!(result.summary, "answer after mailbox");
+    assert_eq!(model.calls.load(Ordering::SeqCst), 2);
+    let histories = model.histories.lock().expect("histories lock");
+    let second_history = serde_json::to_string(&histories[1]).expect("serialize history");
+    let first = second_history
+        .find("mailbox follow-up")
+        .expect("first message");
+    let second = second_history
+        .find("second mailbox message")
+        .expect("second message");
+    assert!(first < second, "mailbox must preserve FIFO order");
 }
 
 /// Cancel по handle снимает только адресованного ребёнка: сосед завершается

@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::SUBAGENT_FACADE_TOOLS;
+use super::{SUBAGENT_FACADE_TOOLS, mailbox::ChildMailbox};
 
 pub(super) struct ChildLoopState {
     pub history: Vec<CanonicalMessage>,
@@ -80,12 +80,14 @@ pub(super) async fn run_child_loop(
     orchestrator: &ToolOrchestrator,
     tools: &[ToolSpec],
     state: &mut ChildLoopState,
+    mailbox: &ChildMailbox,
 ) -> Result<SubagentStatus> {
     // Бюджет скоупится на текущий запуск (fresh или resume), а не на весь
     // task_id: усечённый по бюджету ребёнок продолжается через resume с
     // новым окном — иначе продолжение упиралось бы в потолок сразу.
     let mut budget = BudgetTracker::new(role.limits.max_total_tokens);
     for _ in 0..role.limits.max_iterations {
+        append_mailbox_messages(state, mailbox.drain()?);
         if ctx.is_cancelled() {
             return Ok(SubagentStatus::Cancelled);
         }
@@ -119,7 +121,12 @@ pub(super) async fn run_child_loop(
         state.history.push(response.message.clone());
 
         if response.tool_calls.is_empty() {
-            return Ok(SubagentStatus::Completed);
+            let messages = mailbox.drain_or_close()?;
+            if messages.is_empty() {
+                return Ok(SubagentStatus::Completed);
+            }
+            append_mailbox_messages(state, messages);
+            continue;
         }
         // Проверка по факту ответа (первый запрос всегда разрешён): при
         // превышении цикл останавливается до исполнения tool calls — они
@@ -146,6 +153,14 @@ pub(super) async fn run_child_loop(
         }
     }
     Ok(SubagentStatus::MaxIterationsReached)
+}
+
+pub(super) fn append_mailbox_messages(state: &mut ChildLoopState, messages: Vec<String>) {
+    state.history.extend(
+        messages
+            .into_iter()
+            .map(|message| CanonicalMessage::text(MessageRole::User, message)),
+    );
 }
 
 /// Стабильный prompt-cache ключ дочернего цикла. История ребёнка растёт

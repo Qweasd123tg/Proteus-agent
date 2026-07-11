@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::tool_names::{SPAWN_AGENT_TOOL, TASK_TOOL};
+use crate::tool_names::{FOLLOWUP_TASK_TOOL, SPAWN_AGENT_TOOL, TASK_TOOL};
 use crate::types::{
     Message, MessageRole, SubagentActivity, SubagentActivityStatus, ToolActivity,
     ToolActivityStatus, TransportStatus,
@@ -474,14 +474,19 @@ pub(crate) fn finalize_running_activity(
                 changed |= interrupt_tool(tool, now_ms);
             }
             if let Some(subagent) = message.subagent.as_mut() {
-                // `spawn_agent` возвращает управление сразу, а ребёнок
-                // продолжает жить между родительскими turn-ами. Его карточку
+                // `spawn_agent`/`followup_task` возвращают управление сразу,
+                // а ребёнок продолжает жить между родительскими turn-ами. Его карточку
                 // и вложенные tools закроет настоящий SubagentFinished;
                 // граница TurnOutput родителя для них не терминальна.
                 let background = message
                     .tool
                     .as_ref()
-                    .is_some_and(|tool| tool.name == SPAWN_AGENT_TOOL);
+                    .is_some_and(|tool| {
+                        matches!(
+                            tool.name.as_str(),
+                            SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL
+                        )
+                    });
                 if background {
                     if changed {
                         message.version += 1;
@@ -513,8 +518,8 @@ fn interrupt_tool(tool: &mut ToolActivity, now_ms: u64) -> bool {
     true
 }
 
-/// Карточка субагента по `SubagentStarted`. Если в ленте бежит вызов `task`
-/// (workflow эмитит его ToolCallRequested перед запуском субагента),
+/// Карточка субагента по `SubagentStarted`. Если в ленте бежит вызов одного из
+/// subagent facade tools (он эмитит ToolCallRequested перед запуском ребёнка),
 /// активность прикрепляется к нему — одна карточка вместо дубля «task +
 /// субагент», как и в снапшоте turn progress. Иначе — отдельная карточка
 /// (другой workflow может звать SubagentRunner без tool `task`). Повтор
@@ -542,7 +547,10 @@ pub(crate) fn push_subagent_message(
                     .tool
                     .as_ref()
                     .is_some_and(|tool| {
-                        matches!(tool.name.as_str(), TASK_TOOL | SPAWN_AGENT_TOOL)
+                        matches!(
+                            tool.name.as_str(),
+                            TASK_TOOL | SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL
+                        )
                             && !tool.status.is_terminal()
                     })
         }) {
@@ -954,6 +962,41 @@ mod tests {
     }
 
     #[test]
+    fn push_subagent_message_attaches_to_running_followup_card() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut followup_tool = tool_activity("call-followup", ToolActivityStatus::Running);
+            followup_tool.name = FOLLOWUP_TASK_TOOL.to_owned();
+            let mut followup_message = history_message(1, MessageRole::System, "");
+            followup_message.tool = Some(followup_tool);
+            let (messages, set_messages) = signal(vec![followup_message]);
+            let (next_message_id, set_next_message_id) = signal(2);
+
+            push_subagent_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                subagent_activity("same-child-thread", SubagentActivityStatus::Running),
+            );
+
+            let items = messages.get_untracked();
+            assert_eq!(items.len(), 1);
+            assert_eq!(
+                items[0].tool.as_ref().map(|tool| tool.name.as_str()),
+                Some(FOLLOWUP_TASK_TOOL)
+            );
+            assert_eq!(
+                items[0]
+                    .subagent
+                    .as_ref()
+                    .map(|subagent| subagent.child_thread_id.as_str()),
+                Some("same-child-thread")
+            );
+            assert_eq!(next_message_id.get_untracked(), 2);
+        });
+    }
+
+    #[test]
     fn push_subagent_message_skips_finished_task_card_and_falls_back_to_standalone() {
         let owner = Owner::new();
         owner.with(|| {
@@ -1307,6 +1350,30 @@ mod tests {
             assert_eq!(subagent.tools[0].status, ToolActivityStatus::Running);
             assert_eq!(items[0].version, 0);
             assert!(tool_activities.get_untracked().is_empty());
+        });
+    }
+
+    #[test]
+    fn finalize_running_activity_preserves_followup_background_subagent() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let mut message = subagent_message(
+                1,
+                subagent_activity("followup-thread", SubagentActivityStatus::Running),
+            );
+            let mut followup_tool = tool_activity("followup", ToolActivityStatus::Done);
+            followup_tool.name = FOLLOWUP_TASK_TOOL.to_owned();
+            message.tool = Some(followup_tool);
+            let (messages, set_messages) = signal(vec![message]);
+            let (_tool_activities, set_tool_activities) = signal(Vec::new());
+
+            finalize_running_activity(set_tool_activities, set_messages, 99);
+
+            let items = messages.get_untracked();
+            let subagent = items[0].subagent.as_ref().expect("follow-up subagent");
+            assert_eq!(subagent.status, SubagentActivityStatus::Running);
+            assert_eq!(subagent.finished_at_ms, None);
+            assert_eq!(items[0].version, 0);
         });
     }
 

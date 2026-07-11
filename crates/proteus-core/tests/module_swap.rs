@@ -570,6 +570,8 @@ fn subagent_surface_swaps_task_collaboration_and_none_without_mixing_tools() {
         "list_agents",
         "wait_agent",
         "interrupt_agent",
+        "send_message",
+        "followup_task",
     ] {
         assert!(collaboration.tools.spec(name).is_ok(), "missing {name}");
     }

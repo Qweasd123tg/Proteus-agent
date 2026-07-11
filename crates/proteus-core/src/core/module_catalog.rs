@@ -577,6 +577,7 @@ impl BuiltinModuleCatalog {
                     &mut tools,
                     roles,
                     ctx.config.runtime.workflow_timeout_ms,
+                    subagent.supports_collaboration_messages(),
                 )?
             }
             crate::core::SubagentSurface::None => {}

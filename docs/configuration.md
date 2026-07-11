@@ -614,7 +614,7 @@ surface = "task" # task | collaboration | none
 collaboration tools. Значение `both` не поддерживается.
 
 `surface = "collaboration"` — экспериментальный Proteus Codex-shaped режим,
-а не заявление о parity. Вместо `task` он регистрирует четыре независимых
+а не заявление о parity. Вместо `task` он регистрирует четыре базовых
 registry tools:
 
 - `spawn_agent` сразу возвращает session-owned путь `/root/<task_name>`;
@@ -623,10 +623,28 @@ registry tools:
   отменяет ребёнка и не потребляет будущий update;
 - `interrupt_agent` запрашивает отмену одного ребёнка по path или `task_name`.
 
-Первый slice намеренно узкий: spawn разрешён только для ролей с
-`parallel_safe = true` и `isolation = "none"`. В нём нет send/follow-up,
-history fork, nesting, restart-durable registry, worktree writers или resume
-прежнего collaboration handle. Control plane принадлежит session, bounded и
+Если выбранный runner объявляет `supports_collaboration_messages()`, также
+регистрируются два `WritesFiles` facade-tool:
+
+- `send_message` принимает сообщение только для активного ребёнка; bounded
+  mailbox доставляет его на ближайшей model/tool boundary и не запускает idle
+  turn;
+- `followup_task` активному ребёнку доставляет сообщение тем же путём, а для
+  terminal ребёнка атомарно запускает новый resumable turn с тем же logical
+  path и `child_thread_id`. Ошибка resume не заменяется fresh-run fallback-ом.
+
+Builtin `sequential` поддерживает messaging/follow-up. `process` пока
+регистрирует только четыре базовых lifecycle-tool: его stdio protocol не имеет
+честной in-flight delivery capability. Completion updates содержат
+`generation` и являются immutable, поэтому результат предыдущего turn не
+превращается в ложный `running` после follow-up. Outstanding active generations
+и queued completions имеют общий cap 64; при заполнении новая работа требует
+сначала вызвать `wait_agent`.
+
+Surface остаётся намеренно узким: spawn разрешён только для ролей с
+`parallel_safe = true` и `isolation = "none"`. В нём нет history fork, nesting,
+restart-durable registry, worktree writers, close/reopen после process restart
+или общей plugin mailbox ABI. Control plane принадлежит session, bounded и
 живёт только в runtime process; после restart его records исчезают.
 Builtin `sequential` и `process` поддерживают этот lifecycle, а текущий
 `PluginSubagent` ABI (`roles + run`) — нет: выбор collaboration с непустыми
@@ -636,8 +654,10 @@ Packaged `codex` profile включает `surface = "collaboration"`; `glm` и 
 full/coding/JSON examples явно сохраняют `surface = "task"`, а частичные
 examples без секции наследуют тот же default. Для writing/worktree ролей нужно
 использовать task surface. Collaboration tools помечены metadata `hot`, поэтому
-в packaged `codex` переключение между `collaboration` и `task` требует изменить
-только `subagents.surface`: дублировать их имена в `always_include` не нужно.
+`codex_dynamic` включает всю category `proteus_subagent_control` атомарно и при
+необходимости поднимает effective hot-set floor. Поэтому в packaged `codex`
+переключение между `collaboration` и `task` требует изменить только
+`subagents.surface`: дублировать их имена в `always_include` не нужно.
 
 `modules.subagent = "none"` возвращает пустой список ролей. При task surface
 это полностью убирает `task`; для явного отключения любой model-facing

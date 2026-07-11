@@ -368,7 +368,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   TextRenderer, FakeModelClient.
 - `SequentialSubagentRunner` и `ProcessSubagentRunner` остаются concrete
   core-owned реализациями subagent slot.
-- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо `spawn_agent`/`list_agents`/`wait_agent`/`interrupt_agent` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
+- Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо collaboration lifecycle + optional `send_message`/`followup_task` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
   стартовать без plugin pack; для полноценного runtime нужен workflow plugin,

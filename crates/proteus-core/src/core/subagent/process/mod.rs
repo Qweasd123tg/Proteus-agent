@@ -55,6 +55,7 @@ use crate::{
 use super::{
     child_context,
     child_loop::{subagent_status_label, truncate_at_char_boundary},
+    mailbox::ChildMailbox,
     pending::PendingChildren,
 };
 use child::ChildProcess;
@@ -588,6 +589,7 @@ impl SubagentRunner for ProcessSubagentRunner {
         self.inner.lock_pending()?.reserve(
             &spawn_id,
             child_ctx.cancellation.clone(),
+            Arc::new(ChildMailbox::default()),
             self.inner.max_parallel,
             !request
                 .metadata

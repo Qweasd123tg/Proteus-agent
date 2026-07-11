@@ -207,7 +207,9 @@ Web-клиент рендерит работу субагента одной к�
 surface тот же event прикрепляется к `spawn_agent`, но успешный spawn
 завершает только tool call: child-карточка остаётся running после финала
 родительского turn-а, принимает поздние nested tools и закрывается лишь по
-`SubagentFinished`. Если runner вызван без facade,
+`SubagentFinished`. Terminal `followup_task` открывает новый resumable turn с
+тем же `child_thread_id`; его карточка получает тот же background lifecycle и
+не закрывается границей parent turn. Если runner вызван без facade,
 создаётся отдельная карточка.
 
 Чтобы вложить tool-вызовы ребёнка внутрь карточки, клиент сравнивает
@@ -219,6 +221,13 @@ collaboration completion приходит через `wait_agent`, а `list_agen
 является частью текущего client contract-а. Пока субагент работает, карточка
 раскрыта и показывает живой прогресс; после `SubagentFinished` она сворачивается
 в строку со статусом, числом вызовов, итерациями и длительностью.
+
+Для builtin `sequential` вызовы `send_message` и running `followup_task`
+попадают в bounded mailbox ребёнка. Child loop добавляет их как user messages
+на ближайшей model/tool boundary; terminal close mailbox атомарен, поэтому
+поздний вызов либо явно отклоняется, либо сохраняется в resumable history.
+`followup_task` для idle terminal record запускает resume по прежнему task id.
+`process` runner пока не регистрирует messaging tools.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как

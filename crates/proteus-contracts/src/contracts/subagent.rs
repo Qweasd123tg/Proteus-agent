@@ -365,6 +365,14 @@ pub trait SubagentRunner: Send + Sync {
         false
     }
 
+    /// Whether a running child owns a bounded mailbox that accepts messages
+    /// at model/tool boundaries. This remains separate from basic
+    /// spawn/wait/cancel because process/plugin runners do not yet implement
+    /// in-flight delivery.
+    fn supports_collaboration_messages(&self) -> bool {
+        false
+    }
+
     /// Прогоняет дочерний цикл и возвращает результат. `ctx` — контекст
     /// родительского turn'а; реализация сама изолирует ребёнка (свой
     /// thread_id, своя история, свой отбор tools по фазе роли).
@@ -401,6 +409,15 @@ pub trait SubagentRunner: Send + Sync {
         let _ = handle;
         bail!("this subagent runner does not support spawn/wait/cancel");
     }
+
+    /// Queues one message for a running child. Successful return means the
+    /// message was accepted by the child's bounded mailbox; the child consumes
+    /// it at the nearest model/tool boundary. Idle children are resumed by the
+    /// model-facing `followup_task` facade instead of this method.
+    async fn send(&self, handle: &SubagentHandle, message: String) -> Result<()> {
+        let _ = (handle, message);
+        bail!("this subagent runner does not support collaboration messages");
+    }
 }
 
 /// Узкая capability, которую runtime выдаёт facade-tool `task` на время
@@ -430,5 +447,10 @@ pub trait SubagentToolHost: Send + Sync {
     async fn cancel_subagent(&self, handle: &SubagentHandle) -> Result<()> {
         let _ = handle;
         bail!("subagent host does not support collaboration control");
+    }
+
+    async fn send_subagent(&self, handle: &SubagentHandle, message: String) -> Result<()> {
+        let _ = (handle, message);
+        bail!("subagent host does not support collaboration messages");
     }
 }

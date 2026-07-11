@@ -52,7 +52,7 @@ Leptos-клиенты исключены из root workspace и проверяю
   `mcp:<server>` source, а host process переиспользуется между calls внутри
   одного snapshot;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
-- `subagents.surface` взаимно исключительно переключает `task`, четыре
+- `subagents.surface` взаимно исключительно переключает `task`, runner-backed
   collaboration tools и `none`, не смешивая model-facing surfaces;
 - `apply_patch` делегирует выполнение выбранному `PatchApplier`;
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;
@@ -83,9 +83,12 @@ non-loopback config.
 Focused collaboration tests в `crates/proteus-core/src/tools/collaboration/`
 проверяют async spawn/wait, timeout без потери будущего completion, interrupt,
 session ownership, уникальность `task_name`, отказ writer/worktree ролям и
-консервативный `WritesFiles` safety у `spawn_agent`. App-server regression
+консервативный `WritesFiles` safety у spawn/messaging tools. Отдельно проверены
+bounded mailbox, доставка активному sequential child на model boundary,
+atomic follow-up reservation, immutable completion generations и защита от
+stale monitor. App-server regression
 сохраняет background child card после завершения parent turn и продолжает
-вкладывать поздние child tools; web tests фиксируют тот же lifecycle без
+вкладывать поздние child tools для spawn и follow-up; web tests фиксируют тот же lifecycle без
 преждевременного перевода карточки в interrupted. Это не тесты restart
 persistence: collaboration registry намеренно process-resident.
 

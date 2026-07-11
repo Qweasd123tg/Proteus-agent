@@ -5,7 +5,7 @@ use web_sys::{HtmlElement, HtmlTextAreaElement, window};
 
 use crate::api::{encode_query_component, get_json};
 use crate::messages::{adopt_streaming_tail, prepend_history_messages, report_error};
-use crate::tool_names::{SPAWN_AGENT_TOOL, TASK_TOOL};
+use crate::tool_names::{FOLLOWUP_TASK_TOOL, SPAWN_AGENT_TOOL, TASK_TOOL};
 use crate::types::*;
 use crate::ui_utils::{compact_text, compact_title, format_json};
 
@@ -249,8 +249,8 @@ pub(crate) fn load_transcript(
 /// Транскрипт с сервера → сообщения ленты. Два subagent-шва повторяют
 /// live-путь, чтобы вид после reload совпадал с живым:
 /// - снапшот прогресса шлёт карточку субагента отдельным сообщением сразу
-///   после его вызова `task` — сливаем в одну карточку (как SubagentStarted
-///   прикрепляется к бегущей task-карточке);
+///   после его вызова `task`/`spawn_agent`/`followup_task` — сливаем в одну
+///   карточку (как SubagentStarted прикрепляется к бегущей facade-карточке);
 /// - committed history карточек субагента не хранит — восстанавливаем вид из
 ///   завершённого вызова `task` (args + metadata результата).
 fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
@@ -271,11 +271,9 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
                             if tool.name == TASK_TOOL {
                                 return true;
                             }
-                            tool.name == SPAWN_AGENT_TOOL
-                                && activity.description.as_deref().is_some_and(|task_name| {
-                                    tool.args.get("task_name").and_then(Value::as_str)
-                                        == Some(task_name)
-                                })
+                            activity.description.as_deref().is_some_and(|task_name| {
+                                collaboration_parent_matches(tool, task_name)
+                            })
                         })
                 });
                 if let Some(parent) = matching_parent {
@@ -329,6 +327,20 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
         message.id = index as u64 + 1;
     }
     messages
+}
+
+fn collaboration_parent_matches(tool: &ToolActivity, task_name: &str) -> bool {
+    match tool.name.as_str() {
+        SPAWN_AGENT_TOOL => {
+            tool.args.get("task_name").and_then(Value::as_str) == Some(task_name)
+        }
+        FOLLOWUP_TASK_TOOL => tool
+            .args
+            .get("target")
+            .and_then(Value::as_str)
+            .is_some_and(|target| target == task_name || target == format!("/root/{task_name}")),
+        _ => false,
+    }
 }
 
 /// Реконструкция карточки субагента из завершённого вызова `task`:
@@ -1051,6 +1063,50 @@ mod tests {
         assert!(messages[0].subagent.is_some());
         assert!(messages[1].streaming);
         assert_eq!(messages[1].text, "Продолжаю основной ход");
+    }
+
+    #[test]
+    fn transcript_messages_merge_background_subagent_into_matching_followup_card() {
+        let messages = transcript_messages(vec![
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: Some(TranscriptTool {
+                    call_id: "call-followup".to_owned(),
+                    name: FOLLOWUP_TASK_TOOL.to_owned(),
+                    args: serde_json::json!({
+                        "target": "/root/scan",
+                        "message": "continue"
+                    }),
+                    status: "done".to_owned(),
+                    result: Some("resumed".to_owned()),
+                    metadata: Value::Null,
+                }),
+                subagent: None,
+                streaming: false,
+            },
+            TranscriptMessage {
+                role: "system".to_owned(),
+                text: String::new(),
+                tool: None,
+                subagent: Some(TranscriptSubagent {
+                    child_thread_id: "child-thread".to_owned(),
+                    role: "explore".to_owned(),
+                    description: Some("scan".to_owned()),
+                    status: "running".to_owned(),
+                    iterations: None,
+                    tools: Vec::new(),
+                }),
+                streaming: false,
+            },
+        ]);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].tool.as_ref().map(|tool| tool.name.as_str()),
+            Some(FOLLOWUP_TASK_TOOL)
+        );
+        assert!(messages[0].subagent.is_some());
     }
 
     #[test]

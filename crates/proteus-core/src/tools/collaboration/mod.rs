@@ -1,8 +1,10 @@
 //! Experimental Codex-shaped collaboration facade over the replaceable
 //! `SubagentRunner`. This is a bounded session control plane, not a parity
-//! claim: only spawn/list/wait/interrupt are exposed in this first slice.
+//! claim: basic lifecycle is always available; sequential runners can also
+//! expose bounded messaging/follow-up tools.
 
 mod control;
+mod message;
 mod spec;
 
 #[cfg(test)]
@@ -23,6 +25,7 @@ use crate::{
 };
 
 use control::CollaborationControl;
+use message::{FollowupTaskTool, SendMessageTool};
 use spec::{interrupt_spec, list_spec, spawn_spec, wait_spec};
 
 pub const COLLABORATION_TOOL_NAMES: &[&str] = &[
@@ -30,6 +33,8 @@ pub const COLLABORATION_TOOL_NAMES: &[&str] = &[
     "list_agents",
     "wait_agent",
     "interrupt_agent",
+    "send_message",
+    "followup_task",
 ];
 
 const DEFAULT_WAIT_MS: u64 = 30_000;
@@ -39,6 +44,7 @@ pub fn register_collaboration_tools(
     tools: &mut ToolRegistry,
     roles: Vec<SubagentRoleSpec>,
     timeout_ms: u64,
+    supports_messages: bool,
 ) -> Result<()> {
     // Process runtime service: registry/config rebuilds receive the same
     // bounded session-owned control plane, so live handles are not orphaned.
@@ -56,7 +62,18 @@ pub fn register_collaboration_tools(
         source.clone(),
         WaitAgentTool::new(timeout_ms, control.clone()),
     )?;
-    tools.register_with_source(source, InterruptAgentTool::new(timeout_ms, control))
+    tools.register_with_source(
+        source.clone(),
+        InterruptAgentTool::new(timeout_ms, control.clone()),
+    )?;
+    if supports_messages {
+        tools.register_with_source(
+            source.clone(),
+            SendMessageTool::new(timeout_ms, control.clone()),
+        )?;
+        tools.register_with_source(source, FollowupTaskTool::new(timeout_ms, control))?;
+    }
+    Ok(())
 }
 
 struct SpawnAgentTool {
@@ -123,8 +140,8 @@ impl Tool for SpawnAgentTool {
             ));
         }
 
-        let path = match self.control.reserve(session_id, task_name, agent_type) {
-            Ok(path) => path,
+        let reservation = match self.control.reserve(session_id, task_name, agent_type) {
+            Ok(reservation) => reservation,
             Err(error) => return Ok(tool_error(call, "spawn_agent", error.to_string())),
         };
         let request = SubagentRequest::new(agent_type, message, parent_task)
@@ -133,18 +150,24 @@ impl Tool for SpawnAgentTool {
         let handle = match host.spawn_subagent(request).await {
             Ok(handle) => handle,
             Err(error) => {
-                self.control.release_reservation(session_id, &path);
+                self.control
+                    .release_reservation(session_id, &reservation.path);
                 return Ok(tool_error(call, "spawn_agent", format!("{error:#}")));
             }
         };
-        let interrupt_requested =
-            self.control
-                .attach(session_id, &path, handle.clone(), host.clone())?;
+        let interrupt_requested = self.control.attach(
+            session_id,
+            &reservation.path,
+            reservation.generation,
+            handle.clone(),
+            host.clone(),
+        )?;
         spawn_monitor(
             self.control.clone(),
             host.clone(),
             session_id,
-            path.clone(),
+            reservation.path.clone(),
+            reservation.generation,
             handle.clone(),
         );
         if interrupt_requested {
@@ -154,7 +177,8 @@ impl Tool for SpawnAgentTool {
         Ok(ToolResult::ok(
             call.id.clone(),
             json!({
-                "path": path,
+                "path": reservation.path,
+                "generation": reservation.generation,
                 "task_name": task_name,
                 "agent_type": agent_type,
                 "status": "running",
@@ -162,7 +186,7 @@ impl Tool for SpawnAgentTool {
             })
             .to_string(),
         )
-        .with_metadata(json!({ "tool": "spawn_agent", "path": path })))
+        .with_metadata(json!({ "tool": "spawn_agent", "path": reservation.path })))
     }
 }
 
@@ -315,11 +339,12 @@ fn spawn_monitor(
     host: Arc<dyn SubagentToolHost>,
     session_id: SessionId,
     path: String,
+    generation: u64,
     handle: crate::contracts::SubagentHandle,
 ) {
     tokio::spawn(async move {
         let result = host.wait_subagent(&handle).await;
-        control.complete(session_id, &path, result);
+        control.complete(session_id, &path, generation, result);
     });
 }
 
