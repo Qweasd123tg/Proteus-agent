@@ -23,11 +23,12 @@ Codex pack: `codex-compactor` бережно сохраняет user-message
 
 | Контракт | Producer | Consumer | Форма |
 | --- | --- | --- | --- |
-| `<environment_context>` блок | `context-pack` provider `environment` | `codex-compactor` (`is_generated_user_message`) | константа `ENVIRONMENT_CONTEXT_TAG` в contracts |
+| `<environment_context>` блок | `context-pack` provider `environment` | model adapters (verbatim render), `codex-compactor` (`is_generated_user_message`) | константа `ENVIRONMENT_CONTEXT_TAG` в contracts |
 | `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-compactor` | префикс текста |
-| `# AGENTS.md instructions` | нет в текущем стеке (upstream shape) | `codex-compactor` | префикс текста |
+| `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model adapters (verbatim render), `codex-compactor` | upstream-shaped текстовый envelope |
 | summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
 | `message.name == "context"` | `coding-workflow` | `codex-compactor`, `coding-workflow/history.rs`, token accounting | константа `CONTEXT_MESSAGE_NAME` в contracts |
+| context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`), builtin `dynamic` selector | metadata JSON у tool spec |
 | `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile четыре collaboration-имени валидны только при `subagents.surface = "collaboration"` |
@@ -59,6 +60,7 @@ producer/consumer нигде не перечислены и не проверя�
    несколько crates, живут в `proteus_contracts::domain::markers`:
    `CONTEXT_MESSAGE_NAME` (`coding-workflow` ↔ `codex-compactor`),
    `ENVIRONMENT_CONTEXT_TAG` (`context-pack` ↔ `codex-compactor`),
+   `CONTEXT_RENDER_MODE_*` (`context-pack` ↔ model adapters),
    `EXEC_SHELL` (`shell-tool` ↔ `context-pack`). Это не меняет ABI и убирает
    дрейф написания; связка проверяется компилятором через общий crate.
 3. **[сделано] Проверки в `proteus doctor`.** Doctor warn-ит на имена tools в

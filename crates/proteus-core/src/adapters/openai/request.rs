@@ -3,20 +3,31 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
-use super::OpenAiPromptCacheConfig;
+use super::{OpenAiPromptCacheConfig, model_profile::OpenAiModelProfile};
 use crate::{
-    domain::{ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface},
+    domain::{
+        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextChunk, ResponseFormat,
+        ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface,
+    },
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
 #[cfg(test)]
 pub(super) fn to_openai_request(request: &CanonicalModelRequest) -> Result<Value> {
-    to_openai_request_with_cache(request, &OpenAiPromptCacheConfig::default())
+    let profile = OpenAiModelProfile::from_provider_config(&json!({
+        "capabilities": {
+            "supports_parallel_tool_calls": true,
+            "supports_json_schema": true,
+            "supports_reasoning_config": true
+        }
+    }))?;
+    to_openai_request_with_cache(request, &OpenAiPromptCacheConfig::default(), &profile)
 }
 
 pub(super) fn to_openai_request_with_cache(
     request: &CanonicalModelRequest,
     prompt_cache: &OpenAiPromptCacheConfig,
+    profile: &OpenAiModelProfile,
 ) -> Result<Value> {
     let mut body = json!({
         "model": request.model.model,
@@ -28,10 +39,8 @@ pub(super) fn to_openai_request_with_cache(
             ToolChoice::Tool(_) => "auto",
             _ => "auto",
         },
-        // OpenAiResponsesClient advertises this capability for every model it
-        // serves. Keep the wire request aligned with that contract and Codex.
-        "parallel_tool_calls": true,
-        "store": false,
+        "parallel_tool_calls": profile.supports_parallel_tool_calls,
+        "store": profile.store,
     });
 
     if let Some(instructions) = joined_instructions(request) {
@@ -59,8 +68,8 @@ pub(super) fn to_openai_request_with_cache(
         body["max_output_tokens"] = json!(max_output_tokens);
     }
 
-    if request.response_format == crate::domain::ResponseFormat::Json {
-        body["text"] = json!({ "format": { "type": "json_object" } });
+    if let Some(text) = openai_text_controls(&request.response_format, profile) {
+        body["text"] = text;
     }
 
     if request.reasoning.effort.is_some() || request.reasoning.summary {
@@ -78,8 +87,60 @@ pub(super) fn to_openai_request_with_cache(
     }
 
     apply_openai_prompt_cache(request, prompt_cache, &mut body);
+    if let Some(service_tier) = profile.service_tier.as_deref() {
+        body["service_tier"] = Value::String(service_tier.to_owned());
+    }
+    if let Some(client_metadata) = openai_client_metadata(request, profile)? {
+        body["client_metadata"] = client_metadata;
+    }
 
     Ok(body)
+}
+
+fn openai_text_controls(
+    response_format: &ResponseFormat,
+    profile: &OpenAiModelProfile,
+) -> Option<Value> {
+    let mut controls = serde_json::Map::new();
+    if let Some(verbosity) = profile.effective_verbosity() {
+        controls.insert("verbosity".to_owned(), Value::String(verbosity.to_owned()));
+    }
+    match response_format {
+        ResponseFormat::Text => {}
+        ResponseFormat::Json => {
+            controls.insert("format".to_owned(), json!({ "type": "json_object" }));
+        }
+        ResponseFormat::JsonSchema {
+            name,
+            schema,
+            strict,
+        } => {
+            controls.insert(
+                "format".to_owned(),
+                json!({
+                    "type": "json_schema",
+                    "name": name,
+                    "schema": schema,
+                    "strict": strict,
+                }),
+            );
+        }
+        _ => {}
+    }
+    (!controls.is_empty()).then_some(Value::Object(controls))
+}
+
+fn openai_client_metadata(
+    request: &CanonicalModelRequest,
+    profile: &OpenAiModelProfile,
+) -> Result<Option<Value>> {
+    let mut metadata = profile.client_metadata.clone();
+    metadata.extend(request.client_metadata.clone());
+    if metadata.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(serde_json::to_value(metadata)?))
+    }
 }
 
 fn apply_openai_prompt_cache(
@@ -182,11 +243,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                     "role": "user",
                     "content": [{
                         "type": "input_text",
-                        "text": format!("Context from {}{}:\n{}",
-                            chunk.source,
-                            chunk.path.as_ref().map(|path| format!(" ({})", path.display())).unwrap_or_default(),
-                            chunk.content
-                        )
+                        "text": context_text(chunk)
                     }]
                 })),
                 ContentPart::ToolCall { call } => {
@@ -260,6 +317,27 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
         }
     }
     Ok(input)
+}
+
+fn context_text(chunk: &ContextChunk) -> String {
+    if chunk
+        .metadata
+        .get(CONTEXT_RENDER_MODE_KEY)
+        .and_then(Value::as_str)
+        == Some(CONTEXT_RENDER_MODE_VERBATIM)
+    {
+        return chunk.content.clone();
+    }
+    format!(
+        "Context from {}{}:\n{}",
+        chunk.source,
+        chunk
+            .path
+            .as_ref()
+            .map(|path| format!(" ({})", path.display()))
+            .unwrap_or_default(),
+        chunk.content
+    )
 }
 
 fn openai_reasoning_item(summary: &str, encrypted_content: Option<&str>) -> Value {

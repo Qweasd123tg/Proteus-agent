@@ -1,7 +1,7 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::{
-    domain::{CacheHints, ReasoningConfig, ToolChoice},
+    domain::{CacheHints, ReasoningConfig, ResponseFormat, ToolChoice},
     model_standard::{CanonicalModelRequest, ModelCapabilities},
 };
 
@@ -27,6 +27,15 @@ impl RequestShaper {
             request.reasoning = ReasoningConfig::default();
         }
 
+        if matches!(request.response_format, ResponseFormat::JsonSchema { .. })
+            && !capabilities.supports_json_schema
+        {
+            bail!(
+                "model '{}' does not support JSON schema responses",
+                request.model.model
+            );
+        }
+
         if let Some(max_input_tokens) = capabilities.max_input_tokens {
             request.limits.max_input_tokens = Some(
                 request
@@ -45,5 +54,42 @@ impl RequestShaper {
         }
 
         Ok(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::{
+        domain::ModelRef,
+        model_standard::{CanonicalMessage, MessageRole},
+    };
+
+    #[test]
+    fn strict_json_schema_requires_model_capability() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "unknown-model"),
+            vec![CanonicalMessage::text(MessageRole::User, "answer")],
+        )
+        .with_response_format(ResponseFormat::JsonSchema {
+            name: "answer".to_owned(),
+            schema: json!({ "type": "object" }),
+            strict: true,
+        });
+
+        let error = RequestShaper
+            .shape(request.clone(), &ModelCapabilities::empty())
+            .unwrap_err();
+        assert!(error.to_string().contains("does not support JSON schema"));
+
+        let shaped = RequestShaper
+            .shape(request, &ModelCapabilities::empty().with_json_schema(true))
+            .unwrap();
+        assert!(matches!(
+            shaped.response_format,
+            ResponseFormat::JsonSchema { strict: true, .. }
+        ));
     }
 }

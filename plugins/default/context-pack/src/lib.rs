@@ -31,7 +31,8 @@ use proteus_contracts::{
 use proteus_contracts::{
     contracts::SearchQuery,
     domain::{
-        ContextBundle, ContextChunk, ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL, MemoryItem, MemoryQuery,
+        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextBundle, ContextChunk,
+        ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL, MemoryItem, MemoryQuery,
     },
     plugin::{
         PluginContextBuilder, PluginContextBuilderHostMut, PluginContextBuilderInput,
@@ -203,7 +204,7 @@ fn build_codex_context(
     let mut chunks = Vec::new();
 
     for provider in &config.providers {
-        let provider_chunks = match provider.as_str() {
+        let mut provider_chunks = match provider.as_str() {
             "project_instructions" => project_instruction_chunks(&input, &repo_config)?,
             "environment" => environment_chunks(&input),
             "manifest" => manifest_chunks(&input, &repo_config)?,
@@ -214,6 +215,16 @@ fn build_codex_context(
             "search" => search_chunks(&input, host, &repo_config)?,
             external => external_provider_chunks(&input, host, external)?,
         };
+        if provider == "project_instructions" {
+            let root = project_instruction_root(&input.task.cwd)?;
+            for chunk in &mut provider_chunks {
+                shape_codex_project_instructions(chunk, &root);
+            }
+        } else if provider == "environment" {
+            for chunk in &mut provider_chunks {
+                mark_context_verbatim(chunk);
+            }
+        }
         chunks.extend(retag_context_chunks(
             provider_chunks,
             "repo_aware",
@@ -229,6 +240,29 @@ fn build_codex_context(
             config.providers.len()
         ))
         .with_token_estimate(token_estimate))
+}
+
+fn shape_codex_project_instructions(chunk: &mut ContextChunk, root: &Path) {
+    let directory = chunk
+        .path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(|parent| root.join(parent))
+        .unwrap_or_else(|| root.to_path_buf());
+    chunk.content = format!(
+        "# AGENTS.md instructions for {}\n\n<INSTRUCTIONS>\n{}\n</INSTRUCTIONS>",
+        directory.display(),
+        chunk.content.trim_end()
+    );
+    mark_context_verbatim(chunk);
+}
+
+fn mark_context_verbatim(chunk: &mut ContextChunk) {
+    chunk.metadata = metadata_with(
+        chunk.metadata.clone(),
+        CONTEXT_RENDER_MODE_KEY,
+        json!(CONTEXT_RENDER_MODE_VERBATIM),
+    );
 }
 
 fn project_instruction_chunks(
@@ -920,6 +954,35 @@ mod tests {
         assert!(
             content.contains(&format!("<shell>{EXEC_SHELL}</shell>")),
             "{content}"
+        );
+    }
+
+    #[test]
+    fn codex_context_shapes_project_and_environment_messages_verbatim() {
+        let root = Path::new("/workspace");
+        let mut instructions =
+            ContextChunk::new("repo_aware:project_instructions", "use cargo fmt\n")
+                .with_path(PathBuf::from("services/AGENTS.md"))
+                .with_metadata(metadata("project_instructions", "test", Value::Null));
+        shape_codex_project_instructions(&mut instructions, root);
+
+        assert_eq!(
+            instructions.content,
+            "# AGENTS.md instructions for /workspace/services\n\n<INSTRUCTIONS>\nuse cargo fmt\n</INSTRUCTIONS>"
+        );
+        assert_eq!(
+            instructions.metadata[CONTEXT_RENDER_MODE_KEY],
+            CONTEXT_RENDER_MODE_VERBATIM
+        );
+
+        let mut environment = ContextChunk::new(
+            "repo_aware:environment",
+            "<environment_context>...</environment_context>",
+        );
+        mark_context_verbatim(&mut environment);
+        assert_eq!(
+            environment.metadata[CONTEXT_RENDER_MODE_KEY],
+            CONTEXT_RENDER_MODE_VERBATIM
         );
     }
 

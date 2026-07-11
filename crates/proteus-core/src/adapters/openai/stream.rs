@@ -53,7 +53,7 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
                 args_delta,
             }]
         }
-        "response.completed" => {
+        "response.completed" | "response.incomplete" => {
             // В payload-е объект полного `response`, парсим через
             // существующий `from_openai_response`. Если парсинг упал —
             // эмитим Error, чтобы drain-loop не ждал вечно.
@@ -78,6 +78,17 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
                         .map(str::to_owned)
                 })
                 .unwrap_or_else(|| "unknown openai error".to_owned());
+            vec![ModelStreamEvent::Error { message }]
+        }
+        "response.failed" => {
+            let response = parsed.get("response").unwrap_or(&parsed);
+            let message = response
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .or_else(|| response.get("error").and_then(Value::as_str))
+                .unwrap_or("openai response failed")
+                .to_owned();
             vec![ModelStreamEvent::Error { message }]
         }
         _ => Vec::new(),

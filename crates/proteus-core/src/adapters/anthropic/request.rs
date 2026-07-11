@@ -3,7 +3,10 @@ use serde_json::{Value, json};
 
 use super::AnthropicPromptCacheConfig;
 use crate::{
-    domain::{ToolCallSurface, ToolChoice, ToolSpec, ToolSurface},
+    domain::{
+        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextChunk, ToolCallSurface,
+        ToolChoice, ToolSpec, ToolSurface,
+    },
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
@@ -211,16 +214,7 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
             ContentPart::Text { text } => blocks.push(json!({ "type": "text", "text": text })),
             ContentPart::Context { chunk } => blocks.push(json!({
                 "type": "text",
-                "text": format!(
-                    "Context from {}{}:\n{}",
-                    chunk.source,
-                    chunk
-                        .path
-                        .as_ref()
-                        .map(|path| format!(" ({})", path.display()))
-                        .unwrap_or_default(),
-                    chunk.content
-                )
+                "text": context_text(chunk)
             })),
             ContentPart::ToolCall { call } => match call.surface {
                 ToolCallSurface::Function => blocks.push(json!({
@@ -268,6 +262,27 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
         }
     }
     Ok(blocks)
+}
+
+fn context_text(chunk: &ContextChunk) -> String {
+    if chunk
+        .metadata
+        .get(CONTEXT_RENDER_MODE_KEY)
+        .and_then(Value::as_str)
+        == Some(CONTEXT_RENDER_MODE_VERBATIM)
+    {
+        return chunk.content.clone();
+    }
+    format!(
+        "Context from {}{}:\n{}",
+        chunk.source,
+        chunk
+            .path
+            .as_ref()
+            .map(|path| format!(" ({})", path.display()))
+            .unwrap_or_default(),
+        chunk.content
+    )
 }
 
 fn tool_result_blocks(message: &CanonicalMessage) -> Vec<Value> {

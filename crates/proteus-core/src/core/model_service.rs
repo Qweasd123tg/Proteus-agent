@@ -82,8 +82,26 @@ impl ModelClient for ModelService {
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let capabilities = self.adapter.capabilities(&request.model);
-        let request = self.shaper.shape(request, &capabilities)?;
         let ctx = self.snapshot_context();
+        let mut request = self.shaper.shape(request, &capabilities)?;
+        if let Some(session_id) = ctx.session_id {
+            request
+                .client_metadata
+                .entry("session_id".to_owned())
+                .or_insert_with(|| session_id.to_string());
+        }
+        if let Some(thread_id) = ctx.thread_id {
+            request
+                .client_metadata
+                .entry("thread_id".to_owned())
+                .or_insert_with(|| thread_id.to_string());
+        }
+        if let Some(turn_id) = ctx.turn_id {
+            request
+                .client_metadata
+                .entry("turn_id".to_owned())
+                .or_insert_with(|| turn_id.to_string());
+        }
         if let (Some(writer), Some(thread_id)) = (&ctx.request_snapshot_writer, ctx.thread_id)
             && let Err(error) = writer.append(thread_id, &request).await
         {
@@ -237,12 +255,14 @@ mod tests {
     /// Адаптер, отдающий зафиксированный список stream events.
     struct ScriptedAdapter {
         events: std::sync::Mutex<Option<Vec<ModelStreamEvent>>>,
+        requests: std::sync::Mutex<Vec<CanonicalModelRequest>>,
     }
 
     impl ScriptedAdapter {
         fn new(events: Vec<ModelStreamEvent>) -> Self {
             Self {
                 events: std::sync::Mutex::new(Some(events)),
+                requests: std::sync::Mutex::new(Vec::new()),
             }
         }
     }
@@ -255,7 +275,8 @@ mod tests {
         fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
             ModelCapabilities::empty()
         }
-        async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
+        async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+            self.requests.lock().unwrap().push(request);
             let events = self
                 .events
                 .lock()
@@ -379,6 +400,36 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["text", "tool", "reasoning"]);
+    }
+
+    #[tokio::test]
+    async fn model_service_adds_trace_ids_to_client_metadata() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::Response {
+            response: final_response(),
+        }]));
+        let service = ModelService::new(adapter.clone());
+        let session_id = new_session_id();
+        let thread_id = new_thread_id();
+        let turn_id = new_turn_id();
+        service.set_event_context(DeltaEventContext {
+            session_id: Some(session_id),
+            thread_id: Some(thread_id),
+            turn_id: Some(turn_id),
+            ..DeltaEventContext::default()
+        });
+
+        service.complete(sample_request()).await.unwrap();
+
+        let requests = adapter.requests.lock().unwrap();
+        assert_eq!(
+            requests[0].client_metadata["session_id"],
+            session_id.to_string()
+        );
+        assert_eq!(
+            requests[0].client_metadata["thread_id"],
+            thread_id.to_string()
+        );
+        assert_eq!(requests[0].client_metadata["turn_id"], turn_id.to_string());
     }
 
     #[tokio::test]

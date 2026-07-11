@@ -111,6 +111,11 @@ pub enum ResponseFormat {
     #[default]
     Text,
     Json,
+    JsonSchema {
+        name: String,
+        schema: serde_json::Value,
+        strict: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

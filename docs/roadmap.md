@@ -386,14 +386,18 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 пустого финального ответа и `coding.plan_execute_review` для staged
 plan/execute/review экспериментов.
 
-Request-shaping parity закрыта частично: OpenAI Responses envelope теперь
-явно передаёт `tool_choice`, `parallel_tool_calls` и reasoning include, а
-зашифрованный reasoning-item переживает canonical history и повторную
-сериализацию. Следующий подтверждённый scope — model-specific capabilities
-вместо общего OpenAI-флага, `service_tier`, verbosity/strict output schema,
-client metadata, item-id/store rules и отдельная проверка stream failure path.
-Responses Lite и websocket transport остаются planned, а не неявными
-fallback-ами strict `coding.codex_loop`.
+Request-shaping parity закрыта текущим HTTP Responses срезом (2026-07-11):
+model-specific capabilities приходят из provider profile с conservative
+fallback для неизвестной модели; envelope передаёт явные `tool_choice`,
+capability-driven `parallel_tool_calls`, `service_tier`, verbosity, strict JSON
+schema и client metadata с session/thread/turn ids. Зашифрованный
+reasoning-item переживает canonical history и повторную сериализацию;
+`store/item_ids` fail-closed до появления provider item ids в canonical
+history, а `call_id` не смешивается с item `id`. Strict stream завершает turn
+ошибкой на failed/decode/EOF path; прежний non-stream retry доступен только как
+явный diagnostic provider option. `codex_context` отдаёт AGENTS/environment
+envelopes verbatim. Responses Lite и websocket transport остаются planned, а
+не неявными fallback-ами strict `coding.codex_loop`.
 
 - ✅ Slot `subagent` (13-й): sequential дочерний цикл с изолированным
   контекстом, ролями из конфига/markdown, task-тулом в workflow, task_id-резюмом

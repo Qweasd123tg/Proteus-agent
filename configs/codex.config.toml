@@ -12,6 +12,15 @@ api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 max_input_tokens = 400000
+# Model-specific Responses controls. Неизвестные model ids получают в adapter-е
+# conservative fallback; custom proxy slug поэтому декларирует capability явно.
+support_verbosity = true
+default_verbosity = "low"
+
+[providers.openai.capabilities]
+supports_parallel_tool_calls = true
+supports_json_schema = true
+supports_reasoning_config = true
 
 [providers.openai.reasoning]
 effort = "high"

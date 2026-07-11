@@ -113,6 +113,13 @@ Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зав�
 Runtime зависит от единого model contract: `id`, `capabilities`, `stream` и default `complete`.
 `ModelClient` и `ModelAdapter` оставлены как compatibility aliases к тому же trait, чтобы старые call sites мигрировали постепенно. `BuiltinRegistry` по-прежнему использует `ModelService` как shaping wrapper: перед provider call он вызывает `RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри provider-а, а compatibility shaping остаётся единым для всех providers.
 
+OpenAI Responses не объявляет один набор capabilities для всех model ids:
+конкретный provider profile задаёт `capabilities.supports_parallel_tool_calls`,
+`supports_json_schema` и `supports_reasoning_config`, неизвестная модель получает
+conservative fallback. Strict structured output живёт в canonical
+`ResponseFormat::JsonSchema`, а OpenAI-only `service_tier`/verbosity/store rules
+остаются в adapter/model shaping слое.
+
 `max_input_tokens` является capability модели, а не догадкой workflow. Для
 provider-ов, где adapter не может достоверно вывести окно из имени модели,
 задавайте его в provider profile явно; иначе UI не показывает context ring, а

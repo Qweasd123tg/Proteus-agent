@@ -3579,6 +3579,28 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
+    let model_config = config.active_model_config().unwrap();
+    assert_eq!(
+        model_config.provider_config["capabilities"]["supports_parallel_tool_calls"],
+        true
+    );
+    assert_eq!(
+        model_config.provider_config["capabilities"]["supports_json_schema"],
+        true
+    );
+    assert_eq!(
+        model_config.provider_config["capabilities"]["supports_reasoning_config"],
+        true
+    );
+    assert_eq!(model_config.provider_config["support_verbosity"], true);
+    assert_eq!(model_config.provider_config["default_verbosity"], "low");
+    assert!(
+        model_config
+            .provider_config
+            .get("stream_error_fallback")
+            .is_none(),
+        "strict codex profile must not replay failed SSE requests"
+    );
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");

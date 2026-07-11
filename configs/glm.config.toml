@@ -12,6 +12,14 @@ api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 max_input_tokens = 400000
+# Diagnostic proxy profile: разрешаем прежний one-shot non-stream retry при
+# повреждённом SSE. Strict codex profile этот fallback намеренно не включает.
+stream_error_fallback = true
+
+[providers.openai.capabilities]
+supports_parallel_tool_calls = true
+supports_json_schema = true
+supports_reasoning_config = true
 
 [providers.openai.reasoning]
 effort = "high"

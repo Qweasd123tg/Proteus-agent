@@ -163,8 +163,11 @@ cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не за
 search/describe/call. `codex_context` добавляет только Codex-style
 `AGENTS.override.md` / `AGENTS.md` project instructions и
 `environment_context`; git diff, repo tree, manifests и targeted search модель
-получает через tools, а не как заранее инжектированный prompt. Diagnostic
-workflow `coding.codex_loop_diagnostic` остаётся отдельным явно выбираемым
+получает через tools, а не как заранее инжектированный prompt. Project
+instructions и environment chunk уходят модели verbatim в upstream
+envelope (`# AGENTS.md instructions ... <INSTRUCTIONS>` и
+`<environment_context>`), без внутреннего префикса `Context from ...`.
+Diagnostic workflow `coding.codex_loop_diagnostic` остаётся отдельным явно выбираемым
 variant для smoke-профилей. В `codex` profile `apply_patch` регистрируется через
 `tools.configured` как native handler с `surface.kind = "freeform"` и OpenAI
 custom-tool grammar.
@@ -229,11 +232,13 @@ DeepSeek через совместимый endpoint. Это локальный �
 
 `stream` по умолчанию включён для provider profiles. Это значение также
 прокидывается в `provider_config.stream`, потому что конкретные model adapters
-решают, идти через SSE streaming path или через non-stream fallback. Если SSE
-поток оборвался на transport/body decode ошибке, OpenAI/Anthropic adapters один
-раз повторяют тот же запрос без stream, чтобы workflow не падал после уже
-выполненных tools. Если провайдер/прокси стабильно ломает SSE, явно укажите
-`stream = false`.
+решают, идти через SSE streaming path или через non-stream fallback. OpenAI
+Responses по умолчанию fail-ит turn при transport/body decode error или EOF без
+terminal event: автоматический повтор полного inference после partial stream
+может задублировать стоимость и side effects и не соответствует strict Codex
+path. Для диагностического совместимого proxy можно явно включить
+`stream_error_fallback = true`; стабильный обход сломанного SSE —
+`stream = false`. Anthropic пока сохраняет прежний one-shot non-stream fallback.
 
 Provider prompt cache включается через `CanonicalModelRequest.cache` и
 `ModelCapabilities.supports_cache_hints`. Coding workflows выставляют
@@ -288,9 +293,36 @@ thinking несовместим с кастомным sampling. Если сов�
 поддерживает `thinking`, уберите `budget_tokens` или весь `[providers.*.reasoning]`
 блок из локального provider config.
 
-OpenAI Responses adapter отправляет `parallel_tool_calls = true` в соответствии
-со своей заявленной capability и всегда задаёт явный `tool_choice`. При
-включённом reasoning он также запрашивает
+OpenAI Responses adapter берёт model-specific возможности из provider profile;
+неизвестный model id получает conservative fallback без parallel tools,
+reasoning config, verbosity и strict JSON schema. Для custom proxy capability
+задаётся явно:
+
+```toml
+[providers.openai]
+support_verbosity = true
+default_verbosity = "low" # либо verbosity = "low|medium|high"
+# service_tier = "priority"
+# client_metadata = { installation = "local-install" }
+
+[providers.openai.capabilities]
+supports_parallel_tool_calls = true
+supports_json_schema = true
+supports_reasoning_config = true
+```
+
+Resolved capability управляет `parallel_tool_calls` и `RequestShaper`.
+`ResponseFormat::JsonSchema { name, schema, strict }` сериализуется как
+`text.format`; `service_tier`, verbosity и строковый `client_metadata` остаются
+в OpenAI shaping слое. `ModelService` добавляет provider-neutral
+`session_id`/`thread_id`/`turn_id` в `CanonicalModelRequest.client_metadata`.
+Request-level значения имеют приоритет над статическими значениями profile-а.
+
+`store = false` остаётся обязательным: `store = true` и
+`item_ids_enabled = true` отклоняются при загрузке adapter-а, пока canonical
+history не умеет сохранять provider item ids. Tool execution использует только
+обязательный `call_id`; response item `id` не подменяет его. При включённом
+reasoning adapter также запрашивает
 `include = ["reasoning.encrypted_content"]`. Полученный reasoning-item
 сохраняется в canonical history вместе с `encrypted_content` и в следующем
 ходе снова сериализуется как `type = "reasoning"`; summary больше не

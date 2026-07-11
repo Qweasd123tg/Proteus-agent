@@ -9,6 +9,12 @@
 /// history/token accounting.
 pub const CONTEXT_MESSAGE_NAME: &str = "context";
 
+/// Metadata key/value для context chunk, содержимое которого уже оформлено
+/// context provider-ом как точный model-visible user message. Adapters не
+/// добавляют к такому chunk собственный `Context from ...` envelope.
+pub const CONTEXT_RENDER_MODE_KEY: &str = "model_visible_render";
+pub const CONTEXT_RENDER_MODE_VERBATIM: &str = "verbatim";
+
 /// Открывающий тег generated-блока с окружением (os/arch/shell/cwd).
 /// Producer: context builder (`environment` provider); consumer: compactor
 /// packs, сохраняющие блок при компакции.

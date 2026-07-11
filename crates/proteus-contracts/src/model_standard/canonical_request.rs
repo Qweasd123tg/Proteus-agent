@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -21,6 +23,8 @@ pub struct CanonicalModelRequest {
     pub reasoning: ReasoningConfig,
     pub limits: ModelLimits,
     pub cache: CacheHints,
+    #[serde(default)]
+    pub client_metadata: BTreeMap<String, String>,
     pub metadata: serde_json::Value,
 }
 
@@ -38,6 +42,7 @@ impl CanonicalModelRequest {
             reasoning: ReasoningConfig::default(),
             limits: ModelLimits::default(),
             cache: CacheHints::default(),
+            client_metadata: BTreeMap::new(),
             metadata: serde_json::Value::Null,
         }
     }
@@ -72,6 +77,10 @@ impl CanonicalModelRequest {
     }
     pub fn with_cache(mut self, cache: CacheHints) -> Self {
         self.cache = cache;
+        self
+    }
+    pub fn with_client_metadata(mut self, client_metadata: BTreeMap<String, String>) -> Self {
+        self.client_metadata = client_metadata;
         self
     }
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {

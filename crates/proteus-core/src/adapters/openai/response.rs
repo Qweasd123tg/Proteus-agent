@@ -62,7 +62,6 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                 let call_id = item
                     .get("call_id")
                     .and_then(Value::as_str)
-                    .or_else(|| item.get("id").and_then(Value::as_str))
                     .ok_or_else(|| anyhow!("function_call missing call_id"))?
                     .to_owned();
                 let name = item
@@ -84,7 +83,6 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                 let call_id = item
                     .get("call_id")
                     .and_then(Value::as_str)
-                    .or_else(|| item.get("id").and_then(Value::as_str))
                     .ok_or_else(|| anyhow!("custom_tool_call missing call_id"))?
                     .to_owned();
                 let name = item
