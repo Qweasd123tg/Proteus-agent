@@ -11,7 +11,7 @@ runtime-control state.
   показывает topology map, runtime pipeline, slots, tools, plugin
   contributions и warnings; карта ограничена по высоте, поддерживает pan/zoom,
   автоматический `fit` и полноэкранный режим с выходом по `Escape`, а длинные
-  списки slots/tools раскладываются в две колонки на широком экране;
+  списки slots/tools раскладываются в адаптивную сетку по ширине экрана;
 - `/configs` читает `/config` и `/config/builder`, показывает runtime
   overview (model/reasoning/config files) и plugins, а Config builder
   редактирует `active_provider`, `[permissions] mode`, реализацию каждого

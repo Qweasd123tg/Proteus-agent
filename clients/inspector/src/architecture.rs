@@ -384,6 +384,7 @@ fn TopologySnapshotView(
                             };
                             let required_label = if view.slot.required { "required" } else { "optional" };
                             let alternatives = view.alternatives.clone();
+                            let alternative_count = alternatives.len();
                             view! {
                                 <article class="config-list-item topology-tool-item">
                                     <div class="config-list-main">
@@ -397,20 +398,23 @@ fn TopologySnapshotView(
                                             ().into_any()
                                         } else {
                                             view! {
-                                                <div class="config-chip-row">
-                                                    <For
-                                                        each=move || alternatives.clone()
-                                                        key=|module| format!("{}:{}", module.slot, module.id)
-                                                        children=move |module| {
-                                                            let label = format!(
-                                                                "{} · {}",
-                                                                module.id,
-                                                                module_source_label(&module.source)
-                                                            );
-                                                            view! { <span class="config-chip">{label}</span> }
-                                                        }
-                                                    />
-                                                </div>
+                                                <details class="topology-alternatives">
+                                                    <summary>{format!("{alternative_count} alternatives")}</summary>
+                                                    <div class="config-chip-row">
+                                                        <For
+                                                            each=move || alternatives.clone()
+                                                            key=|module| format!("{}:{}", module.slot, module.id)
+                                                            children=move |module| {
+                                                                let label = format!(
+                                                                    "{} · {}",
+                                                                    module.id,
+                                                                    module_source_label(&module.source)
+                                                                );
+                                                                view! { <span class="config-chip">{label}</span> }
+                                                            }
+                                                        />
+                                                    </div>
+                                                </details>
                                             }.into_any()
                                         }}
                                     </div>

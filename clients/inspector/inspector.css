@@ -12,8 +12,20 @@
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.architecture-page,
+.architecture-scroll,
+.architecture-scroll > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.architecture-scroll {
+    overflow-x: hidden;
+}
+
 .architecture-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
     align-items: start;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -21,8 +33,12 @@
 
 .architecture-card-grid .config-list-item {
     display: grid;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-3);
+    overflow: hidden;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
@@ -53,10 +69,18 @@
 
 .architecture-card-grid .config-chip-row {
     padding: 0;
+    padding-top: var(--space-2);
 }
 
 .architecture-card-grid .tool-badges {
     justify-content: flex-start;
+}
+
+.topology-alternatives summary {
+    cursor: pointer;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
 }
 
 .architecture-page .topology-filter-row,
