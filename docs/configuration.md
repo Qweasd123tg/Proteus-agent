@@ -400,8 +400,9 @@ priority = 90
 Для Codex-compatible профилей не добавляйте примерные локальные prompt-и ради
 удобства. `codex` profile использует `prompts/codex-default.md` — адаптацию
 upstream Codex base prompt из reference-исходников
-(`codex-rs/protocol/src/prompts/base_instructions/default.md`); divergence
-перечислены комментарием в `configs/codex.config.toml`. Если точные upstream
+(`codex-rs/protocol/src/prompts/base_instructions/default.md`; source commit
+зафиксирован рядом с config); harness-dependent divergence перечислены
+комментарием в `configs/codex.config.toml`. Если точные upstream
 instructions неизвестны, config должен оставить этот список пустым или явно
 документировать divergence отдельным режимом.
 

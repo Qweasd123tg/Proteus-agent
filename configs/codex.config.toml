@@ -17,12 +17,12 @@ max_input_tokens = 400000
 effort = "high"
 summary = true
 
-# Base prompt: адаптированный upstream Codex base prompt
-# (codex-rs/protocol/src/prompts/base_instructions/default.md из исходников
-# Codex). Divergence от upstream: identity line без "Codex CLI", убраны
-# убран sandbox pointer,
-# apply_patch описан как freeform, permission-режимы названы по-нашему,
-# добавлен совет предпочитать structured read/search tools в shell guidelines.
+# Base prompt: адаптированный upstream Codex base prompt из
+# codex-rs/protocol/src/prompts/base_instructions/default.md на commit
+# 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d. Harness-dependent divergence:
+# identity/renderer говорят Proteus/client вместо Codex CLI; apply_patch описан
+# как freeform; permission-режимы названы auto/normal; добавлены фактическая
+# per-command sandbox/netns семантика и предпочтение structured read/search tools.
 [[instructions]]
 kind = "System"
 file = "prompts/codex-default.md"

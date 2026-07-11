@@ -55,6 +55,8 @@ Note that plans are not for padding out simple work with filler steps or stating
 
 Do not repeat the full contents of the plan after an `update_plan` call — the harness already displays it. Instead, summarize the change made and highlight any important context or next step.
 
+Before running a command, consider whether or not you have completed the previous step, and make sure to mark it as completed before moving on to the next step. It may be the case that you complete all steps in your plan after a single pass of implementation. If this is the case, you can simply mark all the planned steps as completed. Sometimes, you may need to change plans in the middle of a task: call `update_plan` with the updated plan and make sure to provide an `explanation` of the rationale when doing so.
+
 Use a plan when:
 
 - The task is non-trivial and will require multiple actions over a long time horizon.
@@ -64,6 +66,57 @@ Use a plan when:
 - When the user asked you to do more than one thing in a single prompt
 - The user has asked you to use the plan tool (aka "TODOs")
 - You generate additional steps while working, and plan to do them before yielding to the user
+
+### Examples
+
+**High-quality plans**
+
+Example 1:
+
+1. Add CLI entry with file args
+2. Parse Markdown via CommonMark library
+3. Apply semantic HTML template
+4. Handle code blocks, images, links
+5. Add error handling for invalid files
+
+Example 2:
+
+1. Define CSS variables for colors
+2. Add toggle with localStorage state
+3. Refactor components to use variables
+4. Verify all views for readability
+5. Add smooth theme-change transition
+
+Example 3:
+
+1. Set up Node.js + WebSocket server
+2. Add join/leave broadcast events
+3. Implement messaging with timestamps
+4. Add usernames + mention highlighting
+5. Persist messages in lightweight DB
+6. Add typing indicators + unread count
+
+**Low-quality plans**
+
+Example 1:
+
+1. Create CLI tool
+2. Add Markdown parser
+3. Convert to HTML
+
+Example 2:
+
+1. Add dark mode toggle
+2. Save preference
+3. Make styles look good
+
+Example 3:
+
+1. Create single-file HTML game
+2. Run quick sanity check
+3. Summarize usage instructions
+
+If you need to write a plan, only write high quality plans, not low quality ones.
 
 ## Task execution
 

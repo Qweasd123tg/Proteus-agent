@@ -397,6 +397,14 @@ async fn init_codex_writes_loadable_single_config_file() {
             .iter()
             .any(|block| block.text.contains("coding agent"))
     );
+    let instructions = config
+        .instruction_blocks()
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(instructions.contains("Before running a command"));
+    assert!(instructions.contains("High-quality plans"));
 }
 
 #[test]
