@@ -288,6 +288,15 @@ thinking несовместим с кастомным sampling. Если сов�
 поддерживает `thinking`, уберите `budget_tokens` или весь `[providers.*.reasoning]`
 блок из локального provider config.
 
+OpenAI Responses adapter отправляет `parallel_tool_calls = true` в соответствии
+со своей заявленной capability и всегда задаёт явный `tool_choice`. При
+включённом reasoning он также запрашивает
+`include = ["reasoning.encrypted_content"]`. Полученный reasoning-item
+сохраняется в canonical history вместе с `encrypted_content` и в следующем
+ходе снова сериализуется как `type = "reasoning"`; summary больше не
+маскируется под обычный assistant-текст. Это нужно не для показа скрытых
+рассуждений, а для provider-visible continuity между ходами.
+
 ## Secrets
 
 Adapters читают API key в таком порядке:

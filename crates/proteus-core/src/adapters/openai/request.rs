@@ -21,6 +21,16 @@ pub(super) fn to_openai_request_with_cache(
     let mut body = json!({
         "model": request.model.model,
         "input": to_openai_input(&request.messages)?,
+        "tool_choice": match &request.tool_choice {
+            ToolChoice::None => "none",
+            ToolChoice::Auto => "auto",
+            ToolChoice::Required => "required",
+            ToolChoice::Tool(_) => "auto",
+            _ => "auto",
+        },
+        // OpenAiResponsesClient advertises this capability for every model it
+        // serves. Keep the wire request aligned with that contract and Codex.
+        "parallel_tool_calls": true,
         "store": false,
     });
 
@@ -62,6 +72,9 @@ pub(super) fn to_openai_request_with_cache(
             reasoning.insert("summary".to_owned(), Value::String("auto".to_owned()));
         }
         body["reasoning"] = Value::Object(reasoning);
+        body["include"] = json!(["reasoning.encrypted_content"]);
+    } else {
+        body["include"] = json!([]);
     }
 
     apply_openai_prompt_cache(request, prompt_cache, &mut body);
@@ -223,12 +236,11 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                         }
                     }
                 }
-                ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => {
-                    input.push(json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{ "type": "output_text", "text": format!("Reasoning summary: {text}") }]
-                    }))
+                ContentPart::ReasoningSummary { text } => {
+                    input.push(openai_reasoning_item(text, None))
+                }
+                ContentPart::Reasoning { text, signature } => {
+                    input.push(openai_reasoning_item(text, signature.as_deref()))
                 }
                 ContentPart::FileRef { path, content } => input.push(json!({
                     "type": "message",
@@ -248,6 +260,19 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
         }
     }
     Ok(input)
+}
+
+fn openai_reasoning_item(summary: &str, encrypted_content: Option<&str>) -> Value {
+    let summary = if summary.trim().is_empty() {
+        Vec::new()
+    } else {
+        vec![json!({ "type": "summary_text", "text": summary })]
+    };
+    json!({
+        "type": "reasoning",
+        "summary": summary,
+        "encrypted_content": encrypted_content,
+    })
 }
 
 fn freeform_tool_input(call: &ToolCall) -> Result<String> {

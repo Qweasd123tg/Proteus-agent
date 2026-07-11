@@ -566,6 +566,7 @@ mod tests {
 
         assert_eq!(body["model"], "gpt-test");
         assert_eq!(body["store"], false);
+        assert_eq!(body["parallel_tool_calls"], true);
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "write_file");
         assert_eq!(body["tools"][0]["parameters"]["required"][0], "path");
@@ -579,8 +580,66 @@ mod tests {
             body["reasoning"],
             json!({ "effort": "medium", "summary": "auto" })
         );
+        assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
         assert_eq!(body["max_output_tokens"], 123);
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    }
+
+    #[test]
+    fn request_uses_codex_envelope_without_tools_or_reasoning() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![CanonicalMessage::text(MessageRole::User, "hello")],
+        );
+
+        let body = to_openai_request(&request).unwrap();
+
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert_eq!(body["include"], json!([]));
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn response_reasoning_item_is_preserved_for_the_next_request() {
+        let response = json!({
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        { "type": "summary_text", "text": "first" },
+                        { "type": "summary_text", "text": "second" }
+                    ],
+                    "encrypted_content": "encrypted-reasoning"
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "answer" }]
+                }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 20 }
+        });
+
+        let canonical = from_openai_response(response).unwrap();
+        assert!(matches!(
+            &canonical.message.parts[0],
+            ContentPart::Reasoning { text, signature }
+                if text == "first\n\nsecond"
+                    && signature.as_deref() == Some("encrypted-reasoning")
+        ));
+
+        let next_request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "gpt-test"),
+            vec![canonical.message],
+        )
+        .with_reasoning(ReasoningConfig::new(Some("high".to_owned()), true));
+        let body = to_openai_request(&next_request).unwrap();
+
+        assert_eq!(body["input"][0]["type"], "reasoning");
+        assert_eq!(body["input"][0]["summary"][0]["text"], "first\n\nsecond");
+        assert_eq!(body["input"][0]["encrypted_content"], "encrypted-reasoning");
     }
 
     #[test]

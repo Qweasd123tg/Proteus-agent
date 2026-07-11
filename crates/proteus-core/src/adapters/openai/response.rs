@@ -14,7 +14,7 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
         return Err(anyhow!("OpenAI API error: {error}"));
     }
 
-    let mut text_parts = Vec::new();
+    let mut parts = Vec::new();
     let mut tool_calls = Vec::new();
 
     let length_limited = is_length_limited_response(&response);
@@ -31,9 +31,31 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                         if content_item.get("type").and_then(Value::as_str) == Some("output_text")
                             && let Some(text) = content_item.get("text").and_then(Value::as_str)
                         {
-                            text_parts.push(text.to_owned());
+                            parts.push(ContentPart::Text {
+                                text: text.to_owned(),
+                            });
                         }
                     }
+                }
+            }
+            Some("reasoning") => {
+                let text = item
+                    .get("summary")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|summary| {
+                        summary.get("type").and_then(Value::as_str) == Some("summary_text")
+                    })
+                    .filter_map(|summary| summary.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                let signature = item
+                    .get("encrypted_content")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                if !text.is_empty() || signature.is_some() {
+                    parts.push(ContentPart::Reasoning { text, signature });
                 }
             }
             Some("function_call") if !length_limited => {
@@ -54,7 +76,9 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .map(serde_json::from_str)
                     .transpose()?
                     .unwrap_or(Value::Null);
-                tool_calls.push(ToolCall::new(call_id, name, args));
+                let call = ToolCall::new(call_id, name, args);
+                parts.push(ContentPart::ToolCall { call: call.clone() });
+                tool_calls.push(call);
             }
             Some("custom_tool_call") if !length_limited => {
                 let call_id = item
@@ -73,10 +97,10 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .and_then(Value::as_str)
                     .ok_or_else(|| anyhow!("custom_tool_call missing input"))?
                     .to_owned();
-                tool_calls.push(
-                    ToolCall::new(call_id, name, json!({ "input": input }))
-                        .with_surface(ToolCallSurface::Freeform),
-                );
+                let call = ToolCall::new(call_id, name, json!({ "input": input }))
+                    .with_surface(ToolCallSurface::Freeform);
+                parts.push(ContentPart::ToolCall { call: call.clone() });
+                tool_calls.push(call);
             }
             _ => {}
         }
@@ -89,17 +113,6 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     } else {
         FinishReason::ToolCalls
     };
-    let mut parts = text_parts
-        .into_iter()
-        .map(|text| ContentPart::Text { text })
-        .collect::<Vec<_>>();
-    parts.extend(
-        tool_calls
-            .iter()
-            .cloned()
-            .map(|call| ContentPart::ToolCall { call }),
-    );
-
     let message = CanonicalMessage::new(MessageRole::Assistant, parts);
     let usage = parse_usage(&response);
     let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
