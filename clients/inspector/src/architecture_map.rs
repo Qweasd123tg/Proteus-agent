@@ -1,6 +1,7 @@
 use leptos::prelude::*;
+use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
-use web_sys::{MouseEvent, WheelEvent};
+use web_sys::{KeyboardEvent, MouseEvent, WheelEvent};
 
 use crate::ui_utils::set_timeout;
 
@@ -123,10 +124,52 @@ pub(crate) fn install_mermaid_rendered_fit(map_view: MapViewState) {
     on_mermaid_rendered.forget();
 }
 
+fn refit_after_layout(map: MapViewState) {
+    set_timeout(50, move || map.fit());
+}
+
+fn install_fullscreen_escape(
+    fullscreen: ReadSignal<bool>,
+    set_fullscreen: WriteSignal<bool>,
+    map: MapViewState,
+) {
+    let on_keydown =
+        Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
+            if ev.key() == "Escape" && fullscreen.get_untracked() {
+                ev.prevent_default();
+                set_fullscreen.set(false);
+                refit_after_layout(map);
+            }
+        }));
+    if let Some(window) = web_sys::window() {
+        let _ =
+            window.add_event_listener_with_callback("keydown", on_keydown.as_ref().unchecked_ref());
+        let cleanup = SendWrapper::new((window, on_keydown));
+        on_cleanup(move || {
+            let (window, on_keydown) = &*cleanup;
+            let _ = window.remove_event_listener_with_callback(
+                "keydown",
+                on_keydown.as_ref().unchecked_ref(),
+            );
+        });
+    }
+}
+
 #[component]
 pub(crate) fn TopologyMapView(map: MapViewState) -> impl IntoView {
+    let (fullscreen, set_fullscreen) = signal(false);
+    install_fullscreen_escape(fullscreen, set_fullscreen, map);
+
+    let toggle_fullscreen = move |_| {
+        set_fullscreen.update(|value| *value = !*value);
+        refit_after_layout(map);
+    };
+
     view! {
-        <section class="config-section">
+        <section
+            class="config-section mermaid-map-section"
+            class:fullscreen=move || fullscreen.get()
+        >
             <div class="config-section-header">
                 <h3>"Map"</h3>
                 <div class="mermaid-summary-actions">
@@ -164,6 +207,16 @@ pub(crate) fn TopologyMapView(map: MapViewState) -> impl IntoView {
                         on:click=move |_| map.reset()
                     >
                         "1:1"
+                    </button>
+                    <button
+                        type="button"
+                        class="secondary mermaid-copy-button map-fullscreen-button"
+                        title=move || if fullscreen.get() { "Закрыть полноэкранный режим" } else { "Развернуть карту" }
+                        aria-label=move || if fullscreen.get() { "Закрыть полноэкранный режим" } else { "Развернуть карту" }
+                        aria-expanded=move || fullscreen.get().to_string()
+                        on:click=toggle_fullscreen
+                    >
+                        {move || if fullscreen.get() { "×" } else { "⛶" }}
                     </button>
                 </div>
             </div>

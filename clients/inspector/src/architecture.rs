@@ -346,7 +346,7 @@ fn TopologySnapshotView(
                     <h3>"Slots"</h3>
                     <span>{slot_cards.len()}</span>
                 </div>
-                <div class="config-list">
+                <div class="config-list architecture-card-grid">
                     <For
                         each=move || slot_cards.clone()
                         key=|view| view.slot.id.clone()
@@ -510,7 +510,7 @@ fn TopologySnapshotView(
                         on:input:target=move |ev| set_tool_search.set(ev.target().value())
                     />
                 </div>
-                <div class="config-list">
+                <div class="config-list architecture-card-grid">
                     <For
                         each=filtered_tools
                         key=|tool| format!("{}:{}", tool.name, tool.source)

@@ -9,7 +9,9 @@ runtime-control state.
 
 - `/architecture` читает `/inspect/topology` и `/inspect/topology.mmd`,
   показывает topology map, runtime pipeline, slots, tools, plugin
-  contributions и warnings;
+  contributions и warnings; карта ограничена по высоте, поддерживает pan/zoom,
+  автоматический `fit` и полноэкранный режим с выходом по `Escape`, а длинные
+  списки slots/tools раскладываются в две колонки на широком экране;
 - `/configs` читает `/config` и `/config/builder`, показывает runtime
   overview (model/reasoning/config files) и plugins, а Config builder
   редактирует `active_provider`, `[permissions] mode`, реализацию каждого
@@ -74,8 +76,9 @@ Custom app-server origin и token можно совмещать как `?server=
 - Mermaid грузится только здесь, чтобы chat bundle не тянул architecture
   dependencies.
 
-Проверяйте inspector отдельной командой:
+Проверяйте inspector отдельной Trunk-сборкой:
 
 ```bash
-cargo check --manifest-path clients/inspector/Cargo.toml --target wasm32-unknown-unknown
+cd clients/inspector
+env -u NO_COLOR trunk build
 ```

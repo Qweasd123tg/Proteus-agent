@@ -1,0 +1,106 @@
+.mermaid-map-viewport {
+    height: clamp(320px, 45vh, 520px);
+}
+
+.map-fullscreen-button {
+    min-width: 30px;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.architecture-page .config-overview {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.architecture-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+}
+
+.architecture-card-grid .config-list-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-panel-soft);
+}
+
+.architecture-card-grid .config-list-item:last-child {
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.architecture-card-grid .config-list-title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 2px;
+}
+
+.architecture-card-grid .config-list-main {
+    gap: var(--space-2);
+}
+
+.architecture-card-grid .config-list-main p {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.architecture-card-grid .config-chip-row {
+    padding: 0;
+}
+
+.architecture-card-grid .tool-badges {
+    justify-content: flex-start;
+}
+
+.architecture-page .topology-filter-row,
+.architecture-page .mermaid-summary-actions {
+    flex-wrap: wrap;
+}
+
+.architecture-page .topology-filter-row {
+    overflow-x: visible;
+}
+
+.mermaid-map-section.fullscreen {
+    position: fixed;
+    z-index: 100;
+    inset: var(--space-3);
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border-color: var(--border-strong);
+    box-shadow:
+        0 0 0 100vmax rgb(0 0 0 / 72%),
+        0 20px 60px rgb(0 0 0 / 45%);
+}
+
+.mermaid-map-section.fullscreen .mermaid-map-viewport {
+    height: auto;
+    min-height: 0;
+    flex: 1;
+}
+
+@media (max-width: 620px) {
+    .mermaid-map-viewport {
+        height: clamp(280px, 42vh, 420px);
+    }
+
+    .mermaid-map-section.fullscreen {
+        inset: 0;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .architecture-card-grid {
+        grid-template-columns: 1fr;
+        padding: var(--space-3);
+    }
+}
