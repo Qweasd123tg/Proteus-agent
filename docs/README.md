@@ -87,6 +87,10 @@
 
 ## Research и архивы
 
+- [research/pi-vs-proteus.md](research/pi-vs-proteus.md) — проверка причины
+  существования Proteus после знакомства с Pi, граница возможного pivot и
+  30-дневные continue/pivot/freeze criteria; это proposal, не принятый current
+  scope;
 - [research/memory-research.md](research/memory-research.md) — blueprint
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
