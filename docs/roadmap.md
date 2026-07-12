@@ -20,9 +20,9 @@ Roadmap хранит порядок работ и журнал уже приня
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
 3. 🟡 Async collaboration control закрыт session ownership, hard caps и
-   sequential mailbox/follow-up generations, но остаются bounded idle/resume retention для process subagents, а также
-   ownership, age cleanup и cancellation для уже count-bounded interactive
-   exec sessions.
+   sequential mailbox/follow-up generations; process subagents получили
+   bounded idle/resume LRU retention. Остались ownership, age cleanup и
+   cancellation для уже count-bounded interactive exec sessions.
 4. После lifecycle checkpoint решить canonical turn data как один кластер:
    parts + storage + replay + eval.
 5. Прогнать несколько маленьких dogfood-задач и только по их результатам
@@ -425,9 +425,11 @@ envelopes verbatim. Responses Lite и websocket transport остаются plann
   collaboration slice добавлен 2026-07-11 отдельно от foreground `task`:
   session-owned bounded spawn/list/wait/interrupt для read-only
   `parallel_safe` ролей без worktree; 2026-07-12 sequential получил bounded
-  mailbox, `send_message`, `followup_task` и immutable generations. Idle process children всё ещё должны
-  получить bounded eviction — новый surface не закрывает lifecycle самого
-  process pool.
+  mailbox, `send_message`, `followup_task` и immutable generations. Process
+  runner в тот же lifecycle checkpoint получил глобальный
+  `max_idle_processes`, LRU eviction, atomic resume reservation и
+  session/role/cwd binding; strict wall-clock TTL/janitor остаётся optional
+  follow-up, а не дырой в bounded resident state.
   Стратегия записи (2026-07-06):
   этап 1 — параллельны только read-only роли (deny-write policy у детей),
   пишущий один; этап 2 — worktree-per-child для пишущих (прецеденты: Claude

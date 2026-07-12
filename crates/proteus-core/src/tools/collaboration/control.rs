@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::Notify;
 
 use crate::{
@@ -544,9 +545,15 @@ fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentView {
 }
 
 fn compact_result(result: SubagentResult) -> AgentOutcome {
+    let child_thread_id = result
+        .metadata
+        .get("resumable")
+        .and_then(Value::as_bool)
+        .filter(|resumable| *resumable)
+        .and_then(|_| result.child_thread_id.map(|id| id.to_string()));
     AgentOutcome::Result {
         status: status_label(result.status).to_owned(),
-        child_thread_id: result.child_thread_id.map(|id| id.to_string()),
+        child_thread_id,
         summary: truncate_utf8(result.summary, MAX_RETAINED_SUMMARY_BYTES),
     }
 }

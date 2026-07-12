@@ -19,6 +19,24 @@ struct RecordingSubagentHost {
 
 struct WritingSubagentHost;
 
+struct SessionWritingSubagentHost {
+    session_id: crate::domain::SessionId,
+    child_thread_id: crate::domain::ThreadId,
+    resumable: Mutex<bool>,
+    calls: Mutex<usize>,
+}
+
+impl SessionWritingSubagentHost {
+    fn new(session_id: crate::domain::SessionId, child_thread_id: crate::domain::ThreadId) -> Self {
+        Self {
+            session_id,
+            child_thread_id,
+            resumable: Mutex::new(true),
+            calls: Mutex::new(0),
+        }
+    }
+}
+
 #[async_trait]
 impl SubagentToolHost for WritingSubagentHost {
     async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
@@ -26,6 +44,23 @@ impl SubagentToolHost for WritingSubagentHost {
         Ok(
             SubagentResult::new("change complete", SubagentStatus::Completed, 1)
                 .with_child_thread_id(crate::domain::new_thread_id()),
+        )
+    }
+}
+
+#[async_trait]
+impl SubagentToolHost for SessionWritingSubagentHost {
+    fn session_id(&self) -> Option<crate::domain::SessionId> {
+        Some(self.session_id)
+    }
+
+    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
+        *self.calls.lock().unwrap() += 1;
+        fs::write(request.task.cwd.join("child.txt"), "changed\n")?;
+        Ok(
+            SubagentResult::new("change complete", SubagentStatus::Completed, 1)
+                .with_child_thread_id(self.child_thread_id)
+                .with_metadata(json!({ "resumable": *self.resumable.lock().unwrap() })),
         )
     }
 }
@@ -115,6 +150,20 @@ fn parser_keeps_resume_metadata_and_rejects_wrong_optional_type() {
             .unwrap_err()
             .contains("must be a string")
     );
+}
+
+#[test]
+fn task_id_is_published_only_for_explicitly_resumable_results() {
+    let thread_id = crate::domain::new_thread_id();
+    let non_resumable = SubagentResult::new("done", SubagentStatus::Completed, 1)
+        .with_child_thread_id(thread_id)
+        .with_metadata(json!({ "resumable": false }));
+    assert_eq!(child_task_id(&non_resumable), None);
+
+    let resumable = SubagentResult::new("done", SubagentStatus::Completed, 1)
+        .with_child_thread_id(thread_id)
+        .with_metadata(json!({ "resumable": true }));
+    assert_eq!(child_task_id(&resumable), Some(thread_id.to_string()));
 }
 
 #[tokio::test]
@@ -208,4 +257,98 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
             .join(".proteus/worktrees/coder-task-wt/child.txt")
             .exists()
     );
+}
+
+#[tokio::test]
+async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge() {
+    let repo = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "Test"],
+    ] {
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    fs::write(repo.path().join("base.txt"), "base\n").unwrap();
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["add", "."])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["commit", "-q", "-m", "base"])
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let tool = TaskTool::new(
+        vec![role("coder").with_isolation(SubagentIsolation::Worktree)],
+        30_000,
+    );
+    let parent_task = crate::domain::AgentTask::new("fix", repo.path().to_path_buf());
+    let child_thread_id = crate::domain::new_thread_id();
+    let owner = Arc::new(SessionWritingSubagentHost::new(
+        crate::domain::new_session_id(),
+        child_thread_id,
+    ));
+    let fresh = ToolCall::new(
+        "task-owned-wt",
+        TASK_TOOL,
+        json!({"agent_type": "coder", "prompt": "make a change"}),
+    );
+    let mut owner_ctx = ToolContext::new(parent_task.cwd.clone());
+    owner_ctx.task = Some(parent_task.clone());
+    owner_ctx.subagent = Some(owner.clone());
+
+    let first = tool.invoke(&fresh, owner_ctx.clone()).await.unwrap();
+    assert!(first.ok, "{:?}", first.error);
+    assert!(first.output.contains(&child_thread_id.to_string()));
+
+    let foreign = Arc::new(SessionWritingSubagentHost::new(
+        crate::domain::new_session_id(),
+        child_thread_id,
+    ));
+    let resume = ToolCall::new(
+        "task-foreign-wt",
+        TASK_TOOL,
+        json!({
+            "agent_type": "coder",
+            "prompt": "continue",
+            "task_id": child_thread_id.to_string()
+        }),
+    );
+    let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone());
+    foreign_ctx.task = Some(parent_task.clone());
+    foreign_ctx.subagent = Some(foreign.clone());
+    let rejected = tool.invoke(&resume, foreign_ctx).await.unwrap();
+    assert!(!rejected.ok);
+    assert!(
+        rejected
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("another session"))
+    );
+    assert_eq!(*foreign.calls.lock().unwrap(), 0);
+
+    *owner.resumable.lock().unwrap() = false;
+    let resumed = tool.invoke(&resume, owner_ctx).await.unwrap();
+    assert!(resumed.ok, "{:?}", resumed.error);
+    assert!(!resumed.output.contains("[task_id:"));
+    assert_eq!(*owner.calls.lock().unwrap(), 2);
 }

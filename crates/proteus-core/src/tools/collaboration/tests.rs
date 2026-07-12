@@ -56,12 +56,16 @@ impl SubagentToolHost for TestHost {
                 "partial",
                 SubagentStatus::Cancelled,
                 1,
-            ).with_child_thread_id(handle.child_thread_id)),
+            )
+            .with_child_thread_id(handle.child_thread_id)
+            .with_metadata(json!({ "resumable": true }))),
             _ = self.finished.cancelled() => Ok(SubagentResult::new(
                 "done",
                 SubagentStatus::Completed,
                 2,
-            ).with_child_thread_id(handle.child_thread_id)),
+            )
+            .with_child_thread_id(handle.child_thread_id)
+            .with_metadata(json!({ "resumable": true }))),
         }
     }
 
@@ -312,7 +316,8 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
         &reservation.path,
         reservation.generation,
         Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-            .with_child_thread_id(first_handle.child_thread_id)),
+            .with_child_thread_id(first_handle.child_thread_id)
+            .with_metadata(json!({ "resumable": true }))),
     );
 
     let idle = match control
@@ -345,6 +350,46 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
 }
 
 #[test]
+fn non_resumable_completion_does_not_advertise_followup_target() {
+    let control = CollaborationControl::default();
+    let session_id = new_session_id();
+    let host = Arc::new(TestHost::new(session_id));
+    let reservation = control
+        .reserve(session_id, "scan", "explore")
+        .expect("reserve");
+    let child_thread_id = new_thread_id();
+    control
+        .attach(
+            session_id,
+            &reservation.path,
+            reservation.generation,
+            SubagentHandle::new(new_call_id(), "explore", child_thread_id),
+            host,
+        )
+        .expect("attach");
+    control.complete(
+        session_id,
+        &reservation.path,
+        reservation.generation,
+        Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
+            .with_child_thread_id(child_thread_id)
+            .with_metadata(json!({ "resumable": false }))),
+    );
+
+    let view = control
+        .list(session_id, Some("scan"))
+        .expect("list")
+        .pop()
+        .expect("agent");
+    assert_eq!(view.child_thread_id, None);
+    let error = match control.begin_followup(session_id, "scan") {
+        Ok(_) => panic!("non-resumable result must reject follow-up"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("no resumable task id"));
+}
+
+#[test]
 fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
     let control = CollaborationControl::default();
     let session_id = new_session_id();
@@ -368,7 +413,8 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
         &reservation.path,
         1,
         Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-            .with_child_thread_id(child_thread_id)),
+            .with_child_thread_id(child_thread_id)
+            .with_metadata(json!({ "resumable": true }))),
     );
 
     for generation in 2..=MAX_OUTSTANDING_COMPLETIONS as u64 {
@@ -393,7 +439,8 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
             &idle.path,
             generation,
             Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-                .with_child_thread_id(child_thread_id)),
+                .with_child_thread_id(child_thread_id)
+                .with_metadata(json!({ "resumable": true }))),
         );
     }
 

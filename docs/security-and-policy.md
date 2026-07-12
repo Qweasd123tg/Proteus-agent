@@ -486,8 +486,8 @@ split_commands = true
 - PTY sessions `exec_command`/`write_stdin` хранятся process-wide;
   `write_stdin` адресует их по предсказуемому numeric id без ownership по
   caller/session/cwd;
-- `process` SubagentRunner ограничивает concurrent leases semaphore-ом, но
-  idle child processes для разных cwd пока не имеют общего TTL/LRU/cap;
+- `process` SubagentRunner ограничивает concurrent leases semaphore-ом и idle
+  residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;
 

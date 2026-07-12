@@ -75,8 +75,16 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
 }
 
 fn process_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
+    process_runner_with_idle_cap(config_path, 8)
+}
+
+fn process_runner_with_idle_cap(
+    config_path: &std::path::Path,
+    max_idle_processes: usize,
+) -> ProcessSubagentRunner {
     ProcessSubagentRunner::from_config(json!({
         "binary": env!("CARGO_BIN_EXE_proteus"),
+        "max_idle_processes": max_idle_processes,
         "roles": [
             {
                 "name": "helper",
@@ -363,4 +371,201 @@ async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
         .await
         .expect("resume of first child must survive foreign-cwd fresh task");
     assert_eq!(resumed.child_thread_id, Some(first_task_id));
+}
+
+#[tokio::test]
+async fn process_subagent_idle_cap_zero_disables_resume_retention() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner_with_idle_cap(&config_path, 0);
+    let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+    let task = AgentTask::new("delegate", workspace.path().to_path_buf());
+
+    let result = runner
+        .run(
+            SubagentRequest::new("helper", "one shot", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("child turn");
+    assert_eq!(result.metadata["resumable"], json!(false));
+    let task_id = result.child_thread_id.expect("child thread id");
+
+    let error = runner
+        .run(
+            SubagentRequest::new("helper", "continue", task)
+                .with_metadata(json!({ "task_id": task_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect_err("cap zero must expire task id");
+    assert!(error.to_string().contains("unknown task_id"), "{error:#}");
+}
+
+#[tokio::test]
+async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace_a = tempfile::tempdir().expect("workspace a");
+    let workspace_b = tempfile::tempdir().expect("workspace b");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner_with_idle_cap(&config_path, 1);
+    let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+    let task_a = AgentTask::new("delegate", workspace_a.path().to_path_buf());
+    let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
+
+    let first = runner
+        .run(
+            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("first child");
+    let first_id = first.child_thread_id.expect("first task id");
+    let second = runner
+        .run(
+            SubagentRequest::new("helper", "workspace b", task_b.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("second child");
+    let second_id = second.child_thread_id.expect("second task id");
+
+    let expired = runner
+        .run(
+            SubagentRequest::new("helper", "continue a", task_a)
+                .with_metadata(json!({ "task_id": first_id.to_string() })),
+            ctx.clone(),
+        )
+        .await
+        .expect_err("oldest idle process must be evicted");
+    assert!(expired.to_string().contains("unknown task_id"));
+
+    let resumed = runner
+        .run(
+            SubagentRequest::new("helper", "continue b", task_b)
+                .with_metadata(json!({ "task_id": second_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect("newest idle process must remain resumable");
+    assert_eq!(resumed.child_thread_id, Some(second_id));
+}
+
+#[tokio::test]
+async fn process_subagent_resume_touch_updates_global_lru_order() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace_a = tempfile::tempdir().expect("workspace a");
+    let workspace_b = tempfile::tempdir().expect("workspace b");
+    let workspace_c = tempfile::tempdir().expect("workspace c");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner_with_idle_cap(&config_path, 2);
+    let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+    let task_a = AgentTask::new("delegate", workspace_a.path().to_path_buf());
+    let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
+    let task_c = AgentTask::new("delegate", workspace_c.path().to_path_buf());
+
+    let first = runner
+        .run(
+            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("first child");
+    let first_id = first.child_thread_id.expect("first task id");
+    let second = runner
+        .run(
+            SubagentRequest::new("helper", "workspace b", task_b.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("second child");
+    let second_id = second.child_thread_id.expect("second task id");
+
+    runner
+        .run(
+            SubagentRequest::new("helper", "touch a", task_a.clone())
+                .with_metadata(json!({ "task_id": first_id.to_string() })),
+            ctx.clone(),
+        )
+        .await
+        .expect("resume a");
+    runner
+        .run(
+            SubagentRequest::new("helper", "workspace c", task_c),
+            ctx.clone(),
+        )
+        .await
+        .expect("third child");
+
+    let expired = runner
+        .run(
+            SubagentRequest::new("helper", "continue b", task_b)
+                .with_metadata(json!({ "task_id": second_id.to_string() })),
+            ctx.clone(),
+        )
+        .await
+        .expect_err("untouched b must be the LRU victim");
+    assert!(expired.to_string().contains("unknown task_id"));
+    runner
+        .run(
+            SubagentRequest::new("helper", "continue a again", task_a)
+                .with_metadata(json!({ "task_id": first_id.to_string() })),
+            ctx,
+        )
+        .await
+        .expect("recently resumed a must remain");
+}
+
+#[tokio::test]
+async fn process_subagent_resume_is_bound_to_session_and_cwd() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace_a = tempfile::tempdir().expect("workspace a");
+    let workspace_b = tempfile::tempdir().expect("workspace b");
+    let config_path = write_child_config(config_home.path());
+    let runner = process_runner(&config_path);
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx_a = test_runtime_context(events.clone());
+    let ctx_b = test_runtime_context(events);
+    let task_a = AgentTask::new("delegate", workspace_a.path().to_path_buf());
+    let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
+
+    let first = runner
+        .run(
+            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            ctx_a.clone(),
+        )
+        .await
+        .expect("first child");
+    let task_id = first.child_thread_id.expect("task id");
+
+    let foreign_session = runner
+        .run(
+            SubagentRequest::new("helper", "steal", task_a.clone())
+                .with_metadata(json!({ "task_id": task_id.to_string() })),
+            ctx_b,
+        )
+        .await
+        .expect_err("foreign session must not resume child");
+    assert!(foreign_session.to_string().contains("another session"));
+
+    let foreign_cwd = runner
+        .run(
+            SubagentRequest::new("helper", "wrong cwd", task_b)
+                .with_metadata(json!({ "task_id": task_id.to_string() })),
+            ctx_a.clone(),
+        )
+        .await
+        .expect_err("foreign cwd must not resume child");
+    assert!(foreign_cwd.to_string().contains("different workspace"));
+
+    let resumed = runner
+        .run(
+            SubagentRequest::new("helper", "correct owner", task_a)
+                .with_metadata(json!({ "task_id": task_id.to_string() })),
+            ctx_a,
+        )
+        .await
+        .expect("owner must still resume child after rejected probes");
+    assert_eq!(resumed.child_thread_id, Some(task_id));
 }

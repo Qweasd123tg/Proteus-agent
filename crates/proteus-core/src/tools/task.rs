@@ -88,10 +88,11 @@ impl Tool for TaskTool {
             ));
         };
 
-        let workspace = match prepare_workspace(&mut request, call, &role).await {
-            Ok(workspace) => workspace,
-            Err(message) => return Ok(task_error(call, message)),
-        };
+        let workspace =
+            match prepare_workspace(&mut request, call, &role, subagent.session_id()).await {
+                Ok(workspace) => workspace,
+                Err(message) => return Ok(task_error(call, message)),
+            };
         match subagent.run_subagent(request).await {
             Ok(result) => {
                 let note = finalize_workspace(workspace, &result).await;
@@ -167,9 +168,15 @@ fn result_to_tool_result(
             .as_ref()
             .map(|usage| usage.total_tokens())
             .unwrap_or(0);
-        output.push_str(&format!(
-            "\n\n[token budget exhausted ({spent} tokens spent); the summary above may be incomplete — resume with task_id to continue]"
-        ));
+        if task_id.is_some() {
+            output.push_str(&format!(
+                "\n\n[token budget exhausted ({spent} tokens spent); the summary above may be incomplete — resume with task_id to continue]"
+            ));
+        } else {
+            output.push_str(&format!(
+                "\n\n[token budget exhausted ({spent} tokens spent); the summary above may be incomplete — no resumable child state was retained]"
+            ));
+        }
     }
     if let Some(task_id) = task_id {
         output.push_str(&format!("\n\n[task_id: {task_id}]"));

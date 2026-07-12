@@ -92,6 +92,13 @@ stale monitor. App-server regression
 преждевременного перевода карточки в interrupted. Это не тесты restart
 persistence: collaboration registry намеренно process-resident.
 
+Round-trip тесты process-subagent-а в
+`crates/proteus-core/tests/process_subagent.rs` проверяют fresh/resume и
+parallel pool, а также global idle cap 0/1, LRU touch, eviction task ids и
+session/cwd ownership. Unit regression фиксирует, что atomically reserved и
+leased children не попадают в idle eviction; task/collaboration facades не
+публикуют `task_id`/follow-up для результата с `resumable = false`.
+
 Codex-style request-time compactor `modules.compactor = "codex"` покрывается
 unit-тестами в `plugins/default/codex-compactor/src/lib.rs`: model-backed
 summary path, ошибки model summary вместо fallback, фильтрация generated user

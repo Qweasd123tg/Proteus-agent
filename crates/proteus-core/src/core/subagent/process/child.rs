@@ -114,4 +114,24 @@ impl ChildProcess {
     pub async fn kill(&mut self) {
         let _ = self.child.kill().await;
     }
+
+    #[cfg(test)]
+    pub(super) fn test_fixture() -> Self {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("while read -r _line; do :; done")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn child fixture");
+        let stdin = child.stdin.take().expect("fixture stdin");
+        let (_output_tx, outputs) = mpsc::unbounded_channel();
+        Self {
+            child,
+            stdin,
+            outputs,
+        }
+    }
 }

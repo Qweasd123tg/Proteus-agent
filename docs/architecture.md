@@ -253,9 +253,10 @@ UI-state через generic host API, сначала стоит перепров
 - dylib unload и общий `reload_modules` не реализованы;
 - MCP поддерживает tools через stdio, но не полный resources/prompts surface;
 - app protocol и UI DTO ещё не стабилизированы как внешний API;
-- process-runner idle retention, subagent/worktree policy и restart-durable
-  collaboration state требуют дальнейшего решения; текущий collaboration
-  control bounded, но живёт только в процессе;
+- строгий wall-clock TTL/shutdown contract process-runner-а, дальнейшая
+  subagent/worktree policy и restart-durable collaboration state требуют
+  решения; текущие process idle retention и collaboration control bounded, но
+  живут только в процессе;
 - eval report анализирует trace, но автоматического benchmark runner пока нет.
 
 Актуальный рабочий фокус находится в [scope.md](scope.md), порядок следующих

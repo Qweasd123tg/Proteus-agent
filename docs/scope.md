@@ -74,8 +74,11 @@ CORS/`Origin` не используются как замена auth.
 
 ### 4. Ограниченный Lifecycle Процессов
 
-Process subagents должны получить bounded idle/resume retention: уникальные
-worktree cwd не должны оставлять неограниченное число живых children.
+Process subagents получили глобальный bounded idle/resume LRU-cap: уникальные
+worktree cwd больше не оставляют неограниченное число живых children; resume
+дополнительно привязан к session и cwd, а active/reserved child не эвиктится.
+Строгий wall-clock TTL/janitor остаётся отдельным улучшением, не условием
+bounded resident state.
 Interactive exec уже ограничивает число сессий, но ему нужны session/thread
 ownership, age cleanup и честная cancellation semantics, чтобы один turn не мог
 управлять процессом другого.

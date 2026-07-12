@@ -154,7 +154,7 @@ Packaged `codex` и `glm` profiles сейчас выбирают `sequential`, �
 
 ### Где Появился Жир
 
-`core/subagent/process/mod.rs` смешивает:
+На момент исследования `core/subagent/process/mod.rs` смешивал:
 
 1. role config и routing;
 2. semaphore/pool/lease/reuse процессов;
@@ -165,22 +165,25 @@ Packaged `codex` и `glm` profiles сейчас выбирают `sequential`, �
 7. token/iteration/partial-text tracking;
 8. реализацию `SubagentRunner`.
 
-Архитектурная гипотеза: даже если `process` останется, эти обязанности стоит
-разрезать на маленькие private-компоненты. Для такого внутреннего разреза новый
-slot не нужен.
+Обновление 2026-07-12: гипотеза подтверждена без нового slot-а. Config остаётся
+в `process/config.rs`, resident pool + resume index вынесены в `process/pool.rs`,
+stdio turn/forwarding/tracking — в `process/turn.rs`; `process/mod.rs` владеет
+runner orchestration.
 
 ### Lifecycle Уже Разнесён Между Владельцами
 
 - sequential resume ограничен своим `ResumableStore`;
 - process resume живёт, пока жив конкретный child process;
-- worktree resume отдельно хранится facade-tool-ом в process-global map;
-- runner eviction не уведомляет worktree map;
-- process resume record не имеет той же session ownership проверки, что
-  sequential snapshot.
+- worktree resume отдельно хранится facade-tool-ом в process-global map, но
+  record теперь session-owned и удаляется после non-resumable/failed resume;
+- process resume record проверяет session/role/cwd, а pool атомарно резервирует
+  child до ожидания permit;
+- LRU eviction удаляет process task binding под тем же pool lock; facade не
+  рекламирует `task_id`/follow-up без `metadata.resumable = true`.
 
-Оценка риска: добавление TTL/LRU только в process pool может создать ещё один
-источник истины и orphaned worktree/task records. Это нужно проверить в ADR, а
-не считать уже принятым решением.
+Остаток риска: strict wall-clock TTL потребует janitor/shutdown lifecycle и не
+должен изображаться opportunistic prune-ом. Bounded resident state уже закрыт
+глобальным LRU-cap; TTL остаётся отдельным optional improvement.
 
 ### Оценка Текущего Baseline
 
@@ -364,12 +367,15 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
 3. ✅ прогнать dogfood первого slice;
 4. ✅ добавить bounded sequential mailbox и follow-up generations без нового
    slot-а и без ложной capability у process/plugin runners;
-5. внутри будущей полной реализации разделить control, registry/tree, mailbox, persistence,
-   residency, roles/config и tool handlers — один cohesive module, не один fat
-   file;
-6. OpenCode-compatible `opencode_task` добавлять позже только при реальной
+5. ✅ закрыть unbounded process residency: private `process/pool.rs`, глобальный
+   idle LRU-cap, atomic resume reservation и session/role/cwd binding; strict
+   wall-clock TTL/janitor оставить отдельным lifecycle improvement;
+6. внутри будущей полной реализации разделить control, registry/tree, mailbox,
+   persistence, residency, roles/config и tool handlers — один cohesive module,
+   не один fat file;
+7. OpenCode-compatible `opencode_task` добавлять позже только при реальной
    потребности и с его точными stop/failure/resume semantics;
-7. общие abstractions выносить после второго реального implementation, а не
+8. общие abstractions выносить после второго реального implementation, а не
    заранее.
 
 Текущий slice даёт две model-facing поверхности поверх тех же runner-ов, а не

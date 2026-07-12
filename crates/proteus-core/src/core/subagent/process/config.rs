@@ -33,6 +33,11 @@ pub(super) struct ProcessSubagentConfig {
     /// (поверх per-role `max_processes`).
     #[serde(default = "default_max_parallel")]
     pub max_parallel: usize,
+    /// Глобальный cap живых idle process children. Active/reserved children
+    /// ограничены `max_parallel`/per-role permits и не эвиктятся; idle сверх
+    /// cap удаляются по LRU. Ноль полностью отключает process resume retention.
+    #[serde(default = "default_max_idle_processes")]
+    pub max_idle_processes: usize,
 }
 
 impl Default for ProcessSubagentConfig {
@@ -43,6 +48,7 @@ impl Default for ProcessSubagentConfig {
             max_depth: default_max_depth(),
             cancel_grace_ms: default_cancel_grace_ms(),
             max_parallel: default_max_parallel(),
+            max_idle_processes: default_max_idle_processes(),
         }
     }
 }
@@ -112,6 +118,10 @@ fn default_max_parallel() -> usize {
     8
 }
 
+fn default_max_idle_processes() -> usize {
+    8
+}
+
 fn default_parallel_max_processes() -> usize {
     4
 }
@@ -171,12 +181,14 @@ mod tests {
                 }
             ],
             "max_depth": 2,
-            "cancel_grace_ms": 1000
+            "cancel_grace_ms": 1000,
+            "max_idle_processes": 0
         }))
         .unwrap();
 
         assert_eq!(config.max_depth, 2);
         assert_eq!(config.cancel_grace_ms, 1000);
+        assert_eq!(config.max_idle_processes, 0);
         let specs = build_process_role_specs(&config.roles).unwrap();
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].name, "explore");
@@ -184,6 +196,12 @@ mod tests {
         assert_eq!(specs[0].limits.max_summary_bytes, Some(2048));
         assert_eq!(specs[0].limits.max_total_tokens, Some(250_000));
         assert_eq!(specs[0].config["config"], "sub-explorer");
+    }
+
+    #[test]
+    fn idle_process_retention_has_a_bounded_default() {
+        let config = ProcessSubagentConfig::default();
+        assert_eq!(config.max_idle_processes, 8);
     }
 
     #[test]

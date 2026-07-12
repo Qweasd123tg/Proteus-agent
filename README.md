@@ -81,9 +81,9 @@ cargo run --bin proteus -- \
   tool/search/context/workflow/policy/patch/memory/renderer реализации
   поставляются как dylib-плагины.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
-  approval policy и session approval cache. Оставшиеся lifecycle-ограничения —
-  отсутствие bounded idle/resume retention у process-subagents и ownership у
-  shared exec sessions — перечислены в [scope](docs/scope.md) и
+  approval policy и session approval cache. Process-subagent pool имеет
+  глобальный bounded LRU-cap для idle/resume children; оставшиеся lifecycle-
+  ограничения shared exec sessions перечислены в [scope](docs/scope.md) и
   [security reference](docs/security-and-policy.md).
 - Внешний интерфейс: HTTP/SSE app-server, Leptos chat для ежедневного loop-а и
   отдельный Inspector для config/topology.

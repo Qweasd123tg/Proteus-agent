@@ -690,15 +690,18 @@ policy, tools, model, permission mode и промпты ребёнка зада�
 (по handle или каскадом от родительского turn-а) транслируется в `Cancel`
 ребёнку с grace-ожиданием (`cancel_grace_ms`), затем процесс убивается.
 
-Процессы роли живут в пуле: до `max_processes` одновременных детей на роль
-(default 4 для `parallel_safe`/worktree-ролей, 1 для остальных;
-сверх-лимитные запуски ждут свободного процесса на semaphore). Свободный
-процесс переиспользуется между задачами (lazy spawn) только при совпадении
-cwd (`--cwd` фиксируется при спавне — критично для worktree-изоляции):
-свежая задача начинается с
-`ClearHistory` (что инвалидирует прежние task_id-ы этого процесса — resume
-по очищенной session честно отклоняется), resume по `task_id` продолжает
-живую session конкретного процесса; смерть процесса хоронит его task_id-ы.
+До `max_processes` детей роли исполняются одновременно (default 4 для
+`parallel_safe`/worktree-ролей, 1 для остальных; сверх-лимитные запуски ждут
+permit). Отдельный runner-level `max_idle_processes` (default 8) глобально
+ограничивает resident idle/resumable процессы всех ролей: лишний idle child
+эвиктится по LRU, active и atomically reserved resume-цели не затрагиваются,
+ноль отключает retention. Свободный процесс переиспользуется между задачами
+(lazy spawn) только при совпадении role и cwd (`--cwd` фиксируется при спавне —
+критично для worktree-изоляции). Свежая задача начинается с `ClearHistory` и
+инвалидирует прежний task id процесса. Resume атомарно резервирует конкретный
+child до ожидания semaphore и проверяет исходные session/role/cwd, поэтому
+конкурентный fresh turn не может подменить его историю. Смерть или LRU eviction
+хоронит task id; strict wall-clock TTL/janitor пока не реализован.
 Роли задаются в `module_config.subagent.process` (см. `configuration.md`).
 
 ## Workflow

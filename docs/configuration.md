@@ -748,6 +748,8 @@ max_depth = 1
 # binary = "/usr/local/bin/proteus"  # default: текущий исполняемый файл
 # cancel_grace_ms = 5000             # ожидание штатного cancel до kill
 # max_parallel = 8                   # cap одновременно запущенных (spawn) детей
+# max_idle_processes = 8             # глобальный LRU-cap idle/resumable процессов;
+#                                    # 0 отключает process resume retention
 
 [[module_config.subagent.process.roles]]
 name = "explore"
@@ -757,7 +759,7 @@ config = "sub-explorer"              # named config или путь к config-ф
 # args = ["--permission-mode", "plan"]  # extra CLI-аргументы ребёнка
 # parallel_safe = true                # config ребёнка должен быть read-only профилем
 # isolation = "worktree"             # пишущая роль: свой git worktree на fresh запуск
-# max_processes = 2                  # пул процессов роли; default 4 при parallel_safe/worktree, иначе 1
+# max_processes = 2                  # одновременные children роли; default 4 при parallel_safe/worktree, иначе 1
 # timeout_ms = 120000
 # max_summary_bytes = 4096
 # max_total_tokens = 300000          # token-бюджет запуска (input+output всех
@@ -769,11 +771,16 @@ Approval/user-input запросы ребёнка форвардятся в ро
 (пользователь родительской session видит их с меткой роли), поэтому
 approval timeout ребёнка (`app_server.approval_timeout_ms` его конфига)
 должен быть достаточным для ручного решения. `Send`/`ClearHistory`/`Cancel`
-идут по стандартному stdio-протоколу; процессы роли живут в пуле до
-`max_processes` одновременных детей (лишние запуски ждут свободного
-процесса), свежая задача сбрасывает историю ребёнка и тем самым хоронит
-прежние `task_id` этого процесса, `task_id` продолжает живую session
-конкретного процесса, смерть процесса инвалидирует его `task_id`.
+идут по стандартному stdio-протоколу. `max_processes` ограничивает
+одновременные процессы роли (лишние запуски ждут permit), а
+`max_idle_processes` — общий для всех ролей resident idle pool. Сверх cap
+эвиктится самый давно использованный idle child; active и atomically reserved
+resume-цели не являются кандидатами. Свежая задача сбрасывает историю ребёнка
+и тем самым хоронит прежние `task_id` этого процесса. Resume по `task_id`
+привязан к исходным session, role и cwd и продолжает только ту же живую process
+session; смерть или LRU eviction инвалидирует task id. При
+`max_idle_processes = 0` результат честно помечается non-resumable и process
+завершается после turn. Строгого wall-clock TTL/janitor пока нет.
 
 ## Renderer
 

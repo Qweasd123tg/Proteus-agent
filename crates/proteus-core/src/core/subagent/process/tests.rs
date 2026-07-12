@@ -4,10 +4,11 @@
 
 use serde_json::json;
 
+use super::child::ChildProcess;
 use super::*;
 use crate::{
-    domain::{ModelRef, TokenUsageSnapshot, ToolCall, ToolResult},
-    model_standard::FinishReason,
+    domain::{AgentOutput, ModelRef, TokenUsageSnapshot, ToolCall, ToolResult},
+    model_standard::{FinishReason, TokenUsage},
 };
 
 #[test]
@@ -118,4 +119,70 @@ fn turn_tracker_without_budget_never_trips() {
     snapshot.actual = Some(TokenUsage::new(u32::MAX, u32::MAX));
     tracker.observe(&Event::TokenUsageUpdated { usage: snapshot });
     assert!(!tracker.budget.exceeded());
+}
+
+#[tokio::test]
+async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let cwd = std::fs::canonicalize(workspace.path()).expect("canonical cwd");
+    let session_id = crate::domain::new_session_id();
+    let mut pool = ProcessPool::new(1);
+    let first_task_id = crate::domain::new_thread_id().to_string();
+
+    let first = PooledChild {
+        id: 1,
+        child: ChildProcess::test_fixture(),
+        cwd: cwd.clone(),
+        role: "helper".to_owned(),
+        used: true,
+    };
+    let first_release = pool.release(first, true, session_id, first_task_id.clone());
+    assert!(first_release.retained);
+    assert!(first_release.evicted.is_empty());
+
+    let reservation = pool
+        .reserve_resume(&first_task_id, session_id, "helper", &cwd)
+        .expect("reserve first child");
+    let second = PooledChild {
+        id: 2,
+        child: ChildProcess::test_fixture(),
+        cwd: cwd.clone(),
+        role: "helper".to_owned(),
+        used: true,
+    };
+    let second_release = pool.release(
+        second,
+        true,
+        session_id,
+        crate::domain::new_thread_id().to_string(),
+    );
+    assert!(second_release.retained);
+    assert!(
+        second_release.evicted.is_empty(),
+        "reserved first child is outside the idle cap"
+    );
+
+    let mut leased = pool
+        .lease_reserved(&reservation)
+        .expect("lease reserved first child");
+    assert_eq!(leased.id, 1);
+    let third = PooledChild {
+        id: 3,
+        child: ChildProcess::test_fixture(),
+        cwd,
+        role: "helper".to_owned(),
+        used: true,
+    };
+    let mut third_release = pool.release(
+        third,
+        true,
+        session_id,
+        crate::domain::new_thread_id().to_string(),
+    );
+    assert_eq!(third_release.evicted.len(), 1);
+    assert_eq!(third_release.evicted[0].id, 2);
+    leased.child.kill().await;
+    for child in &mut third_release.evicted {
+        child.child.kill().await;
+    }
 }

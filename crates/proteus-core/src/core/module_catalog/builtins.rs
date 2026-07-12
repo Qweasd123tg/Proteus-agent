@@ -208,7 +208,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
                 "parallel_spawn",
                 "roles_from_config",
             ],
-            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); пул процессов на роль, spawn/wait для parallel_safe-ролей; настройки в module_config.subagent.process.",
+            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); concurrent permits на роль, глобальный bounded idle LRU pool и spawn/wait для parallel_safe-ролей; настройки в module_config.subagent.process.",
         ),
         build_process_subagent,
     );
