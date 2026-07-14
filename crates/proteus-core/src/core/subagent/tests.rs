@@ -2,6 +2,8 @@
 //! контекста, дочерний цикл, resumable snapshots и cancel-safety.
 //! Unit-тесты helpers живут рядом с кодом в `child_loop` и `resumable`.
 
+mod execution_boundary;
+
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicUsize, Ordering},

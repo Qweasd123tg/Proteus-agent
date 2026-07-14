@@ -100,21 +100,25 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     // control surface. Keep the group atomic and grow the stable hot-set floor
     // only while those candidates are actually registered. Switching
     // subagents.surface back to task removes the group without config edits.
+    let control_names = candidates
+        .iter()
+        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))
+        .map(|tool| tool.name.as_str())
+        .collect::<HashSet<_>>();
     let required_names = config
         .always_include
         .iter()
         .filter(|name| candidates.iter().any(|tool| tool.name == name.as_str()))
         .map(String::as_str)
-        .chain(
-            candidates
-                .iter()
-                .filter(|tool| {
-                    metadata_category(&tool.metadata) == Some("proteus_subagent_control")
-                })
-                .map(|tool| tool.name.as_str()),
-        )
+        .chain(control_names.iter().copied())
         .collect::<HashSet<_>>();
-    let max_tools = configured_max_tools.max(required_names.len());
+    // Collaboration controls are an auxiliary protocol surface, not part of
+    // the model's ordinary hot-tool budget. Adding the group must therefore
+    // preserve the same number of direct read/search/edit tools that the
+    // profile selected before collaboration was enabled.
+    let max_tools = configured_max_tools
+        .saturating_add(control_names.len())
+        .max(required_names.len());
 
     if candidates.len() <= max_tools {
         let reasons = candidates
@@ -635,9 +639,9 @@ mod tests {
     }
 
     #[test]
-    fn collaboration_control_group_is_atomic_above_configured_cap() {
+    fn collaboration_control_group_is_atomic_and_preserves_hot_tool_budget() {
         let task = AgentTask::new("stable", std::env::current_dir().unwrap());
-        let request = ToolExposureRequest::new(task).with_max_tools(2);
+        let request = ToolExposureRequest::new(task).with_max_tools(3);
         let input = ToolExposureInput::new(
             request,
             vec![
@@ -649,6 +653,8 @@ mod tests {
                 control_spec("send_message", ToolSafety::WritesFiles),
                 control_spec("followup_task", ToolSafety::WritesFiles),
                 spec("read_file", "Read", ToolSafety::ReadOnly),
+                spec("grep", "Search", ToolSafety::ReadOnly),
+                spec("remember_fact", "Remember", ToolSafety::ReadOnly),
             ],
         );
 
@@ -666,10 +672,12 @@ mod tests {
             "interrupt_agent",
             "send_message",
             "followup_task",
+            "read_file",
+            "grep",
         ] {
             assert!(names.contains(required), "missing {required}: {names:?}");
         }
-        assert_eq!(output.metadata["max_tools"], 7);
+        assert_eq!(output.metadata["max_tools"], 9);
         assert_eq!(
             output.metadata["selected_tool_reasons"]["followup_task"],
             "control_group"

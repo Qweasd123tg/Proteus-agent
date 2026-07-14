@@ -69,7 +69,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Non-escalated commands require bwrap and run with no network access and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. External-terminal execution is unsandboxed and therefore also requires escalation. Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
+            "description": "Run a shell command in the current workspace (sh -lc). Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. External-terminal execution is unsandboxed and therefore also requires escalation. Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -832,6 +832,21 @@ mod tests {
     }
 
     #[test]
+    fn bwrap_args_isolate_pid_namespace_and_mount_matching_procfs() {
+        let args = bwrap_args("true", "/ws", "/ws");
+        let unshare_pid = args
+            .iter()
+            .position(|arg| arg == "--unshare-pid")
+            .expect("private PID namespace");
+        let proc_mount = args
+            .windows(2)
+            .position(|args| args == ["--proc", "/proc"])
+            .expect("procfs for the private PID namespace");
+
+        assert!(unshare_pid < proc_mount);
+    }
+
+    #[test]
     fn bwrap_args_never_bind_external_workdir() {
         let args = bwrap_args("pwd", "/ws", "/opt/elsewhere");
         assert!(
@@ -949,6 +964,67 @@ mod tests {
             "sh -c 'echo x > /dev/tcp/127.0.0.1/9' 2>&1; true",
         );
         assert_eq!(net["metadata"]["sandbox"], "bwrap");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sandboxed_run_cannot_see_or_signal_external_process_when_bwrap_available() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let cwd = dir.path().display().to_string();
+        let sandbox_policy = SandboxPolicy::detect(&cwd);
+        let Ok(Some(sandbox)) = sandbox_policy.select(false, false) else {
+            return;
+        };
+
+        // Some CI kernels have bwrap installed but disable unprivileged
+        // namespaces. Treat that as an unavailable live-test environment.
+        let Ok(probe) = spawn_shell("true", &cwd, &cwd, Some(&sandbox)) else {
+            return;
+        };
+        let Ok((probe_output, _)) = wait_with_timeout(probe, Duration::from_secs(5)) else {
+            return;
+        };
+        if !probe_output.status.success() {
+            return;
+        }
+
+        // Signal only a process owned by this test. On the old shared-PID path
+        // the sandbox could see and terminate it by its host PID.
+        let mut external = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("external sleep");
+        let external_pid = external.id();
+        let command = format!(
+            "visible=0; signalled=0; test -e /proc/{external_pid} && visible=1; \
+             kill -TERM {external_pid} 2>/dev/null && signalled=1; \
+             test \"$visible\" -eq 0 && test \"$signalled\" -eq 0"
+        );
+        let args = json!({ "command": command });
+        let result = invoke_command(
+            "pid_namespace_test".to_owned(),
+            Some(&args),
+            args["command"].as_str().expect("command"),
+            &cwd,
+            false,
+            sandbox_policy,
+            false,
+        );
+        let external_survived = external
+            .try_wait()
+            .expect("external sleep status")
+            .is_none();
+        let _ = external.kill();
+        let _ = external.wait();
+
+        let result = result
+            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+            .expect("sandboxed PID isolation run");
+        assert_eq!(result["ok"], true, "{result}");
+        assert!(external_survived, "sandbox signalled external process");
     }
 
     #[test]

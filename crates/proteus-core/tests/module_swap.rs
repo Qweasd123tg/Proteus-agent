@@ -1557,6 +1557,43 @@ async fn execution_policy_receives_real_tool_call_args() {
     );
 }
 
+#[tokio::test]
+async fn raw_tool_arguments_are_authoritative_for_policy_and_execution() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let registry = registry_from_test_config(&config, dir.path());
+    let events = Arc::new(InMemoryEventStore::new());
+    let mut ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(TestApprovalTransport { interactive: false }),
+        PermissionMode::Normal,
+    );
+    let seen_content = Arc::new(Mutex::new(None));
+    ctx.policy = Arc::new(ArgsCapturingPolicy {
+        seen_path: seen_content.clone(),
+    });
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask::new("remember".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(
+                new_call_id(),
+                "remember_fact",
+                json!({ "kind": "fact", "content": "parsed-value" }),
+            )
+            .with_raw_arguments(r#"{"kind":"fact","content":"raw-value"}"#),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.ok);
+    assert_eq!(seen_content.lock().unwrap().as_deref(), Some("raw-value"));
+}
+
 #[test]
 fn tool_registry_rejects_duplicate_names() {
     let mut registry = ToolRegistry::new();
@@ -2233,6 +2270,70 @@ async fn auto_permission_mode_exposes_non_dangerous_tools_without_approval_trans
     assert!(output.contains("tools=4"), "got: {output}");
 }
 
+#[test]
+fn deny_all_module_remains_authoritative_in_plan_and_auto_modes() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.modules.policy = "deny_all".to_owned();
+    let registry = registry_from_test_config(&config, dir.path());
+
+    let plan_ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(Arc::new(InMemoryEventStore::new()))),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Plan,
+    );
+    let read_spec = registry
+        .tools
+        .spec("search")
+        .expect("read-only search spec");
+    assert!(matches!(
+        plan_ctx.policy.evaluate(
+            &ToolCall::new(new_call_id(), "search", json!({ "query": "x" })),
+            &PolicyContext::new(dir.path().to_path_buf(), Some(read_spec.clone())),
+        ),
+        PolicyDecision::Deny { reason } if reason.contains("deny_all")
+    ));
+    assert!(matches!(
+        plan_ctx.policy.evaluate_visibility(&PolicyVisibilityContext::new(
+            dir.path().to_path_buf(),
+            read_spec,
+        )),
+        PolicyDecision::Deny { reason } if reason.contains("deny_all")
+    ));
+
+    let auto_ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(Arc::new(InMemoryEventStore::new()))),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Auto,
+    );
+    let write_spec = registry
+        .tools
+        .spec("apply_patch")
+        .expect("workspace-write apply_patch spec");
+    assert!(matches!(
+        auto_ctx.policy.evaluate(
+            &ToolCall::new(new_call_id(), "apply_patch", json!({ "patch": "" })),
+            &PolicyContext::new(dir.path().to_path_buf(), Some(write_spec.clone())),
+        ),
+        PolicyDecision::Deny { reason } if reason.contains("deny_all")
+    ));
+    assert!(matches!(
+        auto_ctx
+            .policy
+            .evaluate_visibility(&PolicyVisibilityContext::new(
+                dir.path().to_path_buf(),
+                write_spec,
+            )),
+        PolicyDecision::Deny { reason } if reason.contains("deny_all")
+    ));
+}
+
 #[tokio::test]
 async fn auto_permission_mode_hides_command_and_network_tools() {
     let dir = temp_workspace();
@@ -2543,6 +2644,57 @@ async fn malformed_tool_call_is_rejected_before_approval() {
             .error
             .as_deref()
             .is_some_and(|error| error.contains("tool 'apply_patch' requires string arg 'patch'"))
+    );
+    let records = events.events().await;
+    assert!(records.iter().any(|event| {
+        matches!(
+            event,
+            Event::ToolFinished { result } if result.metadata["validation_error"] == true
+        )
+    }));
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ApprovalRequested { .. }))
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|event| matches!(event, Event::ApprovalResolved { .. }))
+    );
+}
+
+#[tokio::test]
+async fn malformed_raw_tool_arguments_are_returned_to_model_before_approval() {
+    let dir = temp_workspace();
+    let config = test_config();
+    let registry = registry_from_test_config(&config, dir.path());
+    let events = Arc::new(InMemoryEventStore::new());
+    let ctx = registry.runtime_context(
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        Arc::new(EventEmitter::new(events.clone())),
+        Arc::new(TestApprovalTransport { interactive: true }),
+        PermissionMode::Normal,
+    );
+
+    let result = ToolOrchestrator::default()
+        .execute(
+            &ctx,
+            &AgentTask::new("write malformed".to_owned(), dir.path().to_path_buf()),
+            ToolCall::new(new_call_id(), "apply_patch", json!("{bad")).with_raw_arguments("{bad"),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.ok);
+    assert_eq!(result.metadata["validation_error"], true);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("failed to parse function arguments:"))
     );
     let records = events.events().await;
     assert!(records.iter().any(|event| {
@@ -3612,6 +3764,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
+    assert_eq!(config.modules.renderer, "plain");
     assert_eq!(config.subagents.surface, SubagentSurface::Collaboration);
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
     // Playwright MCP остаётся opt-in после dogfood с непрошеной браузерной

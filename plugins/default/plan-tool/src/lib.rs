@@ -25,15 +25,13 @@ use proteus_contracts::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const MAX_STEPS: usize = 20;
-
 pub struct PlanTool;
 
 impl PluginTool for PlanTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "update_plan",
-            "description": "Track a short step-by-step plan for the current task and keep it updated as you work. Call it again with the full plan to change step statuses; keep exactly one step in_progress until everything is completed. Use it for multi-step or ambiguous tasks, not for trivial single-step queries.",
+            "description": "Updates the task plan.\nProvide an optional explanation and a list of plan items, each with a step and status.\nAt most one step can be in_progress at a time.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -52,11 +50,13 @@ impl PluginTool for PlanTool {
                                     "enum": ["pending", "in_progress", "completed"]
                                 }
                             },
-                            "required": ["step", "status"]
+                            "required": ["step", "status"],
+                            "additionalProperties": false
                         }
                     }
                 },
-                "required": ["plan"]
+                "required": ["plan"],
+                "additionalProperties": false
             },
             "safety": "ReadOnly",
             "metadata": {
@@ -78,9 +78,18 @@ impl PluginTool for PlanTool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PlanStep {
     step: String,
     status: PlanStepStatus,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlanArgs {
+    #[serde(default)]
+    explanation: Option<String>,
+    plan: Vec<PlanStep>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,17 +111,17 @@ fn invoke_impl(call_json: &str) -> Result<String, String> {
     let args = call.get("args").cloned().unwrap_or(Value::Null);
 
     match validate_plan(&args) {
-        Ok(steps) => {
-            let counts = status_counts(&steps);
+        Ok(plan_args) => {
+            let counts = status_counts(&plan_args.plan);
             let result = json!({
                 "call_id": call_id,
                 "ok": true,
-                "output": plan_summary(&counts, steps.len()),
+                "output": "Plan updated",
                 "content": [],
                 "error": null,
                 "metadata": {
-                    "plan": steps,
-                    "explanation": args.get("explanation").and_then(Value::as_str),
+                    "plan": plan_args.plan,
+                    "explanation": plan_args.explanation,
                     "completed": counts.completed,
                     "in_progress": counts.in_progress,
                     "pending": counts.pending,
@@ -155,43 +164,10 @@ fn status_counts(steps: &[PlanStep]) -> StatusCounts {
     counts
 }
 
-fn plan_summary(counts: &StatusCounts, total: usize) -> String {
-    format!(
-        "Plan updated: {total} steps ({} completed, {} in progress, {} pending).",
-        counts.completed, counts.in_progress, counts.pending
-    )
-}
-
-fn validate_plan(args: &Value) -> Result<Vec<PlanStep>, String> {
-    let plan = args
-        .get("plan")
-        .ok_or("update_plan requires array arg 'plan'")?;
-    let steps: Vec<PlanStep> = serde_json::from_value(plan.clone()).map_err(|error| {
+fn validate_plan(args: &Value) -> Result<PlanArgs, String> {
+    serde_json::from_value(args.clone()).map_err(|error| {
         format!("plan entries must be {{step, status: pending|in_progress|completed}}: {error}")
-    })?;
-    if steps.is_empty() {
-        return Err("plan must contain at least one step".to_owned());
-    }
-    if steps.len() > MAX_STEPS {
-        return Err(format!("plan must contain at most {MAX_STEPS} steps"));
-    }
-    if steps.iter().any(|step| step.step.trim().is_empty()) {
-        return Err("plan steps must be non-empty strings".to_owned());
-    }
-    let in_progress = steps
-        .iter()
-        .filter(|step| step.status == PlanStepStatus::InProgress)
-        .count();
-    let all_completed = steps
-        .iter()
-        .all(|step| step.status == PlanStepStatus::Completed);
-    if in_progress > 1 {
-        return Err("keep at most one step in_progress".to_owned());
-    }
-    if in_progress == 0 && !all_completed {
-        return Err("mark exactly one step in_progress unless every step is completed".to_owned());
-    }
-    Ok(steps)
+    })
 }
 
 extern "C" fn register_modules(
@@ -239,12 +215,7 @@ mod tests {
         assert_eq!(result["metadata"]["in_progress"], 1);
         assert_eq!(result["metadata"]["pending"], 1);
         assert_eq!(result["metadata"]["plan"][1]["status"], "in_progress");
-        assert!(
-            result["output"]
-                .as_str()
-                .expect("output")
-                .contains("3 steps")
-        );
+        assert_eq!(result["output"], "Plan updated");
     }
 
     #[test]
@@ -260,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_plan_without_in_progress_step() {
+    fn allows_pending_plan_without_in_progress_step() {
         let result = invoke(json!({
             "plan": [
                 { "step": "a", "status": "pending" },
@@ -268,17 +239,13 @@ mod tests {
             ]
         }));
 
-        assert_eq!(result["ok"], false);
-        assert!(
-            result["error"]
-                .as_str()
-                .expect("error")
-                .contains("in_progress")
-        );
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["in_progress"], 0);
+        assert_eq!(result["metadata"]["pending"], 2);
     }
 
     #[test]
-    fn rejects_multiple_in_progress_steps() {
+    fn accepts_multiple_in_progress_steps_like_upstream_handler() {
         let result = invoke(json!({
             "plan": [
                 { "step": "a", "status": "in_progress" },
@@ -286,14 +253,37 @@ mod tests {
             ]
         }));
 
-        assert_eq!(result["ok"], false);
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["metadata"]["in_progress"], 2);
     }
 
     #[test]
-    fn rejects_empty_plan_and_bad_status() {
-        assert_eq!(invoke(json!({ "plan": [] }))["ok"], false);
+    fn accepts_empty_blank_and_long_plans() {
+        assert_eq!(invoke(json!({ "plan": [] }))["ok"], true);
+        assert_eq!(
+            invoke(json!({ "plan": [{ "step": "", "status": "pending" }] }))["ok"],
+            true
+        );
+        let long = (0..21)
+            .map(|index| json!({ "step": format!("step {index}"), "status": "pending" }))
+            .collect::<Vec<_>>();
+        assert_eq!(invoke(json!({ "plan": long }))["ok"], true);
+    }
+
+    #[test]
+    fn rejects_bad_status_and_unknown_fields() {
         assert_eq!(
             invoke(json!({ "plan": [{ "step": "a", "status": "done" }] }))["ok"],
+            false
+        );
+        assert_eq!(
+            invoke(json!({
+                "plan": [{ "step": "a", "status": "pending", "extra": true }]
+            }))["ok"],
+            false
+        );
+        assert_eq!(
+            invoke(json!({ "plan": [], "unexpected": true }))["ok"],
             false
         );
     }

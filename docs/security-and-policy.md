@@ -79,7 +79,11 @@ dev-server port. Wildcard CORS допустим только для явно п�
 
 Runtime применяет режим через `ModeAwarePolicy` на границе сборки
 `RuntimeContext`. `ToolOrchestrator` не знает про конкретные режимы и
-делегирует visibility/execution одному `ApprovalPolicy`.
+делегирует visibility/execution одному `ApprovalPolicy`. Композиция
+deny-monotonic: явный `Deny` configured policy (`deny_all`, deny-правило
+`codex_policy`/`opencode_policy`) остаётся `Deny` в любом режиме. `plan` и
+`auto` могут снять только `Ask` для разрешённого режимом safety class; их
+собственные запреты по `ToolSafety` по-прежнему являются верхней границей.
 
 CLI может переопределить config через `--plan`, `--auto` или
 `--permission-mode plan|normal|auto`. Внешние UI-клиенты могут переключать
@@ -160,8 +164,10 @@ remote tool name; это сохраняет связь между `ToolSpec`, po
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
 выбранном `PatchApplier`. Плагин `direct-patch` канонизирует `cwd` и target
 path перед записью и отклоняет absolute paths, parent traversal и
-symlink-escape. `ToolOrchestrator` не делает workspace-санитизации за
-`PatchApplier` — это обязанность выбранной реализации.
+symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
+Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
+делает workspace-санитизации за `PatchApplier` — это обязанность выбранной
+реализации.
 В named config `codex` model-facing форма `apply_patch` меняется на freeform
 custom tool, но execution всё равно проходит через тот же `ToolOrchestrator`,
 `ApprovalPolicy` и `PatchApplier`.
@@ -207,7 +213,13 @@ Default/behavior tool-плагины должны использовать об�
 }
 ```
 
-Важно: `ask_write` применяется только в `permissions.mode = "normal"`. CLI single-run и line REPL имеют интерактивный `ApprovalTransport`. Если policy возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ transport, затем пишет `ApprovalResolved` и исполняет tool только при `approved: true`.
+Важно: решение `ask_write` без ослабления применяется в
+`permissions.mode = "normal"`. В `plan`/`auto` его `Deny` сохраняется, а `Ask`
+может быть снят только для разрешённого режимом safety class. CLI single-run и
+line REPL имеют интерактивный `ApprovalTransport`. Если итоговая policy
+возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ
+transport, затем пишет `ApprovalResolved` и исполняет tool только при
+`approved: true`.
 
 Runtime оборачивает выбранный transport в session-level approval cache. Cache
 используется только если approval response явно вернул cache scope:
@@ -233,6 +245,12 @@ Core санитайзит слишком широкие scopes: shell/command/ne
 `exact_call`. Неизвестный wire scope понижается до `none`, чтобы будущие клиенты
 не ломали текущий server. Cache хранится только в памяти текущего
 runtime/session и не переживает restart или `resume_from_session_dir`.
+`ToolSpec.metadata.approval.cache.disabled = true` полностью выключает cache
+для конкретного tool-а. `request_permissions` выставляет этот generic opt-out:
+его approval не читается из cache и не записывается туда даже внутри одного
+turn. Каждый вызов снова проходит через реальный transport, иначе cached
+approval из прошлого turn мог бы без нового согласия выпустить новый
+turn-scoped grant.
 
 App-server approval request может содержать optional `preview` для UI. Это
 подсказочные метаданные: они помогают клиенту показать, что будет одобрено, но не
@@ -332,6 +350,9 @@ Core не валидирует внутреннюю схему `ask_write`: зн
   `with_escalated_permissions: true`. Это поведение задокументировано для модели
   в описаниях tools и в секции «Sandbox and escalation» prompt-профиля
   `codex-default.md`.
+- `--unshare-pid` вместе с `--proc /proc`: команда видит procfs своего PID
+  namespace и не может адресовать процессы host-а по их host PID. Это гарантия
+  только этой process boundary, а не общая гарантия изоляции всех IPC-каналов.
 - корень ФС монтируется read-only, только workspace — read-write, `/tmp` —
   свежий tmpfs, `/dev` и `/proc` — новые. Неэскалированный `workdir` обязан
   находиться внутри workspace; проверка canonical path учитывает `..` и
@@ -416,7 +437,8 @@ core мержит эти строки в гранты текущего хода 
 Гранты не переживают ход: `RuntimeContext` создаётся на каждый ход заново.
 Core учитывает `granted_permissions` только на approved-пути, поэтому
 `request_permissions` обязан стоять в `ask_before` — сам approval и есть
-выдача гранта. Tool в `allow`-списке выдать грант сам себе не может.
+выдача гранта. Approval этого tool-а не кэшируется ни между turns, ни внутри
+одного turn. Tool в `allow`-списке выдать грант сам себе не может.
 
 Субагенты изолированы структурно: дочерний контекст получает пустые
 `turn_grants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а

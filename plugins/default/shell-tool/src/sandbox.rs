@@ -212,12 +212,13 @@ pub(crate) const EXEC_COMMAND_ENV: [(&str, &str); 10] = [
 ];
 
 /// argv для bwrap: read-only корень, единственный rw-bind workspace, без сети,
-/// свежие /dev,/proc,/tmp. Внешний workdir сюда попасть не может: policy
-/// отклоняет его до spawn.
+/// с отдельным PID namespace и свежими /dev,/proc,/tmp. Внешний workdir сюда
+/// попасть не может: policy отклоняет его до spawn.
 pub(crate) fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
     vec![
         "--die-with-parent".to_owned(),
         "--unshare-net".to_owned(),
+        "--unshare-pid".to_owned(),
         "--ro-bind".to_owned(),
         "/".to_owned(),
         "/".to_owned(),

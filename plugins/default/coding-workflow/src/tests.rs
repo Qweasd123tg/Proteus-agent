@@ -597,6 +597,48 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
 }
 
 #[test]
+fn codex_loop_continues_when_provider_sets_end_turn_false() {
+    let input = workflow_input("continue until the provider ends the turn");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let mut host = FakeHost::with_responses(vec![
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "intermediate"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_end_turn(false),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "final answer"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_end_turn(true),
+    ]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json =
+        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(json) => json,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    assert_eq!(output.output.text, "final answer");
+    assert_eq!(host.requests.lock().expect("requests").len(), 2);
+    let assistant_texts = output
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .map(message_text)
+        .collect::<Vec<_>>();
+    assert_eq!(assistant_texts, ["intermediate", "final answer"]);
+    assert_no_executed_calls(&host);
+}
+
+#[test]
 fn codex_loop_empty_final_response_stays_strict_by_default() {
     let input = workflow_input("change code");
     let input_json = serde_json::to_string(&input).expect("input json");
@@ -767,18 +809,22 @@ fn codex_loop_errors_when_tool_calls_do_not_match_message_parts() {
 }
 
 #[test]
-fn codex_loop_errors_when_model_calls_unrequested_tool() {
+fn codex_loop_rejects_message_only_tool_call_before_finishing() {
     let input = workflow_input("change code");
     let input_json = serde_json::to_string(&input).expect("input json");
-    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
-    let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
-    let call = ToolCall::new(
+    let hidden_call = ToolCall::new(
         new_call_id(),
-        "apply_patch",
-        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+        "hidden_write",
+        json!({ "path": "outside.txt" }),
     );
-    let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
-        .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
+    let mut host = FakeHost::with_responses(vec![CanonicalModelResponse::new(
+        CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall { call: hidden_call }],
+        ),
+        Vec::new(),
+        FinishReason::Stop,
+    )]);
     let mut host_to: PluginWorkflowHostMut<'_> =
         PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
 
@@ -792,13 +838,65 @@ fn codex_loop_errors_when_model_calls_unrequested_tool() {
         error
             .message
             .as_str()
-            .contains("not present in the model request")
+            .contains("does not match assistant message")
     );
+    assert_no_executed_calls(&host);
+}
+
+#[test]
+fn codex_loop_returns_unrequested_tool_error_to_model_without_execution() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let apply_patch = test_tool("apply_patch", "Apply patch", ToolSafety::WritesFiles);
+    let call = ToolCall::new(
+        new_call_id(),
+        "apply_patch",
+        json!({ "patch": "*** Begin Patch\n*** End Patch" }),
+    );
+    let mut host = FakeHost::with_responses(vec![
+        tool_call_response(call.clone()),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "recovered final"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+    ])
+    .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json =
+        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(output) => output,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    assert_eq!(output.output.text, "recovered final");
     assert!(
         host.executed_calls
             .lock()
             .expect("executed calls")
             .is_empty()
+    );
+    let requests = host.requests.lock().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let returned_error = requests[1]
+        .messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .find_map(|part| match part {
+            ContentPart::ToolResult { result } if result.call_id == call.id => Some(result),
+            _ => None,
+        })
+        .expect("unsupported tool result in follow-up request");
+    assert!(!returned_error.ok);
+    assert_eq!(
+        returned_error.error.as_deref(),
+        Some("unsupported call: apply_patch")
     );
 }
 

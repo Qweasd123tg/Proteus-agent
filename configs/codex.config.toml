@@ -55,7 +55,9 @@ compactor = "codex"
 # схемы на каждом turn-е, редкие tools доступны через proteus_tool_search/call.
 tool_exposure = "codex_dynamic"
 subagent = "sequential"
-renderer = "statusline"
+# Strict one-shot output stays model-authored plain text. The interactive
+# client may render its own status UI without polluting stdout/transcripts.
+renderer = "plain"
 
 [subagents]
 # Experimental Codex-like async control surface. Переключите на `task`,

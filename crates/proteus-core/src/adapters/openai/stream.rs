@@ -53,7 +53,28 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
                 args_delta,
             }]
         }
-        "response.completed" | "response.incomplete" => {
+        "response.custom_tool_call_input.delta" => {
+            let call_id = parsed
+                .get("item_id")
+                .or_else(|| parsed.get("call_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let args_delta = parsed
+                .get("delta")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            if call_id.is_empty() || args_delta.is_empty() {
+                return Vec::new();
+            }
+            vec![ModelStreamEvent::ToolCallDelta {
+                call_id,
+                name: None,
+                args_delta,
+            }]
+        }
+        "response.completed" => {
             // В payload-е объект полного `response`, парсим через
             // существующий `from_openai_response`. Если парсинг упал —
             // эмитим Error, чтобы drain-loop не ждал вечно.
@@ -64,6 +85,17 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
                     message: format!("failed to parse final response: {error}"),
                 }],
             }
+        }
+        "response.incomplete" => {
+            let response = parsed.get("response").unwrap_or(&parsed);
+            let reason = response
+                .get("incomplete_details")
+                .and_then(|details| details.get("reason"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            vec![ModelStreamEvent::Error {
+                message: format!("Incomplete response returned, reason: {reason}"),
+            }]
         }
         "response.error" | "error" => {
             let message = parsed

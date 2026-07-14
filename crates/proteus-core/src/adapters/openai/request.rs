@@ -253,7 +253,10 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                             "type": "function_call",
                             "call_id": call.id,
                             "name": call.name,
-                            "arguments": serde_json::to_string(&call.args)?,
+                            "arguments": match call.raw_arguments.as_deref() {
+                                Some(raw) => raw.to_owned(),
+                                None => serde_json::to_string(&call.args)?,
+                            },
                         })),
                         ToolCallSurface::Freeform => input.push(json!({
                             "type": "custom_tool_call",

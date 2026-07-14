@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use proteus_contracts::{
     domain::{ToolCall, ToolSpec},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        CanonicalModelRequest, CanonicalModelResponse, validate_model_response_structure,
     },
     plugin::PluginWorkflowError,
 };
@@ -13,76 +13,32 @@ pub(crate) fn validate_model_response(
     request: &CanonicalModelRequest,
     response: &CanonicalModelResponse,
 ) -> Result<(), PluginWorkflowError> {
-    match response.finish_reason {
-        FinishReason::ToolCalls if response.tool_calls.is_empty() => {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response used finish_reason=ToolCalls without tool calls"
-            )));
-        }
-        FinishReason::ToolCalls => {}
-        FinishReason::Stop if response.tool_calls.is_empty() => return Ok(()),
-        FinishReason::Length => {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response hit the length limit before finishing the turn"
-            )));
-        }
-        FinishReason::ContentFilter | FinishReason::Error | FinishReason::Unknown => {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response returned non-success finish_reason={:?}",
-                response.finish_reason
-            )));
-        }
-        _ if !response.tool_calls.is_empty() => {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response included tool calls with finish_reason={:?}",
-                response.finish_reason
-            )));
-        }
-        _ => return Ok(()),
-    }
-
-    validate_tool_calls_match_message(workflow, &response.message, &response.tool_calls)?;
-    validate_tool_calls_are_request_visible(workflow, &request.tools, &response.tool_calls)
+    validate_model_response_impl(workflow, request, response, true)
 }
 
-fn validate_tool_calls_match_message(
+/// Upstream Codex turns an unsupported tool call into a failed tool output and
+/// lets the model recover on the next sampling round. Structural protocol
+/// errors stay fatal, but request visibility is handled by the Codex loop at
+/// execution time so hidden tools are never invoked.
+pub(crate) fn validate_codex_model_response(
     workflow: &str,
-    message: &CanonicalMessage,
-    tool_calls: &[ToolCall],
+    request: &CanonicalModelRequest,
+    response: &CanonicalModelResponse,
 ) -> Result<(), PluginWorkflowError> {
-    let message_tool_calls = message
-        .parts
-        .iter()
-        .filter_map(|part| match part {
-            ContentPart::ToolCall { call } => Some(call),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if message_tool_calls.len() != tool_calls.len() {
-        return Err(PluginWorkflowError::new(format!(
-            "{workflow} model response tool_calls length {} does not match assistant message tool_call parts {}",
-            tool_calls.len(),
-            message_tool_calls.len()
-        )));
-    }
+    validate_model_response_impl(workflow, request, response, false)
+}
 
-    let mut seen_call_ids = HashSet::new();
-    for (index, (message_call, response_call)) in
-        message_tool_calls.iter().zip(tool_calls.iter()).enumerate()
-    {
-        if !seen_call_ids.insert(response_call.id.clone()) {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response duplicated tool call id '{}'",
-                response_call.id
-            )));
-        }
-        if *message_call != response_call {
-            return Err(PluginWorkflowError::new(format!(
-                "{workflow} model response tool call at index {index} does not match assistant message part"
-            )));
-        }
+fn validate_model_response_impl(
+    workflow: &str,
+    request: &CanonicalModelRequest,
+    response: &CanonicalModelResponse,
+    require_request_visible_tools: bool,
+) -> Result<(), PluginWorkflowError> {
+    validate_model_response_structure(response)
+        .map_err(|error| PluginWorkflowError::new(format!("{workflow} {error}")))?;
+    if require_request_visible_tools {
+        validate_tool_calls_are_request_visible(workflow, &request.tools, &response.tool_calls)?;
     }
-
     Ok(())
 }
 

@@ -66,10 +66,20 @@ impl ToolOrchestrator {
         &self,
         ctx: &RuntimeContext,
         task: &AgentTask,
-        call: ToolCall,
+        mut call: ToolCall,
     ) -> Result<ToolResult> {
         if ctx.is_cancelled() {
             anyhow::bail!("turn canceled by client");
+        }
+        // Responses function calls are string-valued on the wire. Keep that
+        // raw payload authoritative for both replay and execution: otherwise
+        // a malformed/corrupted DTO could show one call to the model while
+        // policy or the tool executes different parsed args. Invalid JSON is
+        // left in place and becomes a failed validation ToolResult below.
+        if let Some(raw_arguments) = call.raw_arguments.as_deref()
+            && let Ok(parsed_arguments) = serde_json::from_str(raw_arguments)
+        {
+            call.args = parsed_arguments;
         }
         // Codex-модели часто вызывают apply_patch как shell-команду
         // (`apply_patch <<'EOF' ...`). Роутим такой вызов в настоящий
@@ -486,6 +496,12 @@ fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
 }
 
 fn validate_tool_call_args(call: &ToolCall, spec: &ToolSpec) -> Option<String> {
+    if let Some(raw_arguments) = call.raw_arguments.as_deref()
+        && let Err(error) = serde_json::from_str::<Value>(raw_arguments)
+    {
+        return Some(format!("failed to parse function arguments: {error}"));
+    }
+
     let schema = spec.input_schema.as_object()?;
     let required_args = schema.get("required").and_then(Value::as_array);
     let properties = schema.get("properties").and_then(Value::as_object);

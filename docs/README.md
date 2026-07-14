@@ -87,6 +87,10 @@
 
 ## Research и архивы
 
+- [research/codex-parity-audit-2026-07-14.md](research/codex-parity-audit-2026-07-14.md) —
+  snapshot строгого сравнения активного `codex`-профиля с vendored и live
+  upstream: матрица 12 slot-ов, concrete tool/runtime findings, текущая wave и
+  приоритетный parity backlog;
 - [research/pi-vs-proteus.md](research/pi-vs-proteus.md) — проверка причины
   существования Proteus после знакомства с Pi, граница возможного pivot и
   30-дневные continue/pivot/freeze criteria; это proposal, не принятый current

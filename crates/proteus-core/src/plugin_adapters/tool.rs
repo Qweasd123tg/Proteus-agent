@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 
 use proteus_contracts::{
@@ -64,6 +64,37 @@ impl Tool for PluginToolAdapter {
 
         let result: ToolResult = serde_json::from_str(&result_json)
             .with_context(|| "plugin tool returned invalid result JSON")?;
+        validate_result_call_id(&call.id, &result)?;
         Ok(result)
+    }
+}
+
+fn validate_result_call_id(expected: &str, result: &ToolResult) -> Result<()> {
+    if result.call_id != expected {
+        bail!(
+            "plugin tool returned mismatched call_id: expected '{expected}', got '{}'",
+            result.call_id
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_result_must_match_invoked_call_id() {
+        validate_result_call_id("call-1", &ToolResult::ok("call-1".to_owned(), "ok"))
+            .expect("matching result");
+
+        let error =
+            validate_result_call_id("call-1", &ToolResult::ok("call-2".to_owned(), "wrong"))
+                .expect_err("cross-wired result must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("expected 'call-1', got 'call-2'")
+        );
     }
 }

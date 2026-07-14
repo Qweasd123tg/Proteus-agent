@@ -10,6 +10,10 @@ pub struct ToolCall {
     pub args: serde_json::Value,
     #[serde(default)]
     pub surface: ToolCallSurface,
+    /// Original provider argument payload when exact replay matters (notably
+    /// malformed Responses function-call JSON). Ordinary callers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_arguments: Option<String>,
 }
 
 impl ToolCall {
@@ -19,11 +23,17 @@ impl ToolCall {
             name: name.into(),
             args,
             surface: ToolCallSurface::default(),
+            raw_arguments: None,
         }
     }
 
     pub fn with_surface(mut self, surface: ToolCallSurface) -> Self {
         self.surface = surface;
+        self
+    }
+
+    pub fn with_raw_arguments(mut self, raw_arguments: impl Into<String>) -> Self {
+        self.raw_arguments = Some(raw_arguments.into());
         self
     }
 }
@@ -178,6 +188,31 @@ mod tests {
         ]);
 
         assert_eq!(result.text_or_status(), "structured text\n{\"ok\":true}");
+    }
+
+    #[test]
+    fn tool_call_raw_arguments_are_optional_and_roundtrip_exactly() {
+        let legacy: ToolCall = serde_json::from_value(json!({
+            "id": "call-1",
+            "name": "read_file",
+            "args": { "path": "README.md" }
+        }))
+        .expect("legacy ToolCall JSON");
+        assert_eq!(legacy.raw_arguments, None);
+        assert!(
+            serde_json::to_value(&legacy)
+                .expect("serialize legacy ToolCall")
+                .get("raw_arguments")
+                .is_none()
+        );
+
+        let malformed =
+            ToolCall::new("call-2", "read_file", json!("{bad")).with_raw_arguments("{bad");
+        let roundtrip: ToolCall = serde_json::from_value(
+            serde_json::to_value(&malformed).expect("serialize raw ToolCall"),
+        )
+        .expect("deserialize raw ToolCall");
+        assert_eq!(roundtrip.raw_arguments.as_deref(), Some("{bad"));
     }
 }
 

@@ -309,6 +309,46 @@ pub(super) fn execute_tools(
     from_json_string(results_json.as_str())
 }
 
+/// Codex-compatible dispatch for one response batch. Calls omitted from the
+/// exact model request become failed tool results and are fed back into the
+/// next round; they never reach the host registry/policy/executor path.
+pub(super) fn execute_codex_tools(
+    host: &mut PluginWorkflowHostMut<'_>,
+    input: &PluginWorkflowInput,
+    calls: &[ToolCall],
+    request_tools: &[ToolSpec],
+    phase: &str,
+) -> Result<Vec<ToolResult>, PluginWorkflowError> {
+    let visible_names = request_tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    if calls
+        .iter()
+        .all(|call| visible_names.contains(call.name.as_str()))
+    {
+        return execute_tools(host, input, calls, phase);
+    }
+
+    calls
+        .iter()
+        .map(|call| {
+            if visible_names.contains(call.name.as_str()) {
+                execute_or_handle_tool(host, input, call, phase)
+            } else {
+                let kind = match call.surface {
+                    proteus_contracts::domain::ToolCallSurface::Freeform => "custom tool call",
+                    _ => "call",
+                };
+                Ok(ToolResult::error(
+                    call.id.clone(),
+                    format!("unsupported {kind}: {}", call.name),
+                ))
+            }
+        })
+        .collect()
+}
+
 pub(super) fn execute_tool(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,

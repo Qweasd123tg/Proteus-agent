@@ -160,7 +160,10 @@ tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — и
 `direct`, `codex_policy`, `modules.compactor = "codex"` и
 cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
 текста очередного turn-а, а редкие tools доступны через deferred
-search/describe/call. `codex_context` добавляет только Codex-style
+search/describe/call. Collaboration controls добавляются поверх базового
+hot-set budget и не вытесняют direct read/search tools. Финальный CLI-вывод
+использует `renderer = "plain"`, поэтому transcript/stdout не загрязняется
+интерактивной status line. `codex_context` добавляет только Codex-style
 `AGENTS.override.md` / `AGENTS.md` project instructions и
 `environment_context`; git diff, repo tree, manifests и targeted search модель
 получает через tools, а не как заранее инжектированный prompt. Project
@@ -524,14 +527,18 @@ plugin pack. Он срабатывает только после threshold-а и
 `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`, либо
 `module_config.compactor.codex.trigger_fraction * max_input_tokens` активной
 модели. В стандартных профилях `trigger_fraction = 0.8`. Плагин формирует
-Codex-style handoff summary плюс bounded набор последних user-сообщений.
+Codex-style handoff summary плюс bounded набор последних real user-сообщений.
 Summary сначала генерируется внутренним model call на том же `model_ref`, без
-tools и без streaming deltas в UI; ошибка model call, пустой/невалидный ответ
+tools и без streaming deltas в UI. Этот запрос видит свежий canonical context и
+актуальный assistant/tool tail, но replacement не сохраняет tail verbatim:
+canonical context вставляется перед последним retained user, summary остаётся
+последним. Ошибка model call, incomplete/tool ответ, пустой/невалидный summary
 или replacement без сокращения истории возвращаются как ошибка compaction, без
 deterministic fallback. Если compaction реально меняет историю, runtime получает
 `HistoryCompactionReport`, испускает lifecycle events и атомарно заменяет
-in-memory/session `messages.jsonl` compacted-срезом; ephemeral
-`ContentPart::Context` в persistent history не попадает.
+in-memory/session `messages.jsonl` compacted-срезом; request-scoped
+`ContentPart::Context` в persistent history не попадает. Ключ prompt cache
+компактора всегда укладывается в provider limit `64` символа.
 
 Пример настройки:
 

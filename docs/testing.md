@@ -92,6 +92,12 @@ stale monitor. App-server regression
 преждевременного перевода карточки в interrupted. Это не тесты restart
 persistence: collaboration registry намеренно process-resident.
 
+Sequential child дополнительно проверяет model-response boundary до history и
+исполнения: exact request-visible tool set, message/vector projection,
+duplicate call ids, несовместимый `finish_reason` и продолжение sampling при
+`end_turn = false`. Общий structural validator живёт в `proteus-contracts` и
+тем же набором инвариантов используется workflow plugins.
+
 Round-trip тесты process-subagent-а в
 `crates/proteus-core/tests/process_subagent.rs` проверяют fresh/resume и
 parallel pool, а также global idle cap 0/1, LRU touch, eviction task ids и
@@ -100,12 +106,16 @@ leased children не попадают в idle eviction; task/collaboration facad
 публикуют `task_id`/follow-up для результата с `resumable = false`.
 
 Codex-style request-time compactor `modules.compactor = "codex"` покрывается
-unit-тестами в `plugins/default/codex-compactor/src/lib.rs`: model-backed
-summary path, ошибки model summary вместо fallback, фильтрация generated user
-messages и случай, где replacement не сокращает историю. Core adapter тестирует
+unit-тестами в `plugins/default/codex-compactor/src/tests.rs`: model-backed
+summary path, строгий `Stop`/assistant/no-tools ответ вместо fallback,
+фильтрация generated user messages, reinjection canonical context перед
+последним real user, summary-last replacement, bounded oversized current user,
+сворачивание текущего assistant/tool tail и `prompt_cache_key <= 64`. Отдельно
+проверяется случай, где replacement не сокращает историю. Core adapter тестирует
 ABI bridge для compactor host, включая `complete_model_json`; runtime-тесты
 проверяют, что changed compaction заменяет in-memory history и `messages.jsonl`,
-а workflow-тесты проверяют model-aware threshold в `CompactionInput.max_tokens`.
+а workflow-тесты проверяют model-aware threshold в `CompactionInput.max_tokens`
+и сохранность текущего user message id на changed-compaction boundary.
 
 ## DTO И Builder-Паттерн
 

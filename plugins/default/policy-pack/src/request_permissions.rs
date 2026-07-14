@@ -46,7 +46,10 @@ impl PluginTool for RequestPermissionsTool {
             "metadata": {
                 "category": "policy",
                 "tags": ["policy", "approval", "escalation"],
-                "aliases": ["request escalation", "ask for permissions"]
+                "aliases": ["request escalation", "ask for permissions"],
+                "approval": {
+                    "cache": { "disabled": true }
+                }
             }
         });
         RString::from(spec.to_string())
@@ -181,6 +184,7 @@ mod tests {
 
         assert_eq!(spec["name"], "request_permissions");
         assert_eq!(spec["safety"], "RunsCommands");
+        assert_eq!(spec["metadata"]["approval"]["cache"]["disabled"], true);
         assert_eq!(
             spec["input_schema"]["required"],
             json!(["permissions", "justification"])

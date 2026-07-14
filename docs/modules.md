@@ -290,8 +290,10 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
 - `plan-tool` — `update_plan` (из `plugins/default/plan-tool/`): модель ведёт
   пошаговый план со статусами (`pending`/`in_progress`/`completed`) в духе
   Codex `update_plan` и Claude Code TodoWrite. Состояние плана живёт в
-  transcript как последовательность tool calls: сервер только валидирует и
-  нормализует аргументы, отдельного runtime-состояния и протокольных событий
+  transcript как последовательность tool calls: сервер десериализует аргументы
+  и отклоняет неизвестные поля/status, но, как upstream handler, не навязывает
+  cardinality/длину/непустой текст шагов; `at most one in_progress` остаётся
+  model-facing инструкцией. Отдельного runtime-состояния и протокольных событий
   нет, клиент рендерит карточку плана из аргументов последнего вызова;
 - `policy-pack` — `request_permissions` (из `plugins/default/policy-pack/`):
   turn-scoped эскалация через approval-gated grants, см.
@@ -444,19 +446,33 @@ workspace-scoped реализация `PatchApplier`, которую испол�
 
 `modules.compactor = "codex"` поставляется плагином `codex-compactor`. Это
 Codex-style request-time compactor: при превышении token threshold он заменяет
-старую часть model-facing истории на последние реальные user-сообщения в
-bounded budget и user-role handoff summary с Codex `SUMMARY_PREFIX`. Текущий
-user turn и его ephemeral context остаются после summary для model request, но
-workflow перед записью persistent history выкидывает ephemeral context.
+model-facing историю на последние реальные user-сообщения в bounded budget и
+user-role handoff summary с Codex `SUMMARY_PREFIX`. Внутренний summary-запрос
+видит весь актуальный assistant/tool tail и свежий canonical context, но
+replacement не копирует assistant/tool tail verbatim: его состояние остаётся
+только в summary. Реальные user-сообщения отбираются с конца в пределах budget;
+если самое старое из выбранных сообщений в него не помещается, оно усекается.
+
+Для mid-turn replacement свежий canonical context (`message.name = "context"`
+или `ContentPart::Context`) вставляется непосредственно перед последним
+сохранённым real user message, а summary остаётся последним сообщением. При
+этом сохраняются ids выбранных `CanonicalMessage`, включая текущий user id,
+который нужен workflow для границы turn. Перед записью replacement в
+persistent history workflow удаляет canonical context; старые text-shaped
+копии `AGENTS.md`/`<environment_context>`, случайно попавшие в durable history,
+compactor повторно не сохраняет.
 
 `codex-compactor` сначала пробует создать summary через host capability
 `complete_model_json`: запрос идёт в тот же `model_ref`, без tools
-(`ToolChoice::None`) и с metadata `suppress_stream_deltas = true`, чтобы
-внутреннее summary не выглядело в UI как обычный assistant output. Если model
-call падает, возвращает пустой/невалидный ответ или replacement не сокращает
-историю, плагин возвращает ошибку compaction. Codex-compatible режим не
-скрывает такие сбои deterministic fallback-ом. Отмена turn также возвращается
-как ошибка compaction.
+(`ToolChoice::None`), bounded `max_output_tokens` и metadata
+`suppress_stream_deltas = true`, чтобы внутреннее summary не выглядело в UI как
+обычный assistant output. Принимается только завершённый `Stop`-ответ assistant
+без tool calls. Если model call падает, возвращает пустой/невалидный ответ или
+replacement не сокращает историю, плагин возвращает ошибку compaction.
+Codex-compatible режим не скрывает такие сбои deterministic fallback-ом.
+Отмена turn также возвращается как ошибка compaction. `prompt_cache_key`
+компактора детерминированно хеширует workspace/model/request shape и не
+превышает provider limit в 64 символа.
 
 Threshold берётся из `module_config.compactor.codex.trigger_tokens`, если он
 задан. Затем проверяется env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`. Затем
@@ -665,7 +681,16 @@ policy/approval/tool контур. В `PermissionMode::Plan` task скрыт к�
 per-role `tools` allowlist: runner применяет его до exposure, чтобы selector
 cap не занимали tools, которые роль всё равно отбросит, и повторно проверяет
 итог. Это особенно важно для dynamic exposure: sequential child пока не имеет
-собственного deferred-search handler-а.
+собственного deferred-search handler-а. Allowlist является и execution-time
+границей. До изменения history и исполнения общий canonical validator проверяет
+assistant role, согласованность `finish_reason`, точную ordered-проекцию
+`response.tool_calls` в message parts и уникальность call id. Затем имена всего
+batch сверяются с точным набором `ToolSpec`, отправленным в соответствующем
+model request. При malformed response или скрытом имени весь batch отклоняется
+до `ToolOrchestrator`/policy/approval, а запуск завершается ошибкой; разрешённые
+calls перед скрытым тоже не исполняются. Ответ без tools с `end_turn = false`
+не завершает ребёнка: он добавляется в history, после budget check запускается
+следующий sampling round.
 
 Model-запросы дочернего цикла включают prompt cache: `CacheHints(true, true)`
 и стабильный `prompt_cache_key` вида
@@ -743,15 +768,18 @@ events вызывает через host API (`build_context`, `complete_model`,
 Он остаётся в том же
 plugin/slot boundary, но ведёт turn ближе к Codex: model request с tools,
 исполнение tool calls через host `execute_tool_json`, затем следующий model
-request с обновлённой историей. Первый response без tool calls становится
-финальным ответом; отдельного synthetic `codex_final` запроса без tools нет.
+request с обновлённой историей. Response без tool calls становится финальным,
+если provider не передал `end_turn = false`; в этом случае loop делает ещё один
+model request с обновлённой историей. Отдельного synthetic `codex_final`
+запроса без tools нет.
 
 В `coding.codex_loop` нет `MAX_TOOL_ROUNDS`: loop продолжается, пока model
-response просит tools, а завершается первым response без tool calls или внешней
+response просит tools или явно устанавливает `end_turn = false`, а завершается
+response без tool calls при `end_turn = true`/отсутствующем поле либо внешней
 ошибкой/cancel/timeout. Пустой финальный ответ модели не подменяется последним
 tool result. Changed compaction в этом workflow обязана сохранить текущий user
-message, иначе turn завершается ошибкой вместо тихого
-`new_messages_start = len`. Workflow не добавляет локальный
+message, иначе turn завершается ошибкой вместо тихого `new_messages_start =
+len`. Workflow не добавляет локальный
 `CODEX_SYSTEM_INSTRUCTIONS`: base/system/developer instructions приходят только
 из `PluginWorkflowRuntimeInfo.instructions`, который core заполняет из config.
 Если config не задал instructions, `coding.codex_loop` не подставляет
@@ -761,12 +789,22 @@ message, иначе turn завершается ошибкой вместо ти
 protocol вместо попытки угадать намерение модели: `finish_reason = ToolCalls`
 без tool calls, `finish_reason = Length`, non-success finish reasons,
 несовпадение `response.tool_calls` с `ContentPart::ToolCall` в assistant
-message, duplicate call id или прямой вызов tool-а, которого не было в текущем
-model request, считаются ошибкой workflow. Это относится к
-`coding.single_loop`, `coding.plan_execute_review`, `coding.codex_loop` и
-`coding.codex_loop_diagnostic`; final/review/no-tool requests также отвергают
-любой tool call. Ошибки самого tool invocation остаются `ToolResult::error`
-через обычный host/orchestrator path.
+message или duplicate call id считаются ошибкой workflow. Для baseline
+`coding.single_loop` и `coding.plan_execute_review` прямой вызов tool-а,
+которого не было в текущем model request, также остаётся ошибкой. Strict
+`coding.codex_loop`/diagnostic variant повторяют upstream failure path: такой
+call не исполняется, превращается в failed `ToolResult` (`unsupported call` /
+`unsupported custom tool call`) и отправляется модели в следующем round для
+самоисправления. Final/review/no-tool requests по-прежнему отвергают любой tool
+call. Ошибки обычного tool invocation остаются `ToolResult::error` через
+host/orchestrator path.
+
+`coding.codex_loop` также уважает канонический `CanonicalModelResponse.end_turn`:
+OpenAI Responses `end_turn = false` запускает следующий model round даже без
+tool call, как в upstream Codex. `response.incomplete` не превращается в
+частичный успешный ответ и завершается provider error; streaming custom tools
+передают `response.custom_tool_call_input.delta` через обычный
+`ModelStreamEvent::ToolCallDelta`.
 
 `modules.workflow = "coding.codex_loop_diagnostic"` — явно названный variant для
 smoke-проверок и профилей, которые осознанно выбирают diagnostic fallback. Он

@@ -145,6 +145,9 @@ impl ModelClient for ModelService {
                         if let Some(usage) = response.usage.clone() {
                             recovered = recovered.with_usage(usage);
                         }
+                        if let Some(end_turn) = response.end_turn {
+                            recovered = recovered.with_end_turn(end_turn);
+                        }
                         // Сохраняем сырой ответ провайдера для диагностики.
                         recovered.provider_metadata = response.provider_metadata.clone();
                         return Ok(recovered);
@@ -341,7 +344,8 @@ mod tests {
             CanonicalMessage::new(MessageRole::Assistant, Vec::new()),
             Vec::new(),
             FinishReason::Stop,
-        );
+        )
+        .with_end_turn(false);
         let adapter = Arc::new(ScriptedAdapter::new(vec![
             ModelStreamEvent::TextDelta {
                 text: "the time ".into(),
@@ -359,6 +363,7 @@ mod tests {
         });
         assert_eq!(text.as_deref(), Some("the time is 12:00"));
         assert_eq!(response.finish_reason, FinishReason::Stop);
+        assert_eq!(response.end_turn, Some(false));
     }
 
     #[tokio::test]

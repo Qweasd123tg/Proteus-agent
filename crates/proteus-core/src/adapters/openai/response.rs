@@ -13,11 +13,17 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     if let Some(error) = response.get("error").filter(|error| !error.is_null()) {
         return Err(anyhow!("OpenAI API error: {error}"));
     }
+    if response.get("status").and_then(Value::as_str) == Some("incomplete") {
+        let reason = response
+            .get("incomplete_details")
+            .and_then(|details| details.get("reason"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        return Err(anyhow!("Incomplete response returned, reason: {reason}"));
+    }
 
     let mut parts = Vec::new();
     let mut tool_calls = Vec::new();
-
-    let length_limited = is_length_limited_response(&response);
 
     for item in response
         .get("output")
@@ -58,7 +64,7 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     parts.push(ContentPart::Reasoning { text, signature });
                 }
             }
-            Some("function_call") if !length_limited => {
+            Some("function_call") => {
                 let call_id = item
                     .get("call_id")
                     .and_then(Value::as_str)
@@ -69,17 +75,15 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .and_then(Value::as_str)
                     .ok_or_else(|| anyhow!("function_call missing name"))?
                     .to_owned();
-                let args = item
-                    .get("arguments")
-                    .and_then(Value::as_str)
-                    .map(serde_json::from_str)
-                    .transpose()?
-                    .unwrap_or(Value::Null);
-                let call = ToolCall::new(call_id, name, args);
+                let raw_arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("");
+                let args = serde_json::from_str(raw_arguments)
+                    .unwrap_or_else(|_| Value::String(raw_arguments.to_owned()));
+                let call =
+                    ToolCall::new(call_id, name, args).with_raw_arguments(raw_arguments.to_owned());
                 parts.push(ContentPart::ToolCall { call: call.clone() });
                 tool_calls.push(call);
             }
-            Some("custom_tool_call") if !length_limited => {
+            Some("custom_tool_call") => {
                 let call_id = item
                     .get("call_id")
                     .and_then(Value::as_str)
@@ -104,9 +108,7 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
         }
     }
 
-    let finish_reason = if length_limited {
-        FinishReason::Length
-    } else if tool_calls.is_empty() {
+    let finish_reason = if tool_calls.is_empty() {
         FinishReason::Stop
     } else {
         FinishReason::ToolCalls
@@ -116,6 +118,9 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
     if let Some(u) = usage {
         resp = resp.with_usage(u);
+    }
+    if let Some(end_turn) = response.get("end_turn").and_then(Value::as_bool) {
+        resp = resp.with_end_turn(end_turn);
     }
     Ok(resp.with_provider_metadata(response))
 }
@@ -140,13 +145,4 @@ fn parse_usage(response: &Value) -> Option<TokenUsage> {
             .with_cached_input_tokens(cached_input_tokens)
             .with_reasoning_output_tokens(reasoning_output_tokens),
     )
-}
-
-fn is_length_limited_response(response: &Value) -> bool {
-    response.get("status").and_then(Value::as_str) == Some("incomplete")
-        && response
-            .get("incomplete_details")
-            .and_then(|details| details.get("reason"))
-            .and_then(Value::as_str)
-            == Some("max_output_tokens")
 }

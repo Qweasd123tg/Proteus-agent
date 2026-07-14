@@ -40,6 +40,9 @@ Codex pack: `codex-compactor` бережно сохраняет user-message
 | opencode `groups.*.tools` (маппинг tool → permission-группа) | named config `opencode` | `policy-pack` (`opencode_policy`) | имена tools; `proteus doctor` проверяет вложенные `tools`-списки |
 | opencode `pattern_args` (`command`/`path`/`paths`) | named config `opencode` | `opencode_policy` читает эти ключи из `ToolCall.args` | имена аргументов tools из `shell-tool`/`file-tools`; при переименовании аргумента правила молча перестанут матчиться |
 | request metadata `tool_exposure` (telemetry селектора) | `coding-workflow` (`request_from_state`) | usage snapshots, event log, UI debug views | metadata key у `CanonicalModelRequest` |
+| structural shape `CanonicalModelResponse` | model adapters | workflow plugins, sequential subagent | общий contract helper `validate_model_response_structure`: assistant role, finish reason/tool consistency, ordered message projection, unique call ids |
+| `CanonicalModelResponse.end_turn` | model adapter (`openai.responses`) | strict `coding.codex_loop`, sequential subagent | optional canonical field; `false` требует следующий model round без provider-specific parsing в consumer-е |
+| `ToolCall.raw_arguments` | model adapter (`openai.responses`) | tool orchestrator, request replay | optional исходная строка function arguments; является source of truth для parsed execution args, сохраняет malformed payload для failed tool output и следующего sampling round |
 | прогресс/финал-структура ответа | `configs/prompts/opencode-default.md` | web-клиент рендерит транскрипт | текст промпта, контракта нет (полагаемся на модель) |
 
 ## Почему так

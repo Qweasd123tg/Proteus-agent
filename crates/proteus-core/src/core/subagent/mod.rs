@@ -20,6 +20,7 @@ mod resumable;
 mod roles;
 #[cfg(test)]
 mod tests;
+mod validation;
 
 pub use process::ProcessSubagentRunner;
 

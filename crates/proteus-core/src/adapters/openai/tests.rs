@@ -71,12 +71,57 @@ fn completed_function_call_is_returned_as_executable_call() {
     assert_eq!(canonical.tool_calls[0].id, "call_1");
     assert_eq!(canonical.tool_calls[0].name, "write_file");
     assert_eq!(canonical.tool_calls[0].args["path"], "site/index.html");
+    assert_eq!(
+        canonical.tool_calls[0].raw_arguments.as_deref(),
+        Some("{\"path\":\"site/index.html\",\"content\":\"<html></html>\"}")
+    );
     assert!(
         canonical
             .message
             .parts
             .iter()
             .any(|part| matches!(part, ContentPart::ToolCall { .. }))
+    );
+}
+
+#[test]
+fn malformed_function_arguments_are_preserved_for_failed_result_replay() {
+    let canonical = from_openai_response(json!({
+        "status": "completed",
+        "output": [{
+            "type": "function_call",
+            "call_id": "call_bad",
+            "name": "write_file",
+            "arguments": "{bad"
+        }]
+    }))
+    .expect("malformed tool args remain a model tool call");
+    let call = canonical.tool_calls[0].clone();
+    assert_eq!(call.args, json!("{bad"));
+    assert_eq!(call.raw_arguments.as_deref(), Some("{bad"));
+
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("openai", "gpt-test"),
+        vec![
+            canonical.message,
+            CanonicalMessage::new(
+                MessageRole::Tool,
+                vec![ContentPart::ToolResult {
+                    result: ToolResult::error(
+                        call.id,
+                        "failed to parse function arguments: key must be a string",
+                    ),
+                }],
+            ),
+        ],
+    );
+    let body = to_openai_request(&request).expect("replay malformed call and failed output");
+
+    assert_eq!(body["input"][0]["arguments"], "{bad");
+    assert_eq!(body["input"][1]["type"], "function_call_output");
+    assert_eq!(
+        body["input"][1]["output"],
+        "failed to parse function arguments: key must be a string"
     );
 }
 
@@ -223,7 +268,7 @@ fn capabilities_are_model_profile_driven() {
 }
 
 #[test]
-fn incomplete_max_output_tokens_function_call_is_not_returned_as_executable_call() {
+fn incomplete_response_is_not_accepted_as_success() {
     let response = json!({
         "id": "resp_1",
         "object": "response",
@@ -246,16 +291,12 @@ fn incomplete_max_output_tokens_function_call_is_not_returned_as_executable_call
         "usage": { "input_tokens": 10, "output_tokens": 2048 }
     });
 
-    let canonical = from_openai_response(response).unwrap();
+    let error = from_openai_response(response).expect_err("incomplete response must fail");
 
-    assert_eq!(canonical.finish_reason, FinishReason::Length);
-    assert!(canonical.tool_calls.is_empty());
     assert!(
-        canonical
-            .message
-            .parts
-            .iter()
-            .all(|part| !matches!(part, ContentPart::ToolCall { .. }))
+        error
+            .to_string()
+            .contains("Incomplete response returned, reason: max_output_tokens")
     );
 }
 
@@ -665,12 +706,35 @@ fn translate_sse_function_call_delta() {
 }
 
 #[test]
+fn translate_sse_custom_tool_input_delta() {
+    let events = translate_sse_event(
+        "response.custom_tool_call_input.delta",
+        &json!({ "item_id": "item_1", "call_id": "call_1", "delta": "*** Begin" }).to_string(),
+    );
+    match events.as_slice() {
+        [
+            ModelStreamEvent::ToolCallDelta {
+                call_id,
+                name,
+                args_delta,
+            },
+        ] => {
+            assert_eq!(call_id, "item_1");
+            assert_eq!(name, &None);
+            assert_eq!(args_delta, "*** Begin");
+        }
+        other => panic!("expected single ToolCallDelta, got {other:?}"),
+    }
+}
+
+#[test]
 fn translate_sse_completed_emits_final_response() {
     let data = json!({
         "response": {
             "id": "resp_1",
             "object": "response",
             "status": "completed",
+            "end_turn": false,
             "output": [
                 { "type": "message", "content": [{ "type": "output_text", "text": "done" }] }
             ],
@@ -681,6 +745,7 @@ fn translate_sse_completed_emits_final_response() {
     match events.as_slice() {
         [ModelStreamEvent::Response { response }] => {
             assert_eq!(response.finish_reason, FinishReason::Stop);
+            assert_eq!(response.end_turn, Some(false));
             let text = response
                 .message
                 .parts
@@ -728,7 +793,7 @@ fn translate_sse_failed_event_is_terminal_error() {
 }
 
 #[test]
-fn translate_sse_incomplete_event_preserves_length_finish_reason() {
+fn translate_sse_incomplete_event_is_terminal_error() {
     let events = translate_sse_event(
         "response.incomplete",
         &json!({
@@ -744,10 +809,11 @@ fn translate_sse_incomplete_event_preserves_length_finish_reason() {
         .to_string(),
     );
     match events.as_slice() {
-        [ModelStreamEvent::Response { response }] => {
-            assert_eq!(response.finish_reason, FinishReason::Length);
-        }
-        other => panic!("expected Response, got {other:?}"),
+        [ModelStreamEvent::Error { message }] => assert_eq!(
+            message,
+            "Incomplete response returned, reason: max_output_tokens"
+        ),
+        other => panic!("expected Error, got {other:?}"),
     }
 }
 

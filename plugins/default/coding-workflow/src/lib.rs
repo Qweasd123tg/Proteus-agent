@@ -50,15 +50,15 @@ use token_accounting::LastModelUsage;
 use token_accounting::{estimate_message_tokens, request_token_usage_snapshot};
 
 use host::{
-    complete_model, emit_event, execute_or_handle_tool, execute_tools, request_from_state,
-    request_from_state_with_instruction_blocks,
+    complete_model, emit_event, execute_codex_tools, execute_or_handle_tool, execute_tools,
+    request_from_state, request_from_state_with_instruction_blocks,
 };
 #[cfg(test)]
 use metadata::{insert_request_metadata_u32, prompt_cache_key};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};
-use validation::validate_model_response;
+use validation::{validate_codex_model_response, validate_model_response};
 use workflows::EmptyFinalResponseMode;
 pub use workflows::{
     CodingCodexLoopDiagnosticWorkflow, CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow,
@@ -267,10 +267,11 @@ pub(crate) fn run_codex_loop(
                 finish_reason: response.finish_reason.clone(),
             },
         )?;
-        validate_model_response("codex_loop", &request, &response)?;
+        validate_codex_model_response("codex_loop", &request, &response)?;
 
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
+        let model_requests_follow_up = response.end_turn == Some(false);
         let assistant_message = response.message.clone();
         turn.model_messages.push(assistant_message.clone());
         turn.persistent_messages.push(assistant_message.clone());
@@ -286,8 +287,17 @@ pub(crate) fn run_codex_loop(
             for call in &response.tool_calls {
                 executed_tools.push(call.name.clone());
             }
-            let results = execute_tools(host, &input, &response.tool_calls, "codex_loop")?;
+            let results = execute_codex_tools(
+                host,
+                &input,
+                &response.tool_calls,
+                &request.tools,
+                "codex_loop",
+            )?;
             turn.append_tool_results(results);
+            continue;
+        }
+        if model_requests_follow_up {
             continue;
         }
 

@@ -38,6 +38,13 @@ impl ApprovalTransport for CachedApprovalTransport {
     }
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
+        // A tool may issue state whose lifetime is narrower than the session
+        // cache (for example, a turn-scoped permission grant). Its ToolSpec can
+        // therefore opt out without coupling core to a concrete tool name.
+        if metadata_disables_cache(&request) {
+            return self.inner.request_approval(request).await;
+        }
+
         if self.is_cached(&request).await {
             return Ok(ApprovalResponse::approve().with_note("approval reused from session cache"));
         }
@@ -66,6 +73,17 @@ impl CachedApprovalTransport {
         .filter_map(|scope| ApprovalCacheKey::from_request(request, scope))
         .any(|key| approved.contains(&key))
     }
+}
+
+fn metadata_disables_cache(request: &ApprovalRequest) -> bool {
+    request
+        .tool_spec
+        .as_ref()
+        .and_then(|spec| spec.metadata.get("approval"))
+        .and_then(|approval| approval.get("cache"))
+        .and_then(|cache| cache.get("disabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -271,6 +289,34 @@ mod tests {
         )
     }
 
+    fn request_permissions() -> ApprovalRequest {
+        ApprovalRequest::new(
+            ToolCall::new(
+                new_call_id(),
+                "request_permissions",
+                json!({
+                    "permissions": ["escalated_exec"],
+                    "justification": "test turn-scoped grant"
+                }),
+            ),
+            PathBuf::from("/workspace"),
+            "test",
+            Some(
+                ToolSpec::new(
+                    "request_permissions",
+                    "Request turn-scoped permissions",
+                    json!({}),
+                    ToolSafety::RunsCommands,
+                )
+                .with_metadata(json!({
+                    "approval": {
+                        "cache": { "disabled": true }
+                    }
+                })),
+            ),
+        )
+    }
+
     #[tokio::test]
     async fn exact_call_cache_reuses_identical_approval() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -342,6 +388,58 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         assert!(cached.approved);
         assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn request_permissions_approval_is_not_reused_across_turns() {
+        use crate::contracts::RequestOrigin;
+        use crate::domain::{new_thread_id, new_turn_id};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCall,
+        }));
+        let thread_id = new_thread_id();
+
+        transport
+            .request_approval(
+                request_permissions().with_origin(RequestOrigin::new(thread_id, new_turn_id())),
+            )
+            .await
+            .unwrap();
+        transport
+            .request_approval(
+                request_permissions().with_origin(RequestOrigin::new(thread_id, new_turn_id())),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn request_permissions_approval_is_not_reused_within_a_turn() {
+        use crate::contracts::RequestOrigin;
+        use crate::domain::{new_thread_id, new_turn_id};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCall,
+        }));
+        let origin = RequestOrigin::new(new_thread_id(), new_turn_id());
+
+        transport
+            .request_approval(request_permissions().with_origin(origin.clone()))
+            .await
+            .unwrap();
+        transport
+            .request_approval(request_permissions().with_origin(origin))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

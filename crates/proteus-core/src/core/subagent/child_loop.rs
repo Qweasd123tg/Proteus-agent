@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::{SUBAGENT_FACADE_TOOLS, mailbox::ChildMailbox};
+use super::{SUBAGENT_FACADE_TOOLS, mailbox::ChildMailbox, validation::RequestVisibleTools};
 
 pub(super) struct ChildLoopState {
     pub history: Vec<CanonicalMessage>,
@@ -107,20 +107,34 @@ pub(super) async fn run_child_loop(
                     "suppress_stream_deltas": true,
                     "prompt_cache_key": child_prompt_cache_key(ctx.thread_id),
                 }));
+        // Снимок именно отправленного request-а: role allowlist и dynamic
+        // exposure являются capability-boundary этого model response.
+        let request_visible_tools = RequestVisibleTools::capture(&model_request.tools);
         let response = match complete_model(ctx, model_request).await {
             Ok(response) => response,
             Err(_) if ctx.is_cancelled() => return Ok(SubagentStatus::Cancelled),
             Err(error) => return Err(error),
         };
+        request_visible_tools.validate_response(&role.name, &response)?;
         state.iterations += 1;
         accumulate_usage(&mut state.usage, response.usage.as_ref());
         budget.record(response.usage.as_ref());
+        let model_requests_follow_up = response.end_turn == Some(false);
         if let Some(text) = message_text(&response.message) {
             state.last_text = Some(text);
         }
         state.history.push(response.message.clone());
 
         if response.tool_calls.is_empty() {
+            if model_requests_follow_up {
+                if budget.exceeded() {
+                    return Ok(SubagentStatus::TokenBudgetExceeded);
+                }
+                // Не закрываем mailbox: provider явно запросил следующий
+                // sampling round, queued сообщения заберёт drain в начале
+                // следующей итерации.
+                continue;
+            }
             let messages = mailbox.drain_or_close()?;
             if messages.is_empty() {
                 return Ok(SubagentStatus::Completed);

@@ -513,7 +513,12 @@ Stdio MCP server процессы изолированы через границ
 
 **DTO через FFI — JSON-сериализация в RString**, не `#[repr(C)]`. Работает для всех serde-сериализуемых типов, включая `serde_json::Value`-поля. Overhead приемлем для per-turn / per-tool-call вызовов.
 
-**PluginTool отдельно от Tool.** `Tool` в ядре остаётся async (использует `tokio::fs`, `tokio::process`). `PluginTool` — sync-версия специально для плагинов (sabi_trait не поддерживает async). `PluginToolAdapter` мостит через spawn_blocking.
+**PluginTool отдельно от Tool.** `Tool` в ядре остаётся async (использует
+`tokio::fs`, `tokio::process`). `PluginTool` — sync-версия специально для
+плагинов (sabi_trait не поддерживает async). `PluginToolAdapter` мостит через
+`spawn_blocking`, валидирует JSON результата и требует, чтобы
+`ToolResult.call_id` совпадал с id исходного `ToolCall`; cross-wired результат
+плагина отклоняется на ABI-границе.
 
 **`RootModule::load_from_file` не использовать** — кеширует root-module по типу в static slot'е, ломает multi-plugin. Использовать `RawLibrary::load_at` + `lib_header_from_raw_library` + `init_root_module` напрямую.
 

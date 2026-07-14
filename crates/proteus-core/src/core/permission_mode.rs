@@ -14,6 +14,48 @@ impl ModeAwarePolicy {
     pub fn new(mode: PermissionMode, inner: Arc<dyn ApprovalPolicy>) -> Self {
         Self { mode, inner }
     }
+
+    fn apply_mode(
+        &self,
+        tool_name: &str,
+        safety: &ToolSafety,
+        inner_decision: PolicyDecision,
+    ) -> PolicyDecision {
+        // PermissionMode may relax an approval prompt, but it must never turn
+        // an explicit policy denial into an allow. This keeps deny_all and
+        // configured codex/opencode deny rules authoritative in every mode.
+        if matches!(&inner_decision, PolicyDecision::Deny { .. }) {
+            return inner_decision;
+        }
+
+        match self.mode {
+            PermissionMode::Plan => match safety {
+                ToolSafety::ReadOnly => PolicyDecision::Allow,
+                _ => PolicyDecision::Deny {
+                    reason: format!(
+                        "permission mode plan allows only read-only tools: {tool_name}"
+                    ),
+                },
+            },
+            PermissionMode::Auto => match safety {
+                ToolSafety::ReadOnly | ToolSafety::WritesFiles => PolicyDecision::Allow,
+                ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous => {
+                    PolicyDecision::Deny {
+                        reason: format!(
+                            "permission mode auto denies command, network, and dangerous tools: {tool_name}"
+                        ),
+                    }
+                }
+                _ => PolicyDecision::Deny {
+                    reason: format!(
+                        "permission mode auto denies unknown tool safety for {tool_name}"
+                    ),
+                },
+            },
+            PermissionMode::Normal => inner_decision,
+            _ => inner_decision,
+        }
+    }
 }
 
 impl ApprovalPolicy for ModeAwarePolicy {
@@ -24,69 +66,13 @@ impl ApprovalPolicy for ModeAwarePolicy {
             };
         };
 
-        match self.mode {
-            PermissionMode::Plan => match spec.safety {
-                ToolSafety::ReadOnly => PolicyDecision::Allow,
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode plan allows only read-only tools: {}",
-                        call.name
-                    ),
-                },
-            },
-            PermissionMode::Auto => match spec.safety {
-                ToolSafety::ReadOnly | ToolSafety::WritesFiles => PolicyDecision::Allow,
-                ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous => {
-                    PolicyDecision::Deny {
-                        reason: format!(
-                            "permission mode auto denies command, network, and dangerous tools: {}",
-                            call.name
-                        ),
-                    }
-                }
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode auto denies unknown tool safety for {}",
-                        call.name
-                    ),
-                },
-            },
-            PermissionMode::Normal => self.inner.evaluate(call, ctx),
-            _ => self.inner.evaluate(call, ctx),
-        }
+        let inner_decision = self.inner.evaluate(call, ctx);
+        self.apply_mode(&call.name, &spec.safety, inner_decision)
     }
 
     fn evaluate_visibility(&self, ctx: &PolicyVisibilityContext) -> PolicyDecision {
-        match self.mode {
-            PermissionMode::Plan => match ctx.tool_spec.safety {
-                ToolSafety::ReadOnly => PolicyDecision::Allow,
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode plan allows only read-only tools: {}",
-                        ctx.tool_spec.name
-                    ),
-                },
-            },
-            PermissionMode::Auto => match ctx.tool_spec.safety {
-                ToolSafety::ReadOnly | ToolSafety::WritesFiles => PolicyDecision::Allow,
-                ToolSafety::RunsCommands | ToolSafety::Network | ToolSafety::Dangerous => {
-                    PolicyDecision::Deny {
-                        reason: format!(
-                            "permission mode auto denies command, network, and dangerous tools: {}",
-                            ctx.tool_spec.name
-                        ),
-                    }
-                }
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode auto denies unknown tool safety for {}",
-                        ctx.tool_spec.name
-                    ),
-                },
-            },
-            PermissionMode::Normal => self.inner.evaluate_visibility(ctx),
-            _ => self.inner.evaluate_visibility(ctx),
-        }
+        let inner_decision = self.inner.evaluate_visibility(ctx);
+        self.apply_mode(&ctx.tool_spec.name, &ctx.tool_spec.safety, inner_decision)
     }
 }
 
@@ -150,6 +136,73 @@ mod tests {
                 reason: "inner".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn deny_all_remains_authoritative_for_plan_reads_and_auto_writes() {
+        let plan =
+            ModeAwarePolicy::new(PermissionMode::Plan, Arc::new(crate::stubs::DenyAllPolicy));
+        assert!(matches!(
+            plan.evaluate(&call("read_file"), &ctx("read_file", ToolSafety::ReadOnly)),
+            PolicyDecision::Deny { .. }
+        ));
+        assert!(matches!(
+            plan.evaluate_visibility(&visibility_ctx("read_file", ToolSafety::ReadOnly)),
+            PolicyDecision::Deny { .. }
+        ));
+
+        let auto =
+            ModeAwarePolicy::new(PermissionMode::Auto, Arc::new(crate::stubs::DenyAllPolicy));
+        assert!(matches!(
+            auto.evaluate(
+                &call("write_file"),
+                &ctx("write_file", ToolSafety::WritesFiles)
+            ),
+            PolicyDecision::Deny { .. }
+        ));
+        assert!(matches!(
+            auto.evaluate_visibility(&visibility_ctx("write_file", ToolSafety::WritesFiles)),
+            PolicyDecision::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn plan_and_auto_relax_ask_only_for_mode_allowed_safety_classes() {
+        let plan = ModeAwarePolicy::new(
+            PermissionMode::Plan,
+            Arc::new(FixedPolicy(PolicyDecision::Ask {
+                reason: "inner".to_owned(),
+            })),
+        );
+        assert_eq!(
+            plan.evaluate(&call("read_file"), &ctx("read_file", ToolSafety::ReadOnly)),
+            PolicyDecision::Allow
+        );
+        assert!(matches!(
+            plan.evaluate(
+                &call("write_file"),
+                &ctx("write_file", ToolSafety::WritesFiles)
+            ),
+            PolicyDecision::Deny { .. }
+        ));
+
+        let auto = ModeAwarePolicy::new(
+            PermissionMode::Auto,
+            Arc::new(FixedPolicy(PolicyDecision::Ask {
+                reason: "inner".to_owned(),
+            })),
+        );
+        assert_eq!(
+            auto.evaluate(
+                &call("write_file"),
+                &ctx("write_file", ToolSafety::WritesFiles)
+            ),
+            PolicyDecision::Allow
+        );
+        assert!(matches!(
+            auto.evaluate(&call("shell"), &ctx("shell", ToolSafety::RunsCommands)),
+            PolicyDecision::Deny { .. }
+        ));
     }
 
     #[test]
