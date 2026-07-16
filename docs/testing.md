@@ -193,13 +193,19 @@ canonical DTO не ломаются.
 `inspect topology` не должен запускать turn или model request. Проверки вокруг
 него должны фиксировать именно boundary contract:
 
-- JSON `/inspect/topology` содержит slots, modules, plugins, tools, warnings и
-  `edges`;
-- `edges` связывает config -> slots, slot -> active/available modules,
-  plugins -> contributions, context providers -> context slot, ToolRegistry ->
-  tools и tool -> backend slots;
+- JSON `/inspect/topology` содержит behavior `slots`, `modules`, `plugins`,
+  `tools`, `warnings` и `edges`; `slots` не содержит pseudo-slot с `id = "tool"`;
+- `ModuleKind::Tool`/`slot::TOOL` остаются catalog vocabulary и продолжают
+  покрываться registration tests, но topology tests не считают их behavior
+  slot-ом;
+- `edges` связывает config -> behavior slots, slot -> active/available modules,
+  plugins -> contributions, context providers -> context slot, synthetic node
+  `tools` (`ToolRegistry`) -> concrete tools и tool -> backend slots; ребра
+  `slot:tool -> tools` нет;
 - renderer-ы `runtime`, `runtime-mermaid`, `map`, Markdown и Mermaid читают
-  `TopologySnapshot`, а не реконструируют связи из `/config`;
+  `TopologySnapshot`, а не реконструируют связи из `/config`; Inspector строит
+  единственную synthetic `ToolRegistry` card из `snapshot.tools` и игнорирует
+  legacy `slots[].id = "tool"` без дублирования;
 - HTTP endpoints `/inspect/topology`, `/inspect/topology.runtime`,
   `/inspect/topology.runtime.mmd`, `/inspect/topology.map` и
   `/inspect/topology.mmd` доступны без token в default loopback dogfood, но

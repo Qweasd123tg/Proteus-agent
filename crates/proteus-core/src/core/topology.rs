@@ -105,6 +105,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::{
+        core::ModuleCatalogEntrySummary,
+        domain::{ModuleKind, ModuleManifest},
+    };
 
     #[test]
     fn build_edges_connects_slots_plugins_modules_tools_and_registry() {
@@ -206,7 +210,13 @@ mod tests {
             "slot:context",
             "feeds"
         ));
-        assert!(has_edge(&edges, "slot:tool", "tools", "runtime"));
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.from == "slot:tool" || edge.to == "slot:tool")
+        );
+        assert!(has_edge(&edges, "slot:tool_exposure", "tools", "runtime"));
+        assert!(has_edge(&edges, "slot:policy", "tools", "runtime"));
     }
 
     fn has_edge(edges: &[TopologyEdge], from: &str, to: &str, kind: &str) -> bool {
@@ -216,8 +226,13 @@ mod tests {
     }
 
     #[test]
-    fn build_slots_orders_pipeline_first_and_categorizes_slots() {
-        let slots = build_slots(&[], &BTreeMap::new());
+    fn build_slots_orders_behavior_slots_and_excludes_tool_catalog_kind() {
+        let tool_entry = ModuleCatalogEntrySummary {
+            slot: ModuleKind::Tool.as_str().to_owned(),
+            id: "read_file".to_owned(),
+            manifest: ModuleManifest::builtin("read_file", ModuleKind::Tool, &["read"]),
+        };
+        let slots = build_slots(&[tool_entry], &BTreeMap::new());
 
         let ids = slots
             .iter()
@@ -232,7 +247,6 @@ mod tests {
                 "tool_exposure",
                 "model",
                 "policy",
-                "tool",
                 "subagent",
                 "renderer",
                 "search",
@@ -250,7 +264,6 @@ mod tests {
         };
         assert_eq!(category("workflow"), "orchestrator");
         assert_eq!(category("model"), "pipeline");
-        assert_eq!(category("tool"), "registry");
         assert_eq!(category("search"), "backend");
 
         let required = |id: &str| {
@@ -261,7 +274,7 @@ mod tests {
         };
         assert!(required("workflow"));
         assert!(required("patch"));
-        assert!(!required("tool"));
         assert!(!required("search"));
+        assert!(!slots.iter().any(|slot| slot.id == "tool"));
     }
 }

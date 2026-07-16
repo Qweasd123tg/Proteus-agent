@@ -988,13 +988,17 @@ Scope:
   пака (opencode) сверяться с инвентарём: consumer-ожидания без producer-а —
   главный источник тихих багов (кейс `<environment_context>`).
 
-- Свести topology slot metadata в единый `SlotDescriptor` source-of-truth:
-  id, title, responsibility, required, render order и canonical runtime edges.
-  Сейчас эти сведения частично дублируются между topology builder/render
-  helper-ами, что повышает риск рассинхронизации при добавлении slot.
-- Разделить в topology DTO обычные module slots и synthetic runtime nodes.
-  `ToolRegistry` сейчас представлен через pseudo-slot `tool`; UI должен
-  показывать его как registry node, а не как выбираемый module slot.
+- `[частично реализовано]` `CoreSlotDescriptor` уже является source-of-truth для
+  11 behavior slots: id, title, responsibility, required, category и render
+  order. Canonical runtime edges и порядок synthetic nodes пока остаются в
+  topology builder/render helpers; свести их к одному источнику нужно при
+  следующем изменении runtime graph, без отдельного big-bang рефакторинга.
+- ✅ Закрыто 2026-07-17: topology больше не представляет `ToolRegistry` через
+  pseudo-slot `tool`. `slots` содержит только behavior slots, а graph node
+  `tools`/`ToolRegistry` синтезируется из `TopologySnapshot.tools`; Inspector
+  игнорирует legacy `slots[].id = "tool"`, чтобы не рисовать дубль.
+  `ModuleKind::Tool` и `slot::TOOL` сохранены как public catalog vocabulary для
+  concrete tool registrations и не означают наличие `modules.tool`.
 - Следить за ростом `RuntimeContext`/`BuiltinRegistry`: они неизбежно wiring
   layer, но каждый новый slot не должен добавлять provider-specific детали или
   обходить existing contracts.

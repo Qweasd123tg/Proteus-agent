@@ -129,11 +129,7 @@ fn TopologySnapshotView(
     let steps = pipeline_steps(&snapshot, &slots);
     let last_step_index = steps.len().saturating_sub(1);
     let backends = backend_views(&snapshot, &slots);
-    let slot_cards = slots
-        .iter()
-        .filter(|view| view.category != "registry")
-        .cloned()
-        .collect::<Vec<_>>();
+    let slot_cards = slots.clone();
 
     let model_label = snapshot
         .model

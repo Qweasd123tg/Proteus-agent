@@ -4,7 +4,6 @@ use crate::domain::ModuleKind;
 pub(crate) enum CoreSlotSelection {
     ProviderConfig,
     ModulesConfig,
-    ToolRegistry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +17,7 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 11] = [
     CoreSlotDescriptor {
         kind: ModuleKind::Workflow,
         title: "Workflow",
@@ -74,20 +73,11 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
         selection: CoreSlotSelection::ModulesConfig,
     },
     CoreSlotDescriptor {
-        kind: ModuleKind::Tool,
-        title: "Tools",
-        responsibility: "Executable capabilities available through ToolRegistry.",
-        category: "registry",
-        order: 6,
-        required: false,
-        selection: CoreSlotSelection::ToolRegistry,
-    },
-    CoreSlotDescriptor {
         kind: ModuleKind::Subagent,
         title: "Subagent",
         responsibility: "Runs delegated child agent loops for workflows.",
         category: "pipeline",
-        order: 7,
+        order: 6,
         required: true,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -96,7 +86,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
         title: "Renderer",
         responsibility: "Renders final AgentOutput for clients/CLI.",
         category: "pipeline",
-        order: 8,
+        order: 7,
         required: true,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -105,7 +95,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
         title: "Search",
         responsibility: "Provides repository/search backend.",
         category: "backend",
-        order: 9,
+        order: 8,
         required: false,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -114,7 +104,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
         title: "Patch",
         responsibility: "Applies structured patches to the workspace.",
         category: "backend",
-        order: 10,
+        order: 9,
         required: true,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -123,7 +113,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 12] = [
         title: "Memory",
         responsibility: "Persists and retrieves explicit memories.",
         category: "backend",
-        order: 11,
+        order: 10,
         required: false,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -142,13 +132,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn descriptors_cover_each_host_slot_once() {
+    fn descriptors_cover_each_behavior_slot_once() {
         let kinds = CORE_SLOT_DESCRIPTORS
             .iter()
             .map(|descriptor| descriptor.kind)
             .collect::<BTreeSet<_>>();
-        assert_eq!(kinds.len(), ModuleKind::ALL.len());
-        assert_eq!(kinds, ModuleKind::ALL.into_iter().collect::<BTreeSet<_>>());
+        let behavior_slots = ModuleKind::ALL
+            .into_iter()
+            .filter(|kind| *kind != ModuleKind::Tool)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(kinds, behavior_slots);
+        assert!(!kinds.contains(&ModuleKind::Tool));
+        assert!(core_slot_descriptor_by_id("tool").is_none());
     }
 
     #[test]
@@ -161,13 +157,7 @@ mod tests {
             .iter()
             .filter(|descriptor| descriptor.selection == CoreSlotSelection::ProviderConfig)
             .count();
-        let registries = CORE_SLOT_DESCRIPTORS
-            .iter()
-            .filter(|descriptor| descriptor.selection == CoreSlotSelection::ToolRegistry)
-            .count();
-
         assert_eq!(modules, 10);
         assert_eq!(providers, 1);
-        assert_eq!(registries, 1);
     }
 }

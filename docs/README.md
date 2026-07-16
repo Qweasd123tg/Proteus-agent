@@ -34,8 +34,8 @@
 
 1. [architecture.md](architecture.md) — словарь, слои, границы core и жизнь
    одного turn-а.
-2. [modules.md](modules.md) — все slot-ы, доступные реализации и правило
-   заменяемости.
+2. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
+   доступные реализации и правило заменяемости.
 3. [plugin-architecture.md](plugin-architecture.md) — dylib ABI, loader,
    manifests и граница plugin/core.
 4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, plugin,
@@ -50,7 +50,8 @@
 
 ### Разобрать runtime или баг
 
-1. [inspect.md](inspect.md) — `proteus inspect topology` и HTTP `/inspect/*`.
+1. [inspect.md](inspect.md) — `proteus inspect topology`, различие behavior
+   slots и synthetic runtime nodes, HTTP `/inspect/*`.
 2. [runtime-and-events.md](runtime-and-events.md) — CLI/REPL, session store,
    event log и AppServer HTTP/SSE/stdio.
 3. [security-and-policy.md](security-and-policy.md) — tools, permission modes,
@@ -89,8 +90,9 @@
 
 - [research/codex-parity-audit-2026-07-14.md](research/codex-parity-audit-2026-07-14.md) —
   snapshot строгого сравнения активного `codex`-профиля с vendored и live
-  upstream: матрица 12 slot-ов, concrete tool/runtime findings, текущая wave и
-  приоритетный parity backlog;
+  upstream: историческая на дату audit матрица 12 slot-ов, concrete
+  tool/runtime findings, текущая wave и приоритетный parity backlog; актуальный
+  count behavior slots смотрите в `modules.md`;
 - [research/pi-vs-proteus.md](research/pi-vs-proteus.md) — проверка причины
   существования Proteus после знакомства с Pi, граница возможного pivot и
   30-дневные continue/pivot/freeze criteria; эксперимент не запущен решением

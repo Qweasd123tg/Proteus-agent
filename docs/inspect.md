@@ -43,9 +43,9 @@ report включает runtime path и diagnostic map, а затем остав
 proteus inspect topology --format runtime-mermaid > proteus-runtime.mmd
 ```
 
-Обычный Mermaid — полная диагностическая карта: пер-плагинные ноды, slots в
-subgraph-группах по `category` (Turn pipeline, ToolRegistry, Backends,
-Plugins), реальные tool ноды и рёбра runtime/provides/uses. Активные
+Обычный Mermaid — полная диагностическая карта: пер-плагинные ноды, behavior
+slots в subgraph-группах Turn pipeline/Backends, synthetic runtime node
+`ToolRegistry`, реальные tool ноды и рёбра runtime/provides/uses. Активные
 contributions рисуются сплошными рёбрами, available/disabled — пунктиром:
 
 ```bash
@@ -83,18 +83,21 @@ snapshot, `/inspect/topology.runtime` — короткий runtime path,
 
 - активный profile, cwd, config path/files, permission mode и module epoch;
 - active model provider/name;
-- slots с active module, responsibility, `category` и `order`: category
-  (`orchestrator | pipeline | registry | backend | post_turn | custom`) и
-  порядок отображения задаются сервером, чтобы каждый renderer не хардкодил
-  свою группировку slots;
+- 11 host-defined behavior slots с active module, responsibility, `category` и
+  `order`: category (`orchestrator | pipeline | backend | post_turn | custom`)
+  и порядок behavior slots задаются сервером;
+- synthetic runtime nodes, которые не выбираются через config и не имеют
+  active module. Сейчас это `ToolRegistry`: renderer строит graph node `tools`
+  из `snapshot.tools`, а записи `id = "tool"` в `snapshot.slots` нет;
 - все modules из catalog с `source = builtin | plugin | config | unknown`;
 - plugin load status и точные contributions;
 - registered tools и plugin-provided tools, которые загрузились, но не
   включены через `tools.enabled`;
 - короткий runtime path для повседневного чтения;
-- edges для config → slots, slot → active/available modules,
+- edges для config → behavior slots, slot → active/available modules,
   plugins → modules/tools/context providers, context providers → context slot,
-  workflow pipeline, ToolRegistry → tools и tool → backend slot связей;
+  workflow pipeline, synthetic ToolRegistry → concrete tools и tool → backend
+  slot связей. Отдельного ребра `slot:tool → tools` нет;
 - warnings по plugin errors, нескольким config files, неизвестным active
   modules, ошибкам best-effort сборки backend/tool registry и plugin tools,
   которые предоставлены, но disabled.
@@ -135,12 +138,21 @@ enabled tools, registered tools и список plugins.
   renderer.
 
 Web Architecture view отображает именно `TopologySnapshot` и показывает каждый
-факт один раз: turn pipeline по `slot.category`/`slot.order` (config →
-workflow → context → compactor → model → tool_exposure → policy →
-ToolRegistry → renderer), backend/post-turn slots с tool→backend связями из
-`edges` kind `uses`, slot cards с альтернативными modules, plugin cards с
-contributions строго из `provides` (состояние вычисляется по
-`modules`/`tools`), единый tools список с фильтрами, warnings panel и copy
-Mermaid action. Dangling edge nodes — диагностика для CLI `--format map`, в
-web UI они не показываются. Mermaid не является primary UI renderer: он нужен
-для copy/export, когда внешний viewer полезнее встроенной карты.
+факт один раз. Behavior slots идут по серверным `slot.category`/`slot.order`;
+в active pipeline получается config → workflow → context → compactor →
+tool_exposure → model → policy → ToolRegistry → subagent → renderer.
+`ToolRegistry` — отдельный synthetic card, вычисленный из `snapshot.tools`, а
+не slot card с фиктивным active module. Backend/post-turn slots получают
+tool→backend связи из `edges` kind `uses`; slot cards показывают альтернативные
+modules, plugin cards — contributions строго из `provides` (состояние
+вычисляется по `modules`/`tools`). Там же остаются единый tools список с
+фильтрами, warnings panel и copy Mermaid action. Старый backend может прислать
+legacy `slots[].id = "tool"`; Inspector игнорирует такую запись, чтобы не
+дублировать synthetic `ToolRegistry`. Dangling edge nodes — диагностика для CLI
+`--format map`, в web UI они не показываются. Mermaid не является primary UI
+renderer: он нужен для copy/export, когда внешний viewer полезнее встроенной
+карты.
+
+Разделение topology DTO не удаляет public catalog vocabulary:
+`ModuleKind::Tool` и `slot::TOOL` по-прежнему обозначают регистрацию concrete
+tools, но не создают выбираемый behavior slot или `modules.tool`.

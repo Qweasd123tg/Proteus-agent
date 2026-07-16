@@ -55,6 +55,10 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
     let mut views = snapshot
         .slots
         .iter()
+        // Старые topology snapshots представляли ToolRegistry pseudo-slot-ом.
+        // Это runtime node, а не заменяемый module slot, поэтому не показываем
+        // его среди slots даже при чтении legacy snapshot-а.
+        .filter(|slot| slot.id != "tool")
         .map(|slot| {
             let active_module = slot.active_module.as_ref().and_then(|active| {
                 snapshot
@@ -110,22 +114,10 @@ pub(crate) fn pipeline_steps(snapshot: &TopologySnapshot, slots: &[SlotView]) ->
         missing: false,
     }];
 
-    for view in slots.iter().filter(|view| {
-        matches!(
-            view.category.as_str(),
-            "orchestrator" | "pipeline" | "registry"
-        )
-    }) {
-        if view.category == "registry" {
-            steps.push(PipelineStep {
-                id: view.slot.id.clone(),
-                label: "tools".to_owned(),
-                detail: format!("{registered} registered"),
-                source: format!("{enabled} enabled"),
-                missing: registered == 0,
-            });
-            continue;
-        }
+    for view in slots
+        .iter()
+        .filter(|view| matches!(view.category.as_str(), "orchestrator" | "pipeline"))
+    {
         let detail = if view.slot.id == "model" {
             snapshot
                 .model
@@ -154,6 +146,20 @@ pub(crate) fn pipeline_steps(snapshot: &TopologySnapshot, slots: &[SlotView]) ->
             missing,
         });
     }
+
+    let tools_step = PipelineStep {
+        id: "tools".to_owned(),
+        label: "tools".to_owned(),
+        detail: format!("{registered} registered"),
+        source: format!("{enabled} enabled"),
+        missing: registered == 0,
+    };
+    let tools_index = steps
+        .iter()
+        .position(|step| step.id == "policy")
+        .map_or(steps.len(), |policy_index| policy_index + 1);
+    steps.insert(tools_index, tools_step);
+
     steps
 }
 
@@ -271,7 +277,6 @@ fn slot_category(slot: &TopologySlot) -> String {
         "workflow" => "orchestrator",
         "context" | "compactor" | "model" | "tool_exposure" | "subagent" | "policy"
         | "renderer" => "pipeline",
-        "tool" => "registry",
         "search" | "patch" | "memory" => "backend",
         _ => "custom",
     }
@@ -286,16 +291,99 @@ fn slot_order(slot: &TopologySlot) -> u32 {
         "workflow" => 0,
         "context" => 1,
         "compactor" => 2,
-        // Держать в согласии с core topology/slots.rs: exposure идёт до model.
+        // Держать в согласии с core/core_slots.rs: exposure идёт до model.
         "tool_exposure" => 3,
         "model" => 4,
         "policy" => 5,
-        "tool" => 6,
-        "subagent" => 7,
-        "renderer" => 8,
-        "search" => 9,
-        "patch" => 10,
-        "memory" => 11,
+        "subagent" => 6,
+        "renderer" => 7,
+        "search" => 8,
+        "patch" => 9,
+        "memory" => 10,
         _ => 100,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn slot(id: &str, category: &str, order: u32) -> TopologySlot {
+        TopologySlot {
+            id: id.to_owned(),
+            active_module: Some(format!("{id}_module")),
+            category: category.to_owned(),
+            order,
+            ..TopologySlot::default()
+        }
+    }
+
+    fn tool(name: &str, registered: bool, enabled: bool) -> TopologyTool {
+        TopologyTool {
+            name: name.to_owned(),
+            registered,
+            enabled,
+            ..TopologyTool::default()
+        }
+    }
+
+    #[test]
+    fn pipeline_derives_one_tools_step_from_inventory_after_policy() {
+        let snapshot = TopologySnapshot {
+            slots: vec![
+                slot("workflow", "orchestrator", 0),
+                slot("policy", "pipeline", 5),
+                slot("renderer", "pipeline", 7),
+            ],
+            tools: vec![
+                tool("read_file", true, true),
+                tool("write_file", true, false),
+                tool("provided_only", false, false),
+            ],
+            ..TopologySnapshot::default()
+        };
+
+        let slots = slot_views(&snapshot);
+        let steps = pipeline_steps(&snapshot, &slots);
+        let ids = steps
+            .iter()
+            .map(|step| step.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, ["config", "workflow", "policy", "tools", "renderer"]);
+        let tools = steps
+            .iter()
+            .find(|step| step.id == "tools")
+            .expect("tools step");
+        assert_eq!(tools.label, "tools");
+        assert_eq!(tools.detail, "2 registered");
+        assert_eq!(tools.source, "1 enabled");
+        assert!(!tools.missing);
+    }
+
+    #[test]
+    fn legacy_tool_slot_is_hidden_and_does_not_duplicate_tools_step() {
+        let snapshot = TopologySnapshot {
+            slots: vec![
+                slot("policy", "pipeline", 5),
+                slot("tool", "registry", 6),
+                slot("renderer", "pipeline", 8),
+            ],
+            tools: vec![tool("read_file", true, true)],
+            ..TopologySnapshot::default()
+        };
+
+        let slots = slot_views(&snapshot);
+        assert!(slots.iter().all(|view| view.slot.id != "tool"));
+
+        let steps = pipeline_steps(&snapshot, &slots);
+        assert_eq!(steps.iter().filter(|step| step.id == "tools").count(), 1);
+        assert_eq!(
+            steps
+                .iter()
+                .map(|step| step.id.as_str())
+                .collect::<Vec<_>>(),
+            ["config", "policy", "tools", "renderer"]
+        );
     }
 }

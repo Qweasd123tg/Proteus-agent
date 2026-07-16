@@ -46,18 +46,19 @@ impl ModuleManifest {
     }
 }
 
-/// Идентификатор slot'а в Registry.
+/// Идентификатор namespace в Registry.
 ///
-/// Ядро предоставляет стабильные строковые константы для host-defined slots
-/// (`slot::TOOL`, `slot::SEARCH`, и т.д.). Строковый тип унифицирует ключи
-/// catalog/topology, но не делает runtime lifecycle произвольно расширяемым:
-/// новый исполняемый slot требует нового contract и точки вызова в core.
+/// Ядро предоставляет стабильные строковые константы для host-defined behavior
+/// slots и tool catalog (`slot::TOOL`, `slot::SEARCH`, и т.д.). Строковый тип
+/// унифицирует ключи catalog/topology, но не делает runtime lifecycle
+/// произвольно расширяемым: новый исполняемый slot требует нового contract и
+/// точки вызова в core.
 ///
 /// Сравнение и хеширование работают по строковому значению.
 pub type SlotId = Cow<'static, str>;
 
-/// Константы для встроенных slots. Используются ядром и первыми плагинами
-/// как стабильные идентификаторы.
+/// Константы для встроенных behavior slots и catalog kinds. Используются ядром
+/// и первыми плагинами как стабильные идентификаторы.
 pub mod slot {
     use super::SlotId;
     use std::borrow::Cow;
@@ -76,10 +77,12 @@ pub mod slot {
     pub const SUBAGENT: SlotId = Cow::Borrowed("subagent");
 }
 
-/// Сопоставление `ModuleKind` → `SlotId` для встроенных slots.
+/// Сопоставление `ModuleKind` → `SlotId` для встроенных registry namespaces.
 ///
-/// `ModuleKind` остаётся закрытым набором host-defined runtime contracts;
-/// открыты module ids и источники реализаций внутри каждого такого slot.
+/// `ModuleKind` остаётся закрытым набором host-defined runtime contracts и
+/// catalog kinds; открыты module ids и источники реализаций внутри каждого
+/// namespace. `Tool` обозначает concrete tool registrations, а не выбираемый
+/// behavior slot с ключом `modules.tool`.
 impl ModuleKind {
     pub const ALL: [Self; 12] = [
         Self::Model,

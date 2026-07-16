@@ -80,7 +80,9 @@ cargo run --bin proteus -- \
 - Модули: 11 выбираемых через config behavior slots (model provider плюс 10
   ключей `modules.*`); стандартные
   tool/search/context/workflow/policy/patch/memory/renderer реализации
-  поставляются как dylib-плагины.
+  поставляются как dylib-плагины. Tools сохраняют отдельный catalog/registry
+  kind: в topology `ToolRegistry` показывается как runtime node, а не как
+  двенадцатый behavior slot.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
   approval policy и session approval cache. Process-subagent pool имеет
   глобальный bounded LRU-cap для idle/resume children; оставшиеся lifecycle-

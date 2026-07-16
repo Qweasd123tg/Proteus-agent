@@ -806,7 +806,13 @@ async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
 
 #[tokio::test]
 async fn route_inspect_topology_returns_json_and_mermaid() {
-    let (state, server) = test_state().await;
+    let cwd = tempfile::tempdir().expect("cwd");
+    let mut config = AppConfig::default();
+    config.tools.enabled = vec!["apply_patch".to_owned()];
+    let server =
+        AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
     let response = route_request(state.clone(), authed_get_request("/inspect/topology"))
         .await
@@ -825,20 +831,30 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
         topology.pointer("/profile").and_then(Value::as_str),
         Some("dev-basic")
     );
+    let slots = topology
+        .pointer("/slots")
+        .and_then(Value::as_array)
+        .expect("topology slots");
     assert!(
-        topology
-            .pointer("/slots")
-            .and_then(Value::as_array)
-            .is_some_and(|slots| slots
-                .iter()
-                .any(|slot| { slot.get("id").and_then(Value::as_str) == Some("workflow") }))
+        slots
+            .iter()
+            .any(|slot| slot.get("id").and_then(Value::as_str) == Some("workflow"))
     );
     assert!(
-        topology
-            .pointer("/tools")
-            .and_then(Value::as_array)
-            .is_some()
+        !slots
+            .iter()
+            .any(|slot| slot.get("id").and_then(Value::as_str) == Some("tool"))
     );
+    let tools = topology
+        .pointer("/tools")
+        .and_then(Value::as_array)
+        .expect("topology tools");
+    let registered_tool = tools
+        .iter()
+        .find(|tool| tool.get("registered").and_then(Value::as_bool) == Some(true))
+        .and_then(|tool| tool.get("name").and_then(Value::as_str))
+        .expect("registered topology tool");
+    let registered_tool_node = format!("tool:{registered_tool}");
     let edges = topology
         .pointer("/edges")
         .and_then(Value::as_array)
@@ -846,6 +862,25 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(edges.iter().any(|edge| {
         edge.get("kind").and_then(Value::as_str) == Some("selects")
             || edge.get("kind").and_then(Value::as_str) == Some("runtime")
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge.get("from").and_then(Value::as_str) == Some("slot:tool")
+            || edge.get("to").and_then(Value::as_str) == Some("slot:tool")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.get("from").and_then(Value::as_str) == Some("slot:tool_exposure")
+            && edge.get("to").and_then(Value::as_str) == Some("tools")
+            && edge.get("kind").and_then(Value::as_str) == Some("runtime")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.get("from").and_then(Value::as_str) == Some("slot:policy")
+            && edge.get("to").and_then(Value::as_str) == Some("tools")
+            && edge.get("kind").and_then(Value::as_str) == Some("runtime")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.get("from").and_then(Value::as_str) == Some("tools")
+            && edge.get("to").and_then(Value::as_str) == Some(registered_tool_node.as_str())
+            && edge.get("kind").and_then(Value::as_str) == Some("registered_tool")
     }));
 
     let response = route_request(state.clone(), authed_get_request("/inspect/topology.mmd"))
@@ -864,6 +899,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.contains("Turn pipeline"));
     assert!(body.contains("workflow<br/>"));
     assert!(body.contains("Backends / post-turn"));
+    assert!(body.contains("ToolRegistry"));
     assert!(body.contains("selects modules"));
     assert!(!body.contains("Warnings"));
 
@@ -881,6 +917,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
     assert!(body.starts_with("Proteus topology map"));
     assert!(body.contains("Slot/module map"));
+    assert!(body.contains("ToolRegistry map"));
 
     let response = route_request(
         state.clone(),
@@ -899,7 +936,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     let body = String::from_utf8(response_bytes(response).await.to_vec()).expect("utf8");
     assert!(body.starts_with("Proteus runtime path"));
     assert!(body.contains("Active product path"));
-    assert!(body.contains("tools"));
+    assert!(body.contains("ToolRegistry"));
     assert!(!body.contains("Plugin contribution map"));
 
     let response = route_request(state, authed_get_request("/inspect/topology.runtime.mmd"))

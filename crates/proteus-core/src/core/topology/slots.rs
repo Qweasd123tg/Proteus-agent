@@ -4,6 +4,7 @@ use crate::core::{
     AppConfig, ModuleCatalogEntrySummary,
     core_slots::{CORE_SLOT_DESCRIPTORS, core_slot_descriptor_by_id},
 };
+use crate::domain::ModuleKind;
 
 use super::{ModelTopology, SlotTopology};
 
@@ -32,7 +33,12 @@ pub(super) fn build_slots(
         .iter()
         .map(|descriptor| descriptor.kind.as_str().to_owned())
         .collect::<BTreeSet<_>>();
-    slot_ids.extend(catalog_entries.iter().map(|entry| entry.slot.clone()));
+    slot_ids.extend(
+        catalog_entries
+            .iter()
+            .filter(|entry| entry.slot != ModuleKind::Tool.as_str())
+            .map(|entry| entry.slot.clone()),
+    );
 
     let mut slots = slot_ids
         .into_iter()

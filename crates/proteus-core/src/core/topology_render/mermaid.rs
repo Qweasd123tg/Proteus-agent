@@ -194,7 +194,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
     );
     for edge in &snapshot.edges {
         match edge.kind.as_str() {
-            "runtime" if edge.from != "slot:tool" => {
+            "runtime" => {
                 add_edge(
                     &ids,
                     &mut out,

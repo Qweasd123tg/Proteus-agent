@@ -67,7 +67,12 @@ plugin, а не расширять таблицу ниже автоматиче�
 а `Tool` служит catalog/registry kind для concrete tools и не имеет
 `modules.tool`. Поэтому таблица ниже показывает 11 выбираемых behavior slots:
 model provider плюс десять ключей `modules.*`. Сам `ToolRegistry`
-остаётся execution boundary, а не ещё одним config-selectable slot.
+остаётся execution boundary, а не ещё одним config-selectable slot. Та же
+граница действует в `TopologySnapshot`: `slots` содержит behavior slots, а
+`ToolRegistry` строится как synthetic runtime node из отдельного списка
+`tools`. При этом `ModuleKind::Tool` и `slot::TOOL` остаются публичной
+catalog vocabulary для регистрации concrete tools и не удаляются вместе с
+pseudo-slot из topology.
 
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
