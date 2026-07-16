@@ -5,10 +5,8 @@ use context_pack::SimpleContextBuilderPlugin;
 use policy_pack::AskWritePolicyPlugin;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
-    contracts::Renderer_TO,
     plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
 };
-use renderer_pack::PlainRendererPlugin;
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
 use super::*;
@@ -40,12 +38,6 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
         )
         .expect("register test policy");
-    catalog
-        .register_plugin_renderer(
-            "plain",
-            Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
-        )
-        .expect("register test renderer");
     catalog
 }
 
@@ -739,7 +731,7 @@ async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
     config.modules.workflow = "coding.plan_execute_review".to_owned();
     config.modules.context = "simple".to_owned();
     config.modules.policy = "ask_write".to_owned();
-    config.modules.renderer = "plain".to_owned();
+    config.modules.renderer = "text".to_owned();
     config.modules.patch = "null".to_owned();
 
     let handle = AgentAppServer::launch_with_module_catalog(
@@ -794,7 +786,7 @@ async fn transcript_projects_runtime_history_for_resume_ui() {
     config.modules.workflow = "coding.plan_execute_review".to_owned();
     config.modules.context = "simple".to_owned();
     config.modules.policy = "ask_write".to_owned();
-    config.modules.renderer = "plain".to_owned();
+    config.modules.renderer = "text".to_owned();
     config.modules.patch = "null".to_owned();
 
     let handle = AgentAppServer::launch_with_module_catalog(

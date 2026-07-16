@@ -78,10 +78,10 @@ model provider плюс десять ключей `modules.*`. Сам `ToolRegis
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
-| Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, `dynamic`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
+| Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
 | Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, `process`, plugin-provided через `PluginSubagent` |
 | Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
-| Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
+| Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`statusline` из `renderer-pack`) |
 
 ## Model Providers
 
@@ -499,23 +499,12 @@ session history.
 request. Он не учитывает `ToolExposureRequest.phase`; фазовые ограничения
 работают только в phase-aware selector-ах вроде `codex_dynamic`.
 
-`modules.tool_exposure = "dynamic"` — core selector для первого слоя экономии
-tool schemas. Он берёт только уже policy-visible candidates, сначала оставляет
-tools с `ToolSpec.metadata.hot = true` или именами из
-`module_config.tool_exposure.dynamic.always_include`, затем стабильно ранжирует
-остальные tools. Per-turn task text не используется как неявный query, поэтому
-hot set не ломает provider prompt-cache prefix; явный request query оставляет
-лексическое ранжирование доступным вызывающей стороне.
-Selector пишет observability metadata:
-`selector`, `candidate_count`, `selected_count`, `hidden_count`,
-`selected_tools` и грубую оценку schema-token savings.
-
 `modules.tool_exposure = "codex_dynamic"` поставляет плагин
 `codex-tool-exposure`. Он сохраняет Codex-oriented hot set:
 `request_user_input` держится в `always_include`, common coding tools получают
 стабильный приоритет, а explicit query может поднять `shell`, `apply_patch`,
-`write_file` и `remember_fact` по intent match. Как и
-`dynamic`, selector видит только policy-visible candidates и пишет
+`write_file` и `remember_fact` по intent match. Selector видит только
+policy-visible candidates и пишет
 `selected_tool_reasons` в metadata. Selector phase-aware: workflow передаёт
 `ToolExposureRequest.phase`, и в `plan`-фазе non-ReadOnly кандидаты не
 попадают в hot set. Workflow сохраняет metadata селектора (hidden count,
@@ -523,6 +512,9 @@ schema-token savings и т.д.) в metadata запроса под ключом `
 откуда её видят usage snapshots и event log.
 `module_config.tool_exposure.codex_dynamic` передаётся в
 `ToolExposureInput.config`; плагин читает `max_hot_tools` и `always_include`.
+
+Удалённый 2026-07-17 builtin id `dynamic` не мигрируется автоматически:
+`all_visible` и plugin-owned `codex_dynamic` имеют разную семантику выбора.
 
 Если selector скрывает часть policy-visible tools, `coding-workflow` добавляет
 workflow-owned meta-tools: `proteus_tool_search`, `proteus_tool_describe` и
@@ -810,8 +802,6 @@ strict `coding.codex_loop`; новые профили должны сразу в
 
 `modules.renderer = "text"` — core stub, который возвращает только
 `AgentOutput.text`.
-
-`plain` превращает `AgentOutput` в обычный текст для CLI.
 
 `statusline` добавляет к ответу компактную строку состояния. Реализация живёт
 в `renderer-pack`, а core видит только контракт `Renderer`.

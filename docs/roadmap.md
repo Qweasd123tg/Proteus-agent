@@ -779,14 +779,15 @@ Scope:
   `jsonl` memory и историческая `carry_forward` policy вынесены в
   `memory-pack` (`carry_forward`/MemoryPolicy retired 2026-07-16),
   `allow_all`/`ask_write`/`codex_policy`/`opencode_policy` вынесены в
-  `policy-pack`, `plain`/`statusline`
-  вынесены в `renderer-pack`.
-  В ядре остаются builtin model adapters, builtin subagent runners
+  `policy-pack`, `plain`/`statusline` вынесены в `renderer-pack`.
+  На момент первоначального итога волны в ядре оставались builtin model adapters и subagent runners
   (`sequential`, `process`), slot-dependent facade tools `apply_patch`, `search`,
   `remember_fact`, `request_user_input` и безопасные stubs `workflow = "none"`,
   `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
   `tool_exposure = "all_visible"`, builtin selector `tool_exposure = "dynamic"`,
-  `renderer = "text"`.
+  `renderer = "text"`. Дублирующие `dynamic` и plugin renderer `plain`
+  удалены 2026-07-17; обычный текст теперь всегда даёт builtin `text`, а
+  bounded/deferred selection — plugin `codex_dynamic`.
   `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`,
   а packaged named configs — в `~/.config/Proteus-agent/configs/`,
   автоматически.
@@ -999,7 +1000,7 @@ Scope:
   обходить existing contracts.
 - При дальнейшем развитии dynamic tools вынести общий lexical scoring/tokenize
   helper в shared contract/support слой либо сознательно оставить duplication
-  между core selector и workflow meta-tools как ABI-boundary tradeoff.
+  между `codex-tool-exposure` и workflow meta-tools как ABI-boundary tradeoff.
 - `[частично реализовано]` Вынести concrete MCP stdio lifecycle из
   `crates/proteus-core/src/tools` в отдельную module/plugin implementation.
   Transport-слой (spawn/framing/JSON-RPC request-response/lazy restart/

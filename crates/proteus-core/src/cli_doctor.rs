@@ -271,15 +271,6 @@ fn check_selected_modules(
     catalog: &BuiltinModuleCatalog,
     config: &AppConfig,
 ) {
-    if config.modules.workflow == "single_loop" {
-        findings.error("modules.workflow = \"single_loop\" is legacy; use \"coding.single_loop\"");
-    }
-    if config.modules.workflow == "plan_execute_review" {
-        findings.error(
-            "modules.workflow = \"plan_execute_review\" is legacy; use \"coding.plan_execute_review\"",
-        );
-    }
-
     for (kind, id) in config.modules.iter() {
         let label = kind.as_str();
         if catalog.manifest(kind, id).is_some() {

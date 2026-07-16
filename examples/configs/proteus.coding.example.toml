@@ -38,10 +38,6 @@ ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
 [module_config.compactor.codex]
 trigger_fraction = 0.8
 
-[module_config.tool_exposure.dynamic]
-max_hot_tools = 10
-always_include = ["request_user_input"]
-
 # [module_config.subagent.sequential]
 # max_depth = 1
 # roles_dir = ".proteus/agents"

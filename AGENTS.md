@@ -64,7 +64,7 @@ plugins/
         context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
         memory-pack/         - MemoryStore "jsonl"
         policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
-        renderer-pack/       - Renderer плагины "plain" и "statusline"
+        renderer-pack/       - Renderer плагин "statusline"
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/
     configs/             - example-профили (proteus.*.example.toml, config.example.json)

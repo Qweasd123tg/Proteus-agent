@@ -162,8 +162,8 @@ cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не за
 текста очередного turn-а, а редкие tools доступны через deferred
 search/describe/call. Collaboration controls добавляются поверх базового
 hot-set budget и не вытесняют direct read/search tools. Финальный CLI-вывод
-использует `renderer = "plain"`, поэтому transcript/stdout не загрязняется
-интерактивной status line. `codex_context` добавляет только Codex-style
+использует builtin `renderer = "text"`, поэтому transcript/stdout не
+загрязняется интерактивной status line. `codex_context` добавляет только Codex-style
 `AGENTS.override.md` / `AGENTS.md` project instructions и
 `environment_context`; git diff, repo tree, manifests и targeted search модель
 получает через tools, а не как заранее инжектированный prompt. Project
@@ -189,8 +189,8 @@ tools. `simple` поставляется `context-pack`, так что runtime �
 установленный context plugin.
 
 `examples/configs/proteus.dev-slim.example.toml` - узкий профиль для
-разработки самого Proteus: `tool_exposure = "dynamic"`, меньший context budget
-и только hot coding tools. Используйте его явно через
+разработки самого Proteus: `tool_exposure = "all_visible"`, меньший context
+budget и сокращённый список coding tools. Используйте его явно через
 `--config examples/configs/proteus.dev-slim.example.toml`.
 
 `examples/configs/proteus.external-tools.example.toml` - пример для
@@ -396,7 +396,7 @@ custom URL.
     "compactor": "none",
     "tool_exposure": "all_visible",
     "subagent": "sequential",
-    "renderer": "plain"
+    "renderer": "text"
   },
   "subagents": {
     "surface": "task"
@@ -563,24 +563,6 @@ phase-aware фильтрация работает только в соответ
 `codex_dynamic`. Плагинная реализация может искать, ранжировать или
 ограничивать tools через тот же host callback `select_tools_json`.
 
-`modules.tool_exposure = "dynamic"` включает builtin selector. Это opt-in
-режим: он оставляет tools с `ToolSpec.metadata.hot = true` или именами из
-`module_config.tool_exposure.dynamic.always_include`, затем стабильно добирает
-остальные policy-visible candidates. Текст очередной task автоматически не
-становится query и не меняет model-facing schemas между turn-ами; явный
-`ToolExposureRequest.query` по-прежнему включает lexical ranking.
-В `ToolExposureOutput.metadata` появляются `selected_tools`, `hidden_count` и
-грубая оценка сэкономленных schema tokens.
-
-```toml
-[modules]
-tool_exposure = "dynamic"
-
-[module_config.tool_exposure.dynamic]
-max_hot_tools = 10
-always_include = ["request_user_input"]
-```
-
 `modules.tool_exposure = "codex_dynamic"` включает плагин
 `codex-tool-exposure`, предназначенный для Codex-shaped profile. Он держит
 `request_user_input` и профильные `always_include` tools в первом слое и
@@ -591,6 +573,11 @@ policy-visible candidates и не исполняет tools. Его metadata ра
 `selected_tool_reasons`. `module_config.tool_exposure.codex_dynamic`
 передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
 `always_include`.
+
+Исторический builtin id `dynamic` удалён 2026-07-17 вместе с отдельным
+лексическим selector-ом в core. Старому config нужно явно выбрать
+`all_visible` либо установленный `codex_dynamic`; автоматической миграции нет,
+поскольку эти режимы ведут себя по-разному.
 
 Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
 `coding.plan_execute_review`,
@@ -793,8 +780,7 @@ session; смерть или LRU eviction инвалидирует task id. Пр
 
 `modules.renderer = "text"` — безопасный core default без plugin pack.
 
-`modules.renderer = "plain"` и `modules.renderer = "statusline"` поставляются
-плагином `renderer-pack`. `plain` печатает только текст ответа. `statusline`
+`modules.renderer = "statusline"` поставляется плагином `renderer-pack` и
 добавляет дефолтную строку состояния по metadata ответа (`model`, `context`,
 `session`). Core больше не содержит renderer config schema.
 

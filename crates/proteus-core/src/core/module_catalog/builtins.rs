@@ -12,9 +12,8 @@ use crate::{
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     stubs::{
-        AllVisibleToolExposure, DenyAllPolicy, DynamicToolExposure, EmptyContextBuilder,
-        FakeModelClient, NoCompactor, NoMemory, NoSubagent, NoWorkflow, NullPatchApplier,
-        NullSearch, TextRenderer,
+        AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
+        NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
     },
 };
 
@@ -148,18 +147,6 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         ),
         build_all_visible_tool_exposure,
     );
-    catalog.register_module::<dyn ToolExposure>(
-        slot::TOOL_EXPOSURE,
-        "dynamic",
-        manifest(
-            "dynamic",
-            ModuleKind::ToolExposure,
-            &["lexical", "token_savings"],
-            "Лексический отбор небольшого hot-set из policy-видимых tools для экономии токенов.",
-        ),
-        build_dynamic_tool_exposure,
-    );
-
     // Subagent runners
     catalog.register_module::<dyn SubagentRunner>(
         slot::SUBAGENT,
@@ -298,15 +285,6 @@ fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCo
 
 fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
     Ok(Arc::new(AllVisibleToolExposure))
-}
-
-fn build_dynamic_tool_exposure(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
-    let config = ctx.config.module_config_or(
-        ModuleKind::ToolExposure,
-        "dynamic",
-        crate::stubs::DynamicToolExposureConfig::default(),
-    )?;
-    Ok(Arc::new(DynamicToolExposure::new(config)))
 }
 
 fn build_no_subagent(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {

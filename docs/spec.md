@@ -239,9 +239,8 @@ path CLI smoke test.
    `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
    `subagent` и `workflow`;
 4. ✅ большинство production-реализаций Волны 3 уже живёт в
-   `plugins/default`; в core остаются stubs, host-bound tools, builtin
-   `dynamic` ToolExposure, `sequential`/`process` SubagentRunner, provider
-   adapters и runtime wiring;
+   `plugins/default`; в core остаются stubs, host-bound tools,
+   `sequential`/`process` SubagentRunner, provider adapters и runtime wiring;
 5. ⏳ `ModelAdapter` остаётся в core до async ABI через `FfiFuture` /
    `FfiStream` с поддержкой streaming.
 

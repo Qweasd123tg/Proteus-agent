@@ -24,23 +24,6 @@ use proteus_contracts::{
 use serde_json::Value;
 
 #[derive(Default)]
-pub struct PlainRendererPlugin;
-
-impl Renderer for PlainRendererPlugin {
-    fn render_json(&self, output_json: RString) -> RResult<RString, RenderError> {
-        let output = match parse_output_json(output_json.as_str()) {
-            Ok(output) => output,
-            Err(error) => {
-                return RResult::RErr(RenderError::new(format!(
-                    "failed to parse agent output: {error}"
-                )));
-            }
-        };
-        RResult::ROk(output.text.into())
-    }
-}
-
-#[derive(Default)]
 pub struct StatuslineRendererPlugin {
     config: StatuslineConfig,
 }
@@ -266,11 +249,6 @@ fn status_block(statusline: &str) -> String {
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
-    let plain: RendererObject = Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque);
-    if let RResult::RErr(error) = registry.register_renderer(AbiRString::from("plain"), plain) {
-        return RResult::RErr(error);
-    }
-
     let statusline: RendererObject =
         Renderer_TO::from_value(StatuslineRendererPlugin::default(), TD_Opaque);
     registry.register_renderer(AbiRString::from("statusline"), statusline)
@@ -281,7 +259,7 @@ extern "C" fn register_modules(
 pub fn instantiate_root_module() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("renderer-pack"),
-        description: RStr::from_str("Renderer plugins: plain and statusline"),
+        description: RStr::from_str("Statusline renderer plugin"),
         register_modules,
     }
     .leak_into_prefix()

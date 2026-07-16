@@ -380,7 +380,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 плагинов):**
 - `crates/proteus-core/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
   EmptyContextBuilder, DenyAllPolicy, NoCompactor, AllVisibleToolExposure,
-  DynamicToolExposure, NoSubagent, NoWorkflow, TextRenderer, FakeModelClient.
+  NoSubagent, NoWorkflow, TextRenderer, FakeModelClient.
 - `SequentialSubagentRunner` и `ProcessSubagentRunner` остаются concrete
   core-owned реализациями subagent slot.
 - Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо collaboration lifecycle + optional `send_message`/`followup_task` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
@@ -426,7 +426,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, `context_builder`, `compactor`, `tool_exposure`,
   `subagent` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Config loader мигрирует retired ids `sqlite_plugin` → `sqlite` и `coding.codex_loop_diagnostic` → `coding.codex_loop` с предупреждением.
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Config loader мигрирует retired ids `sqlite_plugin` → `sqlite` и `coding.codex_loop_diagnostic` → `coding.codex_loop` с предупреждением.
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
@@ -467,9 +467,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `changed = true` архивирует прежний `messages.jsonl` и записывает replacement
   history в новый `messages.jsonl`.
 - ✅ `tool_exposure` добавлен как plugin ABI и host capability для workflow.
-  Core fallback `all_visible` сохраняет старое поведение; builtin `dynamic`
-  даёт простой lexical selector; плагинная реализация может искать и
-  ранжировать большой tool catalog после policy visibility.
+  Core fallback `all_visible` сохраняет старое поведение; плагинная реализация
+  может искать и ранжировать большой tool catalog после policy visibility.
 - ❌ YAML declarative loader — **отменён.** `ConfiguredProcessTool` в ядре покрывает use case.
 - ✅ Persistent stdio MCP host реализован для configured/discovered tools:
   `initialize`, `tools/list`, переиспользуемый процесс и `tools/call` живут в
@@ -481,7 +480,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier →
   `direct-patch`; ✅ JsonlMemory → `memory-pack`; ✅
   allow_all/ask_write/codex_policy → `policy-pack`; ✅ plain/statusline →
-  `renderer-pack`; ✅ baseline/Codex-shaped/staged workflows →
+  `renderer-pack` (`plain` удалён 2026-07-17, `text` остаётся безопасным core
+  stub); ✅ baseline/Codex-shaped/staged workflows →
   `coding-workflow`; ✅ simple/repo-aware/Codex-shaped context builders →
   `context-pack`. `carry_forward` и отдельный MemoryPolicy slot были перенесены
   в plugin pack в этой wave, но затем удалены 2026-07-16.
@@ -490,9 +490,10 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   user-input tools остаются в core осознанно.
 - `ConfiguredProcessTool` пока остаётся core-owned executor surface; его можно
   вынести отдельно, но это не блокирует production plugin packs.
-- В ядре остаются stubs, builtin `dynamic` ToolExposure,
-  `sequential`/`process` SubagentRunner, runtime wiring, provider adapters и
-  host-bound capabilities.
+- В ядре остаются stubs, `sequential`/`process` SubagentRunner, runtime wiring,
+  provider adapters и host-bound capabilities. Исторический builtin
+  `dynamic` ToolExposure удалён 2026-07-17; bounded/deferred selection остаётся
+  plugin-owned ответственностью `codex-tool-exposure`.
 
 ### Волна 4: async slots
 
@@ -568,4 +569,4 @@ Stdio MCP server процессы изолированы через границ
 - `crates/proteus-contracts/src/plugin.rs` — актуальный интерфейс плагинов (sabi_trait'ы и prefix type).
 - `crates/proteus-core/src/core/plugin_loader.rs` — реализация loader'а.
 - `plugins/default/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.
-- `plugins/default/renderer-pack/src/lib.rs` — renderer-плагин с production ids.
+- `plugins/default/renderer-pack/src/lib.rs` — renderer-плагин с production id `statusline`.

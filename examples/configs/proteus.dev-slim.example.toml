@@ -13,7 +13,7 @@ context = "repo_aware"
 policy = "ask_write"
 patch = "direct"
 compactor = "codex"
-tool_exposure = "dynamic"
+tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
@@ -28,10 +28,6 @@ ask_before = ["apply_patch", "shell"]
 
 [module_config.compactor.codex]
 trigger_fraction = 0.8
-
-[module_config.tool_exposure.dynamic]
-max_hot_tools = 8
-always_include = ["request_user_input"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "search"]

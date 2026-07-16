@@ -11,10 +11,9 @@ use hyper::header::{AUTHORIZATION, ORIGIN};
 use policy_pack::AskWritePolicyPlugin;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
-    contracts::{ApprovalCacheScope, Renderer_TO},
+    contracts::ApprovalCacheScope,
     plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
 };
-use renderer_pack::PlainRendererPlugin;
 use serde_json::Value;
 
 use super::*;
@@ -121,7 +120,7 @@ fn dogfood_loop_config() -> AppConfig {
     config.modules.context = "simple".to_owned();
     config.modules.policy = "ask_write".to_owned();
     config.modules.patch = "null".to_owned();
-    config.modules.renderer = "plain".to_owned();
+    config.modules.renderer = "text".to_owned();
     config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
     config.module_config.insert(
         "policy".to_owned(),
@@ -156,12 +155,6 @@ fn dogfood_loop_catalog() -> BuiltinModuleCatalog {
             PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
         )
         .expect("register test policy");
-    catalog
-        .register_plugin_renderer(
-            "plain",
-            Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
-        )
-        .expect("register test renderer");
     catalog
 }
 
@@ -441,15 +434,7 @@ tool_exposure = "all_visible"
             "/config/builder",
             json!({
                 "modules": {
-                    "tool_exposure": "dynamic"
-                },
-                "module_config": {
-                    "tool_exposure": {
-                        "dynamic": {
-                            "max_hot_tools": 3,
-                            "always_include": ["request_user_input"]
-                        }
-                    }
+                    "subagent": "none"
                 },
                 "tools_enabled": ["apply_patch", "search"],
                 "active_provider": "smart",
@@ -468,18 +453,13 @@ tool_exposure = "all_visible"
             .get("active_modules")
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
-                item.get("slot").and_then(Value::as_str) == Some("tool_exposure")
-                    && item.get("id").and_then(Value::as_str) == Some("dynamic")
+                item.get("slot").and_then(Value::as_str) == Some("subagent")
+                    && item.get("id").and_then(Value::as_str) == Some("none")
             }))
     );
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
-    assert!(written.contains("tool_exposure = \"dynamic\""), "{written}");
-    assert!(
-        written.contains("[module_config.tool_exposure.dynamic]"),
-        "{written}"
-    );
-    assert!(written.contains("max_hot_tools = 3"), "{written}");
+    assert!(written.contains("subagent = \"none\""), "{written}");
     assert!(
         written.contains("enabled = [\"apply_patch\", \"search\"]"),
         "{written}"
@@ -517,8 +497,8 @@ tool_exposure = "all_visible"
             .get("modules")
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
-                item.get("slot").and_then(Value::as_str) == Some("tool_exposure")
-                    && item.get("id").and_then(Value::as_str) == Some("dynamic")
+                item.get("slot").and_then(Value::as_str) == Some("subagent")
+                    && item.get("id").and_then(Value::as_str) == Some("none")
             }))
     );
     assert!(

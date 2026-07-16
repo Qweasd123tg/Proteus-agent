@@ -57,7 +57,7 @@ use proteus_core::{
     stubs::{FakeModelClient, NoMemory, NullSearch},
     tools::{ApplyPatchTool, SearchTool},
 };
-use renderer_pack::{PlainRendererPlugin, StatuslineRendererPlugin};
+use renderer_pack::StatuslineRendererPlugin;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -134,7 +134,7 @@ fn test_config() -> AppConfig {
     config.modules.context = "simple".to_owned();
     config.modules.policy = "ask_write".to_owned();
     config.modules.patch = "null".to_owned();
-    config.modules.renderer = "plain".to_owned();
+    config.modules.renderer = "text".to_owned();
     config.tools.enabled = standard_tool_names()
         .into_iter()
         .map(str::to_owned)
@@ -254,12 +254,6 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque),
         )
         .expect("register test codex_policy");
-    catalog
-        .register_plugin_renderer(
-            "plain",
-            proteus_contracts::contracts::Renderer_TO::from_value(PlainRendererPlugin, TD_Opaque),
-        )
-        .expect("register test plain renderer");
     catalog
         .register_plugin_renderer(
             "statusline",

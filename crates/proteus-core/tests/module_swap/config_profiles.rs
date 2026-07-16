@@ -132,7 +132,7 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
 }
 
 #[tokio::test]
-async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
+async fn dev_slim_toml_config_uses_small_toolset_and_context() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
         "examples/configs/proteus.dev-slim.example.toml",
     )))
@@ -143,21 +143,11 @@ async fn dev_slim_toml_config_uses_dynamic_tool_exposure_and_smaller_context() {
     assert_eq!(config.modules.workflow, "coding.single_loop");
     assert_eq!(config.modules.context, "repo_aware");
     assert_eq!(config.modules.search, "rg");
-    assert_eq!(config.modules.tool_exposure, "dynamic");
+    assert_eq!(config.modules.tool_exposure, "all_visible");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.memory, "none");
     assert_eq!(config.tools.enabled, dev_slim_tool_names());
     assert!(configured_tool_names(&config).is_empty());
-
-    let dynamic = config.module_config_value(ModuleKind::ToolExposure, "dynamic");
-    assert_eq!(dynamic["max_hot_tools"], 8);
-    assert!(
-        dynamic["always_include"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|tool| tool == "request_user_input")
-    );
 
     let repo_aware = config.module_config_value(ModuleKind::Context, "repo_aware");
     assert_eq!(repo_aware["max_context_bytes"], 25000);
@@ -211,7 +201,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
     assert_eq!(config.modules.tool_exposure, "codex_dynamic");
     assert_eq!(config.modules.compactor, "codex");
     assert_eq!(config.modules.patch, "direct");
-    assert_eq!(config.modules.renderer, "plain");
+    assert_eq!(config.modules.renderer, "text");
     assert_eq!(config.subagents.surface, SubagentSurface::Collaboration);
     assert_eq!(config.tools.enabled, codex_profile_enabled_tool_names());
     // Playwright MCP остаётся opt-in после dogfood с непрошеной браузерной
