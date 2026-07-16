@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-11.
+Последнее обновление: 2026-07-16.
 
 ## Короткий Ответ
 
@@ -17,8 +17,10 @@ model + context + workflow + tools + policy
   -> durable session и trace
 ```
 
-Базовый стек уже собран. Текущая фаза — **укрепление lifecycle после добавления
-parallel/worktree subagents**, а не расширение числа features. Общий safety
+Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
+2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
+из внешних процессов на любом языке и steering корневого цикла. Хвост
+lifecycle-стабилизации закрывается в первой неделе плана. Общий safety
 path, fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
 закрыты regression-тестами.
 
@@ -43,8 +45,15 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-Непосредственно дальше остаётся закрыть lifecycle процессов и пройти полный
-stabilization checkpoint. Первый collaboration/UI slice не заменяет эту работу:
+Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`: неделя 1 —
+raw seam и env allowlist в `proteus-process-host` плюс остаток
+lifecycle-стабилизации; неделя 2 — external process modules v0
+(`SearchBackend`, референс-модуль на TypeScript); неделя 3 — root-session
+steering; неделя 4 — `Compactor` как второй process-слот или
+`pi_rpc_reasoner`, плюс design doc canonical turn data.
+
+Stabilization checkpoint остаётся обязательным и закрывается неделей 1.
+Первый collaboration/UI slice не заменяет эту работу:
 его records bounded, но process-resident, а idle pool process runner-а живёт по
 старым правилам.
 

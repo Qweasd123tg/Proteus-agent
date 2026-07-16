@@ -14,21 +14,30 @@ Roadmap хранит порядок работ и журнал уже приня
 
 ## Ближайший Порядок
 
+Детали текущего месяца — в разделе «План: Месяц Гибкости (2026-07-16 →
+2026-08-15)» ниже.
+
 1. ✅ `task` переведён в единый safety path: это registry facade-tool через
    policy/approval/orchestrator; worktree создаётся только после разрешения.
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. 🟡 Async collaboration control закрыт session ownership, hard caps и
-   sequential mailbox/follow-up generations; process subagents получили
-   bounded idle/resume LRU retention. Остались ownership, age cleanup и
-   cancellation для уже count-bounded interactive exec sessions.
-4. После lifecycle checkpoint решить canonical turn data как один кластер:
-   parts + storage + replay + eval.
-5. Прогнать несколько маленьких dogfood-задач и только по их результатам
-   добавлять merge-role, новый UI или feature packs.
+3. 🟡 Неделя 1: raw seam и `env_clear`/allowlist в `proteus-process-host` плюс
+   хвост lifecycle-стабилизации — ownership, age cleanup и cancellation для
+   уже count-bounded interactive exec sessions. (Контекст: collaboration
+   control ранее закрыт session ownership, hard caps и sequential
+   mailbox/follow-up; process subagents — bounded idle/resume LRU retention.)
+4. Неделя 2: external process modules v0 — `SearchBackend` внешним процессом,
+   референс-модуль на TypeScript, расширение swap-тестов.
+5. Неделя 3: root-session steering/follow-up через runtime-очередь на границе
+   tool-батчей.
+6. Неделя 4: `Compactor` как второй process-слот или `pi_rpc_reasoner`;
+   хвосты, `install.sh`, design doc canonical turn data.
+7. После месяца: canonical turn data как один кластер (parts + storage +
+   replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
 
-До закрытия пунктов 1–3 новые platform features не являются приоритетом.
+До закрытия пункта 3 недели 2–4 не начинаются, а новые platform features вне
+плана месяца не являются приоритетом.
 
 ## Цель
 
@@ -59,6 +68,24 @@ module implementations без переписывания core или форка 
 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
+
+Обновление на 2026-07-16: comparative-эксперимент из
+`docs/research/pi-vs-proteus.md` (заметка от 2026-07-13) не запускается —
+решение владельца. Ревью заметки 2026-07-16 подтвердило её фактическую базу
+против pinned Pi commit `8479bd8` (флаговый набор этапа 2 существует;
+«no permission popups» — прямая философия Pi README), но нашло дефекты
+методологии: gate 5 (maintenance ≤25%) арифметически невыполним, потому что
+недели 1–3 плана целиком состоят из «экспериментной» работы, а суммарный
+объём corpus + runner + adversarial + dogfood вёл к freeze-by-timeout
+независимо от достоинств runtime. Вместо месяца измерений взят месяц
+архитектурной гибкости (раздел «План: Месяц Гибкости» ниже). Он продолжает
+identity 2026-07-06 «платформа для себя» и удешевляет clone pipeline:
+experimental реализация слота теперь пишется на любом языке внешним
+процессом, без dylib-пересборки. Providers/TUI/marketplace/session-tree из
+freeze-списка заметки остаются вне критического пути (`scope.md`) — уже не
+как freeze, а как обычный приоритет. Идеи Pi-интеграции (protocol-neutral
+raw seam, `pi_rpc_reasoner`) переиспользуются в плане как обычные задачи без
+experiment-обвязки.
 
 Обновление на 2026-07-06: identity проекта зафиксирована как **платформа для
 себя** — идеальный личный конструктор, который позже можно превратить во что
@@ -142,6 +169,123 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   `ContextBuildInput` → `PluginContextBuilderInput` (permission mode сейчас
   умирает в `ModeAwarePolicy` на сборке registry) — контрактная правка через
   ABI границу, делать по второй реальной боли, не спекулятивно.
+
+## План: Месяц Гибкости (2026-07-16 → 2026-08-15)
+
+Цель месяца — снизить цену первого расширения: слоты должны приниматься не
+только из builtin/dylib, но и из внешнего процесса на любом языке, а корневой
+цикл — принимать управление на ходу. Каждая неделя заканчивается тем, что
+используется в dogfood на следующий день. Плановая загрузка ~70%:
+переполнение режет хвост текущей недели, а не начало следующей.
+
+### Неделя 1 (до 2026-07-23): Process-Host Фундамент
+
+Одна зона кода, три результата:
+
+- **Raw seam в `proteus-process-host`**: `send_frame(Value)`,
+  `recv_frame(timeout)` / `try_recv_frame`, явные `terminate`/`reset`,
+  bounded receive buffering (max frame bytes, count, aggregate). Timeout сам
+  не решает судьбу процесса — это делает вызывающий adapter; классификация
+  фреймов не живёт в host (protocol-neutral seam из
+  `docs/research/pi-vs-proteus.md`, этап 2). Sync request/response API
+  крейта сохраняется для существующих потребителей (MCP).
+- **`ProcessSpec` env hygiene**: generic `env_clear` + allowlist вместо
+  наследования environment; дочерний процесс получает только объявленные
+  переменные и scoped credentials.
+- **Хвост lifecycle-стабилизации**: session/thread ownership, age cleanup и
+  честная cancellation для interactive exec sessions — закрывает пункт 3
+  «Ближайшего Порядка» и checkpoint из `scope.md`.
+
+Done: root gate зелёный; существующие MCP/process-subagent тесты проходят;
+у seam есть unit-тесты на timeout/terminate/bounds.
+
+### Неделя 2 (до 2026-07-30): External Process Modules v0
+
+`modules.md` честно фиксирует дыру: process/MCP executors есть у
+config-defined tools, но external process modules не реализованы. Закрываем
+для одного слота — `SearchBackend`:
+
+- **Протокол v0** поверх `ProcessHost<NewlineJsonFraming>`: search —
+  request/response, sync-модель крейта подходит (в отличие от subagent
+  process runner-а, см. Кластер 3 аудита). Handshake-манифест
+  `{protocol_version, slot, module_id, contract_version}` в
+  initializer-hook, затем request/response по методам trait-а. Несовпадение
+  slot/contract_version — ошибка конфигурации при сборке snapshot.
+- **Fail-closed**: смерть процесса или невалидный ответ = ошибка слота в
+  turn-е, не тихий fallback на stub; lazy restart на следующий вызов — по
+  существующей семантике host-а.
+- **Config**: по образцу config-defined tools — `search = "process:<путь>"`
+  плюс таблица `module_config.search.process` (command, args, cwd, env
+  allowlist, timeout).
+- **Регистрация**: `module_catalog.rs` регистрирует process-модули рядом с
+  builtin/dylib; `modules list`/Inspector показывают источник модуля.
+- **Референс**: `examples/modules/search-ts/` — один TypeScript-файл
+  (node/bun), реализующий `SearchBackend` поверх обычного `rg`-вызова,
+  чтобы сравнение с builtin `rg` было честным.
+- **Тесты**: расширение `module_swap.rs` — swap `rg` ↔ process-модуль; сбой
+  процесса → ошибка, не подмена; handshake mismatch → config error.
+- **Доки**: секция в `modules.md` и правка тамошнего утверждения про
+  нереализованные external process modules.
+
+Протокол v0 — внутренний: стабильность формата не обещается, как и у dylib
+ABI. Wire-конверт generic; специфика слота живёт в его adapter-е, не в
+протоколе.
+
+Done: dogfood-сессия ищет через TypeScript-модуль; «reload» = перезапуск
+процесса.
+
+### Неделя 3 (до 2026-08-06): Root-Session Steering
+
+Самая рискованная неделя (трогает turn lifecycle), поэтому изолирована.
+
+- **Семантика**: steering-сообщение доставляется на границе tool-батча
+  активного turn-а, перед следующим model call; follow-up — после
+  settlement turn-а. v0: только root session, доставка one-at-a-time.
+- **Владение**: очередь принадлежит runtime/session, не конкретному
+  `Workflow` — плагины не обязаны ничего делать для доставки; workflow host
+  получает наблюдаемость (queued count), не управление доставкой.
+- **Инварианты**: steering не обходит approvals; доставленное сообщение —
+  обычное user-attributed сообщение в history и `EventEnvelope`
+  (session/thread/turn/seq); события `SteeringQueued`/`SteeringDelivered`
+  попадают в trace.
+- **Клиенты**: web — ввод при активном turn с queued-индикатором; CLI/stdio
+  — минимальная поддержка через существующий `Send` protocol.
+
+Done: сообщение, отправленное во время работы, доставлено между батчами и
+видно в trace с правильной атрибуцией; web smoke-тест lifecycle.
+
+### Неделя 4 (до 2026-08-14): Выбор + Хвосты
+
+Один из двух треков, выбор по состоянию на конец недели 3:
+
+- **A. `Compactor` как второй process-слот** — доказывает генеричность
+  протокола по правилу двух реализаций из `slot-governance.md`; стратегии
+  суммаризации на TS/Python дешевле для экспериментов.
+- **B. `pi_rpc_reasoner`** — реализация существующего `SubagentRunner`
+  поверх raw seam недели 1: pinned Pi executable (commit `8479bd8`,
+  no-tools флаговый набор сверен с README 2026-07-16), пустые per-run
+  cwd/agent dir, fresh process на child, completion по `agent_settled`,
+  `parallel_safe = false`. Технический план — этап 2
+  `docs/research/pi-vs-proteus.md`, без experiment-обвязки.
+
+Хвосты недели: доки, совместимый набор `./install.sh`, короткий design doc
+canonical turn data (только бумага — вход для Кластера 1 аудита 2026-07-06).
+
+### Не В Этом Месяце
+
+Marketplace/package manager, dylib hot-unload, session tree parity, новые
+providers, TUI parity, новые memory/RAG capabilities. Latency-чувствительные
+слоты (policy, tool exposure) остаются in-process — process-транспорт для
+них не проектируется, пока нет измеренной потребности.
+
+### Риски
+
+- steering меняет turn lifecycle — изолирован в отдельную неделю, v0
+  сознательно узкий (root-only, one-at-a-time);
+- протокол process-модулей может протечь search-спецификой в wire —
+  контроль: generic конверт + slot adapter, ревью границы в конце недели 2;
+- latency process-модуля для поиска приемлема; при деградации builtin `rg`
+  остаётся default.
 
 ## Аудит Связности И Дыр (2026-07-06)
 

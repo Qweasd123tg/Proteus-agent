@@ -93,8 +93,13 @@
   приоритетный parity backlog;
 - [research/pi-vs-proteus.md](research/pi-vs-proteus.md) — проверка причины
   существования Proteus после знакомства с Pi, граница возможного pivot и
-  30-дневные continue/pivot/freeze criteria; это proposal, не принятый current
-  scope;
+  30-дневные continue/pivot/freeze criteria; эксперимент не запущен решением
+  владельца 2026-07-16, идеи этапов 1–2 переиспользованы в плане
+  «Месяц Гибкости» (`roadmap.md`);
+- [research/extensibility-cost-model-2026-07-16.md](research/extensibility-cost-model-2026-07-16.md) —
+  ценовые категории добавления будущих возможностей в Proteus и Pi:
+  slot/pack/process-модуль против hook surface, наследование безопасности и
+  чей потолок у сквозных фич;
 - [research/memory-research.md](research/memory-research.md) — blueprint
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
