@@ -1,5 +1,5 @@
 use super::*;
-use proteus_core::domain::ModuleManifest;
+use proteus_core::domain::{ModuleKind, ModuleManifest};
 
 /// Disables plugin loading so tests don't pick up the developer's
 /// `~/.proteus/plugins/` contents. See also the same helper in the

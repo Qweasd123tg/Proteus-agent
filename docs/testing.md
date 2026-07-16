@@ -32,7 +32,8 @@ Leptos-клиенты исключены из root workspace и проверяю
 - `memory = none` / `jsonl` — swap через config не меняет runtime (`jsonl` регистрируется через test plugin pack);
 - plugin memory backends вроде `sqlite-memory` тестируются в plugin crate и
   подключаются через обычный `MemoryStore` slot;
-- `memory_policy = none` / `carry_forward` — первый no-op, второй plugin policy пишет один handoff-snippet после turn'а;
+- после turn-а нет автоматической memory-записи; `remember_fact` и `/remember`
+  пишут только через активный `MemoryStore`;
 - `policy = allow_all`, `policy = ask_write` и `policy = codex_policy` не ломают tool execution при явном allow (все регистрируются через test plugin pack);
 - `remember_fact` tool принимает `{kind, content}` и отвергает невалидный kind с `WritesFiles` safety;
 - tool visibility и execution policy разделены;
@@ -158,7 +159,9 @@ canonical DTO не ломаются.
 
 - новый search backend должен проходить тот же runtime path, что `null` и `rg`;
 - новый memory store должен работать через `MemoryStore`;
-- новая memory policy должна работать через `MemoryPolicy` и не зависеть от конкретного backend;
+- новая эвристика memory lifecycle сначала должна жить в `Workflow`, tool или
+  research/background-job прототипе; новый public slot требует отдельного
+  изменения contracts/core и двух работающих независимых реализаций;
 - новый model provider должен реализовать `ModelAdapter`; `ModelService` отвечает за `ModelClient` boundary и shaping;
 - новая policy не должна менять `ToolRegistry` или tools.
 

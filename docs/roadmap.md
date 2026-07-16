@@ -69,6 +69,15 @@ module implementations без переписывания core или форка 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
 
+Обновление на 2026-07-16: после архитектурного review удалены недоказанные
+compatibility поверхности. Public `MemoryPolicy` slot и heuristic
+`carry_forward` retired; manual memory через `remember_fact`/`/remember` и
+`MemoryStore` сохранена. Workflow id `coding.codex_loop_diagnostic` retired,
+старые configs мигрируются с предупреждением на strict `coding.codex_loop`.
+Legacy memory id `sqlite_plugin` аналогично мигрируется на `sqlite`. Строковый
+`SlotId` больше не трактуется в документации как возможность плагина объявить
+новый runtime slot без изменений contracts/core/config/ABI.
+
 Обновление на 2026-07-16: comparative-эксперимент из
 `docs/research/pi-vs-proteus.md` (заметка от 2026-07-13) не запускается —
 решение владельца. Ревью заметки 2026-07-16 подтвердило её фактическую базу
@@ -526,9 +535,10 @@ manifests, git status, repo tree, memory и search. Repo map остаётся с
 
 Первые дополнительные workflow живут в плагине `coding-workflow`:
 `coding.codex_loop` для strict Codex-shaped parity,
-`coding.codex_loop_diagnostic` для smoke/dogfood UX-профиля с диагностикой
-пустого финального ответа и `coding.plan_execute_review` для staged
-plan/execute/review экспериментов.
+`coding.plan_execute_review` для staged plan/execute/review экспериментов.
+Исторический smoke/dogfood id `coding.codex_loop_diagnostic` был добавлен для
+диагностики пустого финального ответа, а 2026-07-16 удалён; config loader
+мигрирует его на strict loop с предупреждением.
 
 Request-shaping parity закрыта текущим HTTP Responses срезом (2026-07-11):
 model-specific capabilities приходят из provider profile с conservative
@@ -741,28 +751,33 @@ Scope:
   completed deltas, partial tail и reasoning summary.
   `FilteredEventSink` не пишет дельты в durable JSONL по умолчанию.
 - ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
-  `sqlite-memory` (ids `sqlite`, `sqlite_plugin`) — proof что
+  `sqlite-memory` (исторически ids `sqlite`, `sqlite_plugin`) — proof что
   `PluginMemoryStore` ABI работает с реальной I/O-зависимой реализацией без
-  `rusqlite` в core.
+  `rusqlite` в core. Alias `sqlite_plugin` retired 2026-07-16; старые configs
+  мигрируются на `sqlite`.
 - ✅ Memory end-to-end: `carry_forward` из `memory-pack` (пишет один
   handoff-snippet после каждого turn'а) + tool `remember_fact` (модель
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
   реально наполняется и recall попадает в context через plugin context builder
-  `simple`.
+  `simple`. Это исторический milestone: `carry_forward` и public
+  `MemoryPolicy` slot retired 2026-07-16, explicit writes и `MemoryStore`
+  сохранены.
 - ✅ Волна 3 (частично) — `read_file` / `write_file` / `edit_file` / `list_dir` / `grep` /
   `find_files` / `read_many_files` / `git_status` / `git_diff` / `shell` вынесены из ядра в плагины
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
   `direct-patch`, baseline/Codex-shaped/staged workflows вынесены как plugin ids
   `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и
-  `coding.plan_execute_review` в `coding-workflow`.
+  `coding.plan_execute_review` в `coding-workflow` (diagnostic id retired
+  2026-07-16 с config migration на strict loop).
   Context builders `simple`, `repo_aware` и `codex_context` вынесены в
   `context-pack` (включая provider `environment` с `<environment_context>`),
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
   Codex-style tool exposure `codex_dynamic` вынесен в
   `codex-tool-exposure` (phase-aware, telemetry уходит в request metadata
   `tool_exposure`),
-  `jsonl` memory и `carry_forward` policy вынесены в `memory-pack`,
+  `jsonl` memory и историческая `carry_forward` policy вынесены в
+  `memory-pack` (`carry_forward`/MemoryPolicy retired 2026-07-16),
   `allow_all`/`ask_write`/`codex_policy`/`opencode_policy` вынесены в
   `policy-pack`, `plain`/`statusline`
   вынесены в `renderer-pack`.
@@ -780,9 +795,10 @@ Scope:
 
 - усиление `coding.plan_execute_review`: фазовые настройки, diff/test runner
   tools, режимы auto-verify и компактный phase/debug report;
-- расширение `memory_policy` за пределы декларативного `MemoryPolicyPlan`, если
-  понадобится callback/retrieval во время `after_turn`; blueprint остаётся в
-  `docs/research/memory-research.md` (per-call capability + mailbox);
+- long-term memory lifecycle оставлять research/private prototype поверх
+  `MemoryStore`, workflow или background jobs; возвращаться к public contract
+  только после двух независимо работающих реализаций. Старый callback blueprint
+  сохранён как историческая заметка в `docs/research/memory-research.md`;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх уже
   реализованного stdio tools host;
 - Волна 3 — вынос builtin-модулей в плагины по одному;
@@ -938,9 +954,10 @@ Scope:
   `ContextBuilder`/`context_provider` и tools. `SkillCatalog` нужен только если
   core должен сам discover/inject skills как stable lifecycle point.
 - Long-term memory consolidation jobs исследовать через `MemoryStore`,
-  `MemoryPolicy` и workflow. Если declarative `MemoryPolicyPlan` станет тесным,
-  вернуться к blueprint в `docs/research/memory-research.md`: per-call capability +
-  mailbox/background job boundary.
+  workflow, explicit tools и private background-job prototype. Blueprint
+  per-call capability + mailbox сохранён в
+  `docs/research/memory-research.md` как исторический input, но не является
+  обещанием вернуть public `MemoryPolicy` slot.
 
 ### Architecture Cleanup
 

@@ -39,7 +39,7 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
     render_runtime_slot(snapshot, "search", "repo search", &mut out);
     render_runtime_slot(snapshot, "renderer", "final output", &mut out);
 
-    let parked = ["memory", "memory_policy", "compactor"];
+    let parked = ["memory", "compactor"];
     let parked = parked
         .into_iter()
         .filter_map(|slot_id| {
@@ -116,7 +116,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     );
     labels.insert("output".to_owned(), "Final output".to_owned());
 
-    let parked = ["memory", "memory_policy", "compactor"]
+    let parked = ["memory", "compactor"]
         .into_iter()
         .filter_map(|slot_id| {
             let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;

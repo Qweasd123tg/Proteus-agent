@@ -13,7 +13,11 @@
 
 ## Терминология
 
-- **Slot** - тип расширения ядра. Например `tool`, `search`, `context`. Каждый slot описан одним trait из `proteus-contracts`. Slot открытый: сторонние плагины могут объявлять модули для существующих slots, а в будущем - и для новых.
+- **Slot** - host-defined тип расширения ядра. Например `tool`, `search`,
+  `context`. Каждый slot описан trait-ом из `proteus-contracts` и имеет wiring
+  в core/config/plugin ABI. Сторонний плагин может объявлять новые modules
+  только для уже поддержанного slot-а; добавить новый runtime slot без
+  изменений host contracts/core нельзя.
 - **Module** - конкретная реализация slot. Например `rg` это module в slot `search`. У module есть `(slot, id)` как уникальный ключ.
 - **Plugin** - физическая упаковка одного или нескольких modules: Rust dylib (`.so` / `.dylib` / `.dll`) с optional sidecar `plugin.toml`. Один плагин может предоставлять несколько modules, возможно в разные slots. YAML-файлы и MCP servers не являются plugin packaging для loader-а.
 - **Registry** - хранилище всех зарегистрированных modules в рантайме. Ядро и плагины регистрируют modules через один и тот же API.
@@ -139,9 +143,6 @@ non-stdio transports — отдельная задача. Если они поя
   Форматирует финальный `AgentOutput`.
 - **memory** - `PluginMemoryStore::remember_json` +
   `recall_json(query_json) -> Vec<MemoryItem>`. Хранит память между turn'ами.
-- **memory_policy** - `PluginMemoryPolicy::after_turn_json(input_json) ->
-  MemoryPolicyPlan`. Это декларативная граница: плагин возвращает операции,
-  а ядро применяет их к активному `MemoryStore`.
 - **policy** - `PluginApprovalPolicy::evaluate_json` +
   `evaluate_visibility_json`. Решает visibility и execution policy.
 - **patch** - `PluginPatchApplier::apply_json(patch_json, cwd) -> PatchResult`.
@@ -202,7 +203,14 @@ subagent) используют `tokio::task::spawn_blocking`. Короткие s
 
 ### Могут появиться позже
 
-Новые slots могут добавляться без breaking change, потому что `Registry` работает с открытым `SlotId`, но это не означает, что их нужно добавлять под каждую новую идею. Перед добавлением нового slot применяется `docs/slot-governance.md`: сначала проверяются существующие `Tool`, `Workflow`, `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryPolicy`, `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` и `ModelAdapter`, затем фиксируется generic contract и boundary test.
+Новый slot — host change, а не произвольная plugin registration: нужно
+согласованно изменить `proteus-contracts`, `ModuleKind`, config schema, typed
+catalog/registry factories, plugin ABI и boundary tests. Строковый `SlotId`
+унифицирует ключи уже известных slots, но не делает `PluginRegistry`
+динамической схемой. Перед таким изменением применяется
+`docs/slot-governance.md`: сначала проверяются существующие `Tool`, `Workflow`,
+`ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
+`ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` и `ModelAdapter`.
 
 ---
 
@@ -246,7 +254,15 @@ mismatch.
 
 Registry - единое хранилище зарегистрированных modules. Один API для builtin и dylib-плагинов. MCP tools попадают в `ToolRegistry` через config/runtime discovery, но не являются plugin modules.
 
-Текущее состояние: `BuiltinModuleCatalog` в `crates/proteus-core/src/core/module_catalog.rs` хранит модули через унифицированный `register_module<T>` — все slot'ы лежат в одном `HashMap<(SlotId, String), ModuleEntry>` с open `SlotId`. `PluginRegistry` регистрирует `tool`, `renderer`, `policy`, `patch`, `search`, `memory`, `context_provider`, declarative `memory_policy`, `context_builder`, request-time `compactor`, `tool_exposure`, `subagent` и capability-based `workflow`. Loader регистрирует плагинные модули в те же `catalog` entries.
+Текущее состояние: `BuiltinModuleCatalog` в
+`crates/proteus-core/src/core/module_catalog.rs` хранит модули через
+унифицированный `register_module<T>` — известные host slots лежат в одном
+`HashMap<(SlotId, String), ModuleEntry>`. `PluginRegistry` предоставляет
+фиксированные typed registrations для `tool`, `renderer`, `policy`, `patch`,
+`search`, `memory`, `context_provider`, `context_builder`, request-time
+`compactor`, `tool_exposure`, `subagent` и capability-based `workflow`.
+Loader регистрирует плагинные модули в те же `catalog` entries, но не может
+создать новый slot одним неизвестным `SlotId`.
 
 ---
 
@@ -363,9 +379,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 **Core fallbacks и оставшиеся реализации (не полный production-запуск без
 плагинов):**
 - `crates/proteus-core/src/stubs`: NullSearch, NullPatchApplier, NoMemory,
-  NoMemoryPolicy, EmptyContextBuilder, DenyAllPolicy, NoCompactor,
-  AllVisibleToolExposure, DynamicToolExposure, NoSubagent, NoWorkflow,
-  TextRenderer, FakeModelClient.
+  EmptyContextBuilder, DenyAllPolicy, NoCompactor, AllVisibleToolExposure,
+  DynamicToolExposure, NoSubagent, NoWorkflow, TextRenderer, FakeModelClient.
 - `SequentialSubagentRunner` и `ProcessSubagentRunner` остаются concrete
   core-owned реализациями subagent slot.
 - Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо collaboration lifecycle + optional `send_message`/`followup_task` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
@@ -381,17 +396,22 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 ### Волна 1: подготовка ядра
 
 - ✅ Выделение `proteus-contracts` в отдельный crate.
-- ✅ Registry unification: один `HashMap<(SlotId, ModuleId), Factory>` вместо отдельных per-slot BTreeMap. Открытый `SlotId`.
+- ✅ Registry unification: один `HashMap<(SlotId, ModuleId), Factory>` вместо
+  отдельных per-slot BTreeMap. `SlotId` унифицирует ключи host-defined slots,
+  но не открывает произвольное расширение plugin ABI.
 - ✅ `#[non_exhaustive]` sweep на enums и thin DTO.
 - ✅ Renderer через sabi_trait (первый ABI-стабильный trait).
 - ✅ Plugin-facing sync ABI для tool, approval policy, patch, search, memory,
-  declarative memory policy, request-time compactor, tool exposure и
-  repo-aware context provider.
+  request-time compactor, tool exposure и repo-aware context provider.
+  Declarative memory policy также была реализована в этой wave, но удалена
+  2026-07-16 после архитектурного пересмотра как недоказанный single-implementation
+  slot.
 - ✅ Capability-based `PluginWorkflow` ABI + host callbacks добавлены.
   Плагин `coding-workflow` регистрирует baseline `coding.single_loop`,
-  strict Codex-shaped `coding.codex_loop`, diagnostic Codex-shaped
-  `coding.codex_loop_diagnostic` и staged workflow
-  `coding.plan_execute_review`.
+  strict Codex-shaped `coding.codex_loop` и staged workflow
+  `coding.plan_execute_review`. Исторический
+  `coding.codex_loop_diagnostic` удалён 2026-07-16; config loader мигрирует
+  старый id на strict loop с предупреждением.
 - ✅ Capability-based `PluginContextBuilder` ABI + host callbacks добавлены.
   Плагин `context-pack` регистрирует `simple`, `repo_aware` и
   `codex_context`.
@@ -404,18 +424,25 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Dylib plugin loader: `libloading` + `lib_header_from_raw_library` + `init_root_module`.
 - ✅ Единый `PluginRegistry` sabi_trait с registrations для `renderer`, `tool`,
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
-  `context_provider`, declarative `memory_policy`, `context_builder`,
-  `compactor`, `tool_exposure`, `subagent` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; ids `sqlite`, `sqlite_plugin`), `memory-pack` (register_memory_store `jsonl`, register_memory_policy `carry_forward`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`).
+  `context_provider`, `context_builder`, `compactor`, `tool_exposure`,
+  `subagent` и `workflow`.
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `plain`, `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Config loader мигрирует retired ids `sqlite_plugin` → `sqlite` и `coding.codex_loop_diagnostic` → `coding.codex_loop` с предупреждением.
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
   не устанавливается через `install.sh`, пока такого slot-а нет в contracts.
 - ✅ SQLite FTS5 memory store вынесен из ядра; `rusqlite` больше не является зависимостью `proteus-core`.
-- ✅ Политика дубликатов: duplicate plugin tool names отклоняются при регистрации; если пользователь явно включает plugin tool, но его имя уже занято builtin/configured tool, сборка registry завершается ошибкой конфигурации. Для renderer / policy / patch / search / memory / memory_policy — bail при конфликте `(slot, id)`, loader переводит в stderr warning.
+- ✅ Политика дубликатов: duplicate plugin tool names отклоняются при регистрации; если пользователь явно включает plugin tool, но его имя уже занято builtin/configured tool, сборка registry завершается ошибкой конфигурации. Для renderer / policy / patch / search / memory — bail при конфликте `(slot, id)`, loader переводит в stderr warning.
 - ✅ Escape hatch `PROTEUS_PLUGINS_DISABLE=1` для тестов.
 - ✅ `plugin.toml` manifest рядом с .so: читается до загрузки dylib, переопределяет имя/описание, сохраняется в отчёте даже при ошибке загрузки (видимость плагина без успешной загрузки).
-- ✅ `memory_policy` добавлен декларативно: плагин возвращает `MemoryPolicyPlan`, ядро применяет `MemoryOp` к активному `MemoryStore`.
+- 🗑️ Исторически `memory_policy` был добавлен декларативно через
+  `MemoryPolicyPlan`/`MemoryOp`; 2026-07-16 slot и heuristic
+  `carry_forward` удалены. Явная запись через `remember_fact` и `/remember`
+  продолжает работать поверх `MemoryStore`. В `PluginRegistry` сохранён только
+  неисполняемый ABI tombstone `register_memory_policy`: host принимает и
+  игнорирует старую регистрацию, чтобы ранее собранные сторонние 0.1 dylib,
+  не использующие этот slot, не ломались из-за сдвига общей vtable. Новым
+  плагинам этот метод использовать нельзя.
 - ✅ `context_builder` добавлен как full slot plugin ABI: `context-pack`
   возвращает `ContextBundle`, а host даёт доступ к `SearchBackend`,
   `MemoryStore::recall` и external `context_provider`. Core не знает список
@@ -451,7 +478,13 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 ### Волна 3: перенос builtin модулей в плагины (в основном завершено)
 
-- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier → `direct-patch`; ✅ JsonlMemory/carry_forward → `memory-pack`; ✅ allow_all/ask_write/codex_policy → `policy-pack`; ✅ plain/statusline → `renderer-pack`; ✅ baseline/Codex-shaped/staged workflows → `coding-workflow`; ✅ simple/repo-aware/Codex-shaped context builders → `context-pack`.
+- По одному module: ✅ RgSearch → `rg-search`; ✅ DirectPatchApplier →
+  `direct-patch`; ✅ JsonlMemory → `memory-pack`; ✅
+  allow_all/ask_write/codex_policy → `policy-pack`; ✅ plain/statusline →
+  `renderer-pack`; ✅ baseline/Codex-shaped/staged workflows →
+  `coding-workflow`; ✅ simple/repo-aware/Codex-shaped context builders →
+  `context-pack`. `carry_forward` и отдельный MemoryPolicy slot были перенесены
+  в plugin pack в этой wave, но затем удалены 2026-07-16.
 - Standard file/git/shell/plan tools, compactor и tool exposure также живут в
   default plugins; host-bound `apply_patch`, `search`, `remember_fact` и
   user-input tools остаются в core осознанно.

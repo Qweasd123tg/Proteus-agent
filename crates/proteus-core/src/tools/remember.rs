@@ -9,7 +9,6 @@
 //!   "use React Router v6");
 //! - `"fact"` — codebase invariants, API contracts, architectural decisions.
 //!
-//! `"carry_forward:latest"` — policy-managed, через этот tool не пишется.
 
 use std::sync::Arc;
 

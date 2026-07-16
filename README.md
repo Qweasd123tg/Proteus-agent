@@ -77,7 +77,8 @@ cargo run --bin proteus -- \
   история сообщений.
 - Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
   тестовый `fake` provider.
-- Модули: 12 выбираемых через config slot-ов; стандартные
+- Модули: 11 выбираемых через config behavior slots (model provider плюс 10
+  ключей `modules.*`); стандартные
   tool/search/context/workflow/policy/patch/memory/renderer реализации
   поставляются как dylib-плагины.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,

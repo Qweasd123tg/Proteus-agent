@@ -40,21 +40,13 @@ pub(super) fn render_config_summary(
     }
     lines.push(format!("permission mode: {mode:?}"));
     lines.push("modules:".to_owned());
-    lines.push(format!("  workflow: {}", config.modules.workflow));
-    lines.push(format!("  context: {}", config.modules.context));
-    lines.push(format!("  tool_exposure: {}", config.modules.tool_exposure));
-    lines.push(format!("  policy: {}", config.modules.policy));
-    lines.push(format!("  search: {}", config.modules.search));
-    lines.push(format!("  patch: {}", config.modules.patch));
-    lines.push(format!("  memory: {}", config.modules.memory));
-    lines.push(format!("  memory_policy: {}", config.modules.memory_policy));
-    lines.push(format!("  compactor: {}", config.modules.compactor));
-    lines.push(format!("  subagent: {}", config.modules.subagent));
+    for (kind, id) in config.modules.iter() {
+        lines.push(format!("  {}: {id}", kind.as_str()));
+    }
     lines.push(format!(
         "subagent surface: {}",
         config.subagents.surface.as_str()
     ));
-    lines.push(format!("  renderer: {}", config.modules.renderer));
 
     lines.push("tools.enabled:".to_owned());
     if config.tools.enabled.is_empty() {
@@ -102,22 +94,11 @@ pub(super) fn render_config_summary(
 }
 
 pub(super) fn module_summary(config: &AppConfig) -> Vec<Value> {
-    [
-        ("workflow", config.modules.workflow.as_str()),
-        ("context", config.modules.context.as_str()),
-        ("tool_exposure", config.modules.tool_exposure.as_str()),
-        ("policy", config.modules.policy.as_str()),
-        ("search", config.modules.search.as_str()),
-        ("patch", config.modules.patch.as_str()),
-        ("memory", config.modules.memory.as_str()),
-        ("memory_policy", config.modules.memory_policy.as_str()),
-        ("compactor", config.modules.compactor.as_str()),
-        ("subagent", config.modules.subagent.as_str()),
-        ("renderer", config.modules.renderer.as_str()),
-    ]
-    .into_iter()
-    .map(|(slot, id)| json!({ "slot": slot, "id": id }))
-    .collect()
+    config
+        .modules
+        .iter()
+        .map(|(kind, id)| json!({ "slot": kind.as_str(), "id": id }))
+        .collect()
 }
 
 pub(super) fn configured_model_options(config: &AppConfig) -> Vec<crate::domain::ModelRef> {

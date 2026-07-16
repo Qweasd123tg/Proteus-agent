@@ -2,6 +2,7 @@ pub mod approval;
 pub mod config;
 pub mod config_snapshot;
 pub mod context_provider;
+pub(crate) mod core_slots;
 pub mod eval_report;
 pub mod event_store;
 pub mod model_service;

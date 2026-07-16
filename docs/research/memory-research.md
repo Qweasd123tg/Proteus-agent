@@ -1,14 +1,18 @@
 # Memory research: FFI callbacks и реальные coding agents
 
-Статус: research-заметка (deep research от 2026-04-30). Не reference:
-store-уровень уже реализован иначе, документ хранит blueprint для будущего
-расширения `MemoryPolicy` (см. `roadmap.md`).
+Статус: историческая research-заметка (deep research от 2026-04-30), не
+reference и не active roadmap. Public `MemoryPolicy` slot и heuristic
+`carry_forward` удалены 2026-07-16; store-уровень остаётся через
+`MemoryStore`. Blueprint ниже можно использовать только как input для private
+background-job эксперимента и повторного contract review после двух независимо
+работающих реализаций.
 
-> На основе этого research построен план memory plugin boundary
+> На основе этого research исторически строился план memory plugin boundary
 > (см. `roadmap.md` и `plugin-architecture.md`).
 >
-> Короткий вывод: store-уровень через `PluginMemoryStore` sabi_trait уже
-> реализован. Для `MemoryPolicy` рекомендован per-call capability
+> Короткий исторический вывод: store-уровень через `PluginMemoryStore`
+> sabi_trait уже реализован. Для тогдашнего `MemoryPolicy` был рекомендован
+> per-call capability
 > pattern (как у Zed/Nushell) вместо "ссылки на ядро", и hybrid
 > semantic — **reads imperatively, writes declaratively**. Первый
 > полезный backend для coding agents — SQLite + FTS5 (уже сделан в ядре

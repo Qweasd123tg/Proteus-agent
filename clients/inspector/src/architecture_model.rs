@@ -273,7 +273,6 @@ fn slot_category(slot: &TopologySlot) -> String {
         | "renderer" => "pipeline",
         "tool" => "registry",
         "search" | "patch" | "memory" => "backend",
-        "memory_policy" => "post_turn",
         _ => "custom",
     }
     .to_owned()
@@ -297,7 +296,6 @@ fn slot_order(slot: &TopologySlot) -> u32 {
         "search" => 9,
         "patch" => 10,
         "memory" => 11,
-        "memory_policy" => 12,
         _ => 100,
     }
 }

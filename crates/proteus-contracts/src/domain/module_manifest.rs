@@ -13,13 +13,12 @@ pub struct ModuleManifest {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum ModuleKind {
     Model,
     Search,
     Memory,
-    MemoryPolicy,
     Context,
     Tool,
     Policy,
@@ -49,9 +48,10 @@ impl ModuleManifest {
 
 /// Идентификатор slot'а в Registry.
 ///
-/// `SlotId` открытый: ядро предоставляет константы для встроенных slots
-/// (`slot::TOOL`, `slot::SEARCH`, и т.д.), но сторонние плагины могут
-/// использовать свои строковые идентификаторы для новых slots.
+/// Ядро предоставляет стабильные строковые константы для host-defined slots
+/// (`slot::TOOL`, `slot::SEARCH`, и т.д.). Строковый тип унифицирует ключи
+/// catalog/topology, но не делает runtime lifecycle произвольно расширяемым:
+/// новый исполняемый slot требует нового contract и точки вызова в core.
 ///
 /// Сравнение и хеширование работают по строковому значению.
 pub type SlotId = Cow<'static, str>;
@@ -65,7 +65,6 @@ pub mod slot {
     pub const MODEL: SlotId = Cow::Borrowed("model");
     pub const SEARCH: SlotId = Cow::Borrowed("search");
     pub const MEMORY: SlotId = Cow::Borrowed("memory");
-    pub const MEMORY_POLICY: SlotId = Cow::Borrowed("memory_policy");
     pub const CONTEXT: SlotId = Cow::Borrowed("context");
     pub const TOOL: SlotId = Cow::Borrowed("tool");
     pub const POLICY: SlotId = Cow::Borrowed("policy");
@@ -79,24 +78,58 @@ pub mod slot {
 
 /// Сопоставление `ModuleKind` → `SlotId` для встроенных slots.
 ///
-/// Используется как мост между текущим закрытым enum и открытым SlotId.
-/// Когда `ModuleKind` будет заменён на SlotId полностью, эта функция уйдёт.
+/// `ModuleKind` остаётся закрытым набором host-defined runtime contracts;
+/// открыты module ids и источники реализаций внутри каждого такого slot.
 impl ModuleKind {
-    pub fn slot_id(&self) -> SlotId {
+    pub const ALL: [Self; 12] = [
+        Self::Model,
+        Self::Search,
+        Self::Memory,
+        Self::Context,
+        Self::Tool,
+        Self::Policy,
+        Self::Patch,
+        Self::Compactor,
+        Self::ToolExposure,
+        Self::Workflow,
+        Self::Renderer,
+        Self::Subagent,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
         match self {
-            ModuleKind::Model => slot::MODEL,
-            ModuleKind::Search => slot::SEARCH,
-            ModuleKind::Memory => slot::MEMORY,
-            ModuleKind::MemoryPolicy => slot::MEMORY_POLICY,
-            ModuleKind::Context => slot::CONTEXT,
-            ModuleKind::Tool => slot::TOOL,
-            ModuleKind::Policy => slot::POLICY,
-            ModuleKind::Patch => slot::PATCH,
-            ModuleKind::Compactor => slot::COMPACTOR,
-            ModuleKind::ToolExposure => slot::TOOL_EXPOSURE,
-            ModuleKind::Workflow => slot::WORKFLOW,
-            ModuleKind::Renderer => slot::RENDERER,
-            ModuleKind::Subagent => slot::SUBAGENT,
+            Self::Model => "model",
+            Self::Search => "search",
+            Self::Memory => "memory",
+            Self::Context => "context",
+            Self::Tool => "tool",
+            Self::Policy => "policy",
+            Self::Patch => "patch",
+            Self::Compactor => "compactor",
+            Self::ToolExposure => "tool_exposure",
+            Self::Workflow => "workflow",
+            Self::Renderer => "renderer",
+            Self::Subagent => "subagent",
         }
+    }
+
+    pub fn slot_id(&self) -> SlotId {
+        Cow::Borrowed(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::ModuleKind;
+
+    #[test]
+    fn module_kind_all_has_unique_slot_ids() {
+        let ids = ModuleKind::ALL
+            .into_iter()
+            .map(ModuleKind::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), ModuleKind::ALL.len());
     }
 }

@@ -5,13 +5,13 @@ use anyhow::{Result, bail};
 use super::{BuiltinModuleCatalog, ErasedFactory, ModuleEntry, arc_to_any, validate_plugin_id};
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, PatchApplier,
-        Renderer, SearchBackend, SubagentRunner, Tool, ToolExposure, Workflow,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer,
+        SearchBackend, SubagentRunner, Tool, ToolExposure, Workflow,
     },
     domain::{ModuleKind, ModuleManifest, slot},
     plugin_adapters::{
-        PluginContextBuilderAdapter, PluginContextProviderAdapter, PluginMemoryPolicyAdapter,
-        PluginSubagentAdapter, PluginToolExposureAdapter, PluginWorkflowAdapter,
+        PluginContextBuilderAdapter, PluginContextProviderAdapter, PluginSubagentAdapter,
+        PluginToolExposureAdapter, PluginWorkflowAdapter,
     },
 };
 
@@ -252,49 +252,6 @@ impl BuiltinModuleCatalog {
             },
         );
         drop(builder);
-        Ok(())
-    }
-
-    pub fn register_plugin_memory_policy(
-        &mut self,
-        module_id: &str,
-        policy: proteus_contracts::plugin::MemoryPolicyObject,
-    ) -> Result<()> {
-        validate_plugin_id("memory policy module", module_id)?;
-        let slot_id = slot::MEMORY_POLICY;
-        let key = (slot_id.clone(), module_id.to_owned());
-        if self.entries.contains_key(&key) {
-            bail!(
-                "memory policy module '{}' is already registered (slot: {})",
-                module_id,
-                slot_id
-            );
-        }
-
-        let shared: Arc<dyn MemoryPolicy> = Arc::new(PluginMemoryPolicyAdapter::new(policy));
-        let factory_shared = shared.clone();
-        let erased: ErasedFactory = Box::new(move |input| {
-            let _ = input.module()?;
-            Ok(arc_to_any(factory_shared.clone()))
-        });
-
-        let mut manifest = ModuleManifest::builtin(
-            module_id,
-            ModuleKind::MemoryPolicy,
-            &["plugin", "dylib", "declarative_ops"],
-        );
-        manifest.description = Some(format!(
-            "Memory policy from plugin (module id: {module_id})"
-        ));
-
-        self.entries.insert(
-            key,
-            ModuleEntry {
-                manifest,
-                factory: erased,
-            },
-        );
-        drop(shared);
         Ok(())
     }
 

@@ -356,6 +356,25 @@ async fn route_config_builder_returns_editable_module_slots() {
         .get("slots")
         .and_then(Value::as_array)
         .expect("builder slots");
+    let slot_ids = slots
+        .iter()
+        .filter_map(|slot| slot.get("id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        slot_ids,
+        vec![
+            "workflow",
+            "context",
+            "compactor",
+            "tool_exposure",
+            "policy",
+            "subagent",
+            "renderer",
+            "search",
+            "patch",
+            "memory",
+        ]
+    );
     assert!(slots.iter().any(|slot| {
         slot.get("id").and_then(Value::as_str) == Some("workflow")
             && slot
@@ -865,7 +884,6 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.contains("Turn pipeline"));
     assert!(body.contains("workflow<br/>"));
     assert!(body.contains("Backends / post-turn"));
-    assert!(body.contains("memory_policy"));
     assert!(body.contains("selects modules"));
     assert!(!body.contains("Warnings"));
 

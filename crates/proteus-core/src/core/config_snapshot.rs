@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{AppConfig, BuiltinRegistry, unix_timestamp_ms},
+    core::{AppConfig, BuiltinRegistry, ModulesConfig, unix_timestamp_ms},
     domain::{ModelRef, PermissionMode, ReasoningConfig, ToolSpec},
 };
 
@@ -26,20 +26,7 @@ pub struct SessionConfigSnapshot {
     pub permission_mode_default: PermissionMode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionConfigModules {
-    pub workflow: String,
-    pub search: String,
-    pub memory: String,
-    pub memory_policy: String,
-    pub context: String,
-    pub policy: String,
-    pub patch: String,
-    pub compactor: String,
-    pub tool_exposure: String,
-    pub subagent: String,
-    pub renderer: String,
-}
+pub type SessionConfigModules = ModulesConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfigTool {
@@ -69,19 +56,7 @@ impl SessionConfigSnapshot {
             active_provider: config.active_provider.clone(),
             model: registry.model_config.model_ref(),
             reasoning: registry.model_config.reasoning.clone(),
-            modules: SessionConfigModules {
-                workflow: config.modules.workflow.clone(),
-                search: config.modules.search.clone(),
-                memory: config.modules.memory.clone(),
-                memory_policy: config.modules.memory_policy.clone(),
-                context: config.modules.context.clone(),
-                policy: config.modules.policy.clone(),
-                patch: config.modules.patch.clone(),
-                compactor: config.modules.compactor.clone(),
-                tool_exposure: config.modules.tool_exposure.clone(),
-                subagent: config.modules.subagent.clone(),
-                renderer: config.modules.renderer.clone(),
-            },
+            modules: config.modules.clone(),
             subagent_surface: config.subagents.surface.as_str().to_owned(),
             tools,
             permission_mode_default,

@@ -3,7 +3,7 @@
 //! SQLite backend вынесен из ядра в cdylib чтобы `proteus-core` не зависел
 //! от `rusqlite`, а реальное persistent memory подключалось через plugin ABI.
 //!
-//! Регистрируется под id `"sqlite"` и legacy alias `"sqlite_plugin"`.
+//! Регистрируется под id `"sqlite"`.
 //!
 //! Путь к базе: `$HOME/.proteus/memory-plugin.sqlite` (создаётся при
 //! старте, если нет). Hardcoded для простоты первой итерации; в
@@ -198,19 +198,17 @@ fn fts_match_expression(text: &str) -> String {
 extern "C" fn register_modules(
     registry: &mut PluginRegistryMut<'_>,
 ) -> RResult<(), PluginRegisterError> {
-    for id in ["sqlite", "sqlite_plugin"] {
-        let store = match SqlitePluginStore::open() {
-            Ok(store) => store,
-            Err(error) => {
-                return RResult::RErr(PluginRegisterError::new(format!(
-                    "sqlite-memory init failed: {error:#}"
-                )));
-            }
-        };
-        let obj: MemoryStoreObject = PluginMemoryStore_TO::from_value(store, TD_Opaque);
-        if let RResult::RErr(err) = registry.register_memory_store(RString::from(id), obj) {
-            return RResult::RErr(err);
+    let store = match SqlitePluginStore::open() {
+        Ok(store) => store,
+        Err(error) => {
+            return RResult::RErr(PluginRegisterError::new(format!(
+                "sqlite-memory init failed: {error:#}"
+            )));
         }
+    };
+    let obj: MemoryStoreObject = PluginMemoryStore_TO::from_value(store, TD_Opaque);
+    if let RResult::RErr(err) = registry.register_memory_store(RString::from("sqlite"), obj) {
+        return RResult::RErr(err);
     }
     RResult::ROk(())
 }
@@ -219,9 +217,7 @@ extern "C" fn register_modules(
 pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("sqlite-memory"),
-        description: RStr::from_str(
-            "SQLite FTS5 memory store plugin (registers 'sqlite' and 'sqlite_plugin')",
-        ),
+        description: RStr::from_str("SQLite FTS5 memory store plugin (registers 'sqlite')"),
         register_modules,
     }
     .leak_into_prefix()

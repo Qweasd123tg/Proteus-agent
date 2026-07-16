@@ -10,11 +10,10 @@ use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
         TopologySnapshot,
+        core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
 };
-
-use super::module_summary;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ConfigBuilderSnapshot {
@@ -92,20 +91,6 @@ pub struct ConfigBuilderTool {
     pub registered: bool,
 }
 
-const CONFIG_BUILDER_MODULE_SLOTS: [&str; 11] = [
-    "workflow",
-    "context",
-    "tool_exposure",
-    "policy",
-    "search",
-    "patch",
-    "memory",
-    "memory_policy",
-    "compactor",
-    "subagent",
-    "renderer",
-];
-
 pub(super) fn config_builder_snapshot_from_topology(
     topology: &TopologySnapshot,
     config: &AppConfig,
@@ -143,15 +128,13 @@ pub(super) fn config_builder_snapshot_from_topology(
             .iter()
             .map(|&mode| mode.to_owned())
             .collect(),
-        active_modules: module_summary(config)
-            .into_iter()
-            .filter_map(|value| {
-                Some(ConfigBuilderModuleSelection {
-                    slot: value.get("slot")?.as_str()?.to_owned(),
-                    id: value.get("id")?.as_str()?.to_owned(),
-                })
+        active_modules: config
+            .modules
+            .iter()
+            .map(|(kind, id)| ConfigBuilderModuleSelection {
+                slot: kind.as_str().to_owned(),
+                id: id.to_owned(),
             })
-            .filter(|selection| is_config_builder_module_slot(&selection.slot))
             .collect(),
         module_config: config.module_config.clone(),
         tools_enabled: config.tools.enabled.clone(),
@@ -205,7 +188,8 @@ fn module_source_label(source: &ModuleSourceTopology) -> String {
 }
 
 fn is_config_builder_module_slot(slot: &str) -> bool {
-    CONFIG_BUILDER_MODULE_SLOTS.contains(&slot)
+    core_slot_descriptor_by_id(slot)
+        .is_some_and(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
 }
 
 const PERMISSION_MODES: [&str; 3] = ["plan", "normal", "auto"];
@@ -284,19 +268,8 @@ pub(super) fn set_module_slot(
     slot: &str,
     module_id: String,
 ) -> Result<()> {
-    match slot {
-        "workflow" => modules.workflow = module_id,
-        "search" => modules.search = module_id,
-        "memory" => modules.memory = module_id,
-        "memory_policy" => modules.memory_policy = module_id,
-        "context" => modules.context = module_id,
-        "policy" => modules.policy = module_id,
-        "patch" => modules.patch = module_id,
-        "compactor" => modules.compactor = module_id,
-        "tool_exposure" => modules.tool_exposure = module_id,
-        "subagent" => modules.subagent = module_id,
-        "renderer" => modules.renderer = module_id,
-        _ => anyhow::bail!("unsupported config builder slot: {slot}"),
+    if !modules.set_by_slot_id(slot, module_id) {
+        anyhow::bail!("unsupported config builder slot: {slot}");
     }
     Ok(())
 }
@@ -358,17 +331,9 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     if doc.get("modules").is_none_or(|item| !item.is_table_like()) {
         doc["modules"] = toml_edit::table();
     }
-    doc["modules"]["workflow"] = toml_edit::value(config.modules.workflow.clone());
-    doc["modules"]["search"] = toml_edit::value(config.modules.search.clone());
-    doc["modules"]["memory"] = toml_edit::value(config.modules.memory.clone());
-    doc["modules"]["memory_policy"] = toml_edit::value(config.modules.memory_policy.clone());
-    doc["modules"]["context"] = toml_edit::value(config.modules.context.clone());
-    doc["modules"]["policy"] = toml_edit::value(config.modules.policy.clone());
-    doc["modules"]["patch"] = toml_edit::value(config.modules.patch.clone());
-    doc["modules"]["compactor"] = toml_edit::value(config.modules.compactor.clone());
-    doc["modules"]["tool_exposure"] = toml_edit::value(config.modules.tool_exposure.clone());
-    doc["modules"]["subagent"] = toml_edit::value(config.modules.subagent.clone());
-    doc["modules"]["renderer"] = toml_edit::value(config.modules.renderer.clone());
+    for (kind, id) in config.modules.iter() {
+        doc["modules"][kind.as_str()] = toml_edit::value(id.to_owned());
+    }
 
     if doc
         .get("subagents")

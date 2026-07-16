@@ -11,6 +11,12 @@ slot нужен не для фичи,
 slot нужен для класса заменяемого поведения.
 ```
 
+Набор runtime slots host-defined, а не расширяется плагином одной строкой.
+Строковый `SlotId` унифицирует catalog keys для уже известных core slots, но
+`ModuleKind`, config schema, typed factories и `PluginRegistry` остаются
+фиксированными. Поэтому новый slot всегда означает согласованное изменение
+`proteus-contracts`, core wiring/config, plugin ABI и boundary tests.
+
 Например, Cursor-like dynamic context, Codex-like tool search и Claude-like
 subagent routing не должны автоматически становиться slots. Сначала их надо
 разложить на уже существующие классы поведения: context building, tool
@@ -21,10 +27,11 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 
 Новый slot можно добавлять только если выполняются все условия:
 
-1. Есть минимум две-три правдоподобные реализации, а не один конкретный
-   алгоритм.
+1. Есть минимум две независимо работающие, не no-op реализации с разными
+   алгоритмами или backends. Planned вариант и транспортная обёртка той же
+   реализации не считаются.
 2. Поведение не выражается существующими `Tool`, `Workflow`,
-   `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryPolicy`,
+   `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
    `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` или
    `ModelAdapter`.
 3. Core обязан вызывать это место сам на стабильной точке lifecycle. Если код
@@ -51,7 +58,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Нужно добавить/урезать контекст перед model call? | `ContextBuilder`, `context_provider` или `Compactor` |
 | Нужно выбрать, какие tools показать модели? | `ToolExposure` |
 | Нужно найти данные в проекте? | `SearchBackend` или provider внутри `ContextBuilder` |
-| Нужно сохранить/найти долговременную память? | `MemoryStore` / `MemoryPolicy` |
+| Нужно явно сохранить/найти долговременную память? | `MemoryStore` + `Tool`/`Workflow`; background lifecycle остаётся research до двух реализаций |
 | Нужно решить `allow` / `ask` / `deny`? | `ApprovalPolicy` / approval transport |
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
 | Нужно изменить provider request/streaming/usage? | `ModelAdapter` / model standard |
@@ -76,7 +83,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Auto-compaction before model call | `Compactor`, `Workflow`, model capabilities | `BudgetTracker` если нужен общий budget API | использовать `Compactor` + workflow policy |
 | Skills / Agent Skills | `ContextBuilder`, `ToolProvider`/tools, docs on disk | `SkillCatalog` только если core должен discover/inject сам | пока context/tool plugin, не core subsystem |
 | Plugin mention injection | `ContextBuilder` / `context_provider` | `PluginDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
-| Long-term memory consolidation jobs | `MemoryStore`, `MemoryPolicy`, `Workflow` | background jobs/mailbox contract может понадобиться | research, не расширять memory slot преждевременно |
+| Long-term memory consolidation jobs | `MemoryStore`, `Workflow`, explicit tools | background jobs/mailbox contract может понадобиться | research/private prototype; не возвращать lifecycle slot без двух работающих реализаций |
 | Subagents / cheaper model delegation | `SubagentRunner`, host-bound tools/app-server | persistent agent tree/mailbox/reload contract только после dogfood | slot `subagent` владеет child loop; model-facing protocol отдельно выбирается top-level `subagents.surface = task|collaboration|none` без нового slot. Текущий collaboration slice — bounded session-owned lifecycle + optional sequential messaging/follow-up, не parity и не доказательство стабильного plugin ABI |
 | OAuth model provider | `ModelAdapter` | token store/auth helper можно держать provider-owned | provider plugin/adapter, не auth slot |
 | Resume/session picker | app-server protocol + UI client | session listing/search DTO уже protocol-level | client feature, не core slot |
@@ -153,5 +160,5 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 - module swap/boundary test;
 - update `docs/modules.md`, `docs/plugin-architecture.md` и при необходимости
   `docs/configuration.md`;
-- минимум две описанные реализации: одна текущая и одна альтернативная или
-  planned, ради которой contract действительно generic.
+- минимум две работающие независимые реализации, не считая no-op, legacy alias
+  или planned-вариант; swap test должен прогнать обе через один runtime path.

@@ -28,7 +28,7 @@ Core должен оставаться тонким composition/lifecycle сло
 workflow и renderer, граница проекта слабая.
 
 Например, новая идея может оказаться module implementation для context,
-workflow, tool, renderer, memory policy или model adapter. Debug/visibility
+workflow, tool, renderer, memory store или model adapter. Debug/visibility
 часть такой идеи должна идти через renderer или app-server boundary, а не
 привязывать core к конкретному алгоритму.
 
@@ -95,7 +95,6 @@ renderer -> workflow internals
 | Model | provider-neutral model call через canonical protocol |
 | Search | поиск по workspace/project context |
 | Memory | хранение и retrieval memory items |
-| Memory Policy | lifecycle записи memory после turn |
 | Context | сбор ephemeral context для текущего turn |
 | Tools | registry и execution boundary |
 | Approval Policy | решение `allow`/`ask`/`deny` |
@@ -146,8 +145,8 @@ Runtime должен сохранять эти свойства:
 - plugin context builders `simple`, `repo_aware` и `codex_context`;
 - file/edit/git/shell/plan tools через `ToolRegistry` и default plugins;
 - approval preview для `apply_patch`, `write_file` и `shell`;
-- plugin workflows `coding.single_loop`, `coding.codex_loop`,
-  `coding.codex_loop_diagnostic` и `coding.plan_execute_review`;
+- plugin workflows `coding.single_loop`, `coding.codex_loop` и
+  `coding.plan_execute_review`;
 - `eval report` поверх durable event log;
 - streaming model deltas через canonical model/event path;
 - durable session store, history и resume.
@@ -180,8 +179,9 @@ path CLI smoke test.
 
 1. определить, к какому slot относится идея;
 2. проверить, хватает ли существующего contract;
-3. сверить решение с `slot-governance.md`: новый slot допустим только для
-   generic класса поведения с несколькими вероятными реализациями;
+3. сверить решение с `slot-governance.md`: новый host-defined slot допустим
+   только для generic класса поведения минимум с двумя уже работающими
+   независимыми реализациями и требует изменений contracts/core/config/ABI;
 4. если хватает, реализовать новый module/adaptor и зарегистрировать его в
    catalog;
 5. если не хватает, сначала добавить минимальный contract и test boundary;
@@ -235,7 +235,7 @@ path CLI smoke test.
 1. ✅ `proteus-contracts` выделен в отдельный crate, plugin'ы depend только на него;
 2. ✅ dylib loader через `abi_stable` + `libloading`;
 3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
-   `search`, `memory`, declarative `memory_policy`, request-time `compactor`,
+   `search`, `memory`, request-time `compactor`,
    `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
    `subagent` и `workflow`;
 4. ✅ большинство production-реализаций Волны 3 уже живёт в
@@ -256,7 +256,7 @@ MCP registry/provider для resources/prompts/subscriptions.
 
 - модельные идеи -> `ModelAdapter` / model standard;
 - поиск -> `SearchBackend` или `ContextBuilder`;
-- memory -> `MemoryStore` / `MemoryPolicy`;
+- memory -> `MemoryStore` + explicit tools/workflow;
 - tools -> `Tool` / `ToolProvider` / `ToolRegistry`;
 - approval -> `ApprovalPolicy` / `ApprovalTransport`;
 - output -> `Renderer`;

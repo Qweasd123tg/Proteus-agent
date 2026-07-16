@@ -280,29 +280,9 @@ fn check_selected_modules(
         );
     }
 
-    let selected = [
-        (ModuleKind::Search, config.modules.search.as_str()),
-        (ModuleKind::Memory, config.modules.memory.as_str()),
-        (
-            ModuleKind::MemoryPolicy,
-            config.modules.memory_policy.as_str(),
-        ),
-        (ModuleKind::Context, config.modules.context.as_str()),
-        (ModuleKind::Policy, config.modules.policy.as_str()),
-        (ModuleKind::Patch, config.modules.patch.as_str()),
-        (ModuleKind::Compactor, config.modules.compactor.as_str()),
-        (
-            ModuleKind::ToolExposure,
-            config.modules.tool_exposure.as_str(),
-        ),
-        (ModuleKind::Subagent, config.modules.subagent.as_str()),
-        (ModuleKind::Workflow, config.modules.workflow.as_str()),
-        (ModuleKind::Renderer, config.modules.renderer.as_str()),
-    ];
-
-    for (kind, id) in selected {
-        let label = super::module_kind_label(&kind);
-        if catalog.manifest(kind.clone(), id).is_some() {
+    for (kind, id) in config.modules.iter() {
+        let label = kind.as_str();
+        if catalog.manifest(kind, id).is_some() {
             findings.ok(format!("module {label}: {id}"));
         } else {
             findings.error(format!("module {label} is not registered: {id}"));

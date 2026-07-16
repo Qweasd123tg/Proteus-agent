@@ -12,9 +12,9 @@ mod plugin_registration;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
-        PatchApplier, Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
-        Workflow, register_provider_tools,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, ModelAdapter, PatchApplier,
+        Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry, Workflow,
+        register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -118,9 +118,9 @@ struct ModuleEntry {
     factory: ErasedFactory,
 }
 
-/// Единый реестр встроенных модулей. Все slot'ы хранятся в одной карте,
-/// ключ — `(SlotId, module_id)`. Открытый SlotId позволит плагинам
-/// регистрировать модули под новыми slot'ами без правок ядра.
+/// Единый реестр встроенных модулей. Все host-defined slot'ы хранятся в одной
+/// карте, ключ — `(SlotId, module_id)`. Строковый `SlotId` унифицирует ключи,
+/// но новый исполняемый slot всё равно требует contract и wiring в core.
 pub struct BuiltinModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
     /// Tool-плагины, зарегистрированные через `register_plugin_tool`.
@@ -389,18 +389,6 @@ impl BuiltinModuleCatalog {
         self.build_typed::<dyn MemoryStore>(slot::MEMORY, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_memory_policy(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn MemoryPolicy>> {
-        self.build_typed::<dyn MemoryPolicy>(
-            slot::MEMORY_POLICY,
-            module,
-            &ModuleBuildInput::Module(ctx),
-        )
-    }
-
     pub fn build_context(
         &self,
         module: &str,
@@ -628,9 +616,10 @@ mod tests {
             std_types::{RResult, RString},
         },
         plugin::{
-            ContextProviderObject, MemoryPolicyObject, PluginContextError, PluginContextProvider,
-            PluginContextProvider_TO, PluginMemoryPolicy, PluginMemoryPolicy_TO,
-            PluginMemoryPolicyError, PluginTool, PluginTool_TO, PluginToolError, PluginToolObject,
+            ContextProviderObject, PluginContextError, PluginContextProvider,
+            PluginContextProvider_TO, PluginSearchBackend, PluginSearchBackend_TO,
+            PluginSearchError, PluginTool, PluginTool_TO, PluginToolError, PluginToolObject,
+            SearchBackendObject,
         },
     };
 
@@ -645,14 +634,11 @@ mod tests {
         }
     }
 
-    struct NoopMemoryPolicy;
+    struct NoopSearchBackend;
 
-    impl PluginMemoryPolicy for NoopMemoryPolicy {
-        fn after_turn_json(
-            &self,
-            _input_json: RString,
-        ) -> RResult<RString, PluginMemoryPolicyError> {
-            RResult::ROk(r#"{"ops":[]}"#.into())
+    impl PluginSearchBackend for NoopSearchBackend {
+        fn search_json(&self, _query_json: RString) -> RResult<RString, PluginSearchError> {
+            RResult::ROk("[]".into())
         }
     }
 
@@ -686,8 +672,8 @@ mod tests {
         PluginContextProvider_TO::from_value(NoopContextProvider, TD_Opaque)
     }
 
-    fn memory_policy() -> MemoryPolicyObject {
-        PluginMemoryPolicy_TO::from_value(NoopMemoryPolicy, TD_Opaque)
+    fn search_backend() -> SearchBackendObject {
+        PluginSearchBackend_TO::from_value(NoopSearchBackend, TD_Opaque)
     }
 
     fn plugin_tool(name: &'static str) -> PluginToolObject {
@@ -700,35 +686,35 @@ mod tests {
         let checkpoint = catalog.checkpoint();
 
         catalog
-            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .register_plugin_search_backend("repo_search", search_backend())
             .unwrap();
 
         let descriptions = std::collections::BTreeMap::from([
             (
-                "carry_forward".to_owned(),
-                "Переносит хвост ответа в память.".to_owned(),
+                "repo_search".to_owned(),
+                "Ищет по рабочему дереву.".to_owned(),
             ),
             ("missing_module".to_owned(), "нет такого".to_owned()),
             (
                 // Builtin из checkpoint не должен переопределяться.
-                "none".to_owned(),
+                "null".to_owned(),
                 "не должно примениться".to_owned(),
             ),
         ]);
         let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
 
-        assert_eq!(unmatched, vec!["missing_module", "none"]);
+        assert_eq!(unmatched, vec!["missing_module", "null"]);
         assert_eq!(
             catalog
-                .manifest(ModuleKind::MemoryPolicy, "carry_forward")
+                .manifest(ModuleKind::Search, "repo_search")
                 .and_then(|manifest| manifest.description.clone())
                 .as_deref(),
-            Some("Переносит хвост ответа в память.")
+            Some("Ищет по рабочему дереву.")
         );
-        // Builtin "none" сохраняет своё описание.
+        // Builtin "null" сохраняет своё описание.
         assert_ne!(
             catalog
-                .manifest(ModuleKind::MemoryPolicy, "none")
+                .manifest(ModuleKind::Search, "null")
                 .and_then(|manifest| manifest.description.clone())
                 .as_deref(),
             Some("не должно примениться")
@@ -741,11 +727,11 @@ mod tests {
         let checkpoint = catalog.checkpoint();
 
         catalog
-            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .register_plugin_search_backend("repo_search", search_backend())
             .unwrap();
 
         let descriptions = std::collections::BTreeMap::from([(
-            "memory_policy/carry_forward".to_owned(),
+            "search/repo_search".to_owned(),
             "Scoped описание.".to_owned(),
         )]);
         let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
@@ -753,7 +739,7 @@ mod tests {
         assert!(unmatched.is_empty());
         assert_eq!(
             catalog
-                .manifest(ModuleKind::MemoryPolicy, "carry_forward")
+                .manifest(ModuleKind::Search, "repo_search")
                 .and_then(|manifest| manifest.description.clone())
                 .as_deref(),
             Some("Scoped описание.")
@@ -769,24 +755,16 @@ mod tests {
             .register_plugin_context_provider("hello", context_provider())
             .unwrap();
         catalog
-            .register_plugin_memory_policy("hello", memory_policy())
+            .register_plugin_search_backend("hello", search_backend())
             .unwrap();
 
         assert_eq!(catalog.context_providers().len(), 1);
-        assert!(
-            catalog
-                .manifest(ModuleKind::MemoryPolicy, "hello")
-                .is_some()
-        );
+        assert!(catalog.manifest(ModuleKind::Search, "hello").is_some());
 
         catalog.rollback_to(checkpoint);
 
         assert!(catalog.context_providers().is_empty());
-        assert!(
-            catalog
-                .manifest(ModuleKind::MemoryPolicy, "hello")
-                .is_none()
-        );
+        assert!(catalog.manifest(ModuleKind::Search, "hello").is_none());
     }
 
     #[test]
@@ -816,7 +794,7 @@ mod tests {
             .register_plugin_context_provider("repo-notes", context_provider())
             .unwrap();
         catalog
-            .register_plugin_memory_policy("carry_forward", memory_policy())
+            .register_plugin_search_backend("repo_search", search_backend())
             .unwrap();
         catalog
             .register_plugin_tool(plugin_tool("inspect_me"))
@@ -826,8 +804,8 @@ mod tests {
 
         assert_eq!(contributions.context_providers, vec!["repo-notes"]);
         assert_eq!(contributions.modules.len(), 1);
-        assert_eq!(contributions.modules[0].slot, "memory_policy");
-        assert_eq!(contributions.modules[0].id, "carry_forward");
+        assert_eq!(contributions.modules[0].slot, "search");
+        assert_eq!(contributions.modules[0].id, "repo_search");
         assert_eq!(contributions.tools.len(), 1);
         assert_eq!(contributions.tools[0].name, "inspect_me");
         assert_eq!(contributions.tools[0].safety, "ReadOnly");

@@ -9,7 +9,6 @@ workflow = "coding.single_loop"
 # Provided by the rg-search plugin installed by ./install.sh.
 search = "rg"
 memory = "none"
-memory_policy = "none"
 context = "repo_aware"
 policy = "ask_write"
 # Provided by the direct-patch plugin installed by ./install.sh.

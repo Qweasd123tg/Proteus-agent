@@ -59,15 +59,12 @@ use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase}
 use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};
 use validation::{validate_codex_model_response, validate_model_response};
-use workflows::EmptyFinalResponseMode;
 pub use workflows::{
-    CodingCodexLoopDiagnosticWorkflow, CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow,
-    CodingSingleLoopWorkflow,
+    CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow,
 };
 
 const SINGLE_LOOP_MODULE_ID: &str = "coding.single_loop";
 const CODEX_LOOP_MODULE_ID: &str = "coding.codex_loop";
-const CODEX_LOOP_DIAGNOSTIC_MODULE_ID: &str = "coding.codex_loop_diagnostic";
 const PLAN_EXECUTE_REVIEW_MODULE_ID: &str = "coding.plan_execute_review";
 const MAX_TOOL_ROUNDS: usize = 8;
 /// Ограничение read-only tool loop в plan-фазе `coding.plan_execute_review`:
@@ -229,7 +226,6 @@ pub(crate) fn run_codex_loop(
     input: PluginWorkflowInput,
     host: &mut PluginWorkflowHostMut<'_>,
     module_id: &str,
-    empty_final_response_mode: EmptyFinalResponseMode,
 ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
     let mut turn = TurnScaffold::begin(host, &input)?;
     let mut tool_rounds = 0usize;
@@ -301,13 +297,7 @@ pub(crate) fn run_codex_loop(
             continue;
         }
 
-        let text = match empty_final_response_mode {
-            EmptyFinalResponseMode::Strict => message_text(&assistant_message),
-            EmptyFinalResponseMode::LastToolResultDiagnostic => output_text(
-                &assistant_message,
-                &turn.model_messages[turn.current_turn_messages_start..],
-            ),
-        };
+        let text = message_text(&assistant_message);
         let metadata = output_metadata_with_extra(
             module_id,
             &input,
@@ -515,15 +505,6 @@ extern "C" fn register_modules(
         return RResult::RErr(err);
     }
 
-    let codex_diagnostic_workflow: WorkflowObject =
-        PluginWorkflow_TO::from_value(CodingCodexLoopDiagnosticWorkflow, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_workflow(
-        RString::from(CODEX_LOOP_DIAGNOSTIC_MODULE_ID),
-        codex_diagnostic_workflow,
-    ) {
-        return RResult::RErr(err);
-    }
-
     let plan_workflow: WorkflowObject =
         PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque);
     registry.register_workflow(RString::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
@@ -534,7 +515,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("coding-workflow"),
         description: RStr::from_str(
-            "Workflow plugin providing coding.single_loop, coding.codex_loop, coding.codex_loop_diagnostic, and coding.plan_execute_review through the workflow host API",
+            "Workflow plugin providing coding.single_loop, coding.codex_loop, and coding.plan_execute_review through the workflow host API",
         ),
         register_modules,
     }

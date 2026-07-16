@@ -1,8 +1,7 @@
 name = "coding-workflow"
 version = "0.1.0"
-description = "Workflow plugin that provides coding.single_loop, coding.codex_loop, coding.codex_loop_diagnostic, and coding.plan_execute_review through the workflow host API"
+description = "Workflow plugin that provides coding.single_loop, coding.codex_loop, and coding.plan_execute_review through the workflow host API"
 [module_descriptions]
 "coding.single_loop" = "Простой tool-цикл: до 8 раундов tools, затем финальный запрос без tools. Инструкции зашиты в workflow, компакция перед каждым запросом модели."
 "coding.codex_loop" = "Codex-совместимый цикл без лимита раундов: строгая валидация ответов модели, батч-выполнение tool calls (read-only — конкурентно), dynamic meta-tools, компакция перед каждым запросом."
-"coding.codex_loop_diagnostic" = "Тот же coding.codex_loop, но пустой финальный ответ заменяется диагностикой из последнего tool result — для отладки обрывов."
 "coding.plan_execute_review" = "Три фазы: план (read-only tools, до 3 раундов, может задавать вопросы), исполнение (до 8 раундов, все tools), review-ответ без tools."

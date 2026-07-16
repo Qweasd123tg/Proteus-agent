@@ -238,7 +238,6 @@ mod tests {
                 "search",
                 "patch",
                 "memory",
-                "memory_policy",
             ]
         );
 
@@ -253,6 +252,16 @@ mod tests {
         assert_eq!(category("model"), "pipeline");
         assert_eq!(category("tool"), "registry");
         assert_eq!(category("search"), "backend");
-        assert_eq!(category("memory_policy"), "post_turn");
+
+        let required = |id: &str| {
+            slots
+                .iter()
+                .find(|slot| slot.id == id)
+                .is_some_and(|slot| slot.required)
+        };
+        assert!(required("workflow"));
+        assert!(required("patch"));
+        assert!(!required("tool"));
+        assert!(!required("search"));
     }
 }

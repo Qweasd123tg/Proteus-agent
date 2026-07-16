@@ -14,13 +14,14 @@ dylib-плагинов, а не реализации модулей и не DTO.
 `crates/proteus-contracts/src/domain/memory.rs` описывает `MemoryItem`/`MemoryQuery`,
 `crates/proteus-contracts/src/contracts/memory_store.rs` описывает trait
 `MemoryStore`, а `crates/proteus-core/src/plugin_adapters/memory` содержит
-adapter для plugin `MemoryStore`/`MemoryPolicy`. `jsonl`/`carry_forward` вынесены
-в `plugins/default/memory-pack`, SQLite FTS5 backend — в `plugins/default/sqlite-memory`.
+adapter для plugin `MemoryStore`. `jsonl` вынесен в
+`plugins/default/memory-pack`, SQLite FTS5 backend — в
+`plugins/default/sqlite-memory`.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
-`NoMemoryPolicy`, `EmptyContextBuilder`, `DenyAllPolicy`, `NullPatchApplier`,
-`NoCompactor`, `NoWorkflow`, `TextRenderer`. Catalog регистрирует их под безопасными ids
+`EmptyContextBuilder`, `DenyAllPolicy`, `NullPatchApplier`, `NoCompactor`,
+`NoWorkflow`, `TextRenderer`. Catalog регистрирует их под безопасными ids
 (`fake`, `null`, `none`, `deny_all`, `text`), но они не лежат рядом с plugin
 adapters.
 
@@ -53,33 +54,33 @@ executors, но external process modules и package manager ещё не реал
 
 Правила добавления новых slots описаны в
 `docs/slot-governance.md`. Коротко: slot добавляется только для класса
-заменяемого поведения с несколькими вероятными реализациями. Feature-specific
-идеи вроде Cursor-like dynamic context или Codex-like tool search сначала
-должны лечь в существующие `ContextBuilder`, `ToolExposure`, `SearchBackend`,
-`Workflow` или research plugin, а не расширять таблицу ниже автоматически.
+заменяемого поведения, уже доказанного минимум двумя независимо работающими
+non-noop реализациями. Feature-specific идеи вроде Cursor-like dynamic context
+или Codex-like tool search сначала должны лечь в существующие
+`ContextBuilder`, `ToolExposure`, `SearchBackend`, `Workflow` или research
+plugin, а не расширять таблицу ниже автоматически.
 То же относится к MCP hot-swap: discovery и visibility проходят через
 `ToolRegistry`/`ToolExposure`, а не через отдельный feature-specific slot.
 
-`ModuleKind` содержит 13 вариантов. Одиннадцать из них выбираются полями
+`ModuleKind` содержит 12 вариантов. Десять из них выбираются полями
 `modules.*`; `Model` выбирается отдельно через `active_provider`/`providers`,
 а `Tool` служит catalog/registry kind для concrete tools и не имеет
-`modules.tool`. Поэтому таблица ниже показывает 12 выбираемых behavior slots:
-model provider плюс одиннадцать ключей `modules.*`. Сам `ToolRegistry`
+`modules.tool`. Поэтому таблица ниже показывает 11 выбираемых behavior slots:
+model provider плюс десять ключей `modules.*`. Сам `ToolRegistry`
 остаётся execution boundary, а не ещё одним config-selectable slot.
 
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
 | Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
 | Search | `SearchBackend` | `modules.search` | `null`, plugin-provided (`rg` если подключён `rg-search`) |
-| Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite`/`sqlite_plugin` из `sqlite-memory`) |
-| Memory Policy | `MemoryPolicy` | `modules.memory_policy` | `none`, plugin-provided (`carry_forward` из `memory-pack`) |
+| Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite` из `sqlite-memory`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, `dynamic`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
 | Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, `process`, plugin-provided через `PluginSubagent` |
-| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic`, `coding.plan_execute_review` если подключён `coding-workflow`) |
+| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`plain`, `statusline` из `renderer-pack`) |
 
 ## Model Providers
@@ -164,22 +165,13 @@ JSON-массивом.
 
 `modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/proteus-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
 
-`modules.memory_policy` выбирает lifecycle policy: что и когда записывать после turn. Это отдельный slot от `MemoryStore`: store отвечает за хранение/поиск, policy отвечает за решение о записи.
-
-`modules.memory_policy = "none"` — no-op, ничего автоматически не пишется.
-
-`modules.memory_policy = "carry_forward"` поставляется плагином `memory-pack` и пишет один `MemoryItem` с `kind = "carry_forward:latest"` после каждого turn'а: последнее assistant-сообщение turn'а, обрезанное до 500 символов. Это heuristic handoff note. Retention остаётся обязанностью активного `MemoryStore`.
-
-Явная запись независимо от policy идёт через два канала:
+Автоматическая запись после каждого turn-а удалена вместе с
+`MemoryPolicy`/`modules.memory_policy`: эвристика `carry_forward` не доказала
+ценность, достаточную для отдельного public slot-а. `MemoryStore` отвечает
+только за хранение и retrieval. Запись остаётся явной и идёт через два канала:
 
 - Tool `remember_fact` — модель вызывает его в ходе turn'а, чтобы явно положить preference/fact. Spec принимает `{ kind: "preference" | "fact", content, metadata? }`.
 - REPL-команда `/remember [preference|fact] <text>` — ручная запись пользователя. Если первое слово не валидный kind, всё идёт как `fact`.
-
-Plugin-provided `MemoryPolicy` поддерживается декларативно. Плагин возвращает
-`MemoryPolicyPlan` с операциями `MemoryOp`; ядро само применяет их к активному
-`MemoryStore` и испускает обычные memory events. В v0 реализована операция
-`Remember`, прямой mutable callback в store намеренно не выдаётся. Регистрация
-идёт через единый `PluginRegistry`.
 
 `modules.memory = "none"` ничего не сохраняет и ничего не возвращает.
 
@@ -193,14 +185,17 @@ Plugin-provided `MemoryPolicy` поддерживается декларатив
 Путь можно переопределить через env `PROTEUS_MEMORY_JSONL_PATH` до старта агента.
 
 `modules.memory = "sqlite"` поставляется плагином `sqlite-memory`, а не core.
-Он использует SQLite FTS5 и регистрирует ids `sqlite` и `sqlite_plugin`
-(legacy alias). Для этого backend нужно установить плагин через `install.sh`
-или положить dylib в `~/.proteus/plugins/sqlite-memory/`.
+Он использует SQLite FTS5. Legacy id `sqlite_plugin` удалён и при загрузке
+старого config мигрируется с предупреждением на `sqlite`. Для этого backend
+нужно установить плагин через `install.sh` или положить dylib в
+`~/.proteus/plugins/sqlite-memory/`.
 
-При активной `memory_policy = "none"` автоматической записи нет (но `remember_fact` tool и `/remember` REPL-команда остаются доступны). Context builder `simple` из плагина `context-pack` использует только `recall`.
+Автоматической post-turn записи нет. Context builder `simple` из плагина
+`context-pack` использует только `recall`; `remember_fact` tool и `/remember`
+REPL-команда остаются доступны при writable `MemoryStore`.
 
-`domain/memory.rs` описывает формат данных памяти, а реальные store/policy
-реализации приходят либо из no-op fallback ядра, либо из plugin ABI.
+`domain/memory.rs` описывает формат данных памяти, а реальные store-реализации
+приходят либо из no-op fallback ядра, либо из plugin ABI.
 
 ## Context
 
@@ -442,7 +437,7 @@ workspace-scoped реализация `PatchApplier`, которую испол�
 `changed = true`, runtime может заменить in-memory history и session
 `messages.jsonl` compacted-срезом. Это остаётся controlled runtime operation:
 сам compactor не получает доступа к session store и не заменяет
-`MemoryStore`/`MemoryPolicy`.
+`MemoryStore`.
 
 `modules.compactor = "codex"` поставляется плагином `codex-compactor`. Это
 Codex-style request-time compactor: при превышении token threshold он заменяет
@@ -792,7 +787,7 @@ protocol вместо попытки угадать намерение моде�
 message или duplicate call id считаются ошибкой workflow. Для baseline
 `coding.single_loop` и `coding.plan_execute_review` прямой вызов tool-а,
 которого не было в текущем model request, также остаётся ошибкой. Strict
-`coding.codex_loop`/diagnostic variant повторяют upstream failure path: такой
+`coding.codex_loop` повторяет upstream failure path: такой
 call не исполняется, превращается в failed `ToolResult` (`unsupported call` /
 `unsupported custom tool call`) и отправляется модели в следующем round для
 самоисправления. Final/review/no-tool requests по-прежнему отвергают любой tool
@@ -806,14 +801,10 @@ tool call, как в upstream Codex. `response.incomplete` не превраща
 передают `response.custom_tool_call_input.delta` через обычный
 `ModelStreamEvent::ToolCallDelta`.
 
-`modules.workflow = "coding.codex_loop_diagnostic"` — явно названный variant для
-smoke-проверок и профилей, которые осознанно выбирают diagnostic fallback. Он
-сохраняет тот же model/tool loop и protocol validation, что
-`coding.codex_loop`, но user-facing `AgentOutput` для пустого финального ответа
-после tool call заменяет на диагностическое сообщение с последним `ToolResult`.
-Это осознанная UX-divergence: MCP/tool smoke-тесты не выглядят как зависание с
-`<empty model response>`. Packaged `codex` profile использует strict
-`coding.codex_loop`; diagnostic variant остаётся opt-in.
+Legacy id `coding.codex_loop_diagnostic` удалён: transcript/UI уже показывают
+terminal failure без отдельной подмены пустого ответа последним `ToolResult`.
+При загрузке старого config этот id явно мигрируется с предупреждением на
+strict `coding.codex_loop`; новые профили должны сразу выбирать strict id.
 
 ## Renderer
 

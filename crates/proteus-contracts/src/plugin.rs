@@ -392,19 +392,10 @@ pub trait PluginContextBuilder: Send + Sync + 'static {
 
 pub type ContextBuilderObject = PluginContextBuilder_TO<abi_stable::std_types::RBox<()>>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginMemoryPolicyInput {
-    pub task: AgentTask,
-    pub output: AgentOutput,
-    #[serde(default)]
-    pub new_messages: Vec<CanonicalMessage>,
-}
-
-/// Sync sabi_trait для memory-policy плагинов.
-///
-/// Плагин возвращает декларативный `MemoryPolicyPlan`. Ядро валидирует и
-/// применяет операции к активному `MemoryStore`, поэтому plugin не получает
-/// mutable handle к памяти.
+/// Legacy ABI tombstone for plugins built before the `memory_policy` runtime
+/// slot was retired. The host keeps this exact trait-object layout so unrelated
+/// old 0.1 plugins still load, but it never invokes registered policies.
+#[doc(hidden)]
 #[sabi_trait]
 pub trait PluginMemoryPolicy: Send + Sync + 'static {
     fn after_turn_json(&self, input_json: RString) -> RResult<RString, PluginMemoryPolicyError>;
@@ -413,6 +404,7 @@ pub trait PluginMemoryPolicy: Send + Sync + 'static {
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone)]
 #[non_exhaustive]
+#[doc(hidden)]
 pub struct PluginMemoryPolicyError {
     pub message: RString,
 }
@@ -433,6 +425,7 @@ impl std::fmt::Display for PluginMemoryPolicyError {
 
 impl std::error::Error for PluginMemoryPolicyError {}
 
+#[doc(hidden)]
 pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<()>>;
 
 /// Sync ABI for request-time history compaction plugins.
@@ -814,7 +807,9 @@ pub trait PluginRegistry: Send + Sync {
         builder: ContextBuilderObject,
     ) -> RResult<(), PluginRegisterError>;
 
-    /// Регистрирует declarative MemoryPolicy под module_id в slot `memory_policy`.
+    /// Legacy ABI tombstone. The host accepts and ignores this registration;
+    /// `memory_policy` is no longer a runtime slot.
+    #[doc(hidden)]
     fn register_memory_policy(
         &mut self,
         module_id: RString,

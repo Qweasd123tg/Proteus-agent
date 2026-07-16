@@ -167,9 +167,9 @@ registrations, после чего `BuiltinRegistry` строит trait-объе
 Плагины лежат в `~/.proteus/plugins/` и зависят от `proteus-contracts`, а не от
 `proteus-core`.
 
-Новый slot нужен только для класса заменяемого поведения с несколькими
-правдоподобными реализациями. Правила — в
-[slot-governance.md](slot-governance.md).
+Новый slot нужен только для класса заменяемого поведения, уже доказанного
+минимум двумя независимо работающими non-noop реализациями. Planned-вариант не
+считается. Полные правила — в [slot-governance.md](slot-governance.md).
 
 ## Главные Границы
 

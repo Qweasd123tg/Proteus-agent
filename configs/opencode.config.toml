@@ -19,10 +19,9 @@ name = "opencode-experimental"
 [modules]
 # Experimental OpenCode-shaped profile: reuse codex_context/codex compactor
 # и codex loop, opencode-специфика — policy, tool surface и prompt.
-workflow = "coding.codex_loop_diagnostic"
+workflow = "coding.codex_loop"
 search = "rg"
 memory = "none"
-memory_policy = "none"
 context = "codex_context"
 policy = "opencode_policy"
 patch = "direct"

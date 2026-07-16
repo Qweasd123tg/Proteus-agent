@@ -32,7 +32,6 @@
     "workflow": "coding.plan_execute_review",
     "search": "null",
     "memory": "none",
-    "memory_policy": "none",
     "context": "simple",
     "policy": "ask_write",
     "patch": "null",

@@ -669,45 +669,6 @@ fn codex_loop_empty_final_response_stays_strict_by_default() {
 }
 
 #[test]
-fn codex_loop_diagnostic_empty_final_response_reports_latest_tool_result() {
-    let input = workflow_input("change code");
-    let input_json = serde_json::to_string(&input).expect("input json");
-    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
-    let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
-    let mut host = FakeHost::with_responses(vec![
-        tool_call_response(call),
-        CanonicalModelResponse::new(
-            CanonicalMessage::text(MessageRole::Assistant, ""),
-            Vec::new(),
-            FinishReason::Stop,
-        ),
-    ])
-    .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
-
-    let output_json =
-        match CodingCodexLoopDiagnosticWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
-        serde_json::from_str(output_json.as_str()).expect("output json");
-
-    assert!(
-        output
-            .output
-            .text
-            .contains("Model returned an empty final response")
-    );
-    assert!(output.output.text.contains("read_file ok"));
-    assert_eq!(
-        output.output.metadata["workflow"]["module_id"],
-        CODEX_LOOP_DIAGNOSTIC_MODULE_ID
-    );
-}
-
-#[test]
 fn codex_loop_errors_on_tool_finish_without_tool_calls() {
     let input = workflow_input("change code");
     let input_json = serde_json::to_string(&input).expect("input json");

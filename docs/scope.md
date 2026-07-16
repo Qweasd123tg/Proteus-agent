@@ -135,7 +135,7 @@ root workspace или `install.sh`:
 - `plugins/research/tool-output-artifacts`;
 - новые best-of packs до появления измеримого eval;
 - `ArtifactStore` и `ToolResultProcessor`;
-- новые slots без двух-трёх независимых реализаций;
+- новые host-defined slots без двух уже работающих независимых реализаций;
 - provider/product-specific идеи, ещё не разложенные по существующим contracts.
 
 ## Правило Для Новой Задачи

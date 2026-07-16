@@ -6,15 +6,15 @@ use super::{BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryPolicy, MemoryStore, ModelAdapter,
-        PatchApplier, Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, ModelAdapter, PatchApplier,
+        Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, DynamicToolExposure, EmptyContextBuilder,
-        FakeModelClient, NoCompactor, NoMemory, NoMemoryPolicy, NoSubagent, NoWorkflow,
-        NullPatchApplier, NullSearch, TextRenderer,
+        FakeModelClient, NoCompactor, NoMemory, NoSubagent, NoWorkflow, NullPatchApplier,
+        NullSearch, TextRenderer,
     },
 };
 
@@ -85,19 +85,6 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         ),
         build_no_memory,
     );
-    // Memory policies
-    catalog.register_module::<dyn MemoryPolicy>(
-        slot::MEMORY_POLICY,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::MemoryPolicy,
-            &["disabled"],
-            "После хода ничего не запоминает.",
-        ),
-        build_no_memory_policy,
-    );
-
     // Context builders
     catalog.register_module::<dyn ContextBuilder>(
         slot::CONTEXT,
@@ -291,10 +278,6 @@ fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBack
 
 fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
     Ok(Arc::new(NoMemory))
-}
-
-fn build_no_memory_policy(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryPolicy>> {
-    Ok(Arc::new(NoMemoryPolicy))
 }
 
 fn build_empty_context(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {

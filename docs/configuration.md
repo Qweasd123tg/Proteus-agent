@@ -170,8 +170,9 @@ hot-set budget и не вытесняют direct read/search tools. Финаль
 instructions и environment chunk уходят модели verbatim в upstream
 envelope (`# AGENTS.md instructions ... <INSTRUCTIONS>` и
 `<environment_context>`), без внутреннего префикса `Context from ...`.
-Diagnostic workflow `coding.codex_loop_diagnostic` остаётся отдельным явно выбираемым
-variant для smoke-профилей. В `codex` profile `apply_patch` регистрируется через
+Legacy id `coding.codex_loop_diagnostic` удалён. При загрузке старого config он
+мигрируется с явным предупреждением на strict `coding.codex_loop`; новые и
+packaged профили должны указывать strict id. В `codex` profile `apply_patch` регистрируется через
 `tools.configured` как native handler с `surface.kind = "freeform"` и OpenAI
 custom-tool grammar.
 Playwright MCP в текущем профиле закомментирован; browser tools не
@@ -389,7 +390,6 @@ custom URL.
     "workflow": "coding.single_loop",
     "search": "null",
     "memory": "none",
-    "memory_policy": "none",
     "context": "simple",
     "policy": "ask_write",
     "patch": "null",
@@ -484,7 +484,7 @@ Inspector route `/configs` содержит Config builder для редакти
 модульного слоя активного config-а. Backend отдаёт `GET /config/builder`:
 
 - editable slots из `[modules]`: `workflow`, `context`, `tool_exposure`,
-  `policy`, `search`, `patch`, `memory`, `memory_policy`, `compactor`,
+  `policy`, `search`, `patch`, `memory`, `compactor`,
   `subagent`, `renderer`;
 - список зарегистрированных реализаций каждого slot-а из текущего
   `BuiltinModuleCatalog` + загруженных plugin manifests;
@@ -592,8 +592,8 @@ policy-visible candidates и не исполняет tools. Его metadata ра
 передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
 `always_include`.
 
-Когда active workflow — `coding.single_loop`, `coding.codex_loop`,
-`coding.codex_loop_diagnostic` или `coding.plan_execute_review`,
+Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
+`coding.plan_execute_review`,
 скрытые policy-visible tools остаются reachable через workflow-owned
 meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
 `proteus_tool_call`. Они не являются registry tools. `proteus_tool_call`
@@ -1263,18 +1263,18 @@ instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
 через env `PROTEUS_MEMORY_JSONL_PATH` до старта агента.
 
 Плагин-backend: положите `.so` с реализацией `PluginMemoryStore` в
-`~/.proteus/plugins/<name>/` и выберите его через `modules.memory = "<plugin_id>"`
-(например, `"sqlite"` или legacy alias `"sqlite_plugin"` если установлен
-`sqlite-memory` плагин). SQLite FTS5 больше не линкуется в core.
+`~/.proteus/plugins/<name>/` и выберите его через
+`modules.memory = "<plugin_id>"` (например, `"sqlite"` при установленном
+`sqlite-memory` плагине). Legacy id `sqlite_plugin` удалён и при загрузке
+старого config мигрируется с предупреждением на `sqlite`. SQLite FTS5 больше
+не линкуется в core.
 
-`modules.memory_policy` выбирает lifecycle policy записи:
-
-- `none` — ничего не пишет автоматически.
-- `carry_forward` — plugin policy из `memory-pack`; после каждого turn'а сохраняет один `MemoryItem` с
-  `kind = "carry_forward:latest"` (последняя assistant-строка turn'а,
-  обрезанная до 500 символов) как handoff-snippet.
-
-Явная запись независимо от policy:
+Отдельного `modules.memory_policy` больше нет. Автоматическая post-turn
+эвристика `carry_forward` и public `MemoryPolicy` slot удалены. Старый
+`memory_policy = "none"` игнорируется с предупреждением для бесшовного
+обновления прежних packaged configs. Любое активное значение, включая
+`carry_forward`, считается actionable config error: удалите ключ из профиля.
+Запись в активный `MemoryStore` остаётся явной:
 
 - Tool `remember_fact` (`{ kind: "preference" | "fact", content }`) — модель
   вызывает его сама.

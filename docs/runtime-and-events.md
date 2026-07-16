@@ -185,7 +185,11 @@ mode. Изменения
 
 `PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
-`MemoryWritten` испускается runtime-ом только если активный `MemoryPolicy` записал memory item после turn. В v0 default `memory_policy = "none"` ничего не пишет.
+Автоматического post-turn memory event path больше нет: `MemoryPolicy` и
+эвристика `carry_forward` удалены. Явные записи `remember_fact` и `/remember`
+идут непосредственно через активный `MemoryStore`. Variant `MemoryWritten`
+сохранён только как legacy wire DTO, чтобы старые `events.jsonl` продолжали
+читаться; новый runtime его не испускает.
 
 `SubagentStarted` и `SubagentFinished` описывают live-работу slot-а
 `subagent`: роль, краткое описание, статус, число итераций и
@@ -615,13 +619,10 @@ model/tool loop: model request с tools, tool execution через workflow host
 внутреннего лимита tool rounds нет, а пустой финальный ответ не подменяется
 последним tool result.
 
-`coding.codex_loop_diagnostic` - явно выбираемый variant для smoke-проверок и
-нестрогих UX-профилей. Он использует тот же loop, но
-если модель после tool call вернула пустой финальный assistant-message, итоговый
-`AgentOutput.text` содержит диагностическое сообщение и последний `ToolResult`.
-Это не меняет history и model protocol, но делает MCP/tool smoke-тесты
-читаемыми вместо `<empty model response>`. Packaged `codex` profile использует
-strict `coding.codex_loop`.
+Legacy `coding.codex_loop_diagnostic` удалён: отдельная подмена пустого
+финального assistant-message последним `ToolResult` больше не нужна для
+наблюдаемости. Config loader мигрирует старый id с предупреждением на strict
+`coding.codex_loop`; packaged профили сразу используют strict loop.
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в

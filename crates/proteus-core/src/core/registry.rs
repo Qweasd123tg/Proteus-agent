@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryPolicy, MemoryStore,
-        ModelClient, PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner,
-        ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, ModelClient,
+        PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner, ToolExposure,
+        ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
@@ -27,7 +27,6 @@ pub struct BuiltinRegistry {
     pub model_service: Option<Arc<ModelService>>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
-    pub memory_policy: Arc<dyn MemoryPolicy>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
@@ -72,8 +71,6 @@ impl BuiltinRegistry {
 
         let search = catalog.build_search(&config.modules.search, &build_ctx)?;
         let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
-        let memory_policy =
-            catalog.build_memory_policy(&config.modules.memory_policy, &build_ctx)?;
         let context = catalog.build_context(&config.modules.context, &build_ctx)?;
         let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
         let compactor = catalog.build_compactor(&config.modules.compactor, &build_ctx)?;
@@ -99,7 +96,6 @@ impl BuiltinRegistry {
             model_service: Some(model_service),
             search,
             memory,
-            memory_policy,
             context,
             tools,
             policy,

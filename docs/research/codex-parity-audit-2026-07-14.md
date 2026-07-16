@@ -4,6 +4,12 @@
 [`configs/codex.config.toml`](../../configs/codex.config.toml), а не заявление о
 полной совместимости Proteus с Codex. Он сводит два независимых прохода:
 
+Статус-обновление 2026-07-16: после этого snapshot public `MemoryPolicy` и
+`carry_forward` удалены, `coding.codex_loop_diagnostic` retired с config
+migration на strict `coding.codex_loop`, а legacy `sqlite_plugin` мигрируется
+на `sqlite`. Таблицы и выводы ниже сохранены как датированный audit evidence,
+а не описание текущего module inventory.
+
 - module-by-module сравнение с актуальным `openai/codex` и официальным manual;
 - локальный аудит concrete tools, plugin ABI, process/MCP host, policy,
   registry, doctor и resource boundaries.

@@ -10,8 +10,8 @@ use tokio::time::{Duration, timeout};
 
 use crate::{
     contracts::{
-        ApprovalTransport, CancellationToken, EventEmitter, EventSink, MemoryPolicyInput,
-        ToolSource, UserInputTransport,
+        ApprovalTransport, CancellationToken, EventEmitter, EventSink, ToolSource,
+        UserInputTransport,
     },
     core::{
         AppConfig, BuiltinRegistry, RequestSnapshotWriter, SessionConfigSnapshot, SessionStore,
@@ -289,34 +289,8 @@ impl AgentRuntime {
             new_messages_start,
             workflow_output.messages.len()
         );
-        let new_messages = &workflow_output.messages[new_messages_start..];
         let messages_to_persist_start = new_messages_start + 1;
         let messages_to_persist = &workflow_output.messages[messages_to_persist_start..];
-        let memory_output = snapshot
-            .registry
-            .memory_policy
-            .after_turn(
-                MemoryPolicyInput {
-                    task: &task,
-                    output: &workflow_output.output,
-                    new_messages,
-                },
-                snapshot.registry.memory.as_ref(),
-            )
-            .await?;
-        for kind in memory_output.written_kinds {
-            self.services
-                .events
-                .emit(
-                    EventContext::new(
-                        self.session.session_id,
-                        self.session.thread_id,
-                        Some(turn_id),
-                    ),
-                    Event::MemoryWritten { kind },
-                )
-                .await?;
-        }
         let mut history = self.session.history.lock().await;
         if let Some(session_store) = &self.session.session_store {
             if history_compacted {

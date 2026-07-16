@@ -14,6 +14,8 @@ use crate::{
     model_standard::{InstructionBlock, InstructionKind},
 };
 
+use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_descriptor_by_id};
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -118,15 +120,21 @@ impl AppConfig {
     }
 
     async fn load_file(path: &Path) -> Result<Self> {
-        let value = load_config_path_value(path, &mut BTreeSet::new())?;
-        serde_json::from_value(value)
-            .with_context(|| format!("failed to build config from file {}", path.display()))
+        let mut value = load_config_path_value(path, &mut BTreeSet::new())?;
+        migrate_removed_config_keys(&mut value)?;
+        let mut config: Self = serde_json::from_value(value)
+            .with_context(|| format!("failed to build config from file {}", path.display()))?;
+        migrate_legacy_module_ids(&mut config);
+        Ok(config)
     }
 
     async fn load_dir(path: &Path) -> Result<Self> {
-        let value = load_config_path_value(path, &mut BTreeSet::new())?;
-        serde_json::from_value(value)
-            .with_context(|| format!("failed to build config from dir {}", path.display()))
+        let mut value = load_config_path_value(path, &mut BTreeSet::new())?;
+        migrate_removed_config_keys(&mut value)?;
+        let mut config: Self = serde_json::from_value(value)
+            .with_context(|| format!("failed to build config from dir {}", path.display()))?;
+        migrate_legacy_module_ids(&mut config);
+        Ok(config)
     }
 
     pub fn default_user_config_path() -> Option<PathBuf> {
@@ -157,7 +165,7 @@ impl AppConfig {
     where
         T: DeserializeOwned,
     {
-        let key = module_kind_config_key(kind);
+        let key = kind.as_str();
         let Some(slot) = self.module_config.get(key) else {
             return Ok(fallback);
         };
@@ -169,7 +177,7 @@ impl AppConfig {
     }
 
     pub fn module_config_value(&self, kind: ModuleKind, id: &str) -> serde_json::Value {
-        let key = module_kind_config_key(kind);
+        let key = kind.as_str();
         self.module_config
             .get(key)
             .and_then(|slot| slot.get(id))
@@ -353,22 +361,42 @@ fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
     }
 }
 
-fn module_kind_config_key(kind: ModuleKind) -> &'static str {
-    match kind {
-        ModuleKind::Model => "model",
-        ModuleKind::Search => "search",
-        ModuleKind::Memory => "memory",
-        ModuleKind::MemoryPolicy => "memory_policy",
-        ModuleKind::Context => "context",
-        ModuleKind::Tool => "tool",
-        ModuleKind::Policy => "policy",
-        ModuleKind::Patch => "patch",
-        ModuleKind::Compactor => "compactor",
-        ModuleKind::ToolExposure => "tool_exposure",
-        ModuleKind::Workflow => "workflow",
-        ModuleKind::Renderer => "renderer",
-        ModuleKind::Subagent => "subagent",
-        _ => "unknown",
+fn migrate_removed_config_keys(value: &mut Value) -> Result<()> {
+    if let Some(modules) = value.get_mut("modules").and_then(Value::as_object_mut)
+        && let Some(memory_policy) = modules.remove("memory_policy")
+    {
+        match memory_policy.as_str() {
+            Some("none") => eprintln!(
+                "warning: modules.memory_policy = \"none\" was retired and is ignored. Delete the key to remove this warning"
+            ),
+            Some(module_id) => bail!(
+                "config key modules.memory_policy was removed, but selects \"{module_id}\". Automatic carry_forward memory no longer runs; delete the key, configure storage with modules.memory, and use remember_fact or /remember for explicit writes"
+            ),
+            None => bail!(
+                "config key modules.memory_policy was removed and must be deleted; expected the legacy string \"none\", got {memory_policy}"
+            ),
+        }
+    }
+    if value.pointer("/module_config/memory_policy").is_some() {
+        bail!(
+            "config table module_config.memory_policy was removed; delete it. Automatic carry_forward memory no longer runs; MemoryStore configuration remains under module_config.memory"
+        );
+    }
+    Ok(())
+}
+
+fn migrate_legacy_module_ids(config: &mut AppConfig) {
+    if config.modules.workflow == "coding.codex_loop_diagnostic" {
+        eprintln!(
+            "warning: modules.workflow = \"coding.codex_loop_diagnostic\" was retired; using \"coding.codex_loop\". Update the config to remove this warning"
+        );
+        config.modules.workflow = "coding.codex_loop".to_owned();
+    }
+    if config.modules.memory == "sqlite_plugin" {
+        eprintln!(
+            "warning: modules.memory = \"sqlite_plugin\" was retired; using \"sqlite\". Update the config to remove this warning"
+        );
+        config.modules.memory = "sqlite".to_owned();
     }
 }
 
@@ -479,8 +507,6 @@ pub struct ModulesConfig {
     pub search: String,
     #[serde(default = "default_memory")]
     pub memory: String,
-    #[serde(default = "default_memory_policy")]
-    pub memory_policy: String,
     #[serde(default = "default_context")]
     pub context: String,
     #[serde(default = "default_policy")]
@@ -503,7 +529,6 @@ impl Default for ModulesConfig {
             workflow: default_workflow(),
             search: default_search(),
             memory: default_memory(),
-            memory_policy: default_memory_policy(),
             context: default_context(),
             policy: default_policy(),
             patch: default_patch(),
@@ -512,6 +537,65 @@ impl Default for ModulesConfig {
             subagent: default_subagent(),
             renderer: default_renderer(),
         }
+    }
+}
+
+impl ModulesConfig {
+    pub fn iter(&self) -> impl Iterator<Item = (ModuleKind, &str)> {
+        CORE_SLOT_DESCRIPTORS
+            .iter()
+            .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
+            .map(|descriptor| {
+                let id = self
+                    .get(descriptor.kind)
+                    .expect("ModulesConfig descriptor must have a typed field");
+                (descriptor.kind, id)
+            })
+    }
+
+    pub fn get(&self, kind: ModuleKind) -> Option<&str> {
+        match kind {
+            ModuleKind::Workflow => Some(&self.workflow),
+            ModuleKind::Search => Some(&self.search),
+            ModuleKind::Memory => Some(&self.memory),
+            ModuleKind::Context => Some(&self.context),
+            ModuleKind::Policy => Some(&self.policy),
+            ModuleKind::Patch => Some(&self.patch),
+            ModuleKind::Compactor => Some(&self.compactor),
+            ModuleKind::ToolExposure => Some(&self.tool_exposure),
+            ModuleKind::Subagent => Some(&self.subagent),
+            ModuleKind::Renderer => Some(&self.renderer),
+            ModuleKind::Model | ModuleKind::Tool => None,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_by_slot_id(&mut self, slot: &str, module_id: String) -> bool {
+        let Some(descriptor) = core_slot_descriptor_by_id(slot) else {
+            return false;
+        };
+        if descriptor.selection != CoreSlotSelection::ModulesConfig {
+            return false;
+        }
+        self.set(descriptor.kind, module_id)
+    }
+
+    fn set(&mut self, kind: ModuleKind, module_id: String) -> bool {
+        match kind {
+            ModuleKind::Workflow => self.workflow = module_id,
+            ModuleKind::Search => self.search = module_id,
+            ModuleKind::Memory => self.memory = module_id,
+            ModuleKind::Context => self.context = module_id,
+            ModuleKind::Policy => self.policy = module_id,
+            ModuleKind::Patch => self.patch = module_id,
+            ModuleKind::Compactor => self.compactor = module_id,
+            ModuleKind::ToolExposure => self.tool_exposure = module_id,
+            ModuleKind::Subagent => self.subagent = module_id,
+            ModuleKind::Renderer => self.renderer = module_id,
+            ModuleKind::Model | ModuleKind::Tool => return false,
+            _ => return false,
+        }
+        true
     }
 }
 
@@ -699,10 +783,6 @@ fn default_search() -> String {
 }
 
 fn default_memory() -> String {
-    "none".to_owned()
-}
-
-fn default_memory_policy() -> String {
     "none".to_owned()
 }
 
@@ -986,6 +1066,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn modules_config_iter_and_set_cover_all_selectable_slots() {
+        let mut modules = ModulesConfig::default();
+        let slots = modules
+            .iter()
+            .map(|(kind, _)| kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(slots.len(), 10);
+
+        for (index, slot) in slots.into_iter().enumerate() {
+            assert!(modules.set_by_slot_id(slot, format!("module-{index}")));
+        }
+        assert!(!modules.set_by_slot_id("model", "ignored".to_owned()));
+        assert!(!modules.set_by_slot_id("tool", "ignored".to_owned()));
+        assert!(!modules.set_by_slot_id("unknown", "ignored".to_owned()));
+
+        for (index, (_, id)) in modules.iter().enumerate() {
+            assert_eq!(id, format!("module-{index}"));
+        }
+    }
+
+    #[test]
     fn subagent_surface_defaults_to_task_and_rejects_unknown_values() {
         let default =
             serde_json::from_value::<AppConfig>(serde_json::json!({})).expect("default config");
@@ -1159,6 +1260,91 @@ priority = 100
         assert!(
             format!("{error:#}").contains("either text or file"),
             "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_rejects_removed_memory_policy_key_with_migration_hint() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("legacy.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[modules]
+memory = "jsonl"
+memory_policy = "carry_forward"
+"#,
+        )
+        .expect("legacy config");
+
+        let error = AppConfig::load(Some(&config_path))
+            .await
+            .expect_err("removed memory policy key");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("modules.memory_policy was removed"),
+            "{message}"
+        );
+        assert!(message.contains("remember_fact or /remember"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn load_ignores_retired_disabled_memory_policy_key() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("legacy.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[modules]
+memory = "jsonl"
+memory_policy = "none"
+"#,
+        )
+        .expect("legacy config");
+
+        let config = AppConfig::load(Some(&config_path))
+            .await
+            .expect("disabled legacy policy migrates");
+        assert_eq!(config.modules.memory, "jsonl");
+    }
+
+    #[tokio::test]
+    async fn load_migrates_retired_module_ids() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("legacy.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[modules]
+workflow = "coding.codex_loop_diagnostic"
+memory = "sqlite_plugin"
+memory_policy = "none"
+"#,
+        )
+        .expect("legacy config");
+
+        let config = AppConfig::load(Some(&config_path))
+            .await
+            .expect("legacy ids migrate");
+        assert_eq!(config.modules.workflow, "coding.codex_loop");
+        assert_eq!(config.modules.memory, "sqlite");
+    }
+
+    #[test]
+    fn removed_memory_policy_module_config_is_rejected() {
+        let mut value = serde_json::json!({
+            "module_config": {
+                "memory_policy": {
+                    "carry_forward": {}
+                }
+            }
+        });
+
+        let error = migrate_removed_config_keys(&mut value).expect_err("removed module config");
+        assert!(
+            error
+                .to_string()
+                .contains("module_config.memory_policy was removed")
         );
     }
 

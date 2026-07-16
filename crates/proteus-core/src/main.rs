@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
 use proteus_core::domain::{
-    AgentOutput, ModuleKind, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
+    AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
 };
 use proteus_core::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
@@ -207,7 +207,7 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
         .iter()
         .map(|manifest| {
             [
-                module_kind_label(&manifest.kind).to_owned(),
+                manifest.kind.as_str().to_owned(),
                 manifest.id.clone(),
                 manifest.capabilities.join(","),
                 manifest.description.clone().unwrap_or_default(),
@@ -496,25 +496,6 @@ fn tool_safety_label(safety: &ToolSafety) -> &'static str {
         ToolSafety::Network => "Network",
         ToolSafety::Dangerous => "Dangerous",
         _ => "Unknown",
-    }
-}
-
-fn module_kind_label(kind: &ModuleKind) -> &'static str {
-    match kind {
-        ModuleKind::Model => "model",
-        ModuleKind::Search => "search",
-        ModuleKind::Memory => "memory",
-        ModuleKind::MemoryPolicy => "memory_policy",
-        ModuleKind::Context => "context",
-        ModuleKind::Tool => "tool",
-        ModuleKind::Policy => "policy",
-        ModuleKind::Patch => "patch",
-        ModuleKind::Compactor => "compactor",
-        ModuleKind::ToolExposure => "tool_exposure",
-        ModuleKind::Subagent => "subagent",
-        ModuleKind::Workflow => "workflow",
-        ModuleKind::Renderer => "renderer",
-        _ => "unknown",
     }
 }
 
