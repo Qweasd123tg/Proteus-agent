@@ -112,27 +112,15 @@ impl AppConfig {
         let metadata = tokio::fs::metadata(path)
             .await
             .with_context(|| format!("failed to inspect config path {}", path.display()))?;
-        if metadata.is_dir() {
-            Self::load_dir(path).await
-        } else {
-            Self::load_file(path).await
-        }
-    }
-
-    async fn load_file(path: &Path) -> Result<Self> {
+        let source_kind = if metadata.is_dir() { "dir" } else { "file" };
         let mut value = load_config_path_value(path, &mut BTreeSet::new())?;
         migrate_removed_config_keys(&mut value)?;
-        let mut config: Self = serde_json::from_value(value)
-            .with_context(|| format!("failed to build config from file {}", path.display()))?;
-        migrate_legacy_module_ids(&mut config);
-        Ok(config)
-    }
-
-    async fn load_dir(path: &Path) -> Result<Self> {
-        let mut value = load_config_path_value(path, &mut BTreeSet::new())?;
-        migrate_removed_config_keys(&mut value)?;
-        let mut config: Self = serde_json::from_value(value)
-            .with_context(|| format!("failed to build config from dir {}", path.display()))?;
+        let mut config: Self = serde_json::from_value(value).with_context(|| {
+            format!(
+                "failed to build config from {source_kind} {}",
+                path.display()
+            )
+        })?;
         migrate_legacy_module_ids(&mut config);
         Ok(config)
     }
