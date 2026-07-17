@@ -421,8 +421,9 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 - межпаковые строковые контракты без producer-проверки — инвентарь в
   `docs/pack-contracts.md`;
 - session dir: 10-значный numeric basename с возможными коллизиями;
-- recovery пустого streaming-ответа живёт в generic `ModelService` вместо
-  provider adapter — может сработать не для того провайдера;
+- ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
+  перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
+  `Response` теперь является обязанностью каждого provider adapter-а;
 - live session summary синтезируется в HTTP transport и может разъехаться
   с persistent summaries;
 - web client: O(N²) fingerprint-скан ленты на событие + полный
@@ -1012,15 +1013,14 @@ Scope:
   registry-регистрация, safety и MCP-семантика (initialize handshake,
   tools/list pagination, tools/call rendering). Полный вынос MCP executor
   в plugin — отдельный шаг, если появится причина.
-- Явно закрепить contract текущего user message для `WorkflowOutput`.
-  Сейчас runtime сохраняет user prompt до workflow и сверяет, что workflow
-  вернул тот же user message на `new_messages_start`; следующий cleanup должен
-  либо документировать это как часть `proteus-contracts`, либо перевести
-  workflow на возврат только assistant/tool deltas текущего turn.
-- Перенести recovery пустого финального streaming response из generic
-  `ModelService` в provider adapter или оформить provider-neutral contract
-  “streamed deltas authoritative as fallback”. Нынешний fallback нужен для
-  OpenAI-compatible proxy behavior, но живёт слишком высоко.
+- ✅ Закрыто 2026-07-17: `WorkflowOutput` больше не возвращает полный history и
+  `new_messages_start`. Runtime передаёт workflow history уже с сохранённым
+  current user, output содержит assistant/tool `new_messages`, а changed
+  compaction — отдельный `history_replacement` с точным current user id.
+- ✅ Закрыто 2026-07-17: recovery пустого финального streaming response живёт
+  в OpenAI adapter-е (`output_item.done`, затем text deltas), generic
+  `ModelService` доверяет terminal canonical `Response` и не угадывает
+  provider semantics. Отсутствие terminal event является ошибкой adapter-а.
 - Свести live session summary overlay к helper/API рядом с `SessionStore`.
   HTTP transport сейчас синтезирует summary для live sessions, что допустимо
   как временный transport слой, но preview/count/resumable semantics не должны

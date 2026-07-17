@@ -34,7 +34,11 @@ fn stable_context_keeps_the_next_turn_wire_input_append_only() {
     let first_request = first_host.requests.lock().expect("first requests")[0].clone();
 
     let mut second_input = workflow_input("second question");
-    second_input.history = first_output.messages;
+    let second_user = second_input.history.pop().expect("second user message");
+    let mut second_history = first_input.history.clone();
+    second_history.extend(first_output.new_messages);
+    second_history.push(second_user);
+    second_input.history = second_history;
     second_input.runtime.session_id = session_id;
     let second_input_json = serde_json::to_string(&second_input).expect("second input json");
     let mut second_host = FakeHost::default().with_context_text("stable workspace context");

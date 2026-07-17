@@ -148,28 +148,31 @@ pub trait Workflow: Send + Sync {
 #[non_exhaustive]
 pub struct WorkflowOutput {
     pub output: AgentOutput,
-    pub messages: Vec<CanonicalMessage>,
-    pub new_messages_start: Option<usize>,
+    /// Persistent assistant/tool messages produced after the current user
+    /// message from the input history.
+    pub new_messages: Vec<CanonicalMessage>,
+    /// Compacted persistent history snapshot that preserves the exact current
+    /// user message from the input history.
+    ///
+    /// `None` keeps the runtime history append-only. `Some` asks the runtime
+    /// to atomically replace the existing history with this snapshot before it
+    /// appends `new_messages`.
+    pub history_replacement: Option<Vec<CanonicalMessage>>,
     pub compactions: Vec<HistoryCompactionReport>,
 }
 
 impl WorkflowOutput {
-    pub fn new(output: AgentOutput, messages: Vec<CanonicalMessage>) -> Self {
+    pub fn new(output: AgentOutput, new_messages: Vec<CanonicalMessage>) -> Self {
         Self {
             output,
-            messages,
-            new_messages_start: None,
+            new_messages,
+            history_replacement: None,
             compactions: Vec::new(),
         }
     }
 
-    pub fn with_new_messages_start(mut self, index: usize) -> Self {
-        self.new_messages_start = Some(index);
-        self
-    }
-
-    pub fn with_optional_new_messages_start(mut self, index: Option<usize>) -> Self {
-        self.new_messages_start = index;
+    pub fn with_history_replacement(mut self, messages: Vec<CanonicalMessage>) -> Self {
+        self.history_replacement = Some(messages);
         self
     }
 

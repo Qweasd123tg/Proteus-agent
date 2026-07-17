@@ -210,6 +210,7 @@ impl AnthropicMessagesClient {
         let state = Arc::new(Mutex::new(AnthropicStreamState::default()));
         let mut sse = response.bytes_stream().eventsource();
         let events = async_stream::stream! {
+            let mut saw_terminal_event = false;
             while let Some(chunk) = sse.next().await {
                 match chunk {
                     Ok(event) => {
@@ -217,14 +218,16 @@ impl AnthropicMessagesClient {
                             let mut guard = state.lock().unwrap();
                             guard.translate(&event.event, &event.data)
                         };
-                        let mut saw_response = false;
                         for mapped in mapped {
-                            if matches!(mapped, ModelStreamEvent::Response { .. }) {
-                                saw_response = true;
+                            if matches!(
+                                mapped,
+                                ModelStreamEvent::Response { .. } | ModelStreamEvent::Error { .. }
+                            ) {
+                                saw_terminal_event = true;
                             }
                             yield Ok(mapped);
                         }
-                        if saw_response {
+                        if saw_terminal_event {
                             break;
                         }
                     }
@@ -237,9 +240,15 @@ impl AnthropicMessagesClient {
                                 ),
                             }),
                         }
+                        saw_terminal_event = true;
                         break;
                     }
                 }
+            }
+            if !saw_terminal_event {
+                yield Ok(ModelStreamEvent::Error {
+                    message: "anthropic messages stream ended without a terminal event".to_owned(),
+                });
             }
         };
         Ok(Box::pin(events))

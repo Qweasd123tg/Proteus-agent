@@ -428,9 +428,11 @@ impl PluginWorkflowHost for FakeHost {
 }
 
 fn workflow_input(text: &str) -> PluginWorkflowInput {
+    let task = AgentTask::new(text, std::env::current_dir().expect("cwd"));
+    let history = vec![CanonicalMessage::text(MessageRole::User, task.text.clone())];
     PluginWorkflowInput {
-        task: AgentTask::new(text, std::env::current_dir().expect("cwd")),
-        history: Vec::new(),
+        task,
+        history,
         runtime: PluginWorkflowRuntimeInfo {
             session_id: new_session_id(),
             thread_id: new_thread_id(),
@@ -521,24 +523,23 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
     assert_eq!(output.output.metadata["phases"], json!(["turn_loop"]));
     assert_eq!(output.output.metadata["tool_rounds"], json!(1));
     assert!(output.output.metadata["tool_round_limit_reached"].is_null());
-    assert_eq!(output.new_messages_start, Some(0));
+    assert!(output.history_replacement.is_none());
 
     let persisted = output
-        .messages
+        .new_messages
         .iter()
         .map(|message| (message.role.clone(), message_text(message)))
         .collect::<Vec<_>>();
     assert_eq!(
         persisted,
         vec![
-            (MessageRole::User, "change code".to_owned()),
             (MessageRole::Assistant, "<empty model response>".to_owned()),
             (MessageRole::Tool, "<empty model response>".to_owned()),
             (MessageRole::Assistant, "final answer".to_owned()),
         ]
     );
     let persisted_tool_output = output
-        .messages
+        .new_messages
         .iter()
         .find_map(|message| {
             message.parts.iter().find_map(|part| match part {
@@ -629,7 +630,7 @@ fn codex_loop_continues_when_provider_sets_end_turn_false() {
     assert_eq!(output.output.text, "final answer");
     assert_eq!(host.requests.lock().expect("requests").len(), 2);
     let assistant_texts = output
-        .messages
+        .new_messages
         .iter()
         .filter(|message| message.role == MessageRole::Assistant)
         .map(message_text)
@@ -902,7 +903,38 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
 }
 
 #[test]
-fn single_loop_calls_host_and_returns_persistent_messages() {
+fn codex_loop_separates_compacted_history_from_new_turn_messages() {
+    let input = workflow_input("change code");
+    let current_user = input.history.last().expect("current user").clone();
+    let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
+        .with_metadata(json!({ "generated": true, "summary": true }));
+    let compacted_history = vec![current_user.clone(), generated_summary.clone()];
+    let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
+        compacted_history.clone(),
+        Some("compacted summary".to_owned()),
+    );
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let mut host = FakeHost::default().with_compaction_outputs(vec![compacted_output]);
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+
+    let output_json =
+        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
+            RResult::ROk(output) => output,
+            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: PluginWorkflowOutput =
+        serde_json::from_str(output_json.as_str()).expect("output json");
+    drop(host_to);
+
+    assert_eq!(output.history_replacement, Some(compacted_history));
+    assert_eq!(output.new_messages.len(), 1);
+    assert_eq!(output.new_messages[0].role, MessageRole::Assistant);
+    assert_eq!(message_text(&output.new_messages[0]), "done");
+}
+
+#[test]
+fn single_loop_calls_host_and_returns_new_messages() {
     let input = workflow_input("hello");
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::default();
@@ -924,7 +956,7 @@ fn single_loop_calls_host_and_returns_persistent_messages() {
         output.output.metadata["workflow"]["module_id"],
         SINGLE_LOOP_MODULE_ID
     );
-    assert_eq!(output.messages.len(), 2);
+    assert_eq!(output.new_messages.len(), 1);
 
     let requests = host.requests.lock().expect("requests");
     assert_eq!(requests.len(), 1);
@@ -1170,7 +1202,7 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
     assert_ne!(executed_calls[0].id, outer_call.id);
 
     let result = output
-        .messages
+        .new_messages
         .iter()
         .find_map(|message| {
             message.parts.iter().find_map(|part| match part {
@@ -1264,21 +1296,8 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
 
 #[test]
 fn plan_execute_review_runs_plan_execute_and_review_requests() {
-    let input = PluginWorkflowInput {
-        task: AgentTask::new("change code", std::env::current_dir().expect("cwd")),
-        history: Vec::new(),
-        runtime: PluginWorkflowRuntimeInfo {
-            session_id: new_session_id(),
-            thread_id: new_thread_id(),
-            turn_id: new_turn_id(),
-            model_ref: ModelRef::new("fake", "model"),
-            instructions: Vec::new(),
-            reasoning: ReasoningConfig::new(Some("high".to_owned()), true),
-            max_input_tokens: Some(16_000),
-            model_timeout_ms: 120_000,
-            context_timeout_ms: 30_000,
-        },
-    };
+    let mut input = workflow_input("change code");
+    input.runtime.reasoning = ReasoningConfig::new(Some("high".to_owned()), true);
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::with_responses(vec![
         CanonicalModelResponse::new(
@@ -1319,20 +1338,17 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
         json!(["plan", "execute", "review"])
     );
     let persisted = output
-        .messages
+        .new_messages
         .iter()
         .map(|message| (message.role.clone(), message_text(message)))
         .collect::<Vec<_>>();
     assert_eq!(
         persisted,
-        vec![
-            (MessageRole::User, "change code".to_owned()),
-            (MessageRole::Assistant, "final".to_owned()),
-        ]
+        vec![(MessageRole::Assistant, "final".to_owned())]
     );
     assert!(
         output
-            .messages
+            .new_messages
             .iter()
             .all(|message| message.metadata["workflow_phase"] != "plan")
     );
@@ -1429,7 +1445,7 @@ fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
     // Plan tool call и его результат сохраняются в persistent messages.
     assert!(
         output
-            .messages
+            .new_messages
             .iter()
             .any(|message| message.role == MessageRole::Tool)
     );

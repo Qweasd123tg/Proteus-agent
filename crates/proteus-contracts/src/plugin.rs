@@ -519,6 +519,8 @@ pub type ToolExposureObject = PluginToolExposure_TO<abi_stable::std_types::RBox<
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginWorkflowInput {
     pub task: AgentTask,
+    /// Persistent history through the current user message. The runtime
+    /// stores that message before entering the workflow.
     #[serde(default)]
     pub history: Vec<CanonicalMessage>,
     pub runtime: PluginWorkflowRuntimeInfo,
@@ -543,10 +545,15 @@ pub struct PluginWorkflowRuntimeInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginWorkflowOutput {
     pub output: AgentOutput,
+    /// Persistent assistant/tool messages produced after the current user
+    /// message from `PluginWorkflowInput::history`.
     #[serde(default)]
-    pub messages: Vec<CanonicalMessage>,
+    pub new_messages: Vec<CanonicalMessage>,
+    /// Compacted persistent history snapshot that preserves the exact current
+    /// user message from the input history. When present, the runtime replaces
+    /// the stored history with this snapshot and then appends `new_messages`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_messages_start: Option<usize>,
+    pub history_replacement: Option<Vec<CanonicalMessage>>,
     #[serde(default)]
     pub compactions: Vec<HistoryCompactionReport>,
 }

@@ -181,7 +181,12 @@ non-stdio transports — отдельная задача. Если они поя
   `complete_model`, `compact_history`, `select_tools`, `visible_tools`,
   `execute_tool`, `execute_tools`, `emit_event`). Runtime metadata, включая model/ref,
   reasoning, timeout-ы и base `InstructionBlock` prompt, приходит в
-  `PluginWorkflowInput.runtime`.
+  `PluginWorkflowInput.runtime`. `PluginWorkflowInput.history` уже содержит
+  сохранённый current user message. Output возвращает только assistant/tool
+  suffix в `new_messages`; changed compaction отдельно передаёт
+  `history_replacement`, который сохраняет точный current user message и
+  заменяется runtime-ом до append suffix-а. Старые поля полного history
+  `messages`/`new_messages_start` удалены 2026-07-17.
 
 Все эти plugin-facing trait'ы sync. Async внутри плагина разрешён через
 локальный tokio runtime или `reqwest::blocking` / `ureq`. Адаптеры потенциально

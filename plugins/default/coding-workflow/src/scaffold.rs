@@ -10,7 +10,7 @@ use proteus_contracts::{
 use serde_json::Value;
 
 use crate::history::{
-    current_turn_start, persistent_messages_from_model_messages, replace_after_compaction,
+    current_user_index, persistent_messages_from_model_messages, replace_after_compaction,
 };
 use crate::host::{build_context, emit_event};
 
@@ -27,6 +27,7 @@ pub(crate) struct TurnScaffold {
     pub(crate) context_chunks: usize,
     pub(crate) context_token_estimate: Option<u32>,
     compactions: Vec<HistoryCompactionReport>,
+    history_replacement_len: Option<usize>,
 }
 
 impl TurnScaffold {
@@ -52,10 +53,20 @@ impl TurnScaffold {
 
         let context_chunks = bundle.chunks.len();
         let context_token_estimate = bundle.token_estimate;
-        let mut persistent_messages = input.history.clone();
-        let user_message = CanonicalMessage::text(MessageRole::User, input.task.text.clone());
-        let current_user_message_id = user_message.id;
-        persistent_messages.push(user_message.clone());
+        let persistent_messages = input.history.clone();
+        let current_user_message = persistent_messages.last().ok_or_else(|| {
+            PluginWorkflowError::new(
+                "workflow input history must end with the persisted current user message",
+            )
+        })?;
+        if current_user_message.role != MessageRole::User
+            || message_text(current_user_message) != input.task.text
+        {
+            return Err(PluginWorkflowError::new(
+                "workflow input history does not end with the current task user message",
+            ));
+        }
+        let current_user_message_id = current_user_message.id;
 
         // Provider prompt caches reuse an unchanged request prefix. Keep the
         // ephemeral workspace context before durable conversation history so
@@ -80,6 +91,7 @@ impl TurnScaffold {
             context_chunks,
             context_token_estimate,
             compactions: Vec::new(),
+            history_replacement_len: None,
         })
     }
 
@@ -125,8 +137,16 @@ impl TurnScaffold {
                 )?;
             }
         }
-        self.current_turn_messages_start =
-            current_turn_start(&self.model_messages, self.current_user_message_id);
+        let current_user_index =
+            current_user_index(&self.model_messages, self.current_user_message_id).ok_or_else(
+                || {
+                    PluginWorkflowError::new(
+                        "compaction changed history but dropped the current user message",
+                    )
+                },
+            )?;
+        self.current_turn_messages_start = current_user_index + 1;
+        self.history_replacement_len = Some(self.persistent_messages.len());
         Ok(true)
     }
 
@@ -143,13 +163,47 @@ impl TurnScaffold {
                 output: output.clone(),
             },
         )?;
-        let new_messages_start =
-            current_turn_start(&self.persistent_messages, self.current_user_message_id);
+        let mut history_prefix = self.persistent_messages;
+        let (history_replacement, new_messages) = match self.history_replacement_len {
+            Some(replacement_len) => {
+                if replacement_len > history_prefix.len() {
+                    return Err(PluginWorkflowError::new(
+                        "workflow history replacement boundary is beyond persistent history",
+                    ));
+                }
+                let new_messages = history_prefix.split_off(replacement_len);
+                (Some(history_prefix), new_messages)
+            }
+            None => {
+                let current_user_position =
+                    current_user_index(&history_prefix, self.current_user_message_id).ok_or_else(
+                        || {
+                            PluginWorkflowError::new(
+                                "workflow persistent history dropped the current user message",
+                            )
+                        },
+                    )?;
+                let new_messages = history_prefix.split_off(current_user_position + 1);
+                (None, new_messages)
+            }
+        };
         Ok(PluginWorkflowOutput {
             output,
-            messages: self.persistent_messages,
-            new_messages_start: Some(new_messages_start),
+            new_messages,
+            history_replacement,
             compactions: self.compactions,
         })
     }
+}
+
+fn message_text(message: &CanonicalMessage) -> String {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }

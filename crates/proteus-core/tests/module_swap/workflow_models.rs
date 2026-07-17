@@ -121,6 +121,16 @@ impl ModelClient for NeverModel {
         pending().await
     }
 }
+
+fn task_with_persisted_user(
+    text: &str,
+    cwd: &std::path::Path,
+) -> (AgentTask, Vec<CanonicalMessage>) {
+    let task = AgentTask::new(text, cwd.to_path_buf());
+    let history = vec![CanonicalMessage::text(MessageRole::User, task.text.clone())];
+    (task, history)
+}
+
 #[tokio::test]
 async fn workflow_does_not_execute_tool_calls_from_length_response() {
     let dir = temp_workspace();
@@ -138,12 +148,9 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
         PermissionMode::Normal,
     );
 
+    let (task, history) = task_with_persisted_user("write", dir.path());
     let error = single_loop_workflow(8)
-        .run(
-            AgentTask::new("write".to_owned(), dir.path().to_path_buf()),
-            Vec::new(),
-            ctx,
-        )
+        .run(task, history, ctx)
         .await
         .expect_err("length response with tool calls must fail closed");
 
@@ -184,12 +191,9 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
         PermissionMode::Normal,
     );
 
+    let (task, history) = task_with_persisted_user("write then finish", dir.path());
     let output = single_loop_workflow(1)
-        .run(
-            AgentTask::new("write then finish".to_owned(), dir.path().to_path_buf()),
-            Vec::new(),
-            ctx,
-        )
+        .run(task, history, ctx)
         .await
         .unwrap();
 
@@ -228,12 +232,9 @@ async fn workflow_times_out_hung_model_request() {
         PermissionMode::Normal,
     );
 
+    let (task, history) = task_with_persisted_user("hang", dir.path());
     let error = single_loop_workflow(8)
-        .run(
-            AgentTask::new("hang".to_owned(), dir.path().to_path_buf()),
-            Vec::new(),
-            ctx,
-        )
+        .run(task, history, ctx)
         .await
         .expect_err("hung model request should time out");
 

@@ -30,7 +30,7 @@ mod paths;
 pub use builder::AgentRuntimeBuilder;
 pub use paths::{config_store_root, event_log_path};
 
-use history::reconcile_current_user_message;
+use history::prepare_history_update;
 
 pub struct AgentRuntime {
     services: RuntimeServices,
@@ -211,7 +211,6 @@ impl AgentRuntime {
             )
             .await?;
         let history = self.persist_current_user_message(&user_message).await?;
-        let previous_history_len = history.len();
         // Выставляем delta event context для ModelService, чтобы
         // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
         // правильным envelope (session/thread/turn). Без этого дельты
@@ -241,11 +240,12 @@ impl AgentRuntime {
         runtime_context.reasoning = reasoning;
         let runtime_context = runtime_context.with_cancellation(cancellation.clone());
         let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
-        let workflow = snapshot
-            .registry
-            .workflow
-            .run(task.clone(), history, runtime_context);
-        let mut workflow_output = if workflow_timeout_ms == 0 {
+        let workflow =
+            snapshot
+                .registry
+                .workflow
+                .run(task.clone(), history.clone(), runtime_context);
+        let workflow_output = if workflow_timeout_ms == 0 {
             workflow.await?
         } else {
             timeout(Duration::from_millis(workflow_timeout_ms), workflow)
@@ -262,46 +262,26 @@ impl AgentRuntime {
             .compactions
             .iter()
             .any(|report| report.changed);
-        let new_messages_start = workflow_output
-            .new_messages_start
-            .unwrap_or(previous_history_len);
-        let current_user_already_persisted = reconcile_current_user_message(
-            &mut workflow_output.messages,
-            new_messages_start,
+        let history_update = prepare_history_update(
+            &history,
             &user_message,
-        );
-        anyhow::ensure!(
-            current_user_already_persisted,
-            "workflow output did not preserve the current user message at new_messages_start {}",
-            new_messages_start,
-        );
-        if !history_compacted {
-            anyhow::ensure!(
-                workflow_output.messages.len() > previous_history_len,
-                "workflow returned no current-turn messages without compaction: output {}, input {}",
-                workflow_output.messages.len(),
-                previous_history_len
-            );
-        }
-        anyhow::ensure!(
-            new_messages_start <= workflow_output.messages.len(),
-            "workflow new_messages_start {} is beyond output messages {}",
-            new_messages_start,
-            workflow_output.messages.len()
-        );
-        let messages_to_persist_start = new_messages_start + 1;
-        let messages_to_persist = &workflow_output.messages[messages_to_persist_start..];
+            &workflow_output.new_messages,
+            workflow_output.history_replacement.as_deref(),
+            history_compacted,
+        )?;
         let mut history = self.session.history.lock().await;
         if let Some(session_store) = &self.session.session_store {
-            if history_compacted {
+            if history_update.replace {
                 session_store
-                    .replace_messages(&workflow_output.messages)
+                    .replace_messages(&history_update.final_messages)
                     .await?;
             } else {
-                session_store.append_messages(messages_to_persist).await?;
+                session_store
+                    .append_messages(&workflow_output.new_messages)
+                    .await?;
             }
         }
-        *history = workflow_output.messages;
+        *history = history_update.final_messages;
         Ok(workflow_output.output)
     }
 
@@ -310,7 +290,6 @@ impl AgentRuntime {
         user_message: &CanonicalMessage,
     ) -> Result<Vec<CanonicalMessage>> {
         let mut history = self.session.history.lock().await;
-        let previous_history = history.clone();
         history.push(user_message.clone());
         if let Some(session_store) = &self.session.session_store {
             session_store
@@ -318,7 +297,7 @@ impl AgentRuntime {
                 .await?;
             self.persist_config_snapshot_for_session();
         }
-        Ok(previous_history)
+        Ok(history.clone())
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
@@ -583,18 +562,15 @@ mod tests {
     }
 
     fn successful_messages(
-        mut history: Vec<CanonicalMessage>,
+        history: Vec<CanonicalMessage>,
         task: AgentTask,
         answer: impl Into<String>,
     ) -> WorkflowOutput {
-        let new_messages_start = history.len();
-        history.push(CanonicalMessage::text(MessageRole::User, task.text));
-        history.push(CanonicalMessage::text(
-            MessageRole::Assistant,
-            answer.into(),
-        ));
-        WorkflowOutput::new(AgentOutput::text("done"), history)
-            .with_new_messages_start(new_messages_start)
+        let current_user = history.last().expect("persisted current user message");
+        assert_eq!(current_user.role, MessageRole::User);
+        assert_eq!(message_text_for_test(current_user), task.text);
+        let assistant = CanonicalMessage::text(MessageRole::Assistant, answer.into());
+        WorkflowOutput::new(AgentOutput::text("done"), vec![assistant])
     }
 
     struct ShortHistoryWorkflow;
@@ -636,25 +612,25 @@ mod tests {
             history: Vec<CanonicalMessage>,
             _ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
-            assert_eq!(history.len(), 2);
+            assert_eq!(history.len(), 3);
             let summary = CanonicalMessage::text(MessageRole::User, "compacted summary");
-            let current = CanonicalMessage::text(MessageRole::User, task.text);
+            let current = history.last().expect("current user").clone();
+            assert_eq!(message_text_for_test(&current), task.text);
             let answer = CanonicalMessage::text(MessageRole::Assistant, "done after compact");
-            let messages = vec![summary, current, answer];
             let mut report = HistoryCompactionReport::unchanged(
-                history.len() + 1,
+                history.len(),
                 Some("test_compaction".to_owned()),
             );
             report.changed = true;
-            report.output_messages = messages.len();
+            report.output_messages = 3;
             report.original_token_estimate = Some(500);
             report.output_token_estimate = Some(50);
             report.trigger_tokens = Some(100);
             report.summary_source = Some("test".to_owned());
             report.summary = Some("compacted summary".to_owned());
             report.metadata = serde_json::json!({"test": true});
-            Ok(WorkflowOutput::new(AgentOutput::text("done"), messages)
-                .with_new_messages_start(1)
+            Ok(WorkflowOutput::new(AgentOutput::text("done"), vec![answer])
+                .with_history_replacement(vec![summary, current])
                 .with_compactions(vec![report]))
         }
     }
@@ -696,17 +672,17 @@ mod tests {
             history: Vec<CanonicalMessage>,
             ctx: RuntimeContext,
         ) -> Result<WorkflowOutput> {
-            let new_messages_start = history.len();
-            let mut messages = history;
-            messages.push(CanonicalMessage::text(MessageRole::User, task.text));
-            let request = CanonicalModelRequest::new(ctx.model_ref.clone(), messages.clone())
+            let current_user = history.last().expect("persisted current user message");
+            assert_eq!(message_text_for_test(current_user), task.text);
+            let request = CanonicalModelRequest::new(ctx.model_ref.clone(), history)
                 .with_instructions(ctx.instructions.clone())
                 .with_tools(ctx.tools.specs())
                 .with_reasoning(ctx.reasoning.clone());
             let response = ctx.model.complete(request).await?;
-            messages.push(response.message);
-            Ok(WorkflowOutput::new(AgentOutput::text("done"), messages)
-                .with_new_messages_start(new_messages_start))
+            Ok(WorkflowOutput::new(
+                AgentOutput::text("done"),
+                vec![response.message],
+            ))
         }
     }
 
@@ -724,19 +700,15 @@ mod tests {
             }
             let has_late_tool = ctx.tools.spec("late_tool").is_ok();
             let output = AgentOutput::text(format!("has_late_tool={has_late_tool}"));
-            let new_messages_start = history.len();
-            let mut messages = history;
-            messages.push(CanonicalMessage::text(MessageRole::User, task.text));
-            messages.push(CanonicalMessage::text(
-                MessageRole::Assistant,
-                output.text.clone(),
-            ));
-            Ok(WorkflowOutput::new(output, messages).with_new_messages_start(new_messages_start))
+            let current_user = history.last().expect("persisted current user message");
+            assert_eq!(message_text_for_test(current_user), task.text);
+            let assistant = CanonicalMessage::text(MessageRole::Assistant, output.text.clone());
+            Ok(WorkflowOutput::new(output, vec![assistant]))
         }
     }
 
     #[tokio::test]
-    async fn run_errors_when_workflow_drops_existing_history() {
+    async fn run_errors_when_workflow_returns_no_turn_messages() {
         let cwd = tempfile::tempdir().expect("temp dir");
         let mut config = AppConfig::default();
         config.modules.patch = "null".to_owned();
@@ -756,12 +728,12 @@ mod tests {
         let error = runtime
             .run("current".to_owned())
             .await
-            .expect_err("short workflow history must error");
+            .expect_err("empty workflow turn must error");
 
         assert!(
             error
                 .to_string()
-                .contains("workflow output did not preserve the current user message")
+                .contains("workflow returned no new assistant/tool messages")
         );
     }
 
@@ -787,7 +759,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("workflow output did not preserve the current user message")
+                .contains("workflow returned no new assistant/tool messages")
         );
         let history = runtime.history().await;
         assert_eq!(history.len(), 1);

@@ -14,19 +14,14 @@ pub struct NoWorkflow;
 impl Workflow for NoWorkflow {
     async fn run(
         &self,
-        task: AgentTask,
-        mut history: Vec<CanonicalMessage>,
+        _task: AgentTask,
+        _history: Vec<CanonicalMessage>,
         _ctx: RuntimeContext,
     ) -> Result<WorkflowOutput> {
         let output = AgentOutput::text(
             "workflow is disabled; select a workflow plugin such as coding.plan_execute_review",
         );
-        let new_messages_start = history.len();
-        history.push(CanonicalMessage::text(MessageRole::User, task.text));
-        history.push(CanonicalMessage::text(
-            MessageRole::Assistant,
-            output.text.clone(),
-        ));
-        Ok(WorkflowOutput::new(output, history).with_new_messages_start(new_messages_start))
+        let assistant_message = CanonicalMessage::text(MessageRole::Assistant, output.text.clone());
+        Ok(WorkflowOutput::new(output, vec![assistant_message]))
     }
 }

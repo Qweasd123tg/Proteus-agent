@@ -201,6 +201,7 @@ impl OpenAiResponsesClient {
             // output, хотя сами item'ы (message/function_call) уже были доставлены
             // через output_item.done. Без этого ход теряется как <empty model response>.
             let mut completed_items: Vec<Value> = Vec::new();
+            let mut streamed_text = String::new();
             let mut saw_terminal_event = false;
             while let Some(chunk) = sse.next().await {
                 match chunk {
@@ -212,11 +213,14 @@ impl OpenAiResponsesClient {
                             completed_items.push(item.clone());
                         }
                         let mapped = if event.event == "response.completed" {
-                            finalize_completed_event(&event.data, &completed_items)
+                            finalize_completed_event(&event.data, &completed_items, &streamed_text)
                         } else {
                             translate_sse_event(&event.event, &event.data)
                         };
                         for mapped in mapped {
+                            if let ModelStreamEvent::TextDelta { text } = &mapped {
+                                streamed_text.push_str(text);
+                            }
                             if matches!(
                                 mapped,
                                 ModelStreamEvent::Response { .. } | ModelStreamEvent::Error { .. }

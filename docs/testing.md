@@ -59,6 +59,10 @@ Leptos-клиенты исключены из root workspace и проверяю
 - `FakeModelClient` использует `CanonicalModelRequest` / `CanonicalModelResponse` через model contract и `ModelService`;
 - `ModelService` drain-ит stream и эмитит `AssistantTextDelta` / `AssistantToolArgsDelta` / `AssistantReasoningDelta` events;
 - `ModelService` применяет `RequestShaper` перед вызовом provider adapter-а;
+- generic `ModelService` не восстанавливает terminal response из дельт:
+  provider adapter обязан вернуть полный `Response` либо `Error`; OpenAI tests
+  отдельно покрывают recovery пустого `response.completed` из output items и
+  text deltas;
 - JSON config может выбрать Anthropic provider;
 - JSON config может переключиться на custom local provider URL;
 - workspace path encoding стабилен.
@@ -117,6 +121,10 @@ ABI bridge для compactor host, включая `complete_model_json`; runtime-
 проверяют, что changed compaction заменяет in-memory history и `messages.jsonl`,
 а workflow-тесты проверяют model-aware threshold в `CompactionInput.max_tokens`
 и сохранность текущего user message id на changed-compaction boundary.
+Отдельные regression-тесты фиксируют новый workflow history contract: runtime
+передаёт уже сохранённый current user, обычный output содержит только
+assistant/tool `new_messages`, а generated user-summary после current user
+остаётся внутри `history_replacement` и не протекает в append suffix.
 
 ## DTO И Builder-Паттерн
 

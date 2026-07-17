@@ -9,8 +9,8 @@ use crate::{
     core::RequestSnapshotWriter,
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole, ModelCapabilities, ModelStreamEvent, RequestShaper,
+        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
+        RequestShaper,
     },
 };
 
@@ -118,40 +118,11 @@ impl ModelClient for ModelService {
             .unwrap_or(false);
         let ctx = self.snapshot_context();
         let mut stream = self.stream(request).await?;
-        let mut text = String::new();
-        let mut saw_tool_delta = false;
-        let mut saw_tool_finished = false;
-        let mut done_reason = None;
 
         while let Some(event) = stream.next().await {
             let event = event?;
             match event {
                 ModelStreamEvent::Response { response } => {
-                    // Некоторые OpenAI-совместимые прокси стримят ответ через
-                    // output_text.delta, но в финальном response.completed
-                    // возвращают пустой output. Тогда финальный Response пуст,
-                    // хотя текст уже пришёл в дельтах. Без восстановления ход
-                    // теряется: <empty model response> в UI и пустой parts в
-                    // персисте (история исчезает после перезахода).
-                    if !text.is_empty() && response_lacks_emittable_content(&response) {
-                        let mut recovered = CanonicalModelResponse::new(
-                            CanonicalMessage::text(
-                                MessageRole::Assistant,
-                                std::mem::take(&mut text),
-                            ),
-                            response.tool_calls.clone(),
-                            response.finish_reason.clone(),
-                        );
-                        if let Some(usage) = response.usage.clone() {
-                            recovered = recovered.with_usage(usage);
-                        }
-                        if let Some(end_turn) = response.end_turn {
-                            recovered = recovered.with_end_turn(end_turn);
-                        }
-                        // Сохраняем сырой ответ провайдера для диагностики.
-                        recovered.provider_metadata = response.provider_metadata.clone();
-                        return Ok(recovered);
-                    }
                     return Ok(response);
                 }
                 ModelStreamEvent::Error { message } => {
@@ -167,14 +138,12 @@ impl ModelClient for ModelService {
                         )
                         .await;
                     }
-                    text.push_str(&delta);
                 }
                 ModelStreamEvent::ToolCallDelta {
                     call_id,
                     args_delta,
                     ..
                 } => {
-                    saw_tool_delta = true;
                     if !suppress_stream_deltas {
                         emit_delta(
                             &ctx,
@@ -190,27 +159,10 @@ impl ModelClient for ModelService {
                     emit_delta(&ctx, Event::AssistantReasoningDelta { text }).await;
                 }
                 ModelStreamEvent::ReasoningSummaryDelta { .. } => {}
-                ModelStreamEvent::ToolCallFinished { .. } => {
-                    saw_tool_finished = true;
-                }
-                ModelStreamEvent::Done { finish_reason } => {
-                    done_reason = Some(finish_reason);
-                }
                 // Usage пока не эмитим как runtime event — в нём нет
                 // UI-полезной нагрузки сверх Response.
                 _ => {}
             }
-        }
-        if !text.is_empty() && !saw_tool_delta && !saw_tool_finished {
-            let reason = done_reason.unwrap_or(FinishReason::Stop);
-            return Ok(CanonicalModelResponse::new(
-                CanonicalMessage::text(MessageRole::Assistant, text),
-                Vec::new(),
-                reason,
-            )
-            .with_provider_metadata(serde_json::json!({
-                "synthesized_from_text_deltas": true
-            })));
         }
         Err(anyhow!("model stream ended without Response event"))
     }
@@ -228,18 +180,6 @@ async fn emit_delta(ctx: &DeltaEventContext, event: Event) {
     // Ошибки эмиссии намеренно игнорируем: сломавшийся sink не должен
     // валить model call.
     let _ = emitter.emit(envelope_ctx, event).await;
-}
-
-/// Финальный Response не несёт ничего, что можно показать пользователю:
-/// нет tool_calls и нет непустых text-частей. Используется, чтобы решить,
-/// нужно ли восстанавливать ответ из накопленных stream-дельт.
-fn response_lacks_emittable_content(response: &CanonicalModelResponse) -> bool {
-    response.tool_calls.is_empty()
-        && !response
-            .message
-            .parts
-            .iter()
-            .any(|part| matches!(part, ContentPart::Text { text } if !text.trim().is_empty()))
 }
 
 #[cfg(test)]
@@ -336,10 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_final_response_recovers_streamed_text() {
-        // Прокси отдал текст в дельтах, но в финальном response.completed
-        // вернул пустой output. Текст должен восстановиться из дельт, а не
-        // потеряться как <empty model response>.
+    async fn empty_final_response_is_not_rewritten_by_model_service() {
         let empty = CanonicalModelResponse::new(
             CanonicalMessage::new(MessageRole::Assistant, Vec::new()),
             Vec::new(),
@@ -357,11 +294,7 @@ mod tests {
         ]));
         let service = ModelService::new(adapter);
         let response = service.complete(sample_request()).await.unwrap();
-        let text = response.message.parts.iter().find_map(|part| match part {
-            ContentPart::Text { text } => Some(text.clone()),
-            _ => None,
-        });
-        assert_eq!(text.as_deref(), Some("the time is 12:00"));
+        assert!(response.message.parts.is_empty());
         assert_eq!(response.finish_reason, FinishReason::Stop);
         assert_eq!(response.end_turn, Some(false));
     }
@@ -493,21 +426,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_ending_with_text_without_response_synthesizes_response() {
+    async fn stream_ending_with_text_without_response_is_error() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::TextDelta {
             text: "foo".into(),
         }]));
         let service = ModelService::new(adapter);
-        let response = service.complete(sample_request()).await.unwrap();
-        assert_eq!(response.finish_reason, FinishReason::Stop);
-        assert!(matches!(
-            response.message.parts.as_slice(),
-            [crate::model_standard::ContentPart::Text { text }] if text == "foo"
-        ));
-        assert_eq!(
-            response.provider_metadata["synthesized_from_text_deltas"],
-            true
-        );
+        let err = service.complete(sample_request()).await.unwrap_err();
+        assert!(err.to_string().contains("without Response"), "{err}");
     }
 
     #[tokio::test]

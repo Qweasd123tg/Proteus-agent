@@ -530,10 +530,13 @@ Conversation history хранит persistent сообщения: user prompts, a
 User prompt текущего turn сохраняется в in-memory history и `messages.jsonl`
 сразу после `TurnStarted`, до вызова workflow. Поэтому если workflow,
 provider, tool loop или процесс падает позже, принятый prompt не пропадает из
-resume/history. Workflow всё равно обязан вернуть этот user message на позиции
-`new_messages_start`; runtime сверяет его с уже сохранённым сообщением и
-дописывает только последующие assistant/tool сообщения, чтобы не дублировать
-prompt.
+resume/history. Workflow получает input history, который уже заканчивается
+этим сохранённым user message, и возвращает только `new_messages` текущего
+turn-а с ролями assistant/tool. Для обычного turn runtime дописывает этот
+suffix без повторной передачи user prompt. Changed compaction дополнительно
+возвращает `history_replacement`: compacted persistent snapshot обязан сохранить
+точный current user message вместе с его id; runtime атомарно заменяет историю
+этим snapshot-ом и затем дописывает `new_messages`.
 
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
@@ -603,6 +606,14 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 14. повторяет model call до финального ответа или лимита rounds;
 15. если лимит rounds исчерпан, делает финальный model call без tools;
 16. пишет `TurnFinished`.
+
+Успешный `ModelAdapter::stream` обязан закончиться полным canonical
+`Response`: дельты нужны для live UI, но generic `ModelService` не собирает из
+них отсутствующий или пустой финальный ответ. Provider-specific восстановление
+остаётся в adapter-е. Например, OpenAI adapter дополняет пустой
+`response.completed` из `response.output_item.done` или уже полученных
+`response.output_text.delta`; stream без terminal `Response`/`Error` считается
+ошибкой adapter-а.
 
 Лимит tool rounds в `coding.single_loop`: `8`. При достижении лимита workflow больше не исполняет tools в текущем turn и просит модель сформировать финальный ответ с пустым списком tools.
 

@@ -19,6 +19,12 @@ pub trait Model: Send + Sync {
     fn id(&self) -> Cow<'static, str>;
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
 
+    /// Returns provider events normalized to the canonical stream contract.
+    ///
+    /// A successful stream must contain one terminal `Response` whose
+    /// canonical message and tool calls are complete. Provider adapters must
+    /// repair provider-specific partial/empty terminal payloads before they
+    /// emit that response; consumers do not reconstruct it from deltas.
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream>;
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {

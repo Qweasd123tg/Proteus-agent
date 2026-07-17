@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::response::from_openai_response;
 use crate::model_standard::ModelStreamEvent;
@@ -127,30 +127,60 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
     }
 }
 
-/// Строит финальный Response из события response.completed. Если прокси
-/// прислал пустой `output` (хотя item'ы были доставлены через
-/// response.output_item.done) — подставляем накопленные item'ы, иначе
-/// настоящий ответ модели теряется как <empty model response>.
+/// Строит финальный Response из события response.completed. Пустой или
+/// неполный `output` дополняется завершёнными output item-ами, затем уже
+/// полученными text deltas. Provider-specific repair остаётся в adapter-е,
+/// поэтому generic ModelService получает полный canonical Response.
 pub(super) fn finalize_completed_event(
     data: &str,
     fallback_items: &[Value],
+    streamed_text: &str,
 ) -> Vec<ModelStreamEvent> {
     let Ok(parsed) = serde_json::from_str::<Value>(data) else {
         return Vec::new();
     };
     let mut response_value = parsed.get("response").cloned().unwrap_or(parsed);
-    let output_is_empty = response_value
+    let mut output = response_value
         .get("output")
         .and_then(Value::as_array)
-        .map(|items| items.is_empty())
-        .unwrap_or(true);
-    if output_is_empty && !fallback_items.is_empty() {
-        response_value["output"] = Value::Array(fallback_items.to_vec());
+        .cloned()
+        .unwrap_or_default();
+    if output.is_empty() {
+        output.extend_from_slice(fallback_items);
     }
+    if !streamed_text.is_empty() && !has_emittable_text_or_tool_call(&output) {
+        output.push(json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{ "type": "output_text", "text": streamed_text }]
+        }));
+    }
+    response_value["output"] = Value::Array(output);
     match from_openai_response(response_value) {
         Ok(response) => vec![ModelStreamEvent::Response { response }],
         Err(error) => vec![ModelStreamEvent::Error {
             message: format!("failed to parse final response: {error}"),
         }],
     }
+}
+
+fn has_emittable_text_or_tool_call(items: &[Value]) -> bool {
+    items
+        .iter()
+        .any(|item| match item.get("type").and_then(Value::as_str) {
+            Some("function_call" | "custom_tool_call") => true,
+            Some("message") => item
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|content| {
+                    content.get("type").and_then(Value::as_str) == Some("output_text")
+                        && content
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|text| !text.trim().is_empty())
+                }),
+            _ => false,
+        })
 }

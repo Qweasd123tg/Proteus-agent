@@ -316,7 +316,7 @@ fn empty_completed_output_recovered_from_output_item_done() {
     })
     .to_string();
 
-    let events = finalize_completed_event(&completed, &fallback_items);
+    let events = finalize_completed_event(&completed, &fallback_items, "");
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
@@ -349,7 +349,7 @@ fn nonempty_completed_output_ignores_fallback_items() {
     })
     .to_string();
 
-    let events = finalize_completed_event(&completed, &fallback_items);
+    let events = finalize_completed_event(&completed, &fallback_items, "FALLBACK");
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
@@ -363,6 +363,36 @@ fn nonempty_completed_output_ignores_fallback_items() {
         })
         .collect();
     assert_eq!(text, "real answer");
+}
+
+#[test]
+fn empty_completed_output_recovers_streamed_text_in_adapter() {
+    let completed = json!({
+        "type": "response.completed",
+        "response": {
+            "status": "completed",
+            "end_turn": false,
+            "output": [],
+            "usage": { "input_tokens": 5, "output_tokens": 3 }
+        }
+    })
+    .to_string();
+
+    let events = finalize_completed_event(&completed, &[], "streamed answer");
+    let [ModelStreamEvent::Response { response }] = events.as_slice() else {
+        panic!("expected single Response event");
+    };
+    assert_eq!(response.end_turn, Some(false));
+    let text = response
+        .message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<String>();
+    assert_eq!(text, "streamed answer");
 }
 
 #[test]

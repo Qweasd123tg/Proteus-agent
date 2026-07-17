@@ -5,14 +5,7 @@ use proteus_contracts::{
 };
 use serde_json::Value;
 
-pub(crate) fn current_turn_start(
-    messages: &[CanonicalMessage],
-    current_user_message_id: MessageId,
-) -> usize {
-    maybe_current_turn_start(messages, current_user_message_id).unwrap_or(messages.len())
-}
-
-fn maybe_current_turn_start(
+pub(crate) fn current_user_index(
     messages: &[CanonicalMessage],
     current_user_message_id: MessageId,
 ) -> Option<usize> {
@@ -52,8 +45,8 @@ pub(crate) fn replace_after_compaction(
     current_user_message_id: MessageId,
     excluded_persistent_phases: &[&str],
 ) -> Result<usize, PluginWorkflowError> {
-    let current_turn_messages_start =
-        maybe_current_turn_start(compacted_messages, current_user_message_id).ok_or_else(|| {
+    let current_user_position = current_user_index(compacted_messages, current_user_message_id)
+        .ok_or_else(|| {
             PluginWorkflowError::new(
                 "compaction changed history but dropped the current user message",
             )
@@ -63,12 +56,12 @@ pub(crate) fn replace_after_compaction(
         model_messages,
         excluded_persistent_phases,
     );
-    if maybe_current_turn_start(persistent_messages, current_user_message_id).is_none() {
+    if current_user_index(persistent_messages, current_user_message_id).is_none() {
         return Err(PluginWorkflowError::new(
             "compaction changed persistent history but dropped the current user message",
         ));
     }
-    Ok(current_turn_messages_start)
+    Ok(current_user_position)
 }
 
 fn is_ephemeral_context_message(message: &CanonicalMessage) -> bool {

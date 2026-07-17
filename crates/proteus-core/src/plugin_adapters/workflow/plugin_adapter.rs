@@ -86,9 +86,12 @@ impl Workflow for PluginWorkflowAdapter {
 
         let output: PluginWorkflowOutput = serde_json::from_str(&output_json)
             .with_context(|| "workflow plugin returned invalid PluginWorkflowOutput JSON")?;
-        Ok(WorkflowOutput::new(output.output, output.messages)
-            .with_compactions(output.compactions)
-            .with_optional_new_messages_start(output.new_messages_start))
+        let mut workflow_output = WorkflowOutput::new(output.output, output.new_messages)
+            .with_compactions(output.compactions);
+        if let Some(history_replacement) = output.history_replacement {
+            workflow_output = workflow_output.with_history_replacement(history_replacement);
+        }
+        Ok(workflow_output)
     }
 }
 
@@ -464,17 +467,12 @@ mod tests {
                 return RResult::RErr(PluginWorkflowError::new(err.message.into_string()));
             }
 
-            let mut messages = input.history;
-            messages.push(CanonicalMessage::text(
-                MessageRole::User,
-                input.task.text.clone(),
-            ));
-            messages.push(CanonicalMessage::new(
+            let assistant_message = CanonicalMessage::new(
                 MessageRole::Assistant,
                 vec![ContentPart::Text {
                     text: format!("plugin saw {} context chunks", bundle.chunks.len()),
                 }],
-            ));
+            );
             let output = PluginWorkflowOutput {
                 output: AgentOutput::new(
                     "plugin workflow done",
@@ -487,8 +485,8 @@ mod tests {
                             .collect::<Vec<_>>(),
                     }),
                 ),
-                messages,
-                new_messages_start: None,
+                new_messages: vec![assistant_message],
+                history_replacement: None,
                 compactions: Vec::new(),
             };
             RResult::ROk(RString::from(
@@ -539,12 +537,10 @@ mod tests {
         )]);
         let cwd = tempfile::tempdir().expect("workspace");
 
+        let task = AgentTask::new("hello plugin workflow", cwd.path().to_path_buf());
+        let history = vec![CanonicalMessage::text(MessageRole::User, task.text.clone())];
         let result = adapter
-            .run(
-                AgentTask::new("hello plugin workflow", cwd.path().to_path_buf()),
-                Vec::new(),
-                ctx,
-            )
+            .run(task, history, ctx)
             .await
             .expect("workflow output");
 
@@ -554,7 +550,7 @@ mod tests {
             result.output.metadata["instructions"],
             json!(["adapter propagated instructions"])
         );
-        assert_eq!(result.messages.len(), 2);
+        assert_eq!(result.new_messages.len(), 1);
         assert!(
             events
                 .events()

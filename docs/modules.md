@@ -119,6 +119,13 @@ Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зав�
 Runtime зависит от единого model contract: `id`, `capabilities`, `stream` и default `complete`.
 `ModelClient` и `ModelAdapter` оставлены как compatibility aliases к тому же trait, чтобы старые call sites мигрировали постепенно. `BuiltinRegistry` по-прежнему использует `ModelService` как shaping wrapper: перед provider call он вызывает `RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри provider-а, а compatibility shaping остаётся единым для всех providers.
 
+Успешный stream adapter-а обязан вернуть terminal `Response` с уже полными
+canonical message/tool calls. `ModelService` эмитит live deltas, но не
+синтезирует из них финальный ответ и не исправляет пустой provider payload.
+OpenAI-specific recovery пустого `response.completed` выполняется внутри
+OpenAI adapter-а из завершённых output items или накопленных text deltas;
+обрыв stream без terminal event возвращается как provider error.
+
 OpenAI Responses не объявляет один набор capabilities для всех model ids:
 конкретный provider profile задаёт `capabilities.supports_parallel_tool_calls`,
 `supports_json_schema` и `supports_reasoning_config`, неизвестная модель получает
@@ -769,9 +776,10 @@ model request с обновлённой историей. Отдельного s
 response просит tools или явно устанавливает `end_turn = false`, а завершается
 response без tool calls при `end_turn = true`/отсутствующем поле либо внешней
 ошибкой/cancel/timeout. Пустой финальный ответ модели не подменяется последним
-tool result. Changed compaction в этом workflow обязана сохранить текущий user
-message, иначе turn завершается ошибкой вместо тихого `new_messages_start =
-len`. Workflow не добавляет локальный
+tool result. Input history уже содержит сохранённый текущий user message.
+Changed compaction обязана сохранить точное сообщение вместе с его id и
+вернуть compacted snapshot отдельно от новых assistant/tool сообщений, иначе
+turn завершается ошибкой. Workflow не добавляет локальный
 `CODEX_SYSTEM_INSTRUCTIONS`: base/system/developer instructions приходят только
 из `PluginWorkflowRuntimeInfo.instructions`, который core заполняет из config.
 Если config не задал instructions, `coding.codex_loop` не подставляет
