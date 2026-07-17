@@ -170,9 +170,8 @@ hot-set budget и не вытесняют direct read/search tools. Финаль
 instructions и environment chunk уходят модели verbatim в upstream
 envelope (`# AGENTS.md instructions ... <INSTRUCTIONS>` и
 `<environment_context>`), без внутреннего префикса `Context from ...`.
-Legacy id `coding.codex_loop_diagnostic` удалён. При загрузке старого config он
-мигрируется с явным предупреждением на strict `coding.codex_loop`; новые и
-packaged профили должны указывать strict id. В `codex` profile `apply_patch` регистрируется через
+Удалённый id `coding.codex_loop_diagnostic` не распознаётся: профиль должен
+указывать `coding.codex_loop`. В `codex` profile `apply_patch` регистрируется через
 `tools.configured` как native handler с `surface.kind = "freeform"` и OpenAI
 custom-tool grammar.
 Playwright MCP в текущем профиле закомментирован; browser tools не
@@ -216,10 +215,12 @@ core выбирает id модуля, а выбранная реализаци�
       "provider": "anthropic",
       "model": "claude-sonnet-4-20250514",
       "stream": true,
-      "api_key": "sk-ant-...",
-      "base_url": "https://api.anthropic.com",
-      "auth": "x-api-key",
-      "api_version": "2023-06-01"
+      "provider_config": {
+        "api_key": "sk-ant-...",
+        "base_url": "https://api.anthropic.com",
+        "auth": "x-api-key",
+        "api_version": "2023-06-01"
+      }
     }
   }
 }
@@ -227,29 +228,35 @@ core выбирает id модуля, а выбранная реализаци�
 
 `active_provider` выбирает ключ из `providers`. Если `active_provider` пустой, но есть `providers.default`, используется он. Иначе используется прямой `[model]` / `"model"` config.
 
-Provider profile превращается в `ModelConfig`. Все неизвестные поля profile попадают в `provider_config` и читаются adapter-ом. Если adapter не знает контекстное окно модели сам, задайте `max_input_tokens` в profile явно: это значение попадёт в `ModelCapabilities`, в `TokenUsageUpdated` и в model-aware threshold компактора.
+Provider profile превращается в `ModelConfig` и имеет фиксированные поля
+`provider`, `model`, `stream`, `reasoning`, `reasoning_efforts` и
+`provider_config`. Adapter-specific значения задаются только внутри
+`provider_config`; неизвестные поля profile отклоняются. Если adapter не знает
+контекстное окно модели сам, задайте `provider_config.max_input_tokens`: это
+значение попадёт в `ModelCapabilities`, в `TokenUsageUpdated` и в model-aware
+threshold компактора.
 
 Для локального dogfood можно выбрать самый дешёвый подходящий provider, например
 DeepSeek через совместимый endpoint. Это локальный выбор profile-а, а не
 зависимость agent architecture: текущий runtime должен оставаться переносимым
 между `openai`, `anthropic` и `openai_compatible` provider profiles.
 
-`stream` по умолчанию включён для provider profiles. Это значение также
-прокидывается в `provider_config.stream`, потому что конкретные model adapters
-решают, идти через SSE streaming path или через non-stream fallback. OpenAI
+`stream` по умолчанию включён для provider profiles и передаётся adapter-у
+отдельным полем `ModelConfig`. Конкретные model adapters решают, идти через SSE
+streaming path или через non-stream fallback. OpenAI
 Responses по умолчанию fail-ит turn при transport/body decode error или EOF без
 terminal event: автоматический повтор полного inference после partial stream
 может задублировать стоимость и side effects и не соответствует strict Codex
 path. Для диагностического совместимого proxy можно явно включить
-`stream_error_fallback = true`; стабильный обход сломанного SSE —
+`provider_config.stream_error_fallback = true`; стабильный обход сломанного SSE —
 `stream = false`. Anthropic пока сохраняет прежний one-shot non-stream fallback.
 
 Provider prompt cache включается через `CanonicalModelRequest.cache` и
 `ModelCapabilities.supports_cache_hints`. Coding workflows выставляют
 `CacheHints::new(true, true)`, а `RequestShaper` обнуляет hints для adapters,
 которые их не поддерживают. OpenAI Responses получает `prompt_cache_key` из
-metadata запроса или явного `providers.*.prompt_cache_key`; если в profile
-задан `prompt_cache_retention`, adapter прокидывает его как
+metadata запроса или явного `providers.*.provider_config.prompt_cache_key`; если
+в `provider_config` задан `prompt_cache_retention`, adapter прокидывает его как
 `prompt_cache_retention`. Значение retention не выставляется по умолчанию:
 для `24h`/`in_memory` это provider policy, а не поведение workflow. Стандартные
 coding workflows используют короткий routing key `proteus:session:<session_id>`.
@@ -260,8 +267,8 @@ coding workflows используют короткий routing key `proteus:sess
 block; если system block отсутствует, adapter ставит breakpoint на последний
 tool. Top-level automatic `cache_control` остаётся fallback-ом только когда
 стабильного system/tool prefix нет. Если указан
-`providers.*.prompt_cache_ttl = "1h"`, adapter добавляет TTL. `prompt_cache =
-false` в provider profile отключает дополнительные cache hints adapter-а, но
+`providers.*.provider_config.prompt_cache_ttl = "1h"`, adapter добавляет TTL.
+`prompt_cache = false` в `provider_config` отключает дополнительные cache hints adapter-а, но
 не может запретить provider-side automatic caching, если сам provider всегда
 делает его на своей стороне.
 
@@ -304,12 +311,14 @@ reasoning config, verbosity и strict JSON schema. Для custom proxy capabilit
 
 ```toml
 [providers.openai]
+
+[providers.openai.provider_config]
 support_verbosity = true
 default_verbosity = "low" # либо verbosity = "low|medium|high"
 # service_tier = "priority"
 # client_metadata = { installation = "local-install" }
 
-[providers.openai.capabilities]
+[providers.openai.provider_config.capabilities]
 supports_parallel_tool_calls = true
 supports_json_schema = true
 supports_reasoning_config = true
@@ -363,6 +372,8 @@ Custom provider endpoint тоже можно вынести из tracked config,
 
 ```toml
 [providers.anthropic]
+
+[providers.anthropic.provider_config]
 api_key_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
 api_key_json_key = "anthropic_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
@@ -509,7 +520,7 @@ runtime model, а `permission_mode` — активный permission mode. Пол
 Builder обновляет `[modules]`, `[subagents]`, `[module_config]`, `[tools].enabled`,
 `active_provider` и `[permissions].mode` в активном config file (или в
 `config.toml` внутри активной config-директории). Он выбирает только
-уже описанный provider: сами `[providers.*]`, `api_key_file`, `base_url_file`,
+уже описанный provider: сами `[providers.*]`, их `provider_config`,
 configured/MCP executors и secrets не редактируются. Остальные секции
 существующего TOML сохраняются.
 Если `~/.config/Proteus-agent/configs` является symlink на репозиторный
@@ -549,7 +560,7 @@ trigger_fraction = 0.8
 ```
 
 Если capability `max_input_tokens` неизвестен и явный threshold не задан,
-compactor использует legacy fallback от workflow или default `32000`.
+compactor использует default `160000`.
 Дополнительные env-настройки: `PROTEUS_CODEX_COMPACTOR_USER_MESSAGE_TOKENS`
 (default `20000`) и `PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS`
 (default `4000`).
@@ -826,9 +837,8 @@ git-команды в workspace. `git_diff` отключает external diff/tex
 поддерживает optional `cached`, `stat`, `path`, `context_lines` и `max_bytes`;
 `path` обязан быть относительным и без parent traversal.
 
-Tool `search` принимает `query`, optional `max_results`, `use_case`, `path`,
-`starts_with` и `ends_with`. `path` - удобный alias для одного workspace-relative
-prefix; `starts_with`/`ends_with` фильтруют результаты по path prefix/suffix и
+Tool `search` принимает `query`, optional `max_results`, `use_case`,
+`starts_with` и `ends_with`. `starts_with`/`ends_with` фильтруют результаты по path prefix/suffix и
 напрямую передаются в `SearchQuery`, чтобы `rg`, semantic backend или будущий
 repo discovery слой не парсили path filters из текста. `rg-search` использует
 безопасные `starts_with` как реальные roots для ripgrep, а `ends_with` как glob,
@@ -1240,19 +1250,6 @@ instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
 
 ## Memory
 
-```json
-{
-  "memory": {
-    "jsonl": {
-      "path": ".proteus/memory.jsonl"
-    }
-  }
-}
-```
-
-Этот legacy section показан только как исторический формат. `jsonl` теперь
-приходит из `memory-pack`, поэтому путь задаётся env-переменной.
-
 `modules.memory` выбирает backend хранения:
 
 - `none` — no-op, ничего не сохраняет.
@@ -1264,15 +1261,13 @@ instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
 Плагин-backend: положите `.so` с реализацией `PluginMemoryStore` в
 `~/.proteus/plugins/<name>/` и выберите его через
 `modules.memory = "<plugin_id>"` (например, `"sqlite"` при установленном
-`sqlite-memory` плагине). Legacy id `sqlite_plugin` удалён и при загрузке
-старого config мигрируется с предупреждением на `sqlite`. SQLite FTS5 больше
-не линкуется в core.
+`sqlite-memory` плагине). Единственный id этого backend-а — `sqlite`; неизвестные
+ids завершают загрузку config ошибкой. SQLite FTS5 больше не линкуется в core.
 
-Отдельного `modules.memory_policy` больше нет. Автоматическая post-turn
-эвристика `carry_forward` и public `MemoryPolicy` slot удалены. Старый
-`memory_policy = "none"` игнорируется с предупреждением для бесшовного
-обновления прежних packaged configs. Любое активное значение, включая
-`carry_forward`, считается actionable config error: удалите ключ из профиля.
+Отдельного `modules.memory_policy` нет. Ключ `memory_policy` и slot
+`module_config.memory_policy` являются неизвестными и завершают загрузку config
+ошибкой. Автоматическая post-turn эвристика `carry_forward` и public
+`MemoryPolicy` slot удалены.
 Запись в активный `MemoryStore` остаётся явной:
 
 - Tool `remember_fact` (`{ kind: "preference" | "fact", content }`) — модель

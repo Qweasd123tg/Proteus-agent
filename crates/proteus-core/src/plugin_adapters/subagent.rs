@@ -64,6 +64,14 @@ impl SubagentRunner for PluginSubagentAdapter {
         }
     }
 
+    fn supports_collaboration(&self) -> bool {
+        false
+    }
+
+    fn supports_collaboration_messages(&self) -> bool {
+        false
+    }
+
     async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
         let request_json = serde_json::to_string(&request)
             .with_context(|| "subagent plugin: serialize SubagentRequest failed")?;

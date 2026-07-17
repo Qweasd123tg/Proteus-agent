@@ -300,8 +300,8 @@ fn mixed_config_files_warning_lists_sibling_config_files() {
     let dir = tempfile::tempdir().expect("config dir");
     let config = dir.path().join(INIT_CONFIG_FILE);
     std::fs::write(&config, "").expect("config");
-    std::fs::write(dir.path().join("00-provider.toml"), "").expect("legacy provider");
-    std::fs::write(dir.path().join("10-coding.toml"), "").expect("legacy profile");
+    std::fs::write(dir.path().join("00-provider.toml"), "").expect("sibling provider");
+    std::fs::write(dir.path().join("10-coding.toml"), "").expect("sibling profile");
     std::fs::write(dir.path().join("notes.md"), "").expect("notes");
 
     let warning = mixed_config_files_warning(&config).expect("warning");
@@ -321,14 +321,6 @@ fn single_config_file_for_warning_resolves_directory_config_toml() {
     assert_eq!(
         single_config_file_for_warning(Some(dir.path())),
         Some(config)
-    );
-}
-
-#[test]
-fn doctor_config_root_for_default_config_file_is_config_home() {
-    assert_eq!(
-        config_root_for_doctor(Some(Path::new("/tmp/agent/configs/config.toml"))),
-        Some(PathBuf::from("/tmp/agent"))
     );
 }
 
@@ -406,30 +398,6 @@ async fn init_codex_writes_loadable_single_config_file() {
         .join("\n");
     assert!(instructions.contains("Before running a command"));
     assert!(instructions.contains("High-quality plans"));
-}
-
-#[test]
-fn doctor_flags_legacy_native_file_tool_handlers() {
-    let mut config = AppConfig::default();
-    config
-        .tools
-        .configured
-        .push(proteus_core::core::ConfiguredToolConfig {
-            name: "read_file".to_owned(),
-            description: "old file reader".to_owned(),
-            input_schema: serde_json::json!({ "type": "object" }),
-            surface: proteus_core::domain::ToolSurface::default(),
-            safety: ToolSafety::ReadOnly,
-            timeout_ms: None,
-            metadata: serde_json::Value::Null,
-            executor: ConfiguredToolExecutorConfig::Native {
-                handler: "read_file".to_owned(),
-            },
-        });
-
-    let mut findings = DoctorFindings::default();
-    check_configured_tools(&mut findings, &config);
-    assert!(findings.has_errors());
 }
 
 #[test]

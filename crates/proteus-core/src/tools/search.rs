@@ -34,10 +34,6 @@ impl Tool for SearchTool {
                     },
                     "max_results": { "type": "integer" },
                     "use_case": { "type": "string" },
-                    "path": {
-                        "type": "string",
-                        "description": "Optional workspace-relative path prefix to search within."
-                    },
                     "starts_with": {
                         "type": "array",
                         "items": { "type": "string" }
@@ -72,10 +68,7 @@ impl Tool for SearchTool {
             .and_then(|value| value.as_u64())
             .unwrap_or(20) as usize;
         let use_case = call.args.get("use_case").and_then(|value| value.as_str());
-        let mut starts_with = string_array_arg(&call.args, "starts_with")?;
-        if let Some(path) = call.args.get("path").and_then(|value| value.as_str()) {
-            starts_with.push(normalize_path_prefix(path));
-        }
+        let starts_with = string_array_arg(&call.args, "starts_with")?;
         let ends_with = string_array_arg(&call.args, "ends_with")?;
         let mut search_query =
             SearchQuery::new(query, ctx.cwd, max_results).with_path_filters(starts_with, ends_with);
@@ -143,17 +136,6 @@ fn string_array_arg(args: &serde_json::Value, name: &str) -> Result<Vec<String>>
         .collect()
 }
 
-fn normalize_path_prefix(path: &str) -> String {
-    let trimmed = path.trim().trim_start_matches("./");
-    if trimmed.is_empty() || trimmed == "." {
-        String::new()
-    } else if trimmed.ends_with('/') {
-        trimmed.to_owned()
-    } else {
-        format!("{trimmed}/")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,36 +162,6 @@ mod tests {
         }));
 
         assert_eq!(tool.spec().timeout_ms, Some(60_000));
-    }
-
-    #[tokio::test]
-    async fn search_tool_maps_path_alias_to_starts_with_filter() {
-        let search = Arc::new(RecordingSearch {
-            queries: Mutex::new(Vec::new()),
-            chunks: Vec::new(),
-        });
-        let tool = SearchTool::new(search.clone());
-        let call = ToolCall::new(
-            crate::domain::new_call_id(),
-            "search",
-            json!({
-                "query": "needle",
-                "path": "src",
-                "starts_with": ["tests/"],
-                "ends_with": [".rs"]
-            }),
-        );
-
-        let result = tool
-            .invoke(&call, ToolContext::new(".".into()))
-            .await
-            .unwrap();
-
-        assert!(result.ok);
-        let queries = search.queries.lock().unwrap();
-        assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].starts_with, ["tests/", "src/"]);
-        assert_eq!(queries[0].ends_with, [".rs"]);
     }
 
     #[tokio::test]

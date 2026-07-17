@@ -12,7 +12,7 @@ mod plugin_registration;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, ModelAdapter, PatchApplier,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
         Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry, Workflow,
         register_provider_tools,
     },
@@ -259,7 +259,7 @@ impl BuiltinModuleCatalog {
         &mut self,
         module_id: &str,
         manifest: ModuleManifest,
-        build: fn(&ModelConfig) -> Result<Arc<dyn ModelAdapter>>,
+        build: fn(&ModelConfig) -> Result<Arc<dyn Model>>,
     ) {
         let erased: ErasedFactory = Box::new(move |input| {
             let config = input.model()?;
@@ -364,9 +364,9 @@ impl BuiltinModuleCatalog {
             .ok_or_else(|| anyhow::anyhow!("module {} in slot {} has unexpected type", id, slot_id))
     }
 
-    pub fn build_model_adapter(&self, model_config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
+    pub fn build_model_adapter(&self, model_config: &ModelConfig) -> Result<Arc<dyn Model>> {
         let provider = model_config.provider.as_str();
-        self.build_typed::<dyn ModelAdapter>(
+        self.build_typed::<dyn Model>(
             slot::MODEL,
             provider,
             &ModuleBuildInput::Model(model_config),

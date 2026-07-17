@@ -12,7 +12,7 @@ use crate::{
         http_retry::send_with_transport_retry,
         secrets::{read_config_string_or_default, read_secret_from_config},
     },
-    contracts::{ModelAdapter, ModelEventStream},
+    contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
@@ -48,7 +48,7 @@ pub struct OpenAiResponsesClient {
     /// `stream` в provider config. Provider profiles по умолчанию включают
     /// streaming; `stream = false` оставляет non-stream fallback.
     stream_enabled: bool,
-    /// Diagnostic compatibility mode for endpoints that corrupt SSE bodies.
+    /// Explicit diagnostic recovery mode for endpoints that corrupt SSE bodies.
     /// Strict Codex-shaped profiles leave this disabled: replaying a full
     /// inference request after partial output can duplicate side effects.
     stream_error_fallback: bool,
@@ -110,7 +110,7 @@ impl OpenAiResponsesClient {
     }
 }
 
-pub fn build_openai_responses_adapter(config: Value) -> Result<Arc<dyn ModelAdapter>> {
+pub fn build_openai_responses_adapter(config: Value) -> Result<Arc<dyn Model>> {
     Ok(Arc::new(OpenAiResponsesClient::from_provider_config(
         config,
     )?))
@@ -140,7 +140,7 @@ fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
 }
 
 #[async_trait]
-impl ModelAdapter for OpenAiResponsesClient {
+impl Model for OpenAiResponsesClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "openai.responses".into()
     }

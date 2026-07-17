@@ -39,10 +39,7 @@ named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 
 `doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
 module ids, активный model provider, наличие секрета провайдера, внешние
-команды вроде `rg`, runtime timeout'ы, event log path и tool registry. Команда
-также подсвечивает старые configured native tools
-(`read_file`/`write_file`/`list_dir`/`grep`/`find_files`/`read_many_files`/`shell`), которые теперь должны приходить
-через plugin tools в `tools.enabled`.
+команды вроде `rg`, runtime timeout'ы, event log path и tool registry.
 
 Явный рабочий каталог:
 
@@ -595,8 +592,8 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 6. вызывает `ContextBuilder::build`;
 7. пишет `ContextBuilt`;
 8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
-9. вызывает `ModelClient::complete`, реализованный `ModelService`;
-10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `ModelAdapter`;
+9. вызывает `Model::complete`, реализованный `ModelService`;
+10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `Model`;
 11. пишет `TokenUsageUpdated` с source, оценкой request categories и provider usage, если он доступен;
 12. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
 13. добавляет `ToolResult` в canonical messages;
@@ -604,7 +601,7 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 15. если лимит rounds исчерпан, делает финальный model call без tools;
 16. пишет `TurnFinished`.
 
-Успешный `ModelAdapter::stream` обязан закончиться полным canonical
+Успешный `Model::stream` обязан закончиться полным canonical
 `Response`: дельты нужны для live UI, но generic `ModelService` не собирает из
 них отсутствующий или пустой финальный ответ. Provider-specific восстановление
 остаётся в adapter-е. Например, OpenAI adapter дополняет пустой

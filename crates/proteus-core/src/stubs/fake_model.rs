@@ -6,7 +6,7 @@ use futures_util::stream;
 use serde_json::json;
 
 use crate::{
-    contracts::{ModelAdapter, ModelEventStream},
+    contracts::{Model, ModelEventStream},
     domain::{ModelRef, ToolCall, new_call_id},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -46,7 +46,7 @@ impl FakeModelClient {
 }
 
 #[async_trait]
-impl ModelAdapter for FakeModelClient {
+impl Model for FakeModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "fake".into()
     }

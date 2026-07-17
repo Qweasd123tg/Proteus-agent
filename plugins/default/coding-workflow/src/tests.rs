@@ -31,12 +31,12 @@ fn insert_request_metadata_u32_preserves_existing_object_fields() {
 #[test]
 fn insert_request_metadata_u32_wraps_non_object_metadata() {
     let mut request = CanonicalModelRequest::new(ModelRef::new("fake", "model"), Vec::new())
-        .with_metadata(json!("legacy"));
+        .with_metadata(json!("previous"));
 
     insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", 12_800);
 
     assert_eq!(request.metadata["compaction_trigger_tokens"], 12_800);
-    assert_eq!(request.metadata["previous_metadata"], "legacy");
+    assert_eq!(request.metadata["previous_metadata"], "previous");
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn category_source(usage: &TokenUsageSnapshot, name: &str) -> Option<TokenUsageS
         .categories
         .iter()
         .find(|category| category.name == name)
-        .and_then(|category| category.source)
+        .map(|category| category.source)
 }
 
 #[test]
@@ -1372,7 +1372,7 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
     let compactions = host.compactions.lock().expect("compactions");
     assert_eq!(compactions.len(), 3);
     assert_eq!(compactions[2].reason.as_deref(), Some("review"));
-    assert_eq!(compactions[2].max_tokens, Some(12_800));
+    assert_eq!(compactions[2].window_tokens, Some(16_000));
     assert!(
         compactions[2]
             .messages

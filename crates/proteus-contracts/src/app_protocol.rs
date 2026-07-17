@@ -3,9 +3,8 @@
 //! web/desktop-клиенты.
 //!
 //! Клиенты depend на этот модуль (через `proteus-contracts`), **не** на
-//! само ядро (`proteus-core`). Это даёт архитектурную границу: любой
-//! клиент можно собирать независимо и обновлять отдельно от ядра,
-//! совместимость определяется версией `proteus-contracts`.
+//! само ядро (`proteus-core`). Это сохраняет архитектурную границу без
+//! обещания совместимости между черновыми версиями wire-контракта.
 //!
 //! ## Формат transport
 //!
@@ -15,13 +14,11 @@
 //! и публикует `StdioOutput::Event` через `GET /events` как SSE. Оба формата
 //! используют tagged enum с полем `"type"`.
 //!
-//! ## Стабильность
+//! ## Жизненный цикл
 //!
-//! Все публичные структуры помечены `#[non_exhaustive]` — добавление
-//! полей не ломает существующих клиентов, они игнорируют незнакомые поля.
-//! Enum-поля должны отдельно поддерживать tolerant parsing, если их значения
-//! могут расширяться без синхронного обновления всех клиентов. Например,
-//! неизвестный `ApprovalCacheScope` намеренно понижается до `none`.
+//! До стабилизации server и клиенты обновляются вместе. Удалённые поля,
+//! enum-values и старые payload shapes не распознаются и не понижаются до
+//! defaults: несовпадение контракта должно завершаться явной decode-ошибкой.
 
 use std::path::PathBuf;
 
@@ -107,13 +104,9 @@ pub enum AppServerEvent {
 #[non_exhaustive]
 pub struct AppSessionActivity {
     pub status: AppSessionActivityStatus,
-    #[serde(default)]
     pub running_turns: usize,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub running_turn_ids: Vec<String>,
-    #[serde(default)]
     pub pending_approvals: usize,
-    #[serde(default)]
     pub pending_user_inputs: usize,
 }
 
@@ -125,8 +118,6 @@ pub enum AppSessionActivityStatus {
     Running,
     WaitingApproval,
     WaitingInput,
-    #[serde(other)]
-    Unknown,
 }
 
 impl AppSessionActivityStatus {
@@ -136,7 +127,6 @@ impl AppSessionActivityStatus {
             Self::Running => "running",
             Self::WaitingApproval => "waiting_approval",
             Self::WaitingInput => "waiting_input",
-            Self::Unknown => "unknown",
         }
     }
 }
@@ -189,15 +179,12 @@ pub struct AppApprovalRequest {
     pub cwd: PathBuf,
     pub reason: String,
     pub tool_spec: Option<ToolSpec>,
-    #[serde(default)]
     pub preview: Option<AppApprovalPreview>,
     /// Кто запросил approval (thread/turn + метка источника, например роль
     /// субагента). `None` — запрос от транспорта без runtime-атрибуции.
-    #[serde(default)]
     pub origin: Option<RequestOrigin>,
     /// Монотонный порядковый номер в очереди pending approvals текущего
-    /// app-server. Клиенты сортируют по нему; `0` у старых серверов.
-    #[serde(default)]
+    /// app-server. Клиенты сортируют по нему.
     pub seq: u64,
 }
 
@@ -245,13 +232,9 @@ pub struct AppApprovalPreview {
     pub kind: String,
     pub title: String,
     pub summary: String,
-    #[serde(default)]
     pub affected_files: Vec<String>,
-    #[serde(default)]
     pub body: Option<String>,
-    #[serde(default)]
     pub language: Option<String>,
-    #[serde(default)]
     pub metadata: Value,
 }
 
@@ -295,9 +278,7 @@ impl AppApprovalPreview {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub struct AppPendingRequests {
-    #[serde(default)]
     pub approvals: Vec<AppApprovalRequest>,
-    #[serde(default)]
     pub user_inputs: Vec<UserInputRequest>,
 }
 
@@ -317,23 +298,15 @@ impl AppPendingRequests {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct AppContextMapSnapshot {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_dir: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_path: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity: Option<AppSessionActivity>,
     pub history: AppContextHistorySummary,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_usage: Option<AppContextUsageSnapshot>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_context: Option<AppContextBuildSnapshot>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_compaction: Option<AppContextCompactionSnapshot>,
     pub tools: AppContextToolSummary,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 
@@ -376,21 +349,14 @@ pub struct AppContextHistorySummary {
 pub struct AppContextUsageSnapshot {
     pub model_provider: String,
     pub model_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
     pub estimated_input_tokens: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_input_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction_trigger_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<AppContextUsageCategory>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actual: Option<TokenUsage>,
     pub source: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_ms: Option<i64>,
 }
 
@@ -422,7 +388,6 @@ impl AppContextUsageSnapshot {
 pub struct AppContextUsageCategory {
     pub name: String,
     pub tokens: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
@@ -445,11 +410,8 @@ impl AppContextUsageCategory {
 #[non_exhaustive]
 pub struct AppContextBuildSnapshot {
     pub chunks: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_estimate: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_ms: Option<i64>,
 }
 
@@ -468,12 +430,9 @@ impl AppContextBuildSnapshot {
 #[non_exhaustive]
 pub struct AppContextCompactionSnapshot {
     pub status: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<HistoryCompactionReport>,
     pub summary_present: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_ms: Option<i64>,
 }
 
@@ -495,7 +454,6 @@ pub struct AppContextToolSummary {
     pub requested: usize,
     pub finished: usize,
     pub failed: usize,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub names: Vec<String>,
 }
 
@@ -516,7 +474,6 @@ pub enum StdioRequest {
         approval_id: String,
         approved: bool,
         note: Option<String>,
-        #[serde(default)]
         cache: ApprovalCacheScope,
     },
     UserInput {
@@ -602,7 +559,7 @@ mod tests {
     };
 
     #[test]
-    fn approval_request_defaults_missing_preview_to_none() {
+    fn approval_request_rejects_incomplete_wire_payload() {
         let payload = json!({
             "approval_id": "approval-1",
             "call": {
@@ -615,14 +572,8 @@ mod tests {
             "tool_spec": null
         });
 
-        let request: AppApprovalRequest =
-            serde_json::from_value(payload).expect("approval request");
-
-        assert_eq!(request.approval_id, "approval-1");
-        assert!(request.preview.is_none());
-        // Старый сервер без attribution: поля отсутствуют на wire.
-        assert!(request.origin.is_none());
-        assert_eq!(request.seq, 0);
+        serde_json::from_value::<AppApprovalRequest>(payload)
+            .expect_err("incomplete approval request must fail");
     }
 
     /// Attribution и порядок очереди переживают wire-сериализацию.
@@ -649,9 +600,9 @@ mod tests {
     }
 
     /// User-input запросы несут ту же attribution/queue-position схему, что
-    /// approvals; старые payload-ы без полей парсятся с defaults.
+    /// approvals.
     #[test]
-    fn user_input_request_roundtrips_origin_and_seq_and_tolerates_absence() {
+    fn user_input_request_roundtrips_origin_and_seq() {
         let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
             .with_label("explore");
         let request = UserInputRequest::new("input-1", PathBuf::from("/workspace"), Vec::new())
@@ -663,15 +614,6 @@ mod tests {
             serde_json::from_value(payload).expect("parse user input request");
         assert_eq!(parsed.origin, Some(origin));
         assert_eq!(parsed.seq, 7);
-
-        let legacy: UserInputRequest = serde_json::from_value(json!({
-            "request_id": "input-legacy",
-            "cwd": "/workspace",
-            "questions": []
-        }))
-        .expect("parse legacy user input request");
-        assert!(legacy.origin.is_none());
-        assert_eq!(legacy.seq, 0);
     }
 
     #[test]
@@ -701,15 +643,6 @@ mod tests {
         assert_eq!(preview.kind, "write_file");
         assert_eq!(preview.affected_files, vec!["a.txt"]);
         assert_eq!(preview.metadata["operation"], "create");
-    }
-
-    #[test]
-    fn pending_requests_defaults_missing_lists_to_empty() {
-        let pending: AppPendingRequests =
-            serde_json::from_value(json!({})).expect("pending requests");
-
-        assert!(pending.approvals.is_empty());
-        assert!(pending.user_inputs.is_empty());
     }
 
     #[test]
@@ -792,15 +725,14 @@ mod tests {
     }
 
     #[test]
-    fn session_activity_status_tolerates_unknown_wire_value() {
-        let activity: AppSessionActivity = serde_json::from_value(serde_json::json!({
+    fn session_activity_status_rejects_unknown_wire_value() {
+        serde_json::from_value::<AppSessionActivity>(serde_json::json!({
             "status": "paused",
             "running_turns": 0,
+            "running_turn_ids": [],
             "pending_approvals": 0,
             "pending_user_inputs": 0,
         }))
-        .expect("activity JSON");
-
-        assert_eq!(activity.status, AppSessionActivityStatus::Unknown);
+        .expect_err("unknown activity status must fail");
     }
 }

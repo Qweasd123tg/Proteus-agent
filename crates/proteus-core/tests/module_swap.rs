@@ -34,9 +34,9 @@ use proteus_contracts::{
 use proteus_core::{
     contracts::{
         ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
-        EventEmitter, ModelAdapter, ModelClient, PatchApplier, PolicyContext,
-        PolicyVisibilityContext, RequestOrigin, SearchBackend, SearchQuery, Tool, ToolContext,
-        ToolExposureInput, ToolExposureRequest, ToolRegistry, ToolSource, Workflow,
+        EventEmitter, Model, PatchApplier, PolicyContext, PolicyVisibilityContext, RequestOrigin,
+        SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput, ToolExposureRequest,
+        ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,

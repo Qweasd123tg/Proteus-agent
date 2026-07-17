@@ -74,8 +74,8 @@ module implementations без переписывания core или форка 
 compatibility поверхности. Public `MemoryPolicy` slot и heuristic
 `carry_forward` retired; manual memory через `remember_fact`/`/remember` и
 `MemoryStore` сохранена. Workflow id `coding.codex_loop_diagnostic` retired,
-старые configs мигрируются с предупреждением на strict `coding.codex_loop`.
-Legacy memory id `sqlite_plugin` аналогично мигрируется на `sqlite`. Строковый
+неизвестные ids теперь отклоняются без миграции. Memory id `sqlite_plugin`
+аналогично удалён; единственный актуальный id — `sqlite`. Строковый
 `SlotId` больше не трактуется в документации как возможность плагина объявить
 новый runtime slot без изменений contracts/core/config/ABI.
 
@@ -760,10 +760,9 @@ Scope:
   completed deltas, partial tail и reasoning summary.
   `FilteredEventSink` не пишет дельты в durable JSONL по умолчанию.
 - ✅ SQLite FTS5 memory backend вынесен из ядра в отдельный плагин
-  `sqlite-memory` (исторически ids `sqlite`, `sqlite_plugin`) — proof что
+  `sqlite-memory` (id `sqlite`) — proof что
   `PluginMemoryStore` ABI работает с реальной I/O-зависимой реализацией без
-  `rusqlite` в core. Alias `sqlite_plugin` retired 2026-07-16; старые configs
-  мигрируются на `sqlite`.
+  `rusqlite` в core. Alias `sqlite_plugin` retired 2026-07-16 без migration shim.
 - ✅ Memory end-to-end: `carry_forward` из `memory-pack` (пишет один
   handoff-snippet после каждого turn'а) + tool `remember_fact` (модель
   явно кладёт preference/fact) + REPL-команда `/remember`. Store
@@ -776,9 +775,9 @@ Scope:
   `file-tools`, `git-tools` и `shell-tool`, `rg`
   search backend вынесен в `rg-search`, `direct` patch backend вынесен в
   `direct-patch`, baseline/Codex-shaped/staged workflows вынесены как plugin ids
-  `coding.single_loop`, `coding.codex_loop`, `coding.codex_loop_diagnostic` и
+  `coding.single_loop`, `coding.codex_loop` и
   `coding.plan_execute_review` в `coding-workflow` (diagnostic id retired
-  2026-07-16 с config migration на strict loop).
+  2026-07-16 без config migration).
   Context builders `simple`, `repo_aware` и `codex_context` вынесены в
   `context-pack` (включая provider `environment` с `<environment_context>`),
   Codex-style request-time compactor `codex` вынесен в `codex-compactor`,
@@ -812,7 +811,7 @@ Scope:
 - MCP resources/prompts/subscriptions и non-stdio transports поверх уже
   реализованного stdio tools host;
 - Волна 3 — вынос builtin-модулей в плагины по одному;
-- Волна 4 — async model slot (`ModelAdapter`) через `FfiFuture` / `FfiStream`.
+- Волна 4 — async model slot (`Model`) через `FfiFuture` / `FfiStream`.
 
 ## Backlog Идей
 
@@ -1004,8 +1003,8 @@ Scope:
   следующем изменении runtime graph, без отдельного big-bang рефакторинга.
 - ✅ Закрыто 2026-07-17: topology больше не представляет `ToolRegistry` через
   pseudo-slot `tool`. `slots` содержит только behavior slots, а graph node
-  `tools`/`ToolRegistry` синтезируется из `TopologySnapshot.tools`; Inspector
-  игнорирует legacy `slots[].id = "tool"`, чтобы не рисовать дубль.
+  `tools`/`ToolRegistry` синтезируется из `TopologySnapshot.tools`; форма
+  `slots[].id = "tool"` больше не принимается Inspector-ом.
   `ModuleKind::Tool` и `slot::TOOL` сохранены как public catalog vocabulary для
   concrete tool registrations и не означают наличие `modules.tool`.
 - Следить за ростом `RuntimeContext`/`BuiltinRegistry`: они неизбежно wiring

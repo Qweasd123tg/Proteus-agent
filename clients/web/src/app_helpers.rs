@@ -495,12 +495,11 @@ pub(crate) fn sidebar_session_activity_dot_class(
 pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
     let activity = session.activity.as_ref();
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}",
         session.session_dir,
         session.message_count,
         session.updated_at_ms.unwrap_or_default(),
         session.preview.as_deref().unwrap_or_default(),
-        session.resumable,
         activity
             .map(|activity| activity.status.as_str())
             .unwrap_or(""),
@@ -897,12 +896,11 @@ mod tests {
     fn session_summary(preview: Option<&str>, message_count: usize) -> SessionSummary {
         SessionSummary {
             session_dir: "/tmp/session".to_owned(),
-            session_id: Some("1234567890".to_owned()),
-            workspace_path: Some("/tmp/workspace".to_owned()),
+            session_id: "1234567890".to_owned(),
+            workspace_path: "/tmp/workspace".to_owned(),
             message_count,
             updated_at_ms: None,
             preview: preview.map(ToOwned::to_owned),
-            resumable: true,
             activity: None,
         }
     }

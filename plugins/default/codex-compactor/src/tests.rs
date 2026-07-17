@@ -86,7 +86,7 @@ fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> CompactionInpu
         messages,
     )
     .with_token_estimate(Some(token_estimate))
-    .with_max_tokens(Some(100))
+    .with_config(json!({ "trigger_tokens": 100 }))
     .with_reason("test")
 }
 
@@ -143,7 +143,6 @@ fn prompt_cache_key_is_bounded_and_varies_by_workspace_and_model() {
 #[test]
 fn resolve_trigger_uses_config_fraction_of_window() {
     let input = input(Vec::new(), 0)
-        .with_max_tokens(None)
         .with_window_tokens(Some(200_000))
         .with_config(json!({ "trigger_fraction": 0.8 }));
     assert_eq!(resolve_trigger_tokens(&input), 160_000);
@@ -158,9 +157,13 @@ fn resolve_trigger_token_override_beats_fraction() {
 }
 
 #[test]
-fn resolve_trigger_falls_back_to_max_tokens_without_config() {
-    let input = input(Vec::new(), 0).with_window_tokens(Some(200_000));
-    assert_eq!(resolve_trigger_tokens(&input), 100);
+fn resolve_trigger_uses_default_without_config_or_window_fraction() {
+    let input = CompactionInput::new(
+        AgentTask::new("continue implementation", std::path::PathBuf::from("/repo")),
+        ModelRef::new("fake", "fake"),
+        Vec::new(),
+    );
+    assert_eq!(resolve_trigger_tokens(&input), 160_000);
 }
 
 #[test]
@@ -220,53 +223,6 @@ fn compacts_current_tail_and_keeps_summary_last() {
         .join("\n");
     assert!(request_text.contains("fresh AGENTS and environment"));
     assert!(request_text.contains("latest tool output"));
-}
-
-#[test]
-fn filters_generated_user_messages_from_summary_and_replacement_history() {
-    let messages = vec![
-        CanonicalMessage::text(
-            MessageRole::User,
-            "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>x</INSTRUCTIONS>",
-        ),
-        CanonicalMessage::text(
-            MessageRole::User,
-            "<environment_context>cwd</environment_context>",
-        ),
-        CanonicalMessage::text(MessageRole::User, "real older request"),
-        CanonicalMessage::text(MessageRole::Assistant, "done"),
-        CanonicalMessage::text(MessageRole::User, "current request"),
-    ];
-
-    let mut host = TestHost::with_response("Model summary for real older request.");
-    let output = compact_with_host(input(messages, 500), &mut host);
-    let joined = output
-        .messages
-        .iter()
-        .filter_map(message_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    assert!(!joined.contains("AGENTS.md instructions"), "{joined}");
-    assert!(!joined.contains("environment_context"), "{joined}");
-    assert!(joined.contains("real older request"), "{joined}");
-    assert_eq!(output.metadata["dropped_generated_context_messages"], 2);
-
-    let request = host.requests.lock().unwrap();
-    let request_text = request[0]
-        .messages
-        .iter()
-        .filter_map(message_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        !request_text.contains("AGENTS.md instructions"),
-        "{request_text}"
-    );
-    assert!(
-        !request_text.contains("environment_context"),
-        "{request_text}"
-    );
 }
 
 #[test]

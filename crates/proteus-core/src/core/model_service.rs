@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 
 use crate::{
-    contracts::{EventEmitter, ModelAdapter, ModelClient, ModelEventStream},
+    contracts::{EventEmitter, Model, ModelEventStream},
     core::RequestSnapshotWriter,
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
@@ -30,13 +30,13 @@ pub struct DeltaEventContext {
 }
 
 pub struct ModelService {
-    adapter: Arc<dyn ModelAdapter>,
+    adapter: Arc<dyn Model>,
     shaper: RequestShaper,
     delta_context: RwLock<DeltaEventContext>,
 }
 
 impl ModelService {
-    pub fn new(adapter: Arc<dyn ModelAdapter>) -> Self {
+    pub fn new(adapter: Arc<dyn Model>) -> Self {
         Self {
             adapter,
             shaper: RequestShaper,
@@ -44,7 +44,7 @@ impl ModelService {
         }
     }
 
-    pub fn with_shaper(adapter: Arc<dyn ModelAdapter>, shaper: RequestShaper) -> Self {
+    pub fn with_shaper(adapter: Arc<dyn Model>, shaper: RequestShaper) -> Self {
         Self {
             adapter,
             shaper,
@@ -71,7 +71,7 @@ impl ModelService {
 }
 
 #[async_trait]
-impl ModelClient for ModelService {
+impl Model for ModelService {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         self.adapter.id()
     }
@@ -186,7 +186,7 @@ async fn emit_delta(ctx: &DeltaEventContext, event: Event) {
 mod tests {
     use super::*;
     use crate::{
-        contracts::{EventSink, ModelAdapter},
+        contracts::{EventSink, Model},
         domain::{EventEnvelope, ModelRef, new_session_id, new_thread_id, new_turn_id},
         model_standard::{
             CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole, ModelStreamEvent,
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl ModelAdapter for ScriptedAdapter {
+    impl Model for ScriptedAdapter {
         fn id(&self) -> std::borrow::Cow<'static, str> {
             "scripted".into()
         }

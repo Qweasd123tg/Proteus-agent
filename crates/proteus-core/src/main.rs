@@ -38,9 +38,8 @@ use cli_init::{parse_init_command, run_init};
 
 #[cfg(test)]
 use cli_doctor::{
-    DoctorFindings, check_configured_tools, check_model_config, check_model_secret,
-    check_module_config_tool_references, check_timeout_ms, command_resolves,
-    config_root_for_doctor, format_timeout_ms,
+    DoctorFindings, check_model_config, check_model_secret, check_module_config_tool_references,
+    check_timeout_ms, command_resolves, format_timeout_ms,
 };
 #[cfg(test)]
 use cli_init::{
@@ -48,7 +47,7 @@ use cli_init::{
     mixed_config_files_warning, single_config_file_for_warning,
 };
 #[cfg(test)]
-use proteus_core::core::{BuiltinModuleCatalog, ConfiguredToolExecutorConfig};
+use proteus_core::core::BuiltinModuleCatalog;
 #[cfg(test)]
 use std::path::Path;
 
@@ -191,7 +190,7 @@ fn build_cli_runtime(
     if let Some(session_dir) = resume_session {
         let session_dir = normalize_session_dir_path(session_dir)?;
         let session_id = session_id_from_session_dir(&session_dir)?;
-        builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id());
+        builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id())?;
     }
     builder.build()
 }

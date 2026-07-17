@@ -9,6 +9,7 @@ use crate::domain::{
 use crate::model_standard::{FinishReason, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct EventContext {
     pub session_id: SessionId,
@@ -27,6 +28,7 @@ impl EventContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct EventEnvelope {
     pub schema_version: u32,
@@ -67,12 +69,12 @@ pub enum TokenUsageSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TokenUsageCategory {
     pub name: String,
     pub tokens: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<TokenUsageSource>,
+    pub source: TokenUsageSource,
 }
 
 impl TokenUsageCategory {
@@ -80,33 +82,31 @@ impl TokenUsageCategory {
         Self {
             name: name.into(),
             tokens,
-            source: None,
+            source: TokenUsageSource::Estimated,
         }
     }
 
     pub fn with_source(mut self, source: TokenUsageSource) -> Self {
-        self.source = Some(source);
+        self.source = source;
         self
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TokenUsageSnapshot {
     pub model: ModelRef,
     pub phase: Option<String>,
     pub estimated_input_tokens: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_input_tokens: Option<u32>,
     /// Оценка порога входных токенов, на котором workflow запускает
     /// автокомпакт истории. Питает метку на индикаторе контекста в клиентах.
     /// `None`, если автокомпакт не настроен или потолок окна неизвестен.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction_trigger_tokens: Option<u32>,
     pub categories: Vec<TokenUsageCategory>,
     pub actual: Option<TokenUsage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<TokenUsageSource>,
+    pub source: TokenUsageSource,
 }
 
 impl TokenUsageSnapshot {
@@ -123,7 +123,7 @@ impl TokenUsageSnapshot {
             compaction_trigger_tokens: None,
             categories,
             actual: None,
-            source: None,
+            source: TokenUsageSource::Estimated,
         }
     }
 
@@ -138,20 +138,8 @@ impl TokenUsageSnapshot {
     }
 
     pub fn with_source(mut self, source: TokenUsageSource) -> Self {
-        self.source = Some(source);
+        self.source = source;
         self
-    }
-
-    pub fn usage_source(&self) -> TokenUsageSource {
-        self.source.unwrap_or_else(|| {
-            if self.actual.is_some() && !self.categories.is_empty() {
-                TokenUsageSource::Mixed
-            } else if self.actual.is_some() {
-                TokenUsageSource::Provider
-            } else {
-                TokenUsageSource::Estimated
-            }
-        })
     }
 
     pub fn with_max_input_tokens(mut self, max_input_tokens: Option<u32>) -> Self {
@@ -166,26 +154,19 @@ impl TokenUsageSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HistoryCompactionReport {
     pub changed: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     pub input_messages: usize,
     pub output_messages: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_token_estimate: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_token_estimate: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped_reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    #[serde(default)]
     pub metadata: serde_json::Value,
 }
 
@@ -213,9 +194,7 @@ pub enum Event {
     SessionStarted {
         session_id: SessionId,
         cwd: PathBuf,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<ModelRef>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         session_dir: Option<PathBuf>,
     },
     TurnStarted {
@@ -240,24 +219,18 @@ pub enum Event {
         usage: TokenUsageSnapshot,
     },
     HistoryCompactionStarted {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
         input_messages: usize,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         token_estimate: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         trigger_tokens: Option<u32>,
     },
     HistoryCompactionCompleted {
         report: HistoryCompactionReport,
     },
     HistoryCompactionFailed {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
         input_messages: usize,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         token_estimate: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         trigger_tokens: Option<u32>,
         message: String,
     },
@@ -303,7 +276,6 @@ pub enum Event {
     /// вложенную активность.
     SubagentStarted {
         role: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
         child_thread_id: ThreadId,
     },
@@ -329,35 +301,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn token_usage_snapshot_infers_source_for_legacy_events() {
+    fn token_usage_snapshot_uses_explicit_source() {
         let estimated = TokenUsageSnapshot::new(
             ModelRef::new("test", "model"),
             10,
             vec![TokenUsageCategory::new("messages", 10)],
         );
-        assert_eq!(estimated.usage_source(), TokenUsageSource::Estimated);
+        assert_eq!(estimated.source, TokenUsageSource::Estimated);
 
         let mixed = TokenUsageSnapshot::new(
             ModelRef::new("test", "model"),
             10,
             vec![TokenUsageCategory::new("messages", 10)],
         )
-        .with_actual(Some(TokenUsage::new(11, 2)));
-        assert_eq!(mixed.usage_source(), TokenUsageSource::Mixed);
+        .with_actual(Some(TokenUsage::new(11, 2)))
+        .with_source(TokenUsageSource::Mixed);
+        assert_eq!(mixed.source, TokenUsageSource::Mixed);
 
         let provider = TokenUsageSnapshot::new(ModelRef::new("test", "model"), 0, Vec::new())
-            .with_actual(Some(TokenUsage::new(11, 2)));
-        assert_eq!(provider.usage_source(), TokenUsageSource::Provider);
+            .with_actual(Some(TokenUsage::new(11, 2)))
+            .with_source(TokenUsageSource::Provider);
+        assert_eq!(provider.source, TokenUsageSource::Provider);
     }
 
     #[test]
-    fn token_usage_category_accepts_legacy_json_without_source() {
-        let category: TokenUsageCategory =
-            serde_json::from_value(serde_json::json!({ "name": "messages", "tokens": 10 }))
-                .expect("legacy category");
-
-        assert_eq!(category.name, "messages");
-        assert_eq!(category.tokens, 10);
-        assert_eq!(category.source, None);
+    fn token_usage_category_requires_source_on_wire() {
+        serde_json::from_value::<TokenUsageCategory>(
+            serde_json::json!({ "name": "messages", "tokens": 10 }),
+        )
+        .expect_err("token usage category source is required");
     }
 }

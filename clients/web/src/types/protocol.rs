@@ -65,6 +65,11 @@ pub(crate) enum AppServerEvent {
     UserInputResolved {
         request_id: String,
     },
+    ModulesReloaded {
+        old_epoch: u64,
+        new_epoch: u64,
+        tool_names: Vec<String>,
+    },
     SessionActivityUpdated {
         session_dir: String,
         activity: SessionActivityInfo,
@@ -78,6 +83,4 @@ pub(crate) enum AppServerEvent {
         count: u64,
     },
     Shutdown,
-    #[serde(other)]
-    Unknown,
 }

@@ -37,5 +37,3 @@ pub trait Model: Send + Sync {
         anyhow::bail!("model stream ended without a complete response")
     }
 }
-
-pub use Model as ModelAdapter;

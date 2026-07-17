@@ -146,9 +146,8 @@ tool_exposure → model → policy → ToolRegistry → subagent → renderer.
 tool→backend связи из `edges` kind `uses`; slot cards показывают альтернативные
 modules, plugin cards — contributions строго из `provides` (состояние
 вычисляется по `modules`/`tools`). Там же остаются единый tools список с
-фильтрами, warnings panel и copy Mermaid action. Старый backend может прислать
-legacy `slots[].id = "tool"`; Inspector игнорирует такую запись, чтобы не
-дублировать synthetic `ToolRegistry`. Dangling edge nodes — диагностика для CLI
+фильтрами, warnings panel и copy Mermaid action. `slots[].id = "tool"` не
+является допустимой формой snapshot-а. Dangling edge nodes — диагностика для CLI
 `--format map`, в web UI они не показываются. Mermaid не является primary UI
 renderer: он нужен для copy/export, когда внешний viewer полезнее встроенной
 карты.

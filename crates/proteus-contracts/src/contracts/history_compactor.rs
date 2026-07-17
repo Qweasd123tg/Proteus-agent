@@ -8,25 +8,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CompactionInput {
     pub task: AgentTask,
     pub model_ref: ModelRef,
-    #[serde(default)]
     pub messages: Vec<CanonicalMessage>,
-    #[serde(default)]
     pub token_estimate: Option<u32>,
-    #[serde(default)]
-    pub max_tokens: Option<u32>,
     /// Сырой потолок контекстного окна модели. Компактор применяет к нему
     /// `trigger_fraction` из конфига. `None` — если окно неизвестно.
-    #[serde(default)]
     pub window_tokens: Option<u32>,
     /// module-config компактора (`module_config.compactor.<id>`), который
     /// хост прокидывает в плагин. Содержит, в частности, порог автокомпакта.
-    #[serde(default)]
     pub config: serde_json::Value,
-    #[serde(default)]
     pub reason: Option<String>,
 }
 
@@ -37,7 +31,6 @@ impl CompactionInput {
             model_ref,
             messages,
             token_estimate: None,
-            max_tokens: None,
             window_tokens: None,
             config: serde_json::Value::Null,
             reason: None,
@@ -54,11 +47,6 @@ impl CompactionInput {
         self
     }
 
-    pub fn with_max_tokens(mut self, max_tokens: Option<u32>) -> Self {
-        self.max_tokens = max_tokens;
-        self
-    }
-
     pub fn with_window_tokens(mut self, window_tokens: Option<u32>) -> Self {
         self.window_tokens = window_tokens;
         self
@@ -71,17 +59,13 @@ impl CompactionInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CompactionOutput {
-    #[serde(default)]
     pub messages: Vec<CanonicalMessage>,
-    #[serde(default)]
     pub changed: bool,
-    #[serde(default)]
     pub summary: Option<String>,
-    #[serde(default)]
     pub token_estimate: Option<u32>,
-    #[serde(default)]
     pub metadata: serde_json::Value,
 }
 
@@ -184,11 +168,10 @@ mod tests {
             ModelRef::new("fake", "model"),
             vec![CanonicalMessage::text(MessageRole::User, "hello")],
         )
-        .with_max_tokens(Some(100))
     }
 
     #[test]
-    fn report_does_not_invent_trigger_from_legacy_input_max_tokens() {
+    fn report_does_not_invent_trigger_without_compactor_metadata() {
         let input = sample_input();
         let output = CompactionOutput::unchanged(input.messages.clone());
 

@@ -359,19 +359,14 @@ pub trait SubagentRunner: Send + Sync {
     fn roles(&self) -> Vec<SubagentRoleSpec>;
 
     /// Whether this implementation owns a working spawn/wait/cancel
-    /// lifecycle. False is the safe default for legacy/plugin adapters whose
-    /// ABI currently exposes only blocking `run`.
-    fn supports_collaboration(&self) -> bool {
-        false
-    }
+    /// lifecycle.
+    fn supports_collaboration(&self) -> bool;
 
     /// Whether a running child owns a bounded mailbox that accepts messages
     /// at model/tool boundaries. This remains separate from basic
     /// spawn/wait/cancel because process/plugin runners do not yet implement
     /// in-flight delivery.
-    fn supports_collaboration_messages(&self) -> bool {
-        false
-    }
+    fn supports_collaboration_messages(&self) -> bool;
 
     /// Прогоняет дочерний цикл и возвращает результат. `ctx` — контекст
     /// родительского turn'а; реализация сама изолирует ребёнка (свой

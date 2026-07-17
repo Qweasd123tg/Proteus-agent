@@ -29,7 +29,7 @@ adapters.
 папки:
 
 - `crates/proteus-core/src/core/approval` — transports и cache для approval UI;
-- `crates/proteus-core/src/core/model_service.rs` — shaping wrapper вокруг `ModelAdapter`;
+- `crates/proteus-core/src/core/model_service.rs` — shaping wrapper вокруг `Model`;
 - `crates/proteus-core/src/core/permission_mode.rs` — mode-aware wrapper для `ApprovalPolicy`;
 - `crates/proteus-core/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`, `request_user_input`/`AskUserQuestion`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
 
@@ -76,7 +76,7 @@ pseudo-slot из topology.
 
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
-| Model | `Model` (`ModelClient`/`ModelAdapter` compatibility aliases) | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| Model | `Model` | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
 | Search | `SearchBackend` | `modules.search` | `null`, plugin-provided (`rg` если подключён `rg-search`) |
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite` из `sqlite-memory`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
@@ -116,8 +116,11 @@ DeepSeek можно использовать как дешёвый текущи�
 Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зависеть только
 от canonical model contract и выбранного adapter-а.
 
-Runtime зависит от единого model contract: `id`, `capabilities`, `stream` и default `complete`.
-`ModelClient` и `ModelAdapter` оставлены как compatibility aliases к тому же trait, чтобы старые call sites мигрировали постепенно. `BuiltinRegistry` по-прежнему использует `ModelService` как shaping wrapper: перед provider call он вызывает `RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри provider-а, а compatibility shaping остаётся единым для всех providers.
+Runtime зависит от единственного model contract `Model`: `id`, `capabilities`,
+`stream` и default `complete`. `BuiltinRegistry` использует `ModelService` как
+shaping wrapper: перед provider call он вызывает `RequestShaper` с
+`ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри
+provider-а, а canonical shaping остаётся единым для всех providers.
 
 Успешный stream adapter-а обязан вернуть terminal `Response` с уже полными
 canonical message/tool calls. `ModelService` эмитит live deltas, но не
@@ -161,12 +164,9 @@ backends. Помимо `text`, `cwd` и `max_results`, в нём есть option
 `use_case`, `starts_with` и `ends_with`. `use_case` нужен backend-ам, которые
 различают поиск для простого context fill, repo-aware context или user-facing
 tool call. `starts_with`/`ends_with` дают path filters без side-channel через
-metadata. User-facing tool `search` дополнительно принимает `path` как alias к
-одному `starts_with` prefix. Backend `rg-search` применяет безопасные
-`starts_with` уже на уровне ripgrep roots, а не только после получения
-результатов, и переводит `ends_with` в `--glob`. Старые plugin JSON payloads без
-этих полей продолжают читаться через
-serde defaults.
+metadata. Backend `rg-search` применяет безопасные `starts_with` уже на уровне
+ripgrep roots, а не только после получения результатов, и переводит
+`ends_with` в `--glob`.
 
 Tool `search` возвращает человеку читаемый output (`path:line: content` или
 `(no matches)`), но сохраняет raw `ContextChunk` массив в metadata `chunks`.
@@ -485,7 +485,7 @@ Threshold берётся из `module_config.compactor.codex.trigger_tokens`, е
 compactor считает `module_config.compactor.codex.trigger_fraction *
 max_input_tokens` активной модели; стандартные профили используют
 `trigger_fraction = 0.8`. Если capability неизвестен и явный threshold не
-задан, compactor использует legacy `max_tokens` от workflow или default
+задан, compactor использует default
 `32000`.
 
 Настройки `codex-compactor`:

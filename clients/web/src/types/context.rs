@@ -50,7 +50,6 @@ pub(crate) struct ContextMapSnapshot {
     pub(crate) latest_context: Option<ContextBuildSnapshot>,
     pub(crate) latest_compaction: Option<ContextCompactionSnapshot>,
     pub(crate) tools: ContextToolSummary,
-    #[serde(default)]
     pub(crate) diagnostics: Vec<String>,
 }
 
@@ -72,7 +71,6 @@ pub(crate) struct ContextUsageSnapshot {
     pub(crate) estimated_input_tokens: u32,
     pub(crate) max_input_tokens: Option<u32>,
     pub(crate) compaction_trigger_tokens: Option<u32>,
-    #[serde(default)]
     pub(crate) categories: Vec<ContextUsageCategory>,
     pub(crate) actual: Option<ContextActualUsage>,
     pub(crate) source: String,
@@ -84,7 +82,6 @@ pub(crate) struct ContextUsageSnapshot {
 pub(crate) struct ContextUsageCategory {
     pub(crate) name: String,
     pub(crate) tokens: u32,
-    #[serde(default)]
     pub(crate) source: Option<String>,
 }
 
@@ -132,6 +129,5 @@ pub(crate) struct ContextToolSummary {
     pub(crate) requested: usize,
     pub(crate) finished: usize,
     pub(crate) failed: usize,
-    #[serde(default)]
     pub(crate) names: Vec<String>,
 }

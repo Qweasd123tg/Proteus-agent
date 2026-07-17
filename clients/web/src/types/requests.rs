@@ -42,7 +42,6 @@ pub(crate) struct ResolveApprovalRequest {
     pub(crate) approval_id: String,
     pub(crate) approved: bool,
     pub(crate) note: Option<String>,
-    #[serde(default)]
     pub(crate) cache: ApprovalCacheScope,
 }
 

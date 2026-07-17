@@ -238,6 +238,15 @@ fn web_decodes_contract_stdio_output_events() {
             AppServerEvent::UserInputResolved { request_id } => {
                 assert_eq!(request_id, "input-1")
             }
+            AppServerEvent::ModulesReloaded {
+                old_epoch,
+                new_epoch,
+                tool_names,
+            } => {
+                assert_eq!(old_epoch, 1);
+                assert_eq!(new_epoch, 2);
+                assert_eq!(tool_names, ["read_file"]);
+            }
             AppServerEvent::SessionActivityUpdated {
                 session_dir,
                 activity,
@@ -249,7 +258,6 @@ fn web_decodes_contract_stdio_output_events() {
             AppServerEvent::Error { message } => assert_eq!(message, "boom"),
             AppServerEvent::EventStreamLagged { count } => assert_eq!(count, 42),
             AppServerEvent::Shutdown => {}
-            AppServerEvent::Unknown => {}
         }
     }
 }

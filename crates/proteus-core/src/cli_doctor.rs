@@ -10,9 +10,7 @@ use proteus_core::{
 };
 use serde_json::Value;
 
-use crate::cli_init::{
-    is_config_file_path, mixed_config_files_warning, single_config_file_for_warning,
-};
+use crate::cli_init::{mixed_config_files_warning, single_config_file_for_warning};
 
 pub(crate) async fn run_doctor(
     explicit_config: Option<&std::path::Path>,
@@ -38,15 +36,6 @@ pub(crate) async fn run_doctor(
         None => findings.warn("no config path could be resolved; defaults will be used"),
     }
 
-    if let Some(root) = config_root_for_doctor(effective_config) {
-        let legacy_json = root.join("config.json");
-        if legacy_json.exists() {
-            findings.warn(format!(
-                "legacy config.json is not used when configs/ exists: {}",
-                legacy_json.display()
-            ));
-        }
-    }
     if let Some(path) = single_config_file_for_warning(effective_config)
         && let Some(warning) = mixed_config_files_warning(&path)
     {
@@ -87,7 +76,6 @@ pub(crate) async fn run_doctor(
 
     check_model_config(&mut findings, &catalog, &config);
     check_selected_modules(&mut findings, &catalog, &config);
-    check_configured_tools(&mut findings, &config);
     check_external_commands(&mut findings, &config, cwd);
     check_runtime_limits(&mut findings, &config);
     check_filesystem_paths(&mut findings, &config, cwd, effective_config);
@@ -377,20 +365,6 @@ fn collect_unknown_tool_references(
     }
 }
 
-pub(crate) fn check_configured_tools(findings: &mut DoctorFindings, config: &AppConfig) {
-    for tool in &config.tools.configured {
-        if let ConfiguredToolExecutorConfig::Native { handler } = &tool.executor {
-            match handler.as_str() {
-                "apply_patch" | "search" => {}
-                other => findings.error(format!(
-                    "configured tool '{}' uses legacy native handler '{}'; use plugin tools.enabled instead",
-                    tool.name, other
-                )),
-            }
-        }
-    }
-}
-
 fn check_external_commands(findings: &mut DoctorFindings, config: &AppConfig, cwd: &Path) {
     if config.modules.search == "rg" {
         check_command(findings, "rg", cwd, "search backend rg");
@@ -580,21 +554,6 @@ fn first_existing_ancestor(path: &Path) -> Option<PathBuf> {
         }
         current = current.parent()?;
     }
-}
-
-pub(crate) fn config_root_for_doctor(config_path: Option<&std::path::Path>) -> Option<PathBuf> {
-    let path = config_path?;
-    if is_config_file_path(path) || path.is_file() {
-        let parent = path.parent()?;
-        if parent.file_name().and_then(|name| name.to_str()) == Some("configs") {
-            return parent.parent().map(std::path::Path::to_path_buf);
-        }
-        return Some(parent.to_path_buf());
-    }
-    if path.file_name().and_then(|name| name.to_str()) == Some("configs") {
-        return path.parent().map(std::path::Path::to_path_buf);
-    }
-    Some(path.to_path_buf())
 }
 
 #[derive(Default)]

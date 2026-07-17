@@ -8,7 +8,7 @@ struct FinalAfterToolLimitModel {
     calls: AtomicUsize,
 }
 #[async_trait]
-impl ModelClient for FinalAfterToolLimitModel {
+impl Model for FinalAfterToolLimitModel {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "test.final_after_tool_limit".into()
     }
@@ -59,7 +59,7 @@ impl ModelClient for FinalAfterToolLimitModel {
     }
 }
 #[async_trait]
-impl ModelClient for LengthToolCallModel {
+impl Model for LengthToolCallModel {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "test.length_tool_call".into()
     }
@@ -105,7 +105,7 @@ impl ModelClient for LengthToolCallModel {
 }
 struct NeverModel;
 #[async_trait]
-impl ModelClient for NeverModel {
+impl Model for NeverModel {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "test.never".into()
     }

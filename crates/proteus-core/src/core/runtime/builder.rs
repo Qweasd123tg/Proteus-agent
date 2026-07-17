@@ -91,18 +91,14 @@ impl AgentRuntimeBuilder {
         session_dir: impl Into<PathBuf>,
         session_id: SessionId,
         thread_id: ThreadId,
-    ) -> Self {
+    ) -> Result<Self> {
         let session_dir = session_dir.into();
-        if let Ok(Some(workspace_path)) =
-            crate::core::session_workspace_from_session_dir(&session_dir)
-        {
-            self.cwd = workspace_path;
-        }
+        self.cwd = crate::core::session_workspace_from_session_dir(&session_dir)?;
         self.session_dir = Some(session_dir);
         self.session_id = Some(session_id);
         self.thread_id = Some(thread_id);
         self.resume_history = true;
-        self
+        Ok(self)
     }
 
     pub fn build(self) -> Result<AgentRuntime> {

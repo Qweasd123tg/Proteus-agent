@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, ModelClient,
+        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, Model,
         PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner, ToolExposure,
         ToolRegistry, UserInputTransport, Workflow,
     },
@@ -20,10 +20,10 @@ pub struct BuiltinRegistry {
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
-    pub model: Arc<dyn ModelClient>,
+    pub model: Arc<dyn Model>,
     /// Отдельная ссылка на ModelService для доступа к `set_event_context`
-    /// (не выражается через trait ModelClient). `None` если model выбран
-    /// как кастомный плагинный ModelClient, не ModelService.
+    /// (не выражается через trait Model). `None` если model выбран
+    /// как кастомный плагинный Model, не ModelService.
     pub model_service: Option<Arc<ModelService>>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
@@ -63,7 +63,7 @@ impl BuiltinRegistry {
         let model_config = config.active_model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
-        let model: Arc<dyn ModelClient> = model_service.clone();
+        let model: Arc<dyn Model> = model_service.clone();
 
         let search = catalog.build_search(&config.modules.search, &build_ctx)?;
         let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;

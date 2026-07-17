@@ -18,6 +18,14 @@ impl SubagentRunner for NoSubagent {
         Vec::new()
     }
 
+    fn supports_collaboration(&self) -> bool {
+        false
+    }
+
+    fn supports_collaboration_messages(&self) -> bool {
+        false
+    }
+
     async fn run(&self, _request: SubagentRequest, _ctx: RuntimeContext) -> Result<SubagentResult> {
         Err(anyhow!("subagent slot is disabled (module 'none')"))
     }

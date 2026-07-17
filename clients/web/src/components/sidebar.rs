@@ -27,7 +27,7 @@ fn rail_sessions(workspace: &str, sessions: &[SessionSummary]) -> Vec<SessionSum
     }
     sessions
         .iter()
-        .filter(|session| session.workspace_path.as_deref() == Some(workspace))
+        .filter(|session| session.workspace_path == workspace)
         .take(SIDEBAR_RAIL_LIMIT)
         .cloned()
         .collect()
@@ -39,7 +39,7 @@ fn rail_sessions_total(workspace: &str, sessions: &[SessionSummary]) -> usize {
     }
     sessions
         .iter()
-        .filter(|session| session.workspace_path.as_deref() == Some(workspace))
+        .filter(|session| session.workspace_path == workspace)
         .count()
 }
 
@@ -155,7 +155,6 @@ where
                                         active_session_dir.get().as_deref()
                                             == Some(session_dir.as_str())
                                     }
-                                    disabled=!session.resumable
                                     aria-label=aria
                                     on:click=move |_| on_open_session(session_for_click.clone())
                                 >
@@ -209,8 +208,7 @@ where
                                 sessions
                                     .iter()
                                     .filter(|session| {
-                                        session.workspace_path.as_deref()
-                                            == Some(workspace.as_str())
+                                        session.workspace_path == workspace
                                     })
                                     .count()
                             });
@@ -233,8 +231,7 @@ where
                                     .iter()
                                     .filter(|session| {
                                         workspace != "waiting for session"
-                                            && session.workspace_path.as_deref()
-                                                == Some(workspace.as_str())
+                                            && session.workspace_path == workspace
                                             && session_matches_query(session, &query)
                                     })
                                     .cloned()
@@ -243,16 +240,8 @@ where
                         }
                         key=|session| sidebar_session_render_key(session)
                         children=move |session| {
-                            let workspace = session
-                                .workspace_path
-                                .clone()
-                                .unwrap_or_else(|| "неизвестный workspace".to_owned());
-                            let session_id = session
-                                .session_id
-                                .as_deref()
-                                .map(short_id)
-                                .unwrap_or("legacy")
-                                .to_owned();
+                            let workspace = session.workspace_path.clone();
+                            let session_id = short_id(&session.session_id).to_owned();
                             let title = sidebar_session_title(&session);
                             let preview = sidebar_session_preview(&session);
                             let activity_label =
@@ -261,7 +250,6 @@ where
                                 sidebar_session_activity_dot_class(session.activity.as_ref());
                             let message_count = session.message_count;
                             let updated_at = relative_time_from_now(session.updated_at_ms);
-                            let resumable = session.resumable;
                             let active_session_dir_value = session.session_dir.clone();
                             let session_for_click = session.clone();
                             let session_for_delete = session.clone();
@@ -275,7 +263,6 @@ where
                                                 active_session_dir.get().as_deref()
                                                     == Some(active_session_dir_value.as_str())
                                             }
-                                            disabled=!resumable
                                             title=workspace.clone()
                                             on:click=move |_| on_open_session(session_for_click.clone())
                                         >

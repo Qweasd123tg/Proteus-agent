@@ -3,16 +3,15 @@ use serde::{Deserialize, Serialize};
 use crate::domain::ids::CallId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolCall {
     pub id: CallId,
     pub name: String,
     pub args: serde_json::Value,
-    #[serde(default)]
     pub surface: ToolCallSurface,
     /// Original provider argument payload when exact replay matters (notably
     /// malformed Responses function-call JSON). Ordinary callers leave it out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_arguments: Option<String>,
 }
 
@@ -48,12 +47,12 @@ pub enum ToolCallSurface {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolResult {
     pub call_id: CallId,
     pub ok: bool,
     pub output: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<ToolContent>,
     pub error: Option<String>,
     pub metadata: serde_json::Value,
@@ -191,19 +190,26 @@ mod tests {
     }
 
     #[test]
-    fn tool_call_raw_arguments_are_optional_and_roundtrip_exactly() {
-        let legacy: ToolCall = serde_json::from_value(json!({
+    fn tool_call_requires_the_complete_canonical_shape() {
+        let incomplete = serde_json::from_value::<ToolCall>(json!({
             "id": "call-1",
             "name": "read_file",
             "args": { "path": "README.md" }
-        }))
-        .expect("legacy ToolCall JSON");
-        assert_eq!(legacy.raw_arguments, None);
-        assert!(
-            serde_json::to_value(&legacy)
-                .expect("serialize legacy ToolCall")
-                .get("raw_arguments")
-                .is_none()
+        }));
+        assert!(incomplete.is_err());
+
+        let canonical = ToolCall::new(
+            "call-1",
+            "read_file",
+            json!({
+                "path": "README.md"
+            }),
+        );
+        assert_eq!(
+            serde_json::to_value(&canonical)
+                .expect("serialize canonical ToolCall")
+                .get("raw_arguments"),
+            Some(&serde_json::Value::Null)
         );
 
         let malformed =
@@ -217,12 +223,12 @@ mod tests {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
-    #[serde(default)]
     pub surface: ToolSurface,
     pub safety: ToolSafety,
     pub timeout_ms: Option<u64>,
@@ -264,13 +270,11 @@ impl ToolSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[non_exhaustive]
 pub enum ToolSurface {
     Function {
-        #[serde(default)]
         strict: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         output_schema: Option<serde_json::Value>,
     },
     Freeform {
@@ -307,6 +311,7 @@ impl Default for ToolSurface {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct FreeformToolFormat {
     #[serde(rename = "type")]

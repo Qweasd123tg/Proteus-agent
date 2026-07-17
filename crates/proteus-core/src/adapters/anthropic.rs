@@ -12,7 +12,7 @@ use crate::{
         http_retry::send_with_transport_retry,
         secrets::{read_config_string_or_default, read_secret_from_config},
     },
-    contracts::{ModelAdapter, ModelEventStream},
+    contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
@@ -91,7 +91,7 @@ impl AnthropicMessagesClient {
     }
 }
 
-pub fn build_anthropic_messages_adapter(config: Value) -> Result<Arc<dyn ModelAdapter>> {
+pub fn build_anthropic_messages_adapter(config: Value) -> Result<Arc<dyn Model>> {
     Ok(Arc::new(AnthropicMessagesClient::from_provider_config(
         config,
     )?))
@@ -142,7 +142,7 @@ impl AnthropicAuth {
 }
 
 #[async_trait]
-impl ModelAdapter for AnthropicMessagesClient {
+impl Model for AnthropicMessagesClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "anthropic.messages".into()
     }
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn request_keeps_legacy_system_shape_without_cache_hints() {
+    fn request_uses_plain_system_shape_without_cache_hints() {
         let request = CanonicalModelRequest::new(
             ModelRef::new("anthropic", "claude-test"),
             vec![CanonicalMessage::text(MessageRole::User, "solve it")],

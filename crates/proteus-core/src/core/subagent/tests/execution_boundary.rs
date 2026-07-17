@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::test_runtime_context_with_model;
 use crate::{
-    contracts::{ModelClient, SubagentRequest, SubagentRunner, Tool, ToolContext},
+    contracts::{Model, SubagentRequest, SubagentRunner, Tool, ToolContext},
     core::{InMemoryEventStore, SequentialSubagentRunner},
     domain::{AgentTask, Event, ModelRef, ToolCall, ToolResult, ToolSafety, ToolSpec, new_call_id},
     model_standard::{
@@ -55,7 +55,7 @@ impl ToolCallThenStopModelClient {
 }
 
 #[async_trait]
-impl ModelClient for ToolCallThenStopModelClient {
+impl Model for ToolCallThenStopModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("tool-call-then-stop")
     }
@@ -126,7 +126,7 @@ impl ScriptedResponseModelClient {
 }
 
 #[async_trait]
-impl ModelClient for ScriptedResponseModelClient {
+impl Model for ScriptedResponseModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("scripted-response")
     }

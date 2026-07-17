@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    domain::{CONTEXT_MESSAGE_NAME, ENVIRONMENT_CONTEXT_TAG},
+    domain::CONTEXT_MESSAGE_NAME,
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 use serde_json::json;
@@ -11,32 +11,22 @@ pub(crate) struct HistoryParts {
     /// the compacted model request, while `coding-workflow` filters it before
     /// persisting replacement history.
     pub(crate) ephemeral_context: Vec<CanonicalMessage>,
-    /// Messages shown to the summary model. This includes the current
-    /// canonical context, but excludes legacy text-shaped context that may
-    /// have leaked into durable history.
+    /// Messages shown to the summary model, including canonical context.
     pub(crate) summary_history: Vec<CanonicalMessage>,
     /// Durable conversation items from which bounded real user messages are
     /// selected for replacement history.
     pub(crate) compactable_history: Vec<CanonicalMessage>,
-    pub(crate) dropped_generated_context_messages: usize,
 }
 
 pub(crate) fn split_history(messages: &[CanonicalMessage]) -> HistoryParts {
     let mut ephemeral_context = Vec::new();
     let mut summary_history = Vec::new();
     let mut compactable_history = Vec::new();
-    let mut dropped_generated_context_messages = 0;
 
     for message in messages {
         if is_structured_ephemeral_context_message(message) {
             ephemeral_context.push(message.clone());
             summary_history.push(message.clone());
-        } else if is_generated_context_message(message) {
-            // Text-shaped AGENTS/environment messages are legacy context
-            // leaks. The current context builder already supplied a canonical
-            // request-scoped copy, so retaining these would make stale context
-            // durable after compaction.
-            dropped_generated_context_messages += 1;
         } else {
             summary_history.push(message.clone());
             compactable_history.push(message.clone());
@@ -47,7 +37,6 @@ pub(crate) fn split_history(messages: &[CanonicalMessage]) -> HistoryParts {
         ephemeral_context,
         summary_history,
         compactable_history,
-        dropped_generated_context_messages,
     }
 }
 
@@ -70,9 +59,7 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
 }
 
 fn is_generated_user_message(text: &str) -> bool {
-    is_generated_context_text(text)
-        || text.starts_with("<turn_aborted>")
-        || text.starts_with(SUMMARY_PREFIX)
+    text.starts_with("<turn_aborted>") || text.starts_with(SUMMARY_PREFIX)
 }
 
 fn is_structured_ephemeral_context_message(message: &CanonicalMessage) -> bool {
@@ -82,20 +69,6 @@ fn is_structured_ephemeral_context_message(message: &CanonicalMessage) -> bool {
                 .parts
                 .iter()
                 .all(|part| matches!(part, ContentPart::Context { .. })))
-}
-
-fn is_generated_context_message(message: &CanonicalMessage) -> bool {
-    message.role == MessageRole::User
-        && message_text(message)
-            .as_deref()
-            .map(str::trim_start)
-            .is_some_and(is_generated_context_text)
-}
-
-fn is_generated_context_text(text: &str) -> bool {
-    text.starts_with("# AGENTS.md instructions")
-        || text.starts_with(ENVIRONMENT_CONTEXT_TAG)
-        || text.starts_with("<ENVIRONMENT_CONTEXT>")
 }
 
 pub(crate) fn select_recent_user_messages(

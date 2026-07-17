@@ -373,6 +373,7 @@ pub struct InstructionSourceConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderProfileConfig {
     #[serde(default = "default_model_provider")]
     pub provider: String,
@@ -386,29 +387,22 @@ pub struct ProviderProfileConfig {
     pub reasoning_efforts: Vec<String>,
     #[serde(default)]
     pub provider_config: serde_json::Value,
-    #[serde(flatten)]
-    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl ProviderProfileConfig {
     pub fn to_model_config(&self) -> Result<ModelConfig> {
-        let mut provider_config = match &self.provider_config {
-            serde_json::Value::Null => serde_json::Map::new(),
-            serde_json::Value::Object(map) => map.clone(),
+        let provider_config = match &self.provider_config {
+            serde_json::Value::Null => serde_json::Value::Object(serde_json::Map::new()),
+            serde_json::Value::Object(_) => self.provider_config.clone(),
             _ => bail!("provider_config must be a JSON object"),
         };
-
-        for (key, value) in &self.extra {
-            provider_config.insert(key.clone(), value.clone());
-        }
-        provider_config.insert("stream".to_owned(), serde_json::Value::Bool(self.stream));
 
         Ok(ModelConfig {
             provider: self.provider.clone(),
             model: self.model.clone(),
             stream: self.stream,
             reasoning: self.reasoning.clone(),
-            provider_config: serde_json::Value::Object(provider_config),
+            provider_config,
         })
     }
 }
@@ -428,6 +422,7 @@ impl Default for ProfileConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelConfig {
     #[serde(default = "default_model_provider")]
     pub provider: String,
@@ -1309,6 +1304,31 @@ memory_policy = "carry_forward"
             error
                 .to_string()
                 .contains("unknown module_config slot \"memory_policy\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn load_rejects_unknown_provider_profile_field() {
+        let dir = tempfile::tempdir().expect("config dir");
+        let config_path = dir.path().join("invalid.config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+active_provider = "local"
+
+[providers.local]
+kind = "openai"
+model = "test-model"
+"#,
+        )
+        .expect("invalid config");
+
+        let error = AppConfig::load(Some(&config_path))
+            .await
+            .expect_err("unknown provider profile field");
+        assert!(
+            format!("{error:#}").contains("unknown field `kind`"),
+            "{error:#}"
         );
     }
 

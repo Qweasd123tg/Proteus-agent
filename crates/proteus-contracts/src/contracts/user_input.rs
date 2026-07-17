@@ -11,7 +11,6 @@ use crate::contracts::RequestOrigin;
 pub struct UserInputQuestionOption {
     pub label: String,
     pub description: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
 }
 
@@ -36,13 +35,9 @@ pub struct UserInputQuestion {
     pub id: String,
     pub header: String,
     pub question: String,
-    #[serde(default)]
     pub is_other: bool,
-    #[serde(default)]
     pub is_secret: bool,
-    #[serde(default, alias = "multiSelect")]
     pub multi_select: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<UserInputQuestionOption>,
 }
 
@@ -85,22 +80,14 @@ impl UserInputQuestion {
 pub struct UserInputRequest {
     pub request_id: String,
     pub cwd: PathBuf,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub questions: Vec<UserInputQuestion>,
     /// Who is asking: thread/turn plus optional source label (subagent role).
-    /// `None` for requests constructed outside a runtime turn (tests, legacy
-    /// senders).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `None` for requests constructed outside a runtime turn.
     pub origin: Option<RequestOrigin>,
     /// Monotonic queue position assigned by the app-server forwarder for
     /// client-side ordering. `0` when the request never went through a queue.
-    #[serde(default, skip_serializing_if = "is_zero_seq")]
     pub seq: u64,
-}
-
-fn is_zero_seq(seq: &u64) -> bool {
-    *seq == 0
 }
 
 impl UserInputRequest {

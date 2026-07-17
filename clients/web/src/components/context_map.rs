@@ -165,11 +165,7 @@ fn context_map_path(session_dir: Option<&str>) -> String {
 }
 
 fn context_session_option_label(session: &SessionSummary) -> String {
-    let id = session
-        .session_id
-        .as_deref()
-        .map(short_id)
-        .unwrap_or("legacy");
+    let id = short_id(&session.session_id);
     let title = sidebar_session_title(session);
     format!("{title} · {id}")
 }

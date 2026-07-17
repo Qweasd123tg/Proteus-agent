@@ -10,7 +10,7 @@ use hyper::{
 };
 
 use super::{HttpAppState, HttpResponse, command_response};
-use crate::app_server::{AppServerEvent, protocol::StdioOutput};
+use crate::app_server::{AppServerEvent, StdioOutput};
 
 const SSE_HEARTBEAT_SECS: u64 = 15;
 

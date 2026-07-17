@@ -194,7 +194,7 @@ async fn model_service_shapes_request_before_adapter_call() {
 struct NoToolsAdapter;
 
 #[async_trait]
-impl ModelAdapter for NoToolsAdapter {
+impl Model for NoToolsAdapter {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "test.no_tools".into()
     }

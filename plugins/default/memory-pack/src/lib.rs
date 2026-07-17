@@ -114,12 +114,15 @@ fn recall_impl(path: &PathBuf, query_json: &str) -> Result<Vec<MemoryItem>> {
         Err(error) => return Err(error.into()),
     };
     let mut items = Vec::new();
-    for line in BufReader::new(file).lines() {
+    for (index, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
-        let item: MemoryItem = match serde_json::from_str(&line) {
-            Ok(item) => item,
-            Err(_) => continue,
-        };
+        let item: MemoryItem = serde_json::from_str(&line).with_context(|| {
+            format!(
+                "invalid MemoryItem JSON in {} line {}",
+                path.display(),
+                index + 1
+            )
+        })?;
         if query.text.is_empty() || item.content.contains(&query.text) {
             items.push(item);
         }
@@ -158,7 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn jsonl_recall_skips_malformed_lines() {
+    fn jsonl_recall_rejects_malformed_lines() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("memory.jsonl");
         let first = MemoryItem::new("decision", "keep this", Value::Null);
@@ -170,29 +173,8 @@ mod tests {
         );
         fs::write(&path, contents).expect("memory file");
 
-        let items = recall_impl(&path, r#"{"text":"keep","limit":10}"#).expect("recall");
-
-        assert_eq!(items, vec![first, second]);
-    }
-
-    #[test]
-    fn jsonl_recall_keeps_legacy_carry_forward_entries_readable() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let path = dir.path().join("memory.jsonl");
-        let legacy = MemoryItem::new(
-            "carry_forward:latest",
-            "legacy assistant response",
-            Value::Null,
-        );
-        fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).expect("legacy item")),
-        )
-        .expect("memory file");
-
-        let items =
-            recall_impl(&path, r#"{"text":"assistant","limit":10}"#).expect("legacy recall");
-
-        assert_eq!(items, vec![legacy]);
+        let error = recall_impl(&path, r#"{"text":"keep","limit":10}"#)
+            .expect_err("malformed memory line must fail");
+        assert!(error.to_string().contains("line 2"), "{error:#}");
     }
 }

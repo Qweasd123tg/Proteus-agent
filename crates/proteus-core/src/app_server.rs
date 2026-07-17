@@ -22,7 +22,7 @@ use crate::{
         list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
         session_id_from_session_dir, session_workspace_from_session_dir,
     },
-    domain::{AgentOutput, EventEnvelope, PermissionMode, new_thread_id},
+    domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
 };
 
 mod approval_preview;
@@ -32,7 +32,6 @@ mod config_summary;
 mod context_map;
 pub mod http;
 mod path_utils;
-pub mod protocol;
 pub mod stdio;
 mod transcript;
 mod turn_progress;
@@ -57,9 +56,8 @@ use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptTool};
 use turn_progress::TurnProgress;
 
-// Wire protocol вынесен в proteus-contracts чтобы клиенты depend на него
-// без зависимости на ядро. Здесь просто re-export для обратной
-// совместимости внутри proteus-core.
+// Публичный app-server façade экспортирует canonical wire types из contracts;
+// их определения не дублируются в core.
 pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
     AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
@@ -95,6 +93,10 @@ impl AppServerHandle {
 
     pub fn session_dir_path(&self) -> Option<PathBuf> {
         self.runtime.session_dir().map(Path::to_path_buf)
+    }
+
+    pub fn session_id(&self) -> SessionId {
+        self.runtime.session_id()
     }
 
     pub async fn start_session(&self) -> Result<()> {
@@ -405,8 +407,8 @@ impl AppServerHandle {
             .values()
             .map(|entry| entry.request.clone())
             .collect::<Vec<_>>();
-        // Хронология очереди: seq присваивает forwarder; approval_id — только
-        // детерминированный tie-breaker для записей без seq (тесты, legacy).
+        // Хронология очереди: seq присваивает forwarder; approval_id даёт
+        // детерминированный порядок при равных seq в тестовых fixtures.
         approvals.sort_by(|left, right| {
             left.seq
                 .cmp(&right.seq)
@@ -420,8 +422,8 @@ impl AppServerHandle {
             .values()
             .map(|entry| entry.request.clone())
             .collect::<Vec<_>>();
-        // Хронология очереди: seq присваивает forwarder; request_id — только
-        // детерминированный tie-breaker для записей без seq (тесты, legacy).
+        // Хронология очереди: seq присваивает forwarder; request_id даёт
+        // детерминированный порядок при равных seq в тестовых fixtures.
         user_inputs.sort_by(|left, right| {
             left.seq
                 .cmp(&right.seq)
@@ -457,31 +459,17 @@ impl AppServerHandle {
     ) -> Result<AppContextMapSnapshot> {
         let session_dir = crate::core::canonicalize_session_dir_path(session_dir)?;
         let history = SessionStore::from_session_dir(session_dir.clone()).load_messages()?;
-        let mut diagnostics = Vec::new();
-        let session_id = match session_id_from_session_dir(&session_dir) {
-            Ok(session_id) => Some(session_id),
-            Err(error) => {
-                diagnostics.push(format!("session metadata unavailable: {error}"));
-                None
-            }
-        };
-        let workspace_path = match session_workspace_from_session_dir(&session_dir) {
-            Ok(path) => path,
-            Err(error) => {
-                diagnostics.push(format!("workspace metadata unavailable: {error}"));
-                None
-            }
-        };
-        let event_log_cwd = workspace_path.as_deref().unwrap_or(&self.cwd);
-        let event_log_path = self.context_event_log_path(event_log_cwd).await;
+        let session_id = session_id_from_session_dir(&session_dir)?;
+        let workspace_path = session_workspace_from_session_dir(&session_dir)?;
+        let event_log_path = self.context_event_log_path(&workspace_path).await;
         build_context_map_snapshot(ContextMapInput {
             session_dir: Some(session_dir),
-            session_id,
-            workspace_path,
+            session_id: Some(session_id),
+            workspace_path: Some(workspace_path),
             activity,
             history,
             event_log_path,
-            diagnostics,
+            diagnostics: Vec::new(),
         })
     }
 
@@ -620,11 +608,8 @@ impl AgentAppServer {
         let resume_session_dir = resume_session_dir
             .map(normalize_session_dir_path)
             .transpose()?;
-        if let Some(session_dir) = resume_session_dir.as_deref()
-            && let Some(workspace_path) =
-                crate::core::session_workspace_from_session_dir(session_dir)?
-        {
-            cwd = workspace_path;
+        if let Some(session_dir) = resume_session_dir.as_deref() {
+            cwd = crate::core::session_workspace_from_session_dir(session_dir)?;
         }
 
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
@@ -668,7 +653,7 @@ impl AgentAppServer {
             .with_user_input(Arc::new(user_input_transport));
         if let Some(session_dir) = resume_session_dir {
             let session_id = session_id_from_session_dir(&session_dir)?;
-            builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id());
+            builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id())?;
         }
         if let Some(module_catalog) = module_catalog {
             builder = builder.with_module_catalog(module_catalog);
@@ -715,7 +700,7 @@ fn latest_workspace_session_dir(config_path: Option<&Path>, cwd: &Path) -> Resul
     Ok(
         list_workspace_session_summaries(&config_store_root(config_path), cwd)?
             .into_iter()
-            .find(|session| session.resumable)
+            .next()
             .map(|session| session.session_dir),
     )
 }

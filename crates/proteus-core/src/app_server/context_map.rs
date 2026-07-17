@@ -127,7 +127,7 @@ fn apply_context_events(snapshot: &mut AppContextMapSnapshot, events: &[EventEnv
                     usage.model.provider.clone(),
                     usage.model.model.clone(),
                     usage.estimated_input_tokens,
-                    token_usage_source_label(usage.usage_source()),
+                    token_usage_source_label(usage.source),
                 );
                 usage_snapshot.phase = usage.phase.clone();
                 usage_snapshot.max_input_tokens = usage.max_input_tokens;
@@ -136,13 +136,8 @@ fn apply_context_events(snapshot: &mut AppContextMapSnapshot, events: &[EventEnv
                     .categories
                     .iter()
                     .map(|category| {
-                        let mut category_snapshot =
-                            AppContextUsageCategory::new(category.name.clone(), category.tokens);
-                        if let Some(source) = category.source {
-                            category_snapshot =
-                                category_snapshot.with_source(token_usage_source_label(source));
-                        }
-                        category_snapshot
+                        AppContextUsageCategory::new(category.name.clone(), category.tokens)
+                            .with_source(token_usage_source_label(category.source))
                     })
                     .collect();
                 usage_snapshot.actual = usage.actual.clone();

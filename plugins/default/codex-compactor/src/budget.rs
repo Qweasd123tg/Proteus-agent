@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::history::message_text;
 
-pub(crate) const DEFAULT_TRIGGER_TOKENS: u32 = 32_000;
+pub(crate) const DEFAULT_TRIGGER_TOKENS: u32 = 160_000;
 const DEFAULT_USER_MESSAGE_BUDGET_TOKENS: usize = 20_000;
 const DEFAULT_SUMMARY_BUDGET_TOKENS: u32 = 4_000;
 
@@ -53,8 +53,7 @@ fn prefix_within_bytes(text: &str, max_bytes: usize) -> String {
 /// 1) `trigger_tokens` из module-config (жёсткий потолок);
 /// 2) env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`;
 /// 3) `trigger_fraction` из конфига × сырое окно `window_tokens`;
-/// 4) legacy `max_tokens` (то, что прислал workflow);
-/// 5) дефолтная константа.
+/// 4) дефолтная константа.
 pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> u32 {
     if let Some(tokens) = config_u32(&input.config, "trigger_tokens") {
         return tokens;
@@ -71,7 +70,7 @@ pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> u32 {
             return trigger.min(f64::from(u32::MAX)) as u32;
         }
     }
-    input.max_tokens.unwrap_or(DEFAULT_TRIGGER_TOKENS)
+    DEFAULT_TRIGGER_TOKENS
 }
 
 fn config_u32(config: &Value, key: &str) -> Option<u32> {

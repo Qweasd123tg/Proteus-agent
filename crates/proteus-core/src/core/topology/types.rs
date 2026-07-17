@@ -54,11 +54,9 @@ pub struct SlotTopology {
     /// Группа slot для рендереров: orchestrator | pipeline | registry |
     /// backend | post_turn | custom. Группировка задаётся здесь, чтобы
     /// клиенты не хардкодили свои списки.
-    #[serde(default)]
     pub category: String,
     /// Порядок отображения внутри snapshot: turn pipeline сначала, затем
     /// backends и post-turn. Custom slots получают большой order.
-    #[serde(default)]
     pub order: u32,
 }
 

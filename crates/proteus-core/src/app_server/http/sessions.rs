@@ -89,12 +89,11 @@ async fn known_session_summary_value(
 
     Ok(Some(json!({
         "session_dir": session_dir.to_path_buf(),
-        "session_id": null,
+        "session_id": server.session_id(),
         "workspace_path": server.cwd_path().to_path_buf(),
         "message_count": message_count,
         "updated_at_ms": current_time_ms(),
         "preview": transcript_preview(&transcript),
-        "resumable": true,
         "activity": activity,
     })))
 }

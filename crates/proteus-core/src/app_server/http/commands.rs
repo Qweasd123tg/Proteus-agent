@@ -5,10 +5,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::{
-    app_server::{
-        AgentAppServer, AppServerHandle,
-        protocol::{StdioOutput, StdioRequest},
-    },
+    app_server::{AgentAppServer, AppServerHandle, StdioOutput, StdioRequest},
     contracts::CancellationToken,
     core::canonicalize_session_dir_path,
     domain::{AgentOutput, PermissionMode},

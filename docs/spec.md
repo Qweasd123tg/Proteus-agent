@@ -51,7 +51,7 @@ Dylib-плагины через `abi_stable` **уже являются част�
 и рабочие примеры есть в `~/.proteus/plugins/`. Stdio MCP tools host для
 `ConfiguredMcpTool` / `tools.mcp_servers` уже работает через `ToolRegistry`.
 Что пока не закрыто — полный MCP provider для resources/prompts/subscriptions,
-non-stdio transports и async plugin ABI для `ModelAdapter`. Большинство
+non-stdio transports и async plugin ABI для `Model`. Большинство
 production-реализаций Волны 3 уже вынесено в `plugins/default`; core сохраняет
 host-bound tools, adapters и безопасные stubs. Config-defined process/MCP
 tools остаются executor surface-ом для простых shell-обёрток и не дублируют
@@ -168,7 +168,7 @@ gaps — в `security-and-policy.md`.
 - table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
   contracts, а не параллельный plugin runtime;
-- async plugin ABI для `ModelAdapter` с сохранением streaming.
+- async plugin ABI для `Model` с сохранением streaming.
 
 Каждое направление должно иметь focused tests на boundary, а не только happy
 path CLI smoke test.
@@ -241,7 +241,7 @@ path CLI smoke test.
 4. ✅ большинство production-реализаций Волны 3 уже живёт в
    `plugins/default`; в core остаются stubs, host-bound tools,
    `sequential`/`process` SubagentRunner, provider adapters и runtime wiring;
-5. ⏳ `ModelAdapter` остаётся в core до async ABI через `FfiFuture` /
+5. ⏳ `Model` остаётся в core до async ABI через `FfiFuture` /
    `FfiStream` с поддержкой streaming.
 
 `ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
@@ -253,7 +253,7 @@ MCP registry/provider для resources/prompts/subscriptions.
 Разрешено брать архитектурные идеи и UX patterns, но не тащить чужую структуру
 как есть. Любая адаптация должна пройти через локальные contracts:
 
-- модельные идеи -> `ModelAdapter` / model standard;
+- модельные идеи -> `Model` / model standard;
 - поиск -> `SearchBackend` или `ContextBuilder`;
 - memory -> `MemoryStore` + explicit tools/workflow;
 - tools -> `Tool` / `ToolProvider` / `ToolRegistry`;

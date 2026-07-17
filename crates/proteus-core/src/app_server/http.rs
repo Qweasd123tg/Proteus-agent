@@ -16,9 +16,7 @@ use crate::core::{
     render_topology_runtime_path,
 };
 
-use super::{
-    AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity, protocol::StdioRequest,
-};
+use super::{AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity, StdioRequest};
 
 mod commands;
 mod config;
@@ -52,7 +50,7 @@ use sse::sse_response;
 use state::HttpAppState;
 
 #[cfg(test)]
-use super::protocol::StdioOutput;
+use super::StdioOutput;
 #[cfg(test)]
 use http_body_util::Full;
 #[cfg(test)]

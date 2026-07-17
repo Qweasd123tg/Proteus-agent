@@ -189,10 +189,7 @@ fn compact_messages(
     )
     .with_reason(reason)
     .with_token_estimate(effective_token_estimate(messages, last_usage))
-    // window_tokens — сырое окно, из него компактор берёт trigger_fraction;
-    // max_tokens оставляем как legacy-fallback на случай отсутствия конфига.
-    .with_window_tokens(input.runtime.max_input_tokens)
-    .with_max_tokens(model_auto_compact_limit(input.runtime.max_input_tokens));
+    .with_window_tokens(input.runtime.max_input_tokens);
     let input_json = to_json_string(&compaction_input)?;
     let output_json = match host.compact_history_json(RString::from(input_json)) {
         RResult::ROk(json) => json,
@@ -395,13 +392,6 @@ pub(super) fn from_json_string<T: serde::de::DeserializeOwned>(
     value: &str,
 ) -> Result<T, PluginWorkflowError> {
     serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
-}
-
-fn model_auto_compact_limit(max_input_tokens: Option<u32>) -> Option<u32> {
-    max_input_tokens.map(|tokens| {
-        let limit = (u64::from(tokens) * 8 / 10).max(1);
-        u32::try_from(limit).unwrap_or(u32::MAX)
-    })
 }
 
 fn emit_token_usage(

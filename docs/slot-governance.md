@@ -33,7 +33,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 2. Поведение не выражается существующими `Tool`, `Workflow`,
    `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
    `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` или
-   `ModelAdapter`.
+   `Model`.
 3. Core обязан вызывать это место сам на стабильной точке lifecycle. Если код
    может быть обычным tool-ом, workflow step-ом или context provider-ом, новый
    slot не нужен.
@@ -61,7 +61,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Нужно явно сохранить/найти долговременную память? | `MemoryStore` + `Tool`/`Workflow`; background lifecycle остаётся research до двух реализаций |
 | Нужно решить `allow` / `ask` / `deny`? | `ApprovalPolicy` / approval transport |
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
-| Нужно изменить provider request/streaming/usage? | `ModelAdapter` / model standard |
+| Нужно изменить provider request/streaming/usage? | `Model` / model standard |
 | Нужно показать debug/UX? | app-server protocol, UI client или `Renderer` |
 | Нужно обработать tool result перед возвратом модели? | Пока research: кандидат на generic `ToolResultProcessor`, не feature-specific slot |
 | Нужно складывать большие файлы/артефакты? | Пока research: кандидат на generic `ArtifactStore`, не Cursor-specific slot |
@@ -85,7 +85,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Plugin mention injection | `ContextBuilder` / `context_provider` | `PluginDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
 | Long-term memory consolidation jobs | `MemoryStore`, `Workflow`, explicit tools | background jobs/mailbox contract может понадобиться | research/private prototype; не возвращать lifecycle slot без двух работающих реализаций |
 | Subagents / cheaper model delegation | `SubagentRunner`, host-bound tools/app-server | persistent agent tree/mailbox/reload contract только после dogfood | slot `subagent` владеет child loop; model-facing protocol отдельно выбирается top-level `subagents.surface = task|collaboration|none` без нового slot. Текущий collaboration slice — bounded session-owned lifecycle + optional sequential messaging/follow-up, не parity и не доказательство стабильного plugin ABI |
-| OAuth model provider | `ModelAdapter` | token store/auth helper можно держать provider-owned | provider plugin/adapter, не auth slot |
+| OAuth model provider | `Model` | token store/auth helper можно держать provider-owned | provider plugin/adapter, не auth slot |
 | Resume/session picker | app-server protocol + UI client | session listing/search DTO уже protocol-level | client feature, не core slot |
 | Command autocomplete | UI/input routing | runtime request DTO только для команд, требующих runtime action | client feature, не core slot |
 | Markdown/table rendering | UI renderer/client | none | client feature, не core slot |

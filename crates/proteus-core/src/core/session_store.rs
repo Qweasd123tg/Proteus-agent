@@ -40,18 +40,14 @@ struct SessionMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SessionSummary {
     pub session_dir: PathBuf,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<SessionId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace_path: Option<PathBuf>,
+    pub session_id: SessionId,
+    pub workspace_path: PathBuf,
     pub message_count: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
-    pub resumable: bool,
 }
 
 impl SessionStore {
@@ -405,36 +401,26 @@ pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
 }
 
 pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
-    match read_session_metadata(session_dir)? {
-        Some(metadata) => Ok(metadata.session_id),
-        None => Err(anyhow!(
-            "session metadata file is required: {}",
-            session_dir.join(SESSION_METADATA_FILE).display()
-        )),
-    }
+    Ok(require_session_metadata(session_dir)?.session_id)
 }
 
-pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<Option<PathBuf>> {
-    Ok(read_session_metadata(session_dir)?.map(|metadata| metadata.workspace_path))
+pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<PathBuf> {
+    Ok(require_session_metadata(session_dir)?.workspace_path)
 }
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<SessionSummary> {
-    let metadata = read_session_metadata(&session_dir)?;
-    let workspace_path = metadata
-        .as_ref()
-        .map(|metadata| metadata.workspace_path.clone());
+    let metadata = require_session_metadata(&session_dir)?;
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
     let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE))
         .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
 
     Ok(SessionSummary {
         session_dir,
-        session_id: metadata.as_ref().map(|metadata| metadata.session_id),
-        workspace_path,
+        session_id: metadata.session_id,
+        workspace_path: metadata.workspace_path,
         message_count,
         updated_at_ms,
         preview,
-        resumable: metadata.is_some(),
     })
 }
 
@@ -549,6 +535,15 @@ fn read_session_metadata(session_dir: &Path) -> Result<Option<SessionMetadata>> 
             Err(error).with_context(|| format!("failed to read {}", metadata_path.display()))
         }
     }
+}
+
+fn require_session_metadata(session_dir: &Path) -> Result<SessionMetadata> {
+    read_session_metadata(session_dir)?.ok_or_else(|| {
+        anyhow!(
+            "session metadata file is required: {}",
+            session_dir.join(SESSION_METADATA_FILE).display()
+        )
+    })
 }
 
 fn session_dir_name(session_id: SessionId) -> String {
@@ -780,7 +775,7 @@ mod tests {
             session_workspace_from_session_dir(store.session_dir()).expect("metadata workspace");
 
         assert_eq!(parsed, session_id);
-        assert_eq!(workspace.as_deref(), Some(cwd.path()));
+        assert_eq!(workspace, cwd.path());
     }
 
     #[tokio::test]
@@ -843,7 +838,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_session_summaries_returns_recent_resumable_sessions() {
+    async fn list_session_summaries_returns_recent_sessions() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
@@ -859,14 +854,13 @@ mod tests {
         let summaries = list_session_summaries(config_dir.path()).expect("sessions");
 
         assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].session_id, Some(session_id));
-        assert_eq!(summaries[0].workspace_path.as_deref(), Some(cwd.path()));
+        assert_eq!(summaries[0].session_id, session_id);
+        assert_eq!(summaries[0].workspace_path, cwd.path());
         assert_eq!(summaries[0].message_count, 2);
         assert_eq!(
             summaries[0].preview.as_deref(),
             Some("inspect this project")
         );
-        assert!(summaries[0].resumable);
     }
 
     #[tokio::test]
@@ -895,8 +889,34 @@ mod tests {
             .expect("workspace sessions");
 
         assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].session_id, Some(first_session_id));
+        assert_eq!(summaries[0].session_id, first_session_id);
         assert_eq!(summaries[0].preview.as_deref(), Some("first workspace"));
+    }
+
+    #[test]
+    fn list_session_summaries_rejects_session_without_metadata() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let session_dir = config_dir
+            .path()
+            .join("sessions")
+            .join("workspace")
+            .join("1234567890");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        std::fs::write(
+            session_dir.join(MESSAGES_FILE),
+            serde_json::to_string(&CanonicalMessage::text(MessageRole::User, "hello"))
+                .expect("message json"),
+        )
+        .expect("messages file");
+
+        let error = list_session_summaries(config_dir.path())
+            .expect_err("session without metadata must fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("session metadata file is required")
+        );
     }
 
     fn read_messages_file(path: &Path) -> Vec<CanonicalMessage> {

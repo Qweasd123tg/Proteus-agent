@@ -221,6 +221,7 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 
     let resumed = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
         .resume_from_session_dir(session_dir.clone(), session_id, thread_id)
+        .unwrap()
         .with_module_catalog(test_catalog())
         .build()
         .unwrap();
@@ -272,6 +273,7 @@ async fn runtime_resume_uses_workspace_from_session_metadata() {
         .expect("thread uuid");
     let resumed = AgentRuntime::builder(test_config(), wrong_dir.path().to_path_buf())
         .resume_from_session_dir(session_dir, session_id, thread_id)
+        .unwrap()
         .with_module_catalog(test_catalog())
         .build()
         .unwrap();

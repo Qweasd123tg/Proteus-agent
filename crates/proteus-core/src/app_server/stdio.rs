@@ -9,10 +9,7 @@ use tokio::{
 
 use crate::{contracts::CancellationToken, core::AppConfig};
 
-use super::{
-    AgentAppServer, AppServerEvent, AppServerHandle,
-    protocol::{StdioOutput, StdioRequest},
-};
+use super::{AgentAppServer, AppServerEvent, AppServerHandle, StdioOutput, StdioRequest};
 
 pub async fn run_stdio_app_server(
     config: AppConfig,

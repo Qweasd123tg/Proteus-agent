@@ -197,7 +197,7 @@ subagent) используют `tokio::task::spawn_blocking`. Короткие s
 
 ### Остаются в ядре пока (async, вынос позже)
 
-- **model** - `ModelAdapter::complete(request)` + `stream(request)`. Общение с LLM провайдерами. Остаётся async в ядре до Волны 4: streaming - обязательное требование, sync-версия потеряет его навсегда.
+- **model** - `Model::complete(request)` + `stream(request)`. Общение с LLM провайдерами. Остаётся async в ядре до Волны 4: streaming - обязательное требование, sync-версия потеряет его навсегда.
 ### Не существуют (решено не добавлять)
 
 - **tool_discovery provider** - отдельный discovery runtime поверх внешних
@@ -215,7 +215,7 @@ catalog/registry factories, plugin ABI и boundary tests. Строковый `Sl
 динамической схемой. Перед таким изменением применяется
 `docs/slot-governance.md`: сначала проверяются существующие `Tool`, `Workflow`,
 `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
-`ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` и `ModelAdapter`.
+`ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` и `Model`.
 
 ---
 
@@ -369,7 +369,7 @@ Trade-off:
 - Плюс: плагин пишется как обычный Rust код, без Pin, Box, Future, FfiFuture. Агент-кодер справляется за один заход.
 - Минус: плагин-tool не может стримить partial output в реальном времени.
 
-ModelAdapter остаётся async (в ядре, не плагин). Streaming модели - обязателен, sync версия потеряет его навсегда. Когда придёт время выносить model adapters в плагины (Волна 4), одновременно добавляется async trait вариант через `FfiFuture` / `FfiStream` из `abi_stable`.
+Model остаётся async (в ядре, не плагин). Streaming модели - обязателен, sync версия потеряет его навсегда. Когда придёт время выносить model adapters в плагины (Волна 4), одновременно добавляется async trait вариант через `FfiFuture` / `FfiStream` из `abi_stable`.
 
 Workflow plugin ABI выбран иначе: workflow сам sync, а async runtime операции
 идут через host capability callbacks. Это позволяет вынести agent behavior
@@ -391,7 +391,7 @@ calls, если хочет нормально реагировать на `/canc
 - Config parser и CLI stub.
 - `ConfiguredProcessTool`/`ConfiguredNativeTool`/`ConfiguredMcpTool` — встроенный механизм для tools из главного config'а без плагинов.
 
-**Async slots (до Волны 4):** ModelAdapter. Workflow вынесен через sync
+**Async slots (до Волны 4):** Model. Workflow вынесен через sync
 plugin ABI + host callbacks, поэтому отдельный async ABI для него сейчас не
 нужен.
 
@@ -434,7 +434,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Capability-based `PluginContextBuilder` ABI + host callbacks добавлены.
   Плагин `context-pack` регистрирует `simple`, `repo_aware` и
   `codex_context`.
-- 🔜 `ModelAdapter` как plugin ABI после async ABI.
+- 🔜 `Model` как plugin ABI после async ABI.
 - 🔜 Дальнейшая зачистка DTO под стабильную внешнюю поверхность по мере
   появления сторонних плагинов.
 
@@ -512,7 +512,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 ### Волна 4: async slots
 
 - Async ABI через `FfiFuture` и `FfiStream`.
-- ModelAdapter plugins.
+- Model plugins.
 
 ---
 
@@ -544,7 +544,7 @@ Stdio MCP server процессы изолированы через границ
 - Sandbox для dylib плагинов (плагины доверенные).
 - Локальные per-project плагины (только `~/.proteus/plugins/`).
 - Signed plugins, marketplace (далёкое будущее).
-- Async ModelAdapter plugins — отложено до Волны 4. Workflow уже вынесен
+- Async Model plugins — отложено до Волны 4. Workflow уже вынесен
   через sync plugin ABI + host callbacks.
 - Migration shim'ы для несовместимых ABI версий (пересборка плагина дешевле).
 - Произвольные plugin dependencies; разрешены `proteus-contracts` и узкие utility-крейты без ABI-типов (сейчас `proteus-process-host`).

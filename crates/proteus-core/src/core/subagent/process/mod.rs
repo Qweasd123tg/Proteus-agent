@@ -488,6 +488,10 @@ impl SubagentRunner for ProcessSubagentRunner {
         true
     }
 
+    fn supports_collaboration_messages(&self) -> bool {
+        false
+    }
+
     /// `run` = `spawn` + `wait`: turn ребёнка живёт detached-таской, поэтому
     /// обрыв родительского future (отмена turn'а на границе block_on) не
     /// бросает процесс ребёнка без cancel-протокола — таска доводит

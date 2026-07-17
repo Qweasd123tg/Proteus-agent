@@ -7,6 +7,8 @@ active_provider = "openai"
 provider = "openai"
 model = "glm-5.2"
 stream = true
+
+[providers.openai.provider_config]
 api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
@@ -16,7 +18,7 @@ max_input_tokens = 400000
 # повреждённом SSE. Strict codex profile этот fallback намеренно не включает.
 stream_error_fallback = true
 
-[providers.openai.capabilities]
+[providers.openai.provider_config.capabilities]
 supports_parallel_tool_calls = true
 supports_json_schema = true
 supports_reasoning_config = true

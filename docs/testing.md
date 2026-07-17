@@ -125,7 +125,7 @@ summary path, строгий `Stop`/assistant/no-tools ответ вместо f
 проверяется случай, где replacement не сокращает историю. Core adapter тестирует
 ABI bridge для compactor host, включая `complete_model_json`; runtime-тесты
 проверяют, что changed compaction заменяет in-memory history и `messages.jsonl`,
-а workflow-тесты проверяют model-aware threshold в `CompactionInput.max_tokens`
+а workflow-тесты проверяют model-aware окно в `CompactionInput.window_tokens`
 и сохранность текущего user message id на changed-compaction boundary.
 Отдельные regression-тесты фиксируют новый workflow history contract: runtime
 передаёт уже сохранённый current user, обычный output содержит только
@@ -176,7 +176,7 @@ canonical DTO не ломаются.
 - новая эвристика memory lifecycle сначала должна жить в `Workflow`, tool или
   research/background-job прототипе; новый public slot требует отдельного
   изменения contracts/core и двух работающих независимых реализаций;
-- новый model provider должен реализовать `ModelAdapter`; `ModelService` отвечает за `ModelClient` boundary и shaping;
+- новый model provider должен реализовать `Model`; `ModelService` отвечает за `Model` boundary и shaping;
 - новая policy не должна менять `ToolRegistry` или tools.
 
 ## Contract Tests
@@ -218,8 +218,7 @@ canonical DTO не ломаются.
   `slot:tool -> tools` нет;
 - renderer-ы `runtime`, `runtime-mermaid`, `map`, Markdown и Mermaid читают
   `TopologySnapshot`, а не реконструируют связи из `/config`; Inspector строит
-  единственную synthetic `ToolRegistry` card из `snapshot.tools` и игнорирует
-  legacy `slots[].id = "tool"` без дублирования;
+  единственную synthetic `ToolRegistry` card из `snapshot.tools`;
 - HTTP endpoints `/inspect/topology`, `/inspect/topology.runtime`,
   `/inspect/topology.runtime.mmd`, `/inspect/topology.map` и
   `/inspect/topology.mmd` доступны без token в default loopback dogfood, но

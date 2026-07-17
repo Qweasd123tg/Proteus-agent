@@ -7,16 +7,14 @@ use serde::{Deserialize, Serialize};
 use crate::domain::ContextChunk;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SearchQuery {
     pub text: String,
     pub cwd: PathBuf,
     pub max_results: usize,
-    #[serde(default)]
     pub use_case: Option<String>,
-    #[serde(default)]
     pub starts_with: Vec<String>,
-    #[serde(default)]
     pub ends_with: Vec<String>,
 }
 
@@ -75,17 +73,13 @@ mod tests {
     }
 
     #[test]
-    fn search_query_defaults_new_fields_for_old_json() {
-        let query: SearchQuery = serde_json::from_value(serde_json::json!({
+    fn search_query_rejects_incomplete_json() {
+        serde_json::from_value::<SearchQuery>(serde_json::json!({
             "text": "needle",
             "cwd": ".",
             "max_results": 10
         }))
-        .expect("old search query json should remain compatible");
-
-        assert_eq!(query.use_case, None);
-        assert!(query.starts_with.is_empty());
-        assert!(query.ends_with.is_empty());
+        .expect_err("canonical search query fields are required");
     }
 
     #[test]

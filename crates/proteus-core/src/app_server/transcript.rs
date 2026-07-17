@@ -9,13 +9,10 @@ use crate::{
 pub struct AppTranscriptMessage {
     pub role: String,
     pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<AppTranscriptTool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent: Option<AppTranscriptSubagent>,
     /// Текст ещё стримится: сообщение — живой прогресс незавершённого хода
     /// (см. turn_progress), клиент продолжает дописывать в него дельты.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub streaming: bool,
 }
 
@@ -25,12 +22,10 @@ pub struct AppTranscriptTool {
     pub name: String,
     pub args: Value,
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
     /// Metadata результата как есть (`ToolResult.metadata`): core не знает
     /// конкретных tools, а клиенты по ней строят спец-рендеры (например,
     /// карточку субагента из результата `task`).
-    #[serde(skip_serializing_if = "Value::is_null")]
     pub metadata: Value,
 }
 
@@ -38,12 +33,9 @@ pub struct AppTranscriptTool {
 pub struct AppTranscriptSubagent {
     pub child_thread_id: String,
     pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub iterations: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<AppTranscriptTool>,
 }
 

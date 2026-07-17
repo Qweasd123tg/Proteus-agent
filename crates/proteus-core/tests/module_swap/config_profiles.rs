@@ -12,7 +12,6 @@ async fn json_config_file_can_select_anthropic_provider() {
     assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
     assert_eq!(model_config.provider, "anthropic");
     assert!(model_config.stream);
-    assert_eq!(model_config.provider_config["stream"], true);
     assert_eq!(model_config.provider_config["api_key"], "sk-ant-...");
     assert_eq!(
         model_config.provider_config["base_url"],
@@ -87,7 +86,6 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
     assert_eq!(config.profile.name, "coding-local");
     assert_eq!(model_config.provider, "anthropic");
     assert!(model_config.stream);
-    assert_eq!(model_config.provider_config["stream"], true);
     assert_eq!(
         model_config.provider_config["api_key_env"],
         "ANTHROPIC_API_KEY"
@@ -371,6 +369,8 @@ active_provider = "local"
 [providers.local]
 provider = "openai_compatible"
 model = "local-model"
+
+[providers.local.provider_config]
 base_url = "http://127.0.0.1:11434/v1"
 "#,
     )
@@ -396,7 +396,6 @@ enabled = ["read_file", "search"]
     assert_eq!(model_config.provider, "openai_compatible");
     assert_eq!(model_config.model, "local-model");
     assert!(model_config.stream);
-    assert_eq!(model_config.provider_config["stream"], true);
     assert_eq!(
         model_config.provider_config["base_url"],
         "http://127.0.0.1:11434/v1"
@@ -419,6 +418,8 @@ active_provider = "anthropic"
 [providers.anthropic]
 provider = "anthropic"
 model = "shared-model"
+
+[providers.anthropic.provider_config]
 api_key_env = "ANTHROPIC_API_KEY"
 "#,
     )

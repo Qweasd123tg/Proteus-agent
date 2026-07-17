@@ -45,7 +45,7 @@ new turn/model request uses epoch=N+1
 | `PatchApplier` | only between turns | Edit semantics и approval context должны быть стабильны. |
 | `Workflow` | only new turn | Текущий workflow frame не заменяется. |
 | `MemoryStore` | only with durable-state rule | Нужен flush/migration или shared durable backend. |
-| `ModelAdapter` | between turns/model requests | Требует явного event/debug, потому что меняет поведение агента. |
+| `Model` | between turns/model requests | Требует явного event/debug, потому что меняет поведение агента. |
 
 ## Dynamic MCP Flow
 

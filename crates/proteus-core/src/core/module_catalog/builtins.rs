@@ -6,7 +6,7 @@ use super::{BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, ModelAdapter, PatchApplier,
+        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
         Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
@@ -225,7 +225,7 @@ fn manifest(
     manifest
 }
 
-fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
+fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn Model>> {
     let client = if config.stream {
         let delay = config
             .provider_config
@@ -238,11 +238,11 @@ fn build_fake_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter
     Ok(Arc::new(client))
 }
 
-fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
+fn build_openai_model_adapter(config: &ModelConfig) -> Result<Arc<dyn Model>> {
     build_openai_responses_adapter(provider_config_with_stream(config)?)
 }
 
-fn build_anthropic_model_adapter(config: &ModelConfig) -> Result<Arc<dyn ModelAdapter>> {
+fn build_anthropic_model_adapter(config: &ModelConfig) -> Result<Arc<dyn Model>> {
     build_anthropic_messages_adapter(provider_config_with_stream(config)?)
 }
 

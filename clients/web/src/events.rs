@@ -456,8 +456,8 @@ fn handle_app_event(
                 } else {
                     items.push(request);
                 }
-                // Хронология очереди по seq; approval_id — tie-breaker для
-                // записей старых серверов без seq.
+                // Хронология очереди по seq; approval_id даёт стабильный
+                // порядок при одинаковом значении.
                 items.sort_by(|left, right| {
                     left.seq
                         .cmp(&right.seq)
@@ -489,8 +489,8 @@ fn handle_app_event(
                 } else {
                     items.push(request);
                 }
-                // Хронология очереди по seq; request_id — tie-breaker для
-                // записей старых серверов без seq.
+                // Хронология очереди по seq; request_id даёт стабильный
+                // порядок при одинаковом значении.
                 items.sort_by(|left, right| {
                     left.seq
                         .cmp(&right.seq)
@@ -503,6 +503,16 @@ fn handle_app_event(
             set_pending_user_inputs.update(|items| {
                 items.retain(|item| item.request_id != request_id);
             });
+        }
+        AppServerEvent::ModulesReloaded {
+            old_epoch,
+            new_epoch,
+            tool_names,
+        } => {
+            set_agent_status.set(format!(
+                "модули обновлены: epoch {old_epoch} → {new_epoch}, tools {}",
+                tool_names.len()
+            ));
         }
         AppServerEvent::SessionActivityUpdated {
             session_dir,
@@ -583,7 +593,6 @@ fn handle_app_event(
                 "AppServer shutdown".to_owned(),
             );
         }
-        AppServerEvent::Unknown => {}
     }
 }
 

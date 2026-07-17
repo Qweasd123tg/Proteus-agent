@@ -116,7 +116,7 @@ docs/                     документация
    не смешается с пользовательской conversation history.
 5. Выбранный `Workflow` управляет model/tool loop.
 6. `ModelService` формирует canonical request, применяет provider capabilities и
-   вызывает `ModelAdapter`.
+   вызывает `Model`.
 7. Обычный model tool call проходит через `ToolRegistry` и
    `ToolOrchestrator`: validation → visibility/policy → approval → timeout →
    execution → bounded result.
@@ -239,7 +239,7 @@ storage engine остаётся отдельной архитектурной з
 - Выполняется действие модели → `Tool` через общий orchestrator.
 - Меняется поиск → `SearchBackend`.
 - Меняется применение patch → `PatchApplier`.
-- Меняется provider wire protocol → `ModelAdapter`.
+- Меняется provider wire protocol → `Model`.
 - Меняется отображение → client или `Renderer`, не core.
 - Идея ещё не доказала новый contract → research plugin/doc.
 

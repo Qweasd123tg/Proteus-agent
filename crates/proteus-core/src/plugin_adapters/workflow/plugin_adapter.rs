@@ -199,7 +199,7 @@ impl PluginWorkflowHost for WorkflowHost {
                 reason: input.reason.clone(),
                 input_messages: input.messages.len(),
                 token_estimate: input.token_estimate,
-                trigger_tokens: input.max_tokens,
+                trigger_tokens: None,
             })
             .await?;
             let host = Arc::new(RuntimeCompactionHost::new(ctx.clone()));
@@ -220,7 +220,7 @@ impl PluginWorkflowHost for WorkflowHost {
                         reason: input.reason.clone(),
                         input_messages: input.messages.len(),
                         token_estimate: input.token_estimate,
-                        trigger_tokens: input.max_tokens,
+                        trigger_tokens: None,
                         message: format!("{error:#}"),
                     })
                     .await?;

@@ -74,7 +74,6 @@ pub(crate) fn compact(
         "compacted_messages": history.compactable_history.len(),
         "preserved_user_messages": preserved_user_messages.len(),
         "ephemeral_context_messages": history.ephemeral_context.len(),
-        "dropped_generated_context_messages": history.dropped_generated_context_messages,
     });
     Ok(output)
 }

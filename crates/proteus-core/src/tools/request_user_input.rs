@@ -145,19 +145,19 @@ impl Tool for RequestUserInputTool {
                     },
                     "header": {
                         "type": "string",
-                        "description": "Compatibility form for a single question: short header label."
+                        "description": "Single-question form: short header label."
                     },
                     "question": {
                         "type": "string",
-                        "description": "Compatibility form for a single question."
+                        "description": "Single-question form."
                     },
                     "multiSelect": {
                         "type": "boolean",
-                        "description": "Compatibility form for a single question. Set true when choices are not mutually exclusive."
+                        "description": "Single-question form. Set true when choices are not mutually exclusive."
                     },
                     "options": {
                         "type": "array",
-                        "description": "Compatibility form for a single question.",
+                        "description": "Single-question form.",
                         "items": {
                             "anyOf": [
                                 { "type": "string" },

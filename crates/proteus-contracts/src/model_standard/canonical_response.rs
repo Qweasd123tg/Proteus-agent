@@ -8,6 +8,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CanonicalModelResponse {
     pub message: CanonicalMessage,
@@ -16,7 +17,6 @@ pub struct CanonicalModelResponse {
     pub usage: Option<TokenUsage>,
     /// Provider explicitly controls whether this response completes the
     /// current agent turn. `None` keeps the ordinary finish-reason behavior.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_turn: Option<bool>,
     pub provider_metadata: serde_json::Value,
 }
@@ -134,15 +134,13 @@ pub enum FinishReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_input_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_output_tokens: Option<u32>,
 }
 
@@ -211,30 +209,23 @@ mod tests {
     use crate::{domain::new_call_id, model_standard::ContentPart};
 
     #[test]
-    fn token_usage_accepts_legacy_json_without_details() {
-        let usage: TokenUsage =
-            serde_json::from_value(serde_json::json!({ "input_tokens": 10, "output_tokens": 2 }))
-                .expect("legacy usage");
-
-        assert_eq!(usage.input_tokens, 10);
-        assert_eq!(usage.output_tokens, 2);
-        assert_eq!(usage.cached_input_tokens, None);
-        assert_eq!(usage.cache_creation_input_tokens, None);
-        assert_eq!(usage.reasoning_output_tokens, None);
+    fn token_usage_rejects_incomplete_json() {
+        serde_json::from_value::<TokenUsage>(serde_json::json!({ "input_tokens": 10 }))
+            .expect_err("output_tokens is required on canonical wire");
     }
 
     #[test]
-    fn model_response_accepts_legacy_json_without_end_turn() {
-        let legacy = serde_json::to_value(CanonicalModelResponse::new(
+    fn model_response_serializes_end_turn_explicitly() {
+        let value = serde_json::to_value(CanonicalModelResponse::new(
             CanonicalMessage::text(crate::model_standard::MessageRole::Assistant, "done"),
             Vec::new(),
             FinishReason::Stop,
         ))
-        .expect("serialize legacy-shaped response");
-        assert!(legacy.get("end_turn").is_none());
+        .expect("serialize response");
+        assert_eq!(value.get("end_turn"), Some(&serde_json::Value::Null));
 
         let response: CanonicalModelResponse =
-            serde_json::from_value(legacy).expect("legacy response");
+            serde_json::from_value(value).expect("canonical response");
 
         assert_eq!(response.end_turn, None);
     }

@@ -41,13 +41,8 @@ where
                                 key=|session| session.session_dir.clone()
                                 children=move |session| {
                                     let session_for_open = session.clone();
-                                    let workspace = session.workspace_path.clone().unwrap_or_else(|| "неизвестный workspace".to_owned());
-                                    let session_id = session
-                                        .session_id
-                                        .as_deref()
-                                        .map(short_id)
-                                        .unwrap_or("legacy")
-                                        .to_owned();
+                                    let workspace = session.workspace_path.clone();
+                                    let session_id = short_id(&session.session_id).to_owned();
                                     view! {
                                         <article class="resume-item">
                                             <div class="resume-item-main">
@@ -64,7 +59,6 @@ where
                                             <button
                                                 type="button"
                                                 class="btn-primary"
-                                                disabled=!session.resumable
                                                 on:click=move |_| on_open(session_for_open.clone())
                                             >
                                                 "Открыть"

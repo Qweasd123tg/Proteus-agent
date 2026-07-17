@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
-        HistoryCompactor, MemoryStore, ModelClient, PatchApplier, SearchBackend, SubagentRunner,
+        HistoryCompactor, MemoryStore, Model, PatchApplier, SearchBackend, SubagentRunner,
         ToolExposure, ToolRegistry, TurnPermissionGrants, UserInputTransport,
     },
     domain::{
@@ -29,7 +29,7 @@ pub struct RuntimeContext {
     pub context_timeout_ms: u64,
     pub cancellation: CancellationToken,
     pub events: Arc<EventEmitter>,
-    pub model: Arc<dyn ModelClient>,
+    pub model: Arc<dyn Model>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
@@ -61,7 +61,7 @@ impl RuntimeContext {
         model_timeout_ms: u64,
         context_timeout_ms: u64,
         events: Arc<EventEmitter>,
-        model: Arc<dyn ModelClient>,
+        model: Arc<dyn Model>,
         search: Arc<dyn SearchBackend>,
         memory: Arc<dyn MemoryStore>,
         context: Arc<dyn ContextBuilder>,

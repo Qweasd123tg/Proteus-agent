@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, EventEmitter, ModelClient, PolicyContext, PolicyVisibilityContext,
+        CancellationToken, EventEmitter, Model, PolicyContext, PolicyVisibilityContext,
         SubagentIsolation, SubagentLimits, ToolRegistry,
     },
     core::{HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore},
@@ -50,7 +50,7 @@ impl crate::contracts::ApprovalPolicy for AllowAllPolicy {
 struct FailingModelClient;
 
 #[async_trait]
-impl ModelClient for FailingModelClient {
+impl Model for FailingModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("failing")
     }
@@ -85,7 +85,7 @@ struct BusyToolModelClient {
 }
 
 #[async_trait]
-impl ModelClient for BusyToolModelClient {
+impl Model for BusyToolModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("busy-tool")
     }
@@ -131,7 +131,7 @@ struct CancellingModelClient {
     token: CancellationToken,
 }
 #[async_trait]
-impl ModelClient for CancellingModelClient {
+impl Model for CancellingModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("cancelling")
     }
@@ -201,7 +201,7 @@ impl BoundaryMessageModelClient {
 }
 
 #[async_trait]
-impl ModelClient for BoundaryMessageModelClient {
+impl Model for BoundaryMessageModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("boundary-message")
     }
@@ -249,7 +249,7 @@ impl ModelClient for BoundaryMessageModelClient {
 }
 
 #[async_trait]
-impl ModelClient for RecordingFakeModelClient {
+impl Model for RecordingFakeModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         self.inner.id()
     }
@@ -298,7 +298,7 @@ fn test_runtime_context_with_model<M>(
     model: Arc<M>,
 ) -> RuntimeContext
 where
-    M: ModelClient + 'static,
+    M: Model + 'static,
 {
     let mut tools = ToolRegistry::new();
     tools
@@ -1124,7 +1124,7 @@ struct BarrierModelClient {
 }
 
 #[async_trait]
-impl ModelClient for BarrierModelClient {
+impl Model for BarrierModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("barrier")
     }
@@ -1162,7 +1162,7 @@ impl ModelClient for BarrierModelClient {
 struct SelectiveBlockingModelClient;
 
 #[async_trait]
-impl ModelClient for SelectiveBlockingModelClient {
+impl Model for SelectiveBlockingModelClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("selective")
     }

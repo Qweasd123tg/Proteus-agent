@@ -55,10 +55,6 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
     let mut views = snapshot
         .slots
         .iter()
-        // Старые topology snapshots представляли ToolRegistry pseudo-slot-ом.
-        // Это runtime node, а не заменяемый module slot, поэтому не показываем
-        // его среди slots даже при чтении legacy snapshot-а.
-        .filter(|slot| slot.id != "tool")
         .map(|slot| {
             let active_module = slot.active_module.as_ref().and_then(|active| {
                 snapshot
@@ -75,7 +71,7 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
                 .collect::<Vec<_>>();
             alternatives.sort_by(|left, right| left.id.cmp(&right.id));
             SlotView {
-                category: slot_category(slot),
+                category: slot.category.clone(),
                 active_module,
                 alternatives,
                 slot: slot.clone(),
@@ -83,8 +79,9 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
         })
         .collect::<Vec<_>>();
     views.sort_by(|left, right| {
-        slot_order(&left.slot)
-            .cmp(&slot_order(&right.slot))
+        left.slot
+            .order
+            .cmp(&right.slot.order)
             .then_with(|| left.slot.id.cmp(&right.slot.id))
     });
     views
@@ -268,42 +265,6 @@ pub(crate) fn non_empty(value: &str, fallback: &str) -> String {
     }
 }
 
-/// Fallback на случай старого backend без `category`/`order` в snapshot.
-fn slot_category(slot: &TopologySlot) -> String {
-    if !slot.category.trim().is_empty() {
-        return slot.category.clone();
-    }
-    match slot.id.as_str() {
-        "workflow" => "orchestrator",
-        "context" | "compactor" | "model" | "tool_exposure" | "subagent" | "policy"
-        | "renderer" => "pipeline",
-        "search" | "patch" | "memory" => "backend",
-        _ => "custom",
-    }
-    .to_owned()
-}
-
-fn slot_order(slot: &TopologySlot) -> u32 {
-    if slot.order > 0 || slot.id == "workflow" {
-        return slot.order;
-    }
-    match slot.id.as_str() {
-        "workflow" => 0,
-        "context" => 1,
-        "compactor" => 2,
-        // Держать в согласии с core/core_slots.rs: exposure идёт до model.
-        "tool_exposure" => 3,
-        "model" => 4,
-        "policy" => 5,
-        "subagent" => 6,
-        "renderer" => 7,
-        "search" => 8,
-        "patch" => 9,
-        "memory" => 10,
-        _ => 100,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,29 +322,4 @@ mod tests {
         assert!(!tools.missing);
     }
 
-    #[test]
-    fn legacy_tool_slot_is_hidden_and_does_not_duplicate_tools_step() {
-        let snapshot = TopologySnapshot {
-            slots: vec![
-                slot("policy", "pipeline", 5),
-                slot("tool", "registry", 6),
-                slot("renderer", "pipeline", 8),
-            ],
-            tools: vec![tool("read_file", true, true)],
-            ..TopologySnapshot::default()
-        };
-
-        let slots = slot_views(&snapshot);
-        assert!(slots.iter().all(|view| view.slot.id != "tool"));
-
-        let steps = pipeline_steps(&snapshot, &slots);
-        assert_eq!(steps.iter().filter(|step| step.id == "tools").count(), 1);
-        assert_eq!(
-            steps
-                .iter()
-                .map(|step| step.id.as_str())
-                .collect::<Vec<_>>(),
-            ["config", "policy", "tools", "renderer"]
-        );
-    }
 }

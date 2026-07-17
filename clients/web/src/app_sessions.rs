@@ -10,7 +10,7 @@ use crate::app_helpers::{
 };
 use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
 use crate::types::*;
-use crate::ui_utils::{short_id, short_path};
+use crate::ui_utils::short_id;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettingsBindings {
@@ -195,13 +195,11 @@ impl AppSessionActions {
         self.runtime_settings
             .set_active_session_dir
             .set(Some(session.session_dir.clone()));
-        if let Some(workspace) = session.workspace_path.clone() {
-            self.runtime_settings.set_workspace_label.set(workspace);
-        }
-        match session.session_id.clone() {
-            Some(session_id) => self.set_session_label.set(short_id(&session_id).to_owned()),
-            None => self.set_session_label.set(short_path(&session.session_dir)),
-        }
+        self.runtime_settings
+            .set_workspace_label
+            .set(session.workspace_path.clone());
+        self.set_session_label
+            .set(short_id(&session.session_id).to_owned());
         self.transcript.set_messages.set(Vec::new());
         self.transcript.set_next_message_id.set(1);
         self.set_queued_prompts.set(Vec::new());
