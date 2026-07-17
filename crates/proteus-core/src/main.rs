@@ -15,11 +15,10 @@ use proteus_core::domain::{
 use proteus_core::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{
-        AgentRuntime, AppConfig, BuiltinModuleCatalog, ModuleBuildContext, ModuleEpoch,
-        TopologyBuildInput, TopologyWarning, build_topology_snapshot, normalize_session_dir_path,
-        render_topology_map, render_topology_markdown, render_topology_mermaid,
-        render_topology_runtime_mermaid, render_topology_runtime_path, render_topology_table,
-        session_id_from_session_dir,
+        AgentRuntime, AppConfig, ModuleBuildContext, ModuleEpoch, TopologyBuildInput,
+        TopologyWarning, build_topology_snapshot, normalize_session_dir_path, render_topology_map,
+        render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
+        render_topology_runtime_path, render_topology_table, session_id_from_session_dir,
     },
 };
 use serde_json::Value;
@@ -49,7 +48,7 @@ use cli_init::{
     mixed_config_files_warning, single_config_file_for_warning,
 };
 #[cfg(test)]
-use proteus_core::core::ConfiguredToolExecutorConfig;
+use proteus_core::core::{BuiltinModuleCatalog, ConfiguredToolExecutorConfig};
 #[cfg(test)]
 use std::path::Path;
 
@@ -102,12 +101,7 @@ async fn main() -> Result<()> {
         return run_init(profile, cli.config.as_deref());
     }
     if is_modules_list_command(&cli.task) {
-        let mut catalog = BuiltinModuleCatalog::new();
-        let plugin_reports = proteus_core::core::default_plugins_dir()
-            .map(|plugins_dir| {
-                proteus_core::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
-            })
-            .unwrap_or_default();
+        let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
         println!("{}", render_module_list(&catalog.manifests()));
         if !plugin_reports.is_empty() {
             println!();
@@ -276,10 +270,7 @@ fn build_tool_registry_for_listing(
     config: &AppConfig,
     cwd: &std::path::Path,
 ) -> Result<proteus_core::contracts::ToolRegistry> {
-    let mut catalog = BuiltinModuleCatalog::new();
-    if let Some(plugins_dir) = proteus_core::core::default_plugins_dir() {
-        let _ = proteus_core::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
-    }
+    let (catalog, _) = proteus_core::core::load_default_module_catalog();
     let build_ctx = ModuleBuildContext {
         config,
         cwd,
@@ -297,10 +288,7 @@ fn build_cli_topology(
     cwd: &std::path::Path,
     permission_mode: PermissionMode,
 ) -> Result<proteus_core::core::TopologySnapshot> {
-    let mut catalog = BuiltinModuleCatalog::new();
-    let plugin_reports = proteus_core::core::default_plugins_dir()
-        .map(|plugins_dir| proteus_core::core::load_plugins_from_dir(&plugins_dir, &mut catalog))
-        .unwrap_or_default();
+    let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
     let catalog_entries = catalog.entry_summaries();
     let build_ctx = ModuleBuildContext {
         config,

@@ -65,16 +65,11 @@ pub(crate) async fn run_doctor(
         }
     };
 
-    let mut catalog = BuiltinModuleCatalog::new();
-    let plugin_reports = proteus_core::core::default_plugins_dir()
-        .map(|plugins_dir| {
-            findings.ok(format!("plugins dir: {}", plugins_dir.display()));
-            proteus_core::core::load_plugins_from_dir(&plugins_dir, &mut catalog)
-        })
-        .unwrap_or_else(|| {
-            findings.warn("plugins dir could not be resolved");
-            Vec::new()
-        });
+    match proteus_core::core::default_plugins_dir() {
+        Some(plugins_dir) => findings.ok(format!("plugins dir: {}", plugins_dir.display())),
+        None => findings.warn("plugins dir could not be resolved"),
+    }
+    let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
 
     if plugin_reports.is_empty() {
         findings.warn("no plugins discovered");

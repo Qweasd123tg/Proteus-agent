@@ -274,6 +274,18 @@ pub fn load_plugins_from_dir(
     scan_plugins_dir(plugins_dir, catalog)
 }
 
+/// Builds the builtin catalog and loads plugins from the standard directory.
+///
+/// Callers that only need builtins (notably isolated tests) should continue to
+/// use [`BuiltinModuleCatalog::new`] directly.
+pub fn load_default_module_catalog() -> (BuiltinModuleCatalog, Vec<PluginLoadReport>) {
+    let mut catalog = BuiltinModuleCatalog::new();
+    let reports = default_plugins_dir()
+        .map(|plugins_dir| load_plugins_from_dir(&plugins_dir, &mut catalog))
+        .unwrap_or_default();
+    (catalog, reports)
+}
+
 /// Внутренний вариант `load_plugins_from_dir`, не смотрящий на env.
 /// Полезен в unit-тестах, которые не должны мутировать глобальные переменные.
 fn scan_plugins_dir(

@@ -40,16 +40,12 @@ pub struct BuiltinRegistry {
 
 impl BuiltinRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
-        let mut catalog = BuiltinModuleCatalog::new();
-
         // Загружаем внешние плагины перед чтением модулей из config, чтобы
         // config мог ссылаться на плагин по module_id как на обычный builtin.
         // Успешные загрузки не логируем: для single-run агента это шум, а
         // полный список плагинов доступен через `modules list`. Ошибки
         // уже логируются из `load_plugins_from_dir` в stderr.
-        if let Some(plugins_dir) = crate::core::default_plugins_dir() {
-            let _ = crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog);
-        }
+        let (catalog, _) = crate::core::load_default_module_catalog();
 
         Self::from_catalog(config, cwd, catalog)
     }

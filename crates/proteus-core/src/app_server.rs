@@ -636,7 +636,7 @@ impl AgentAppServer {
                 (Some(catalog), Vec::new(), catalog_entries)
             }
             None => {
-                let (catalog, reports) = load_module_catalog_with_reports();
+                let (catalog, reports) = crate::core::load_default_module_catalog();
                 let catalog_entries = catalog.entry_summaries();
                 (Some(catalog), reports, catalog_entries)
             }
@@ -732,15 +732,6 @@ async fn reload_tools_config(
     Ok(config)
 }
 
-fn load_module_catalog_with_reports() -> (BuiltinModuleCatalog, Vec<crate::core::PluginLoadReport>)
-{
-    let mut catalog = BuiltinModuleCatalog::new();
-    let reports = crate::core::default_plugins_dir()
-        .map(|plugins_dir| crate::core::load_plugins_from_dir(&plugins_dir, &mut catalog))
-        .unwrap_or_default();
-    (catalog, reports)
-}
-
 fn build_registry_and_plugin_reports(
     config: &AppConfig,
     cwd: &Path,
@@ -749,7 +740,7 @@ fn build_registry_and_plugin_reports(
     Vec<crate::core::PluginLoadReport>,
     Vec<ModuleCatalogEntrySummary>,
 )> {
-    let (catalog, reports) = load_module_catalog_with_reports();
+    let (catalog, reports) = crate::core::load_default_module_catalog();
     let catalog_entries = catalog.entry_summaries();
     let registry = crate::core::BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), catalog)?;
     Ok((registry, reports, catalog_entries))
