@@ -114,8 +114,7 @@ http://127.0.0.1:1420/?server=http%3A%2F%2F127.0.0.1%3A9000
 ```
 
 Клиент сохраняет это значение в `sessionStorage` под ключом
-`proteus.appServerOrigin`; aliases для bootstrap: `app_server`,
-`app_server_origin`, `proteus_server`.
+`proteus.appServerOrigin`.
 Откройте web-клиент:
 
 ```text
@@ -124,8 +123,8 @@ http://127.0.0.1:1420/
 
 Для строгого token smoke можно задать `PROTEUS_SESSION_TOKEN`, передать
 `--token "$PROTEUS_SESSION_TOKEN"` app-server и открыть
-`http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`. Если одновременно
-нужен custom app-server origin, используйте `?server=...&session=...`.
+`http://127.0.0.1:1420/?token=<PROTEUS_SESSION_TOKEN>`. Если одновременно
+нужен custom app-server origin, используйте `?server=...&token=...`.
 
 ## Граница
 

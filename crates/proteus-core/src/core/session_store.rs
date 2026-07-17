@@ -5,7 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 use uuid::Uuid;
@@ -16,6 +16,7 @@ use crate::{
 };
 
 const SESSION_METADATA_FILE: &str = "session.json";
+const SESSION_SCHEMA_VERSION: u32 = 2;
 const MESSAGES_FILE: &str = "messages.jsonl";
 const PRE_COMPACTION_PREFIX: &str = "messages.pre-compaction.";
 const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
@@ -31,11 +32,11 @@ pub struct SessionStore {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SessionMetadata {
     schema_version: u32,
     session_id: SessionId,
-    #[serde(default)]
-    workspace_path: Option<PathBuf>,
+    workspace_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -236,10 +237,14 @@ impl SessionStore {
             return Ok(());
         }
 
+        let workspace_path = self
+            .workspace_path
+            .clone()
+            .ok_or_else(|| anyhow!("new session store is missing workspace_path"))?;
         let metadata = SessionMetadata {
-            schema_version: 2,
+            schema_version: SESSION_SCHEMA_VERSION,
             session_id,
-            workspace_path: self.workspace_path.clone(),
+            workspace_path,
         };
         let mut content = serde_json::to_vec_pretty(&metadata)?;
         content.push(b'\n');
@@ -410,21 +415,14 @@ pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
 }
 
 pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<Option<PathBuf>> {
-    if let Some(metadata) = read_session_metadata(session_dir)?
-        && let Some(workspace_path) = metadata.workspace_path
-    {
-        return Ok(Some(workspace_path));
-    }
-
-    Ok(infer_workspace_path_from_session_dir(session_dir))
+    Ok(read_session_metadata(session_dir)?.map(|metadata| metadata.workspace_path))
 }
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<SessionSummary> {
     let metadata = read_session_metadata(&session_dir)?;
     let workspace_path = metadata
         .as_ref()
-        .and_then(|metadata| metadata.workspace_path.clone())
-        .or_else(|| infer_workspace_path_from_session_dir(&session_dir));
+        .map(|metadata| metadata.workspace_path.clone());
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
     let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE))
         .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
@@ -533,31 +531,24 @@ fn pre_compaction_archive_seq(file_name: &str) -> Option<u64> {
 fn read_session_metadata(session_dir: &Path) -> Result<Option<SessionMetadata>> {
     let metadata_path = session_dir.join(SESSION_METADATA_FILE);
     match std::fs::read_to_string(&metadata_path) {
-        Ok(content) => serde_json::from_str(&content)
-            .map(Some)
-            .with_context(|| format!("failed to parse {}", metadata_path.display())),
+        Ok(content) => {
+            let metadata: SessionMetadata = serde_json::from_str(&content)
+                .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
+            if metadata.schema_version != SESSION_SCHEMA_VERSION {
+                bail!(
+                    "unsupported session schema_version {} in {}; expected {}",
+                    metadata.schema_version,
+                    metadata_path.display(),
+                    SESSION_SCHEMA_VERSION
+                );
+            }
+            Ok(Some(metadata))
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => {
             Err(error).with_context(|| format!("failed to read {}", metadata_path.display()))
         }
     }
-}
-
-fn infer_workspace_path_from_session_dir(session_dir: &Path) -> Option<PathBuf> {
-    let encoded = session_dir.parent()?.file_name()?.to_str()?;
-    let parts = encoded
-        .split('|')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        return None;
-    }
-
-    let mut path = PathBuf::from("/");
-    for part in parts {
-        path.push(part);
-    }
-    path.exists().then_some(path)
 }
 
 fn session_dir_name(session_id: SessionId) -> String {
@@ -644,9 +635,9 @@ mod tests {
         std::fs::write(
             dir.path().join(SESSION_METADATA_FILE),
             serde_json::to_string(&SessionMetadata {
-                schema_version: 1,
+                schema_version: SESSION_SCHEMA_VERSION,
                 session_id,
-                workspace_path: None,
+                workspace_path: dir.path().to_path_buf(),
             })
             .expect("metadata json"),
         )
@@ -906,24 +897,6 @@ mod tests {
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].session_id, Some(first_session_id));
         assert_eq!(summaries[0].preview.as_deref(), Some("first workspace"));
-    }
-
-    #[test]
-    fn session_workspace_infers_existing_path_from_legacy_session_layout() {
-        let dir = tempfile::tempdir().expect("root");
-        let workspace = dir.path().join("тест").join("ветер");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        let encoded = encode_workspace_path(&workspace);
-        let session_dir = dir
-            .path()
-            .join("config")
-            .join("sessions")
-            .join(encoded)
-            .join("1234567890");
-
-        let inferred = infer_workspace_path_from_session_dir(&session_dir);
-
-        assert_eq!(inferred.as_deref(), Some(workspace.as_path()));
     }
 
     fn read_messages_file(path: &Path) -> Vec<CanonicalMessage> {

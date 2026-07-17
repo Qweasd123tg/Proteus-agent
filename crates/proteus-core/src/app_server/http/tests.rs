@@ -188,7 +188,7 @@ fn authed_get_request(path: &str) -> Request<Full<Bytes>> {
         .method(Method::GET)
         .uri(path)
         .header(ORIGIN, "http://127.0.0.1:1420")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())
         .expect("request")
 }
@@ -198,7 +198,7 @@ fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
         .method(Method::POST)
         .uri(path)
         .header(ORIGIN, "http://127.0.0.1:1420")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(value))
         .expect("request")
@@ -554,18 +554,8 @@ fn http_config_requires_non_empty_token_for_non_loopback_bind() {
 }
 
 #[test]
-fn token_auth_accepts_header_authorization_and_query_tokens() {
+fn token_auth_accepts_authorization_and_query_tokens() {
     let security = test_security();
-    let header_request = Request::builder()
-        .uri("/config")
-        .header("x-proteus-session", "session-secret")
-        .body(())
-        .expect("request");
-    let legacy_header_request = Request::builder()
-        .uri("/config")
-        .header("x-proteus-session-token", "session-secret")
-        .body(())
-        .expect("request");
     let bearer_request = Request::builder()
         .uri("/config")
         .header(AUTHORIZATION, "Bearer session-secret")
@@ -575,21 +565,8 @@ fn token_auth_accepts_header_authorization_and_query_tokens() {
         .uri("/events?token=session-secret")
         .body(())
         .expect("request");
-    let alias_query_request = Request::builder()
-        .uri("/events?session_token=session-secret")
-        .body(())
-        .expect("request");
-    let web_query_request = Request::builder()
-        .uri("/events?session=session-secret")
-        .body(())
-        .expect("request");
-
-    assert!(request_has_valid_token(&header_request, &security));
-    assert!(request_has_valid_token(&legacy_header_request, &security));
     assert!(request_has_valid_token(&bearer_request, &security));
     assert!(request_has_valid_token(&query_request, &security));
-    assert!(request_has_valid_token(&alias_query_request, &security));
-    assert!(request_has_valid_token(&web_query_request, &security));
 }
 
 #[test]
@@ -611,9 +588,13 @@ fn token_auth_accepts_percent_encoded_event_source_query_token() {
 fn token_auth_rejects_missing_and_invalid_tokens() {
     let security = test_security();
     let missing = Request::builder().uri("/config").body(()).expect("request");
-    let invalid_header = Request::builder()
+    let removed_header = Request::builder()
         .uri("/config")
-        .header("x-proteus-session", "wrong")
+        .header("x-proteus-session", "session-secret")
+        .body(())
+        .expect("request");
+    let removed_query_alias = Request::builder()
+        .uri("/events?session=session-secret")
         .body(())
         .expect("request");
     let invalid_bearer = Request::builder()
@@ -627,7 +608,8 @@ fn token_auth_rejects_missing_and_invalid_tokens() {
         .expect("request");
 
     assert!(!request_has_valid_token(&missing, &security));
-    assert!(!request_has_valid_token(&invalid_header, &security));
+    assert!(!request_has_valid_token(&removed_header, &security));
+    assert!(!request_has_valid_token(&removed_query_alias, &security));
     assert!(!request_has_valid_token(&invalid_bearer, &security));
     assert!(!request_has_valid_token(&invalid_query, &security));
 }
@@ -695,7 +677,7 @@ fn options_response_adds_cors_headers_for_allowed_origin() {
             .headers()
             .get("access-control-allow-headers")
             .and_then(|value| value.to_str().ok()),
-        Some("authorization, content-type, x-proteus-session, x-proteus-session-token")
+        Some("authorization, content-type")
     );
 }
 
@@ -757,7 +739,7 @@ async fn route_rejects_bad_origin_even_with_valid_token() {
         .method(Method::GET)
         .uri("/config")
         .header(ORIGIN, "https://evil.example.test")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())
         .expect("request");
 
@@ -780,7 +762,7 @@ async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
         .method(Method::GET)
         .uri("/config")
         .header(ORIGIN, "http://127.0.0.1:1420")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())
         .expect("request");
 
@@ -1201,7 +1183,7 @@ async fn route_approval_resolves_pending_request_with_auth_and_cors() {
         .method(Method::POST)
         .uri("/approval")
         .header(ORIGIN, "http://127.0.0.1:1420")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(json!({
             "id": "approval-1",
@@ -1248,7 +1230,7 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
         .method(Method::POST)
         .uri("/user-input")
         .header(ORIGIN, "http://127.0.0.1:1420")
-        .header("x-proteus-session", "session-secret")
+        .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(json!({
             "id": "input-1",

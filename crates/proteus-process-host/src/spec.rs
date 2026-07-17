@@ -34,11 +34,7 @@ pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &["PATH"];
 pub struct ProcessSpec {
     pub command: String,
     pub args: Vec<String>,
-    /// Whether to clear the inherited parent environment before applying the
-    /// allowlist and explicit `env` values. Secure by default.
-    pub env_clear: bool,
-    /// Parent environment variable names copied into the child when
-    /// `env_clear` is enabled.
+    /// Parent environment variable names copied into the child.
     pub env_allowlist: BTreeSet<String>,
     /// Explicit child values. These override allowlisted parent values.
     pub env: BTreeMap<String, String>,
@@ -50,7 +46,6 @@ impl ProcessSpec {
         Self {
             command: command.into(),
             args: Vec::new(),
-            env_clear: true,
             env_allowlist: DEFAULT_ENV_ALLOWLIST
                 .iter()
                 .map(|name| (*name).to_owned())
@@ -86,13 +81,6 @@ impl ProcessSpec {
         self
     }
 
-    /// Enables or disables parent-environment clearing. Passing `false`
-    /// restores explicit legacy inheritance; the allowlist is then redundant.
-    pub fn env_clear(mut self, env_clear: bool) -> Self {
-        self.env_clear = env_clear;
-        self
-    }
-
     /// Adds parent environment names that the child is allowed to inherit.
     pub fn env_allowlist(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.env_allowlist.extend(names.into_iter().map(Into::into));
@@ -114,12 +102,10 @@ impl ProcessSpec {
             }
         }
 
-        if self.env_clear {
-            command.env_clear();
-            for name in &self.env_allowlist {
-                if let Some(value) = env::var_os(name) {
-                    command.env(name, value);
-                }
+        command.env_clear();
+        for name in &self.env_allowlist {
+            if let Some(value) = env::var_os(name) {
+                command.env(name, value);
             }
         }
         command.envs(&self.env);

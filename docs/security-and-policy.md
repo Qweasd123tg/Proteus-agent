@@ -247,8 +247,6 @@ Runtime оборачивает выбранный transport в session-level app
 - `workspace_write` — широкий cache для workspace-scoped write tools, ключ
   `cwd + tool name`; принимается только если `ToolSpec.metadata.approval`
   явно содержит `workspace_write`;
-- `tool_in_cwd` — legacy broad scope по `cwd + tool name`.
-
 Ключ кеша дополнительно включает `thread_id` запросившего из
 `ApprovalRequest.origin`: approve, выданный одному исполняющему контексту
 (main loop или конкретный запуск субагента), не переиспользуется другим.

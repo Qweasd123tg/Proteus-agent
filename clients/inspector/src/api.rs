@@ -9,18 +9,12 @@ use crate::types::SessionToken;
 
 const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
 const DEFAULT_CHAT_ORIGIN: &str = "http://127.0.0.1:1420";
-const SERVER_QUERY_KEYS: [&str; 4] = [
-    "server",
-    "app_server",
-    "app_server_origin",
-    "proteus_server",
-];
-const CHAT_QUERY_KEYS: [&str; 3] = ["chat", "chat_origin", "proteus_chat"];
-const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
+const SERVER_QUERY_KEY: &str = "server";
+const CHAT_QUERY_KEY: &str = "chat";
+const SESSION_QUERY_KEY: &str = "token";
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const CHAT_STORAGE_KEY: &str = "proteus.chatOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
-const SESSION_HEADER: &str = "X-Proteus-Session";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
@@ -69,7 +63,7 @@ where
     headers
         .set("content-type", "application/json")
         .map_err(js_error)?;
-    set_session_header(&headers, &token)?;
+    set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
 
     let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
@@ -101,7 +95,7 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     init.set_method("GET");
     init.set_mode(RequestMode::Cors);
     let headers = Headers::new().map_err(js_error)?;
-    set_session_header(&headers, &token)?;
+    set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
     let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
     let response_value = JsFuture::from(
@@ -126,9 +120,11 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     Ok(text)
 }
 
-fn set_session_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {
+fn set_authorization_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {
     if let Some(token) = token.as_deref() {
-        headers.set(SESSION_HEADER, token).map_err(js_error)?;
+        headers
+            .set("authorization", &format!("Bearer {token}"))
+            .map_err(js_error)?;
     }
     Ok(())
 }
@@ -156,7 +152,7 @@ fn load_app_server_origin() -> Result<(), String> {
 }
 
 fn load_chat_origin() -> Result<(), String> {
-    let origin = if let Some(origin) = query_value(&CHAT_QUERY_KEYS) {
+    let origin = if let Some(origin) = query_value(CHAT_QUERY_KEY) {
         let origin = normalize_origin(origin, DEFAULT_CHAT_ORIGIN);
         if let Some(storage) = session_storage()? {
             storage
@@ -185,7 +181,7 @@ pub(crate) fn chat_link_url() -> String {
     let origin = CHAT_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
     if let Some(token) = current_session_token().as_deref() {
-        params.push(format!("session={}", encode_uri_component(token)));
+        params.push(format!("token={}", encode_uri_component(token)));
     }
     params.push(format!(
         "server={}",
@@ -207,14 +203,14 @@ fn app_server_url(path: &str) -> String {
 }
 
 fn query_app_server_origin() -> Option<String> {
-    query_value(&SERVER_QUERY_KEYS).map(normalize_app_server_origin)
+    query_value(SERVER_QUERY_KEY).map(normalize_app_server_origin)
 }
 
 fn query_session_token() -> Option<SessionToken> {
-    query_value(&SESSION_QUERY_KEYS).map(SessionToken::new)
+    query_value(SESSION_QUERY_KEY).map(SessionToken::new)
 }
 
-fn query_value(keys: &[&str]) -> Option<String> {
+fn query_value(expected_key: &str) -> Option<String> {
     let search = window()?.location().search().ok()?;
     let search = search.strip_prefix('?').unwrap_or(&search);
     for pair in search.split('&') {
@@ -222,7 +218,7 @@ fn query_value(keys: &[&str]) -> Option<String> {
             continue;
         }
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if keys.iter().any(|candidate| candidate == &key) {
+        if key == expected_key {
             let value = decode_uri_component(value).unwrap_or_else(|| value.to_owned());
             return Some(value);
         }

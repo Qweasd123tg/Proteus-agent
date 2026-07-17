@@ -9,18 +9,12 @@ use crate::types::{SessionToken, StdioOutput};
 
 const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
 const DEFAULT_INSPECTOR_ORIGIN: &str = "http://127.0.0.1:1421";
-const SERVER_QUERY_KEYS: [&str; 4] = [
-    "server",
-    "app_server",
-    "app_server_origin",
-    "proteus_server",
-];
-const INSPECTOR_QUERY_KEYS: [&str; 3] = ["inspector", "inspector_origin", "proteus_inspector"];
-const SESSION_QUERY_KEYS: [&str; 4] = ["token", "session", "session_token", "proteus_session"];
+const SERVER_QUERY_KEY: &str = "server";
+const INSPECTOR_QUERY_KEY: &str = "inspector";
+const SESSION_QUERY_KEY: &str = "token";
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const INSPECTOR_STORAGE_KEY: &str = "proteus.inspectorOrigin";
 const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
-const SESSION_HEADER: &str = "X-Proteus-Session";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
@@ -54,7 +48,7 @@ pub(crate) fn event_stream_url() -> String {
     match token.as_deref() {
         Some(token) => format!(
             "{origin}/events?{}={}",
-            SESSION_QUERY_KEYS[0],
+            SESSION_QUERY_KEY,
             encode_uri_component(token)
         ),
         None => format!("{origin}/events"),
@@ -73,7 +67,7 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
     headers
         .set("content-type", "application/json")
         .map_err(js_error)?;
-    set_session_header(&headers, &token)?;
+    set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
 
     let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
@@ -94,11 +88,6 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
         .ok_or_else(|| "response body is not text".to_owned())?;
 
     if !response.ok() {
-        if status == 404 && text.contains("unknown app-server HTTP endpoint") {
-            return Err(format!(
-                "HTTP {status}: {text} (backend is older than web client; restart proteus after ./install.sh)"
-            ));
-        }
         return Err(http_error(status, &text));
     }
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
@@ -115,7 +104,7 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     init.set_method("GET");
     init.set_mode(RequestMode::Cors);
     let headers = Headers::new().map_err(js_error)?;
-    set_session_header(&headers, &token)?;
+    set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
     let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
     let response_value = JsFuture::from(
@@ -140,9 +129,11 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     Ok(text)
 }
 
-fn set_session_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {
+fn set_authorization_header(headers: &Headers, token: &SessionToken) -> Result<(), String> {
     if let Some(token) = token.as_deref() {
-        headers.set(SESSION_HEADER, token).map_err(js_error)?;
+        headers
+            .set("authorization", &format!("Bearer {token}"))
+            .map_err(js_error)?;
     }
     Ok(())
 }
@@ -170,7 +161,7 @@ fn load_app_server_origin() -> Result<(), String> {
 }
 
 fn load_inspector_origin() -> Result<(), String> {
-    let origin = if let Some(origin) = query_value(&INSPECTOR_QUERY_KEYS)
+    let origin = if let Some(origin) = query_value(INSPECTOR_QUERY_KEY)
         .map(|origin| normalize_origin(origin, DEFAULT_INSPECTOR_ORIGIN))
     {
         if let Some(storage) = session_storage()? {
@@ -199,7 +190,7 @@ pub(crate) fn inspector_link_url() -> String {
     let origin = INSPECTOR_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
     if let Some(token) = current_session_token().as_deref() {
-        params.push(format!("session={}", encode_uri_component(token)));
+        params.push(format!("token={}", encode_uri_component(token)));
     }
     params.push(format!(
         "server={}",
@@ -217,14 +208,14 @@ fn app_server_url(path: &str) -> String {
 }
 
 fn query_app_server_origin() -> Option<String> {
-    query_value(&SERVER_QUERY_KEYS).map(normalize_app_server_origin)
+    query_value(SERVER_QUERY_KEY).map(normalize_app_server_origin)
 }
 
 fn query_session_token() -> Option<SessionToken> {
-    query_value(&SESSION_QUERY_KEYS).map(SessionToken::new)
+    query_value(SESSION_QUERY_KEY).map(SessionToken::new)
 }
 
-fn query_value(keys: &[&str]) -> Option<String> {
+fn query_value(expected_key: &str) -> Option<String> {
     let search = window()?.location().search().ok()?;
     let search = search.strip_prefix('?').unwrap_or(&search);
     for pair in search.split('&') {
@@ -232,7 +223,7 @@ fn query_value(keys: &[&str]) -> Option<String> {
             continue;
         }
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if keys.iter().any(|candidate| candidate == &key) {
+        if key == expected_key {
             let value = decode_uri_component(value).unwrap_or_else(|| value.to_owned());
             return Some(value);
         }

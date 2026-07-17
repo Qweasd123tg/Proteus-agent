@@ -7,9 +7,7 @@ use hyper::{
 
 use super::{HttpResponse, config::HttpServerConfig, error_response};
 
-const SESSION_TOKEN_HEADERS: [&str; 2] = ["x-proteus-session", "x-proteus-session-token"];
 const SESSION_TOKEN_QUERY: &str = "token";
-const SESSION_TOKEN_QUERY_ALIASES: [&str; 3] = ["session", "session_token", "proteus_session"];
 
 #[derive(Clone)]
 pub(super) struct HttpSecurity {
@@ -72,13 +70,7 @@ fn is_allowed_origin(origin: &str, allowed_origins: &[String]) -> bool {
 }
 
 pub(super) fn request_has_valid_token<B>(request: &Request<B>, security: &HttpSecurity) -> bool {
-    SESSION_TOKEN_HEADERS.iter().any(|header| {
-        request
-            .headers()
-            .get(*header)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|token| token_matches(token, &security.session_token))
-    }) || request
+    request
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -103,8 +95,7 @@ fn query_has_valid_token(query: &str, expected: &str) -> bool {
     query.split('&').any(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         let value = percent_decode_query_value(value);
-        (key == SESSION_TOKEN_QUERY || SESSION_TOKEN_QUERY_ALIASES.contains(&key))
-            && token_matches(value.as_ref(), expected)
+        key == SESSION_TOKEN_QUERY && token_matches(value.as_ref(), expected)
     })
 }
 

@@ -167,11 +167,6 @@ impl<F: Framing> ProcessHost<F> {
             .take();
         drop(session);
     }
-
-    /// Backward-compatible alias for [`ProcessHost::reset`].
-    pub fn reset_session(&self) {
-        self.reset();
-    }
 }
 
 pub struct ProcessSessionGuard<'a, F: Framing> {

@@ -259,8 +259,7 @@ notifications. Совместимый sync JSON-RPC request/response API ост�
 allowlisted только минимальные runtime variables (`PATH`; на Windows также
 системные process/temp variables); credentials и application-specific значения
 adapter обязан перечислить через `env_allowlist` либо задать scoped literal
-через `env`. Явный `env_clear(false)` существует как lower-level legacy opt-in,
-но MCP config его не экспонирует.
+через `env`. Полное наследование parent environment API не предоставляет.
 
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
@@ -458,18 +457,13 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - 🗑️ Исторически `memory_policy` был добавлен декларативно через
   `MemoryPolicyPlan`/`MemoryOp`; 2026-07-16 slot и heuristic
   `carry_forward` удалены. Явная запись через `remember_fact` и `/remember`
-  продолжает работать поверх `MemoryStore`. В `PluginRegistry` сохранён только
-  неисполняемый ABI tombstone `register_memory_policy`: host принимает и
-  игнорирует старую регистрацию, чтобы ранее собранные сторонние 0.1 dylib,
-  не использующие этот slot, не ломались из-за сдвига общей vtable. Новым
-  плагинам этот метод использовать нельзя.
+  продолжает работать поверх `MemoryStore`; plugin ABI этого slot-а удалён.
 - ✅ `context_builder` добавлен как full slot plugin ABI: `context-pack`
   возвращает `ContextBundle`, а host даёт доступ к `SearchBackend`,
   `MemoryStore::recall` и external `context_provider`. Core не знает список
   builtin provider ids внутри конкретного context builder-а.
 - ✅ `SearchQuery` расширен под path-aware/semantic search use cases:
-  `use_case`, `starts_with`, `ends_with` передаются через JSON ABI с default-ами
-  для старых payloads.
+  `use_case`, `starts_with`, `ends_with` передаются через JSON ABI.
 - ✅ `workflow` добавлен как plugin ABI: плагин регистрирует workflow, а runtime
   предоставляет host capabilities (`build_context`, `complete_model`,
   `compact_history`, `select_tools`, `visible_tools`, `execute_tool`,

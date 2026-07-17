@@ -113,16 +113,27 @@ impl AppConfig {
             .await
             .with_context(|| format!("failed to inspect config path {}", path.display()))?;
         let source_kind = if metadata.is_dir() { "dir" } else { "file" };
-        let mut value = load_config_path_value(path, &mut BTreeSet::new())?;
-        migrate_removed_config_keys(&mut value)?;
-        let mut config: Self = serde_json::from_value(value).with_context(|| {
+        let value = load_config_path_value(path, &mut BTreeSet::new())?;
+        let config: Self = serde_json::from_value(value).with_context(|| {
             format!(
                 "failed to build config from {source_kind} {}",
                 path.display()
             )
         })?;
-        migrate_legacy_module_ids(&mut config);
+        config.validate_module_config_slots()?;
         Ok(config)
+    }
+
+    fn validate_module_config_slots(&self) -> Result<()> {
+        for slot in self.module_config.keys() {
+            let Some(descriptor) = core_slot_descriptor_by_id(slot) else {
+                bail!("unknown module_config slot {slot:?}");
+            };
+            if descriptor.selection != CoreSlotSelection::ModulesConfig {
+                bail!("module_config is not supported for slot {slot:?}");
+            }
+        }
+        Ok(())
     }
 
     pub fn default_user_config_path() -> Option<PathBuf> {
@@ -349,45 +360,6 @@ fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
     }
 }
 
-fn migrate_removed_config_keys(value: &mut Value) -> Result<()> {
-    if let Some(modules) = value.get_mut("modules").and_then(Value::as_object_mut)
-        && let Some(memory_policy) = modules.remove("memory_policy")
-    {
-        match memory_policy.as_str() {
-            Some("none") => eprintln!(
-                "warning: modules.memory_policy = \"none\" was retired and is ignored. Delete the key to remove this warning"
-            ),
-            Some(module_id) => bail!(
-                "config key modules.memory_policy was removed, but selects \"{module_id}\". Automatic carry_forward memory no longer runs; delete the key, configure storage with modules.memory, and use remember_fact or /remember for explicit writes"
-            ),
-            None => bail!(
-                "config key modules.memory_policy was removed and must be deleted; expected the legacy string \"none\", got {memory_policy}"
-            ),
-        }
-    }
-    if value.pointer("/module_config/memory_policy").is_some() {
-        bail!(
-            "config table module_config.memory_policy was removed; delete it. Automatic carry_forward memory no longer runs; MemoryStore configuration remains under module_config.memory"
-        );
-    }
-    Ok(())
-}
-
-fn migrate_legacy_module_ids(config: &mut AppConfig) {
-    if config.modules.workflow == "coding.codex_loop_diagnostic" {
-        eprintln!(
-            "warning: modules.workflow = \"coding.codex_loop_diagnostic\" was retired; using \"coding.codex_loop\". Update the config to remove this warning"
-        );
-        config.modules.workflow = "coding.codex_loop".to_owned();
-    }
-    if config.modules.memory == "sqlite_plugin" {
-        eprintln!(
-            "warning: modules.memory = \"sqlite_plugin\" was retired; using \"sqlite\". Update the config to remove this warning"
-        );
-        config.modules.memory = "sqlite".to_owned();
-    }
-}
-
 /// Config-уровневый source для `InstructionBlock`: либо inline `text`,
 /// либо `file` с prompt-текстом (резолвится при load).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -402,7 +374,7 @@ pub struct InstructionSourceConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderProfileConfig {
-    #[serde(default = "default_model_provider", alias = "kind")]
+    #[serde(default = "default_model_provider")]
     pub provider: String,
     #[serde(default = "default_model_name")]
     pub model: String,
@@ -410,7 +382,7 @@ pub struct ProviderProfileConfig {
     pub stream: bool,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
-    #[serde(default, alias = "effort_options", alias = "reasoning_effort_options")]
+    #[serde(default)]
     pub reasoning_efforts: Vec<String>,
     #[serde(default)]
     pub provider_config: serde_json::Value,
@@ -488,6 +460,7 @@ impl Default for ModelConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModulesConfig {
     #[serde(default = "default_workflow")]
     pub workflow: String,
@@ -1294,9 +1267,9 @@ priority = 100
     }
 
     #[tokio::test]
-    async fn load_rejects_removed_memory_policy_key_with_migration_hint() {
+    async fn load_rejects_unknown_module_key() {
         let dir = tempfile::tempdir().expect("config dir");
-        let config_path = dir.path().join("legacy.config.toml");
+        let config_path = dir.path().join("invalid.config.toml");
         std::fs::write(
             &config_path,
             r#"
@@ -1305,76 +1278,37 @@ memory = "jsonl"
 memory_policy = "carry_forward"
 "#,
         )
-        .expect("legacy config");
+        .expect("invalid config");
 
         let error = AppConfig::load(Some(&config_path))
             .await
-            .expect_err("removed memory policy key");
+            .expect_err("unknown module key");
         let message = format!("{error:#}");
         assert!(
-            message.contains("modules.memory_policy was removed"),
+            message.contains("unknown field `memory_policy`"),
             "{message}"
         );
-        assert!(message.contains("remember_fact or /remember"), "{message}");
     }
 
     #[tokio::test]
-    async fn load_ignores_retired_disabled_memory_policy_key() {
+    async fn load_rejects_unknown_module_config_slot() {
         let dir = tempfile::tempdir().expect("config dir");
-        let config_path = dir.path().join("legacy.config.toml");
+        let config_path = dir.path().join("invalid.config.toml");
         std::fs::write(
             &config_path,
             r#"
-[modules]
-memory = "jsonl"
-memory_policy = "none"
+[module_config.memory_policy.carry_forward]
 "#,
         )
-        .expect("legacy config");
+        .expect("invalid config");
 
-        let config = AppConfig::load(Some(&config_path))
+        let error = AppConfig::load(Some(&config_path))
             .await
-            .expect("disabled legacy policy migrates");
-        assert_eq!(config.modules.memory, "jsonl");
-    }
-
-    #[tokio::test]
-    async fn load_migrates_retired_module_ids() {
-        let dir = tempfile::tempdir().expect("config dir");
-        let config_path = dir.path().join("legacy.config.toml");
-        std::fs::write(
-            &config_path,
-            r#"
-[modules]
-workflow = "coding.codex_loop_diagnostic"
-memory = "sqlite_plugin"
-memory_policy = "none"
-"#,
-        )
-        .expect("legacy config");
-
-        let config = AppConfig::load(Some(&config_path))
-            .await
-            .expect("legacy ids migrate");
-        assert_eq!(config.modules.workflow, "coding.codex_loop");
-        assert_eq!(config.modules.memory, "sqlite");
-    }
-
-    #[test]
-    fn removed_memory_policy_module_config_is_rejected() {
-        let mut value = serde_json::json!({
-            "module_config": {
-                "memory_policy": {
-                    "carry_forward": {}
-                }
-            }
-        });
-
-        let error = migrate_removed_config_keys(&mut value).expect_err("removed module config");
+            .expect_err("unknown module_config slot");
         assert!(
             error
                 .to_string()
-                .contains("module_config.memory_policy was removed")
+                .contains("unknown module_config slot \"memory_policy\"")
         );
     }
 

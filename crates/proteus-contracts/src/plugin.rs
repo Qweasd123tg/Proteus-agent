@@ -18,15 +18,16 @@
 //! Ядро в своей реализации `RegistryInterface` связывает `(slot, module_id)`
 //! с фабрикой, которая вернёт этот sabi-объект.
 //!
-//! ## ABI compatibility
+//! ## ABI lifecycle
 //!
 //! abi_stable при загрузке плагина сверяет:
 //! - Версию `abi_stable` (совместимость макросов/типов).
 //! - Layout `PluginRoot` и всех referenced типов (fields, vtables).
 //! - Версию плагина (в `VERSION_STRINGS`).
 //!
-//! Если что-то несовместимо — загрузка возвращает `LibraryError`, плагин
-//! не загружается, ядро продолжает работать без него.
+//! До стабилизации plugin ABI плагины и host пересобираются вместе. Старые
+//! layouts и tombstone-методы не сохраняются: несовместимый плагин возвращает
+//! `LibraryError`, не загружается, а ядро продолжает работать без него.
 
 use abi_stable::{
     StableAbi, declare_root_module_statics,
@@ -391,42 +392,6 @@ pub trait PluginContextBuilder: Send + Sync + 'static {
 }
 
 pub type ContextBuilderObject = PluginContextBuilder_TO<abi_stable::std_types::RBox<()>>;
-
-/// Legacy ABI tombstone for plugins built before the `memory_policy` runtime
-/// slot was retired. The host keeps this exact trait-object layout so unrelated
-/// old 0.1 plugins still load, but it never invokes registered policies.
-#[doc(hidden)]
-#[sabi_trait]
-pub trait PluginMemoryPolicy: Send + Sync + 'static {
-    fn after_turn_json(&self, input_json: RString) -> RResult<RString, PluginMemoryPolicyError>;
-}
-
-#[repr(C)]
-#[derive(StableAbi, Debug, Clone)]
-#[non_exhaustive]
-#[doc(hidden)]
-pub struct PluginMemoryPolicyError {
-    pub message: RString,
-}
-
-impl PluginMemoryPolicyError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into().into(),
-        }
-    }
-}
-
-impl std::fmt::Display for PluginMemoryPolicyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
-    }
-}
-
-impl std::error::Error for PluginMemoryPolicyError {}
-
-#[doc(hidden)]
-pub type MemoryPolicyObject = PluginMemoryPolicy_TO<abi_stable::std_types::RBox<()>>;
 
 /// Sync ABI for request-time history compaction plugins.
 ///
@@ -812,15 +777,6 @@ pub trait PluginRegistry: Send + Sync {
         &mut self,
         module_id: RString,
         builder: ContextBuilderObject,
-    ) -> RResult<(), PluginRegisterError>;
-
-    /// Legacy ABI tombstone. The host accepts and ignores this registration;
-    /// `memory_policy` is no longer a runtime slot.
-    #[doc(hidden)]
-    fn register_memory_policy(
-        &mut self,
-        module_id: RString,
-        policy: MemoryPolicyObject,
     ) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует request-time HistoryCompactor под module_id в slot `compactor`.

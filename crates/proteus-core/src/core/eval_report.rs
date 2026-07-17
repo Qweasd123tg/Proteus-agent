@@ -408,21 +408,6 @@ mod tests {
     }
 
     #[test]
-    fn report_reads_legacy_memory_written_events() {
-        let mut log = NamedTempFile::new().expect("event log");
-        writeln!(
-            log,
-            r#"{{"schema_version":1,"event_id":"00000000-0000-4000-8000-000000000001","session_id":"00000000-0000-4000-8000-000000000002","thread_id":"00000000-0000-4000-8000-000000000003","turn_id":null,"seq":1,"timestamp_ms":1,"event":{{"MemoryWritten":{{"kind":"carry_forward"}}}}}}"#
-        )
-        .expect("legacy event");
-
-        let report = read_eval_report(log.path()).expect("legacy event log remains readable");
-        assert_eq!(report.events, 1);
-        assert_eq!(report.turns_started, 0);
-        assert_eq!(report.failure_reason, None);
-    }
-
-    #[test]
     fn patch_paths_extracts_edit_headers() {
         assert_eq!(
             patch_paths(

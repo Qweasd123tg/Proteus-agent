@@ -27,10 +27,10 @@ use proteus_contracts::{
     },
     contracts::RendererObject,
     plugin::{
-        CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryPolicyObject,
-        MemoryStoreObject, PatchApplierObject, PluginRegisterError, PluginRegistry,
-        PluginRegistry_TO, PluginRoot_Ref, PluginToolObject, PolicyObject, SearchBackendObject,
-        SubagentObject, ToolExposureObject, WorkflowObject,
+        CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryStoreObject,
+        PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref,
+        PluginToolObject, PolicyObject, SearchBackendObject, SubagentObject, ToolExposureObject,
+        WorkflowObject,
     },
 };
 
@@ -131,18 +131,6 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }
-    }
-
-    fn register_memory_policy(
-        &mut self,
-        module_id: RString,
-        _policy: MemoryPolicyObject,
-    ) -> RResult<(), PluginRegisterError> {
-        eprintln!(
-            "warning: plugin attempted to register retired memory policy module {:?}; ignoring it",
-            module_id.as_str()
-        );
-        RResult::ROk(())
     }
 
     fn register_compactor(
@@ -581,40 +569,7 @@ pub fn default_plugins_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proteus_contracts::plugin::{
-        PluginMemoryPolicy, PluginMemoryPolicy_TO, PluginMemoryPolicyError,
-    };
     use tempfile::tempdir;
-
-    struct LegacyMemoryPolicy;
-
-    impl PluginMemoryPolicy for LegacyMemoryPolicy {
-        fn after_turn_json(
-            &self,
-            _input_json: RString,
-        ) -> RResult<RString, PluginMemoryPolicyError> {
-            RResult::ROk(r#"{"ops":[]}"#.into())
-        }
-    }
-
-    #[test]
-    fn retired_memory_policy_registration_is_an_abi_noop() {
-        let mut catalog = BuiltinModuleCatalog::new();
-        let checkpoint = catalog.checkpoint();
-        let policy = PluginMemoryPolicy_TO::from_value(LegacyMemoryPolicy, TD_Opaque);
-
-        {
-            let mut adapter = PluginRegistryAdapter {
-                catalog: &mut catalog,
-            };
-            assert!(matches!(
-                adapter.register_memory_policy("carry_forward".into(), policy),
-                RResult::ROk(())
-            ));
-        }
-
-        assert!(catalog.contributions_since(&checkpoint).modules.is_empty());
-    }
 
     #[test]
     fn read_manifest_parses_full_toml() {

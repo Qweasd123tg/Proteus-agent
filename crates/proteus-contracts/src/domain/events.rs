@@ -295,11 +295,6 @@ pub enum Event {
     ToolFinished {
         result: ToolResult,
     },
-    /// Legacy wire variant kept only so existing `events.jsonl` files remain
-    /// readable. Current runtimes do not emit this event.
-    MemoryWritten {
-        kind: String,
-    },
     PatchApplied {
         result: PatchResult,
     },

@@ -57,10 +57,10 @@ http://127.0.0.1:1421/?server=http%3A%2F%2F127.0.0.1%3A9000
 Для строгого token smoke откройте:
 
 ```text
-http://127.0.0.1:1421/?session=<PROTEUS_SESSION_TOKEN>
+http://127.0.0.1:1421/?token=<PROTEUS_SESSION_TOKEN>
 ```
 
-Custom app-server origin и token можно совмещать как `?server=...&session=...`.
+Custom app-server origin и token можно совмещать как `?server=...&token=...`.
 
 ## Граница
 

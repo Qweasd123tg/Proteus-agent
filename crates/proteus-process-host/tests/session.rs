@@ -83,10 +83,6 @@ fn run_tests() -> Result<()> {
             process_spec_allowlists_parent_environment,
         ),
         (
-            "process_spec_can_explicitly_restore_full_inheritance",
-            process_spec_can_explicitly_restore_full_inheritance,
-        ),
-        (
             "process_spec_rejects_invalid_environment",
             process_spec_rejects_invalid_environment,
         ),
@@ -335,17 +331,6 @@ fn process_spec_allowlists_parent_environment() -> Result<()> {
     let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
     let values = inspect_environment(&mut session, &[name.as_str()])?;
     assert_eq!(values[&name], "explicit-override");
-    Ok(())
-}
-
-fn process_spec_can_explicitly_restore_full_inheritance() -> Result<()> {
-    let (name, parent_value) = unlisted_parent_environment()?;
-    let spec = mock_spec("newline")?.env_clear(false);
-    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
-
-    let values = inspect_environment(&mut session, &[name.as_str()])?;
-
-    assert_eq!(values[&name], parent_value);
     Ok(())
 }
 

@@ -15,7 +15,7 @@ use crate::{
 /// субагента), не переиспользуется другим. Main thread стабилен на всю
 /// сессию, поэтому для основного цикла кеш работает как раньше; субагентный
 /// child-thread живёт один запуск — его approvals истекают вместе с ним.
-/// Запросы без origin (тесты, legacy transports) образуют собственный bucket.
+/// Запросы без origin (например, transport-level тесты) образуют собственный bucket.
 #[derive(Clone)]
 pub struct CachedApprovalTransport {
     inner: Arc<dyn ApprovalTransport>,
@@ -66,7 +66,6 @@ impl CachedApprovalTransport {
         [
             ApprovalCacheScope::ExactCall,
             ApprovalCacheScope::ExactCommand,
-            ApprovalCacheScope::ToolInCwd,
             ApprovalCacheScope::WorkspaceWrite,
         ]
         .into_iter()
@@ -107,7 +106,7 @@ impl ApprovalCacheKey {
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
             }),
-            ApprovalCacheScope::ToolInCwd | ApprovalCacheScope::WorkspaceWrite => Some(Self {
+            ApprovalCacheScope::WorkspaceWrite => Some(Self {
                 thread_id,
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
@@ -123,25 +122,11 @@ fn sanitized_cache_scope(
     requested_scope: ApprovalCacheScope,
 ) -> ApprovalCacheScope {
     match requested_scope {
-        ApprovalCacheScope::ToolInCwd if !allows_tool_in_cwd_scope(request) => {
-            ApprovalCacheScope::ExactCall
-        }
         ApprovalCacheScope::WorkspaceWrite if !allows_workspace_write_scope(request) => {
             ApprovalCacheScope::ExactCall
         }
         scope => scope,
     }
-}
-
-fn allows_tool_in_cwd_scope(request: &ApprovalRequest) -> bool {
-    if request.call.name.eq_ignore_ascii_case("shell") {
-        return false;
-    }
-    // Fail closed: без известного ToolSpec широкий cache-scope не выдаётся.
-    request
-        .tool_spec
-        .as_ref()
-        .is_some_and(|spec| matches!(spec.safety, ToolSafety::ReadOnly | ToolSafety::WritesFiles))
 }
 
 fn allows_workspace_write_scope(request: &ApprovalRequest) -> bool {
@@ -440,170 +425,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_reuses_different_args_for_same_tool_and_cwd() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        transport
-            .request_approval(request_with_safety(
-                "a.txt",
-                "write_file",
-                ToolSafety::WritesFiles,
-            ))
-            .await
-            .unwrap();
-        let cached = transport
-            .request_approval(request_with_safety(
-                "b.txt",
-                "write_file",
-                ToolSafety::WritesFiles,
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert!(cached.approved);
-        assert!(cached.note.unwrap().contains("session cache"));
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_is_sanitized_when_tool_spec_is_missing() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        // request() не несёт ToolSpec: широкий ToolInCwd должен деградировать
-        // до ExactCall, и другой args в том же cwd спрашивает заново.
-        transport.request_approval(request("a.txt")).await.unwrap();
-        transport.request_approval(request("b.txt")).await.unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-
-        // Точный повтор при этом продолжает работать из кэша.
-        transport.request_approval(request("a.txt")).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_does_not_reuse_different_tool() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        transport.request_approval(request("a.txt")).await.unwrap();
-        let mut second = request("b.txt");
-        second.call.name = "shell".to_owned();
-        transport.request_approval(second).await.unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_does_not_reuse_different_cwd() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        transport.request_approval(request("a.txt")).await.unwrap();
-        let mut second = request("b.txt");
-        second.cwd = PathBuf::from("/other-workspace");
-        transport.request_approval(second).await.unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_is_sanitized_for_shell_tool() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        transport
-            .request_approval(request_with_safety(
-                "a.txt",
-                "shell",
-                ToolSafety::RunsCommands,
-            ))
-            .await
-            .unwrap();
-        transport
-            .request_approval(request_with_safety(
-                "b.txt",
-                "shell",
-                ToolSafety::RunsCommands,
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_is_sanitized_for_command_network_and_dangerous_tools() {
-        for safety in [
-            ToolSafety::RunsCommands,
-            ToolSafety::Network,
-            ToolSafety::Dangerous,
-        ] {
-            let calls = Arc::new(AtomicUsize::new(0));
-            let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-                calls: calls.clone(),
-                cache: ApprovalCacheScope::ToolInCwd,
-            }));
-
-            transport
-                .request_approval(request_with_safety("a.txt", "custom_tool", safety.clone()))
-                .await
-                .unwrap();
-            transport
-                .request_approval(request_with_safety("b.txt", "custom_tool", safety))
-                .await
-                .unwrap();
-
-            assert_eq!(calls.load(Ordering::SeqCst), 2);
-        }
-    }
-
-    #[tokio::test]
-    async fn tool_in_cwd_cache_still_reuses_write_file_tools() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
-            calls: calls.clone(),
-            cache: ApprovalCacheScope::ToolInCwd,
-        }));
-
-        transport
-            .request_approval(request_with_safety(
-                "a.txt",
-                "write_file",
-                ToolSafety::WritesFiles,
-            ))
-            .await
-            .unwrap();
-        transport
-            .request_approval(request_with_safety(
-                "b.txt",
-                "write_file",
-                ToolSafety::WritesFiles,
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

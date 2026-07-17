@@ -10,7 +10,6 @@ pub(crate) enum ApprovalCacheScope {
     None,
     ExactCall,
     ExactCommand,
-    ToolInCwd,
     WorkspaceWrite,
 }
 
@@ -20,7 +19,6 @@ impl ApprovalCacheScope {
             Self::None => "Один раз",
             Self::ExactCall => "Точно",
             Self::ExactCommand => "Команда",
-            Self::ToolInCwd => "Tool/CWD",
             Self::WorkspaceWrite => "Workspace",
         }
     }
@@ -36,10 +34,9 @@ pub(crate) struct ApprovalRequestInfo {
     #[serde(default)]
     pub(crate) preview: Option<ApprovalPreviewInfo>,
     /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
-    /// Отсутствует у старых серверов.
     #[serde(default)]
     pub(crate) origin: Option<RequestOriginInfo>,
-    /// Порядковый номер в очереди approvals; `0` у старых серверов.
+    /// Порядковый номер в очереди approvals.
     #[serde(default)]
     pub(crate) seq: u64,
 }
@@ -83,7 +80,7 @@ pub(crate) struct UserInputQuestion {
     pub(crate) is_other: bool,
     #[serde(default)]
     pub(crate) is_secret: bool,
-    #[serde(default, alias = "multiSelect")]
+    #[serde(default)]
     pub(crate) multi_select: bool,
     #[serde(default)]
     pub(crate) options: Vec<UserInputOption>,
@@ -96,10 +93,9 @@ pub(crate) struct UserInputRequestInfo {
     pub(crate) title: Option<String>,
     pub(crate) questions: Vec<UserInputQuestion>,
     /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
-    /// Отсутствует у старых серверов.
     #[serde(default)]
     pub(crate) origin: Option<RequestOriginInfo>,
-    /// Порядковый номер в очереди user inputs; `0` у старых серверов.
+    /// Порядковый номер в очереди user inputs.
     #[serde(default)]
     pub(crate) seq: u64,
 }

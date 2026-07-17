@@ -1026,7 +1026,7 @@ approvals, user input, cancel, config/reload, history/resume и shutdown, поэ
 `PROTEUS_SESSION_TOKEN` не задан, он генерирует ephemeral token на каждый
 запуск. Отключение только явное: `PROTEUS_NO_SESSION_TOKEN=1`.
 Для `EventSource` token можно передать в query string; для `fetch` — в
-`X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token нельзя
+`Authorization: Bearer <token>`. Raw token нельзя
 логировать или хранить в `localStorage`. Если web dev server запущен не на стандартном
 `1420` для chat или `1421` для inspector, добавьте его origin через
 `--allow-origin http://127.0.0.1:<port>`.
@@ -1036,8 +1036,7 @@ Chat и Inspector по умолчанию подключаются к app-server
 его UI при первом открытии query parameter-ом `server`, например
 `http://127.0.0.1:1420/?server=http%3A%2F%2F127.0.0.1%3A9000`. Значение
 сохраняется в `sessionStorage` (`proteus.appServerOrigin`) и может
-совмещаться с token bootstrap как `?server=...&session=...`. Aliases:
-`app_server`, `app_server_origin`, `proteus_server`.
+совмещаться с token bootstrap как `?server=...&token=...`.
 
 App-server поддерживает control-plane reload для tools/config/MCP discovery:
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`

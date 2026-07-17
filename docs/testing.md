@@ -57,7 +57,7 @@ Leptos-клиенты исключены из root workspace и проверяю
   JSON-RPC kill-on-timeout и общие count/aggregate bounds для stdout queue и
   notification backlog; отдельные cases фиксируют default `env_clear`,
   минимальный runtime allowlist, scoped parent inheritance, explicit env и
-  legacy `env_clear(false)`;
+  запрет неявного полного наследования parent environment;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `subagents.surface` взаимно исключительно переключает `task`, runner-backed
   collaboration tools и `none`, не смешивая model-facing surfaces;

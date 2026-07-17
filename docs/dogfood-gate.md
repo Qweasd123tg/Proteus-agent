@@ -111,7 +111,7 @@ Gate зелёный, если сценарий можно пройти без п
 
    Для строгого token smoke можно отдельно запустить server с
    `--token "$PROTEUS_SESSION_TOKEN"` и открыть
-   `http://127.0.0.1:1420/?session=<PROTEUS_SESSION_TOKEN>`.
+   `http://127.0.0.1:1420/?token=<PROTEUS_SESSION_TOKEN>`.
 
 4. Проверить, что в sidebar нет auth-token ошибки, event stream подключён,
    `/config` и `/history` не показывают HTTP 401.

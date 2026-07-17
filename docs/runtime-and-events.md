@@ -187,9 +187,8 @@ mode. Изменения
 
 Автоматического post-turn memory event path больше нет: `MemoryPolicy` и
 эвристика `carry_forward` удалены. Явные записи `remember_fact` и `/remember`
-идут непосредственно через активный `MemoryStore`. Variant `MemoryWritten`
-сохранён только как legacy wire DTO, чтобы старые `events.jsonl` продолжали
-читаться; новый runtime его не испускает.
+идут непосредственно через активный `MemoryStore`; отдельного memory event
+runtime не испускает.
 
 `SubagentStarted` и `SubagentFinished` описывают live-работу slot-а
 `subagent`: роль, краткое описание, статус, число итераций и
@@ -508,10 +507,8 @@ sessions.
 `session.json` также хранит `workspace_path`. Resume использует его как
 источник cwd до создания runtime services, event log sink и tool registry,
 чтобы tools работали в исходном проекте, а не в cwd процесса, который вызвал
-resume. Для старых session metadata без `workspace_path` runtime пытается
-восстановить путь из parent directory `<encoded-workspace>`, если такой путь
-реально существует. Resume требует `session.json`; старые
-экспериментальные форматы папок core не поддерживает.
+resume. Resume требует `session.json` текущей schema с обязательным
+`workspace_path`; другие форматы core отклоняет явной ошибкой.
 
 ## History
 
@@ -630,10 +627,8 @@ model/tool loop: model request с tools, tool execution через workflow host
 внутреннего лимита tool rounds нет, а пустой финальный ответ не подменяется
 последним tool result.
 
-Legacy `coding.codex_loop_diagnostic` удалён: отдельная подмена пустого
-финального assistant-message последним `ToolResult` больше не нужна для
-наблюдаемости. Config loader мигрирует старый id с предупреждением на strict
-`coding.codex_loop`; packaged профили сразу используют strict loop.
+`coding.codex_loop` не подменяет пустой финальный assistant-message последним
+`ToolResult`; packaged профили сразу используют strict loop.
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в
@@ -657,8 +652,7 @@ command-level label для shell/process approvals. Если UI ответил
 `cache = "workspace_write"`, следующие requests того же workspace-scoped write
 tool в том же `cwd` будут approved независимо от args; core принимает этот
 scope только для tools, которые явно opt-in через `ToolSpec.metadata.approval`.
-`tool_in_cwd` остаётся legacy broad scope. Этот cache не пишется в
-`messages.jsonl` и не восстанавливается при resume.
+Этот cache не пишется в `messages.jsonl` и не восстанавливается при resume.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
 state: interrupt/cancel, approval queue с подсказочным preview,

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::domain::{ThreadId, ToolCall, ToolSpec, TurnId};
 
@@ -122,9 +122,6 @@ pub enum ApprovalCacheScope {
     /// Command-shaped exact call. Uses the same cache key as `ExactCall`, but
     /// lets clients present shell/process approvals as "same command".
     ExactCommand,
-    /// Legacy broad scope: reuse by tool name and cwd. New clients should use
-    /// `WorkspaceWrite` for write tools and `ExactCommand` for shell/process.
-    ToolInCwd,
     /// Reuse workspace-scoped write tools by tool name and cwd. Core only
     /// accepts this broad scope when the tool explicitly opts in via metadata.
     WorkspaceWrite,
@@ -136,22 +133,16 @@ impl ApprovalCacheScope {
             Self::None => "none",
             Self::ExactCall => "exact_call",
             Self::ExactCommand => "exact_command",
-            Self::ToolInCwd => "tool_in_cwd",
             Self::WorkspaceWrite => "workspace_write",
         }
     }
 
     pub fn from_wire(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" | "none" | "no_cache" | "once" => Some(Self::None),
-            "exact" | "exact_call" | "exact_tool_call" => Some(Self::ExactCall),
-            "exact_command" | "exact_shell" | "same_command" | "shell_command" => {
-                Some(Self::ExactCommand)
-            }
-            "tool_in_cwd" | "tool_cwd" | "tool_in_workspace" => Some(Self::ToolInCwd),
-            "workspace_write" | "workspace_writes" | "write_in_workspace" => {
-                Some(Self::WorkspaceWrite)
-            }
+        match value {
+            "none" => Some(Self::None),
+            "exact_call" => Some(Self::ExactCall),
+            "exact_command" => Some(Self::ExactCommand),
+            "workspace_write" => Some(Self::WorkspaceWrite),
             _ => None,
         }
     }
@@ -172,7 +163,8 @@ impl<'de> Deserialize<'de> for ApprovalCacheScope {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Ok(Self::from_wire(&value).unwrap_or(Self::None))
+        Self::from_wire(&value)
+            .ok_or_else(|| D::Error::custom(format!("unknown approval cache scope {value:?}")))
     }
 }
 
@@ -188,31 +180,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approval_cache_scope_accepts_current_and_legacy_wire_names() {
+    fn approval_cache_scope_accepts_canonical_wire_names() {
         assert_eq!(
             serde_json::from_str::<ApprovalCacheScope>("\"exact_call\"").unwrap(),
             ApprovalCacheScope::ExactCall
         );
         assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"exact_shell\"").unwrap(),
+            serde_json::from_str::<ApprovalCacheScope>("\"exact_command\"").unwrap(),
             ApprovalCacheScope::ExactCommand
         );
         assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"workspace_writes\"").unwrap(),
+            serde_json::from_str::<ApprovalCacheScope>("\"workspace_write\"").unwrap(),
             ApprovalCacheScope::WorkspaceWrite
-        );
-        assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"tool_in_cwd\"").unwrap(),
-            ApprovalCacheScope::ToolInCwd
         );
     }
 
     #[test]
-    fn approval_cache_scope_downgrades_unknown_wire_names_to_none() {
-        assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"future_scope\"").unwrap(),
-            ApprovalCacheScope::None
-        );
+    fn approval_cache_scope_rejects_aliases_and_unknown_names() {
+        for value in [
+            "exact_shell",
+            "workspace_writes",
+            "tool_in_cwd",
+            "future_scope",
+        ] {
+            let json = serde_json::to_string(value).unwrap();
+            let error = serde_json::from_str::<ApprovalCacheScope>(&json)
+                .expect_err("non-canonical cache scope must fail");
+            assert!(error.to_string().contains("unknown approval cache scope"));
+        }
     }
 
     #[test]

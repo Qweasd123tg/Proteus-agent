@@ -197,9 +197,8 @@ JSON-массивом.
 Путь можно переопределить через env `PROTEUS_MEMORY_JSONL_PATH` до старта агента.
 
 `modules.memory = "sqlite"` поставляется плагином `sqlite-memory`, а не core.
-Он использует SQLite FTS5. Legacy id `sqlite_plugin` удалён и при загрузке
-старого config мигрируется с предупреждением на `sqlite`. Для этого backend
-нужно установить плагин через `install.sh` или положить dylib в
+Он использует SQLite FTS5. Для этого backend нужно установить плагин через
+`install.sh` или положить dylib в
 `~/.proteus/plugins/sqlite-memory/`.
 
 Автоматической post-turn записи нет. Context builder `simple` из плагина
@@ -806,10 +805,8 @@ tool call, как в upstream Codex. `response.incomplete` не превраща
 передают `response.custom_tool_call_input.delta` через обычный
 `ModelStreamEvent::ToolCallDelta`.
 
-Legacy id `coding.codex_loop_diagnostic` удалён: transcript/UI уже показывают
-terminal failure без отдельной подмены пустого ответа последним `ToolResult`.
-При загрузке старого config этот id явно мигрируется с предупреждением на
-strict `coding.codex_loop`; новые профили должны сразу выбирать strict id.
+`coding.codex_loop` не подменяет пустой terminal response последним
+`ToolResult`: transcript/UI показывают failure напрямую.
 
 ## Renderer
 

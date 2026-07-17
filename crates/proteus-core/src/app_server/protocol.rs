@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn approval_request_accepts_optional_cache_scope() {
+    fn approval_request_accepts_optional_canonical_cache_scope() {
         let without_cache: StdioRequest = serde_json::from_value(serde_json::json!({
             "type": "approval",
             "approval_id": "a1",
@@ -128,14 +128,6 @@ mod tests {
             "cache": "exact_call"
         }))
         .expect("approval request with cache deserializes");
-        let with_tool_cache: StdioRequest = serde_json::from_value(serde_json::json!({
-            "type": "approval",
-            "approval_id": "a1",
-            "approved": true,
-            "note": null,
-            "cache": "tool_in_cwd"
-        }))
-        .expect("approval request with tool cache deserializes");
         let with_workspace_write_cache: StdioRequest = serde_json::from_value(serde_json::json!({
             "type": "approval",
             "approval_id": "a1",
@@ -144,14 +136,14 @@ mod tests {
             "cache": "workspace_write"
         }))
         .expect("approval request with workspace write cache deserializes");
-        let with_future_cache: StdioRequest = serde_json::from_value(serde_json::json!({
+        let future_cache_error = serde_json::from_value::<StdioRequest>(serde_json::json!({
             "type": "approval",
             "approval_id": "a1",
             "approved": true,
             "note": null,
             "cache": "future_scope"
         }))
-        .expect("approval request with future cache scope downgrades");
+        .expect_err("approval request with unknown cache scope fails");
 
         match without_cache {
             StdioRequest::Approval { cache, .. } => assert_eq!(cache, ApprovalCacheScope::None),
@@ -163,23 +155,16 @@ mod tests {
             }
             other => panic!("expected approval request, got {other:?}"),
         }
-        match with_tool_cache {
-            StdioRequest::Approval { cache, .. } => {
-                assert_eq!(cache, ApprovalCacheScope::ToolInCwd)
-            }
-            other => panic!("expected approval request, got {other:?}"),
-        }
         match with_workspace_write_cache {
             StdioRequest::Approval { cache, .. } => {
                 assert_eq!(cache, ApprovalCacheScope::WorkspaceWrite)
             }
             other => panic!("expected approval request, got {other:?}"),
         }
-        match with_future_cache {
-            StdioRequest::Approval { cache, .. } => {
-                assert_eq!(cache, ApprovalCacheScope::None)
-            }
-            other => panic!("expected approval request, got {other:?}"),
-        }
+        assert!(
+            future_cache_error
+                .to_string()
+                .contains("unknown approval cache scope")
+        );
     }
 }

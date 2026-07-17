@@ -76,9 +76,7 @@ pub(super) fn add_cors_headers(response: &mut HttpResponse, origin: Option<&Head
     );
     headers.insert(
         "access-control-allow-headers",
-        "authorization, content-type, x-proteus-session, x-proteus-session-token"
-            .parse()
-            .expect("valid header"),
+        "authorization, content-type".parse().expect("valid header"),
     );
     headers.insert(
         "access-control-allow-credentials",
