@@ -55,7 +55,9 @@ Leptos-клиенты исключены из root workspace и проверяю
 - harness `proteus-process-host` проверяет raw frame round-trip, non-blocking
   receive, timeout без implicit kill, explicit `terminate`/`reset`, прежний
   JSON-RPC kill-on-timeout и общие count/aggregate bounds для stdout queue и
-  notification backlog;
+  notification backlog; отдельные cases фиксируют default `env_clear`,
+  минимальный runtime allowlist, scoped parent inheritance, explicit env и
+  legacy `env_clear(false)`;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `subagents.surface` взаимно исключительно переключает `task`, runner-backed
   collaboration tools и `none`, не смешивая model-facing surfaces;

@@ -19,4 +19,4 @@ pub use receive::{
     DEFAULT_MAX_BUFFERED_BYTES, DEFAULT_MAX_BUFFERED_FRAMES, ReceiveFrameError, ReceiveLimits,
 };
 pub use session::ProcessSession;
-pub use spec::ProcessSpec;
+pub use spec::{DEFAULT_ENV_ALLOWLIST, ProcessSpec};

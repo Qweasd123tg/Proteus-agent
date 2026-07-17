@@ -27,6 +27,8 @@ command = "sh"
 args = ["examples/mcp/echo_server.sh"]
 safety = "RunsCommands"
 timeout_ms = 30000
+# env_allowlist = ["LOCAL_ECHO_TOKEN"] # копирует только названный parent env
+# env = { MCP_MODE = "isolated" }      # scoped literal; не храните тут secrets
 # max_response_bytes = 100000  # поднять лимит ответа (default 20000 байт)
 metadata = { scope = "local-smoke-test" }
 

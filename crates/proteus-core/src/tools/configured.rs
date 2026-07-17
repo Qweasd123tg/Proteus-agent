@@ -152,6 +152,7 @@ pub fn register_configured_tools(
                 server: _,
                 command,
                 args,
+                environment,
                 tool,
                 protocol_version,
                 max_response_bytes,
@@ -159,6 +160,7 @@ pub fn register_configured_tools(
                 let host = configured_mcp_inline_host(
                     command.clone(),
                     args.clone(),
+                    environment.clone(),
                     protocol_version.clone(),
                     cwd,
                     configured.timeout_ms.unwrap_or(30_000),

@@ -255,6 +255,13 @@ compact-JSON размер кадров одновременно в stdout queue 
 notifications. Совместимый sync JSON-RPC request/response API остаётся для MCP
 и сохраняет прежний kill-on-timeout/lazy-restart lifecycle.
 
+`ProcessSpec` по умолчанию очищает parent environment. Автоматически
+allowlisted только минимальные runtime variables (`PATH`; на Windows также
+системные process/temp variables); credentials и application-specific значения
+adapter обязан перечислить через `env_allowlist` либо задать scoped literal
+через `env`. Явный `env_clear(false)` существует как lower-level legacy opt-in,
+но MCP config его не экспонирует.
+
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
 "пропустить проверку" было бы undefined behavior. Config может управлять

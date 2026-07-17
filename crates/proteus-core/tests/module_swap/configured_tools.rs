@@ -323,6 +323,7 @@ done
         name: "demo-mcp".to_owned(),
         command: "sh".to_owned(),
         args: vec![server.to_string_lossy().to_string()],
+        environment: ProcessEnvironmentConfig::default(),
         protocol_version: "2025-06-18".to_owned(),
         safety: ToolSafety::ReadOnly,
         timeout_ms: Some(1_000),
@@ -405,7 +406,12 @@ while IFS= read -r line; do
     *'"method":"tools/call"'*)
       case "$line" in
         *'"name":"remote_echo"'*)
-          printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"mcp ok"}],"isError":false}}'
+          if [ "$MCP_SCOPED" = "visible" ] && [ -n "${HOME+x}" ]; then
+            env_result="mcp env ok"
+          else
+            env_result="mcp env missing"
+          fi
+          printf '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"%s"}],"isError":false}}\n' "$env_result"
           ;;
         *)
           printf '%s\n' '{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"wrong tool"}}'
@@ -433,6 +439,13 @@ done
             server: Some("test-mcp".to_owned()),
             command: "sh".to_owned(),
             args: vec![server.to_string_lossy().to_string()],
+            environment: ProcessEnvironmentConfig {
+                env_allowlist: vec!["HOME".to_owned()],
+                env: std::collections::BTreeMap::from([(
+                    "MCP_SCOPED".to_owned(),
+                    "visible".to_owned(),
+                )]),
+            },
             tool: "remote_echo".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
             max_response_bytes: None,
@@ -473,7 +486,7 @@ done
         .unwrap();
 
     assert!(result.ok);
-    assert_eq!(result.output, "mcp ok");
+    assert_eq!(result.output, "mcp env ok");
     assert_eq!(result.metadata["executor"], "mcp");
     assert_eq!(result.metadata["remote_tool"], "remote_echo");
     let events = events.events().await;
@@ -522,6 +535,7 @@ done
             server: Some("counter-mcp".to_owned()),
             command: "sh".to_owned(),
             args: vec![server.to_string_lossy().to_string()],
+            environment: ProcessEnvironmentConfig::default(),
             tool: "counter".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
             max_response_bytes: None,
@@ -578,6 +592,7 @@ async fn configured_mcp_tool_still_obeys_permission_mode() {
             server: Some("hidden-mcp".to_owned()),
             command: "sh".to_owned(),
             args: vec!["-c".to_owned(), "exit 99".to_owned()],
+            environment: ProcessEnvironmentConfig::default(),
             tool: "remote".to_owned(),
             protocol_version: "2025-06-18".to_owned(),
             max_response_bytes: None,

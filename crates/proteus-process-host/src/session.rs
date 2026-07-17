@@ -42,10 +42,10 @@ impl<F: Framing> ProcessSession<F> {
         let mut command = Command::new(&spec.command);
         command
             .args(&spec.args)
-            .envs(&spec.env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        spec.apply_environment(&mut command)?;
         if let Some(cwd) = &spec.cwd {
             command.current_dir(cwd);
         }

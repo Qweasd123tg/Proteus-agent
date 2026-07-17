@@ -22,8 +22,8 @@ Roadmap хранит порядок работ и журнал уже приня
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. 🟡 Неделя 1: raw seam в `proteus-process-host` закрыт 2026-07-17; дальше
-   `env_clear`/allowlist плюс хвост lifecycle-стабилизации — ownership, age
+3. 🟡 Неделя 1: raw seam и `env_clear`/allowlist в `proteus-process-host`
+   закрыты 2026-07-17; остался хвост lifecycle-стабилизации — ownership, age
    cleanup и cancellation для уже count-bounded interactive exec sessions.
    (Контекст: collaboration control ранее закрыт session ownership, hard caps
    и sequential mailbox/follow-up; process subagents — bounded idle/resume LRU
@@ -201,9 +201,11 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   крейта сохранён для существующих потребителей (MCP). Frame-count и aggregate
   budget общие для reader queue и retained JSON-RPC notifications; exhaustion
   завершает reader явной ошибкой вместо дальнейшего накопления.
-- **`ProcessSpec` env hygiene**: generic `env_clear` + allowlist вместо
-  наследования environment; дочерний процесс получает только объявленные
-  переменные и scoped credentials.
+- ✅ **`ProcessSpec` env hygiene** (2026-07-17): `env_clear` включён по
+  умолчанию, минимальный platform runtime allowlist сохраняет `PATH` (и
+  обязательные Windows process variables), остальные значения передаются
+  только через `env_allowlist` или explicit `env`. Inline/discovered MCP config
+  поддерживает оба поля; literal `env` перекрывает allowlisted parent value.
 - **Хвост lifecycle-стабилизации**: session/thread ownership, age cleanup и
   честная cancellation для interactive exec sessions — закрывает пункт 3
   «Ближайшего Порядка» и checkpoint из `scope.md`.

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{Tool, ToolContext, ToolRegistry, ToolSource},
-    core::ConfiguredMcpServerConfig,
+    core::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig},
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
@@ -89,14 +89,11 @@ pub(super) struct McpStdioHost {
 
 impl McpStdioHost {
     fn new(
-        command: String,
-        args: Vec<String>,
+        spec: ProcessSpec,
         protocol_version: String,
-        cwd: &Path,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
-        let spec = ProcessSpec::new(command).args(args).cwd(cwd);
         let framing = NewlineJsonFraming::new(max_response_bytes);
         let host = ProcessHost::with_initializer(spec, framing, move |session| {
             session.request(
@@ -159,16 +156,16 @@ impl McpStdioHost {
 pub(super) fn configured_mcp_inline_host(
     command: String,
     args: Vec<String>,
+    environment: ProcessEnvironmentConfig,
     protocol_version: String,
     cwd: &Path,
     timeout_ms: u64,
     max_response_bytes: Option<usize>,
 ) -> Arc<McpStdioHost> {
+    let spec = process_spec(command, args, environment, cwd);
     Arc::new(McpStdioHost::new(
-        command,
-        args,
+        spec,
         protocol_version,
-        cwd,
         Duration::from_millis(timeout_ms),
         max_response_bytes
             .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
@@ -200,16 +197,33 @@ pub(super) fn register_discovered_mcp_tools(
 }
 
 fn configured_mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Arc<McpStdioHost> {
-    Arc::new(McpStdioHost::new(
+    let spec = process_spec(
         server.command.clone(),
         server.args.clone(),
-        server.protocol_version.clone(),
+        server.environment.clone(),
         cwd,
+    );
+    Arc::new(McpStdioHost::new(
+        spec,
+        server.protocol_version.clone(),
         Duration::from_millis(server.timeout_ms.unwrap_or(30_000)),
         server
             .max_response_bytes
             .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
     ))
+}
+
+fn process_spec(
+    command: String,
+    args: Vec<String>,
+    environment: ProcessEnvironmentConfig,
+    cwd: &Path,
+) -> ProcessSpec {
+    ProcessSpec::new(command)
+        .args(args)
+        .env_allowlist(environment.env_allowlist)
+        .envs(environment.env)
+        .cwd(cwd)
 }
 
 fn render_mcp_content(content: Option<&Value>) -> String {
@@ -258,6 +272,7 @@ mod tests {
             name: "silent".to_owned(),
             command: "sh".to_owned(),
             args: vec!["-c".to_owned(), "sleep 5".to_owned()],
+            environment: ProcessEnvironmentConfig::default(),
             protocol_version: "2024-11-05".to_owned(),
             safety: ToolSafety::ReadOnly,
             timeout_ms: Some(100),

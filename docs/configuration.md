@@ -903,9 +903,9 @@ args = ["tools/echo_args.py"]
 Для `native` executor указывается `handler`, например
 `handler = "apply_patch"`. Для inline `mcp` executor указываются `command`,
 optional `args`, optional `server`, remote `tool`, optional
-`protocol_version` и optional `max_response_bytes` (лимит одной JSON-строки
-ответа сервера; default 20000 байт — тот же ключ доступен и в
-`[[tools.mcp_servers]]`).
+`protocol_version`, `env_allowlist`, `env` и optional `max_response_bytes`
+(лимит одной JSON-строки ответа сервера; default 20000 байт — те же env/limit
+ключи доступны и в `[[tools.mcp_servers]]`).
 
 Сейчас поддержаны executors `native`, `process` и `mcp`.
 
@@ -920,6 +920,16 @@ Inline `mcp` создаёт ленивый persistent stdio MCP host внутр�
 замены snapshot или ошибки transport. Model args становятся только MCP
 `arguments`; имя remote tool не берётся из model args.
 
+MCP child стартует с очищенным parent environment. Минимальный platform
+allowlist сохраняет `PATH` (на Windows также обязательные system/process/temp
+variables). `env_allowlist = ["GITHUB_TOKEN"]` копирует только перечисленные
+parent values; `env = { MCP_MODE = "isolated" }` задаёт literal child-only
+значения и перекрывает одноимённый allowlisted value. Для credentials
+предпочитайте `env_allowlist`, чтобы значение секрета не сохранялось в config.
+`HOME`, proxy variables, API keys и agent sockets без явного разрешения не
+наследуются. Эти поля относятся к `ProcessSpec`-based MCP host; обычный
+configured executor `kind = "process"` пока использует собственный lifecycle.
+
 Для стандартного MCP discovery используйте `tools.mcp_servers`. Сервер
 описывается один раз, runtime при сборке `ToolRegistry` стартует persistent
 stdio host, выполняет `initialize` + `tools/list`, регистрирует каждый remote
@@ -933,6 +943,10 @@ command = "node"
 args = ["./mcp-docs-server.js"]
 safety = "RunsCommands"
 timeout_ms = 30000
+# Скопировать только этот credential из environment процесса Proteus.
+# env_allowlist = ["DOCS_API_TOKEN"]
+# Несекретные scoped literals; одноимённое значение перекрывает allowlist.
+# env = { MCP_MODE = "isolated" }
 # Максимум байт на одну JSON-строку ответа сервера; default 20000.
 # Серверы с крупными payload-ами (browser snapshots) могут поднять лимит.
 # max_response_bytes = 100000

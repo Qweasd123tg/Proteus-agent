@@ -41,7 +41,7 @@ use proteus_core::{
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
         ConfiguredToolConfig, ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore,
-        ModelService, SubagentSurface, ToolOrchestrator,
+        ModelService, ProcessEnvironmentConfig, SubagentSurface, ToolOrchestrator,
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,

@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use proteus_process_host::{
-    ContentLengthFraming, Framing, NewlineJsonFraming, ProcessHost, ProcessSession, ProcessSpec,
-    ReceiveFrameError, ReceiveLimits,
+    ContentLengthFraming, DEFAULT_ENV_ALLOWLIST, Framing, NewlineJsonFraming, ProcessHost,
+    ProcessSession, ProcessSpec, ReceiveFrameError, ReceiveLimits,
 };
 use serde_json::{Value, json};
 
@@ -73,6 +73,22 @@ fn run_tests() -> Result<()> {
         (
             "invalid_receive_limits_fail_before_spawn",
             invalid_receive_limits_fail_before_spawn,
+        ),
+        (
+            "process_spec_clears_unlisted_environment",
+            process_spec_clears_unlisted_environment,
+        ),
+        (
+            "process_spec_allowlists_parent_environment",
+            process_spec_allowlists_parent_environment,
+        ),
+        (
+            "process_spec_can_explicitly_restore_full_inheritance",
+            process_spec_can_explicitly_restore_full_inheritance,
+        ),
+        (
+            "process_spec_rejects_invalid_environment",
+            process_spec_rejects_invalid_environment,
         ),
     ];
 
@@ -287,6 +303,94 @@ fn invalid_receive_limits_fail_before_spawn() -> Result<()> {
     Ok(())
 }
 
+fn process_spec_clears_unlisted_environment() -> Result<()> {
+    let (blocked_name, _) = unlisted_parent_environment()?;
+    let parent_path = env::var("PATH")?;
+    let spec = mock_spec("newline")?.env("PROCESS_HOST_SCOPED", "scoped-value");
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+
+    let values = inspect_environment(
+        &mut session,
+        &["PATH", blocked_name.as_str(), "PROCESS_HOST_SCOPED"],
+    )?;
+
+    assert_eq!(values["PATH"], parent_path);
+    assert_eq!(values[&blocked_name], Value::Null);
+    assert_eq!(values["PROCESS_HOST_SCOPED"], "scoped-value");
+    Ok(())
+}
+
+fn process_spec_allowlists_parent_environment() -> Result<()> {
+    let (name, parent_value) = unlisted_parent_environment()?;
+    let spec = mock_spec("newline")?.env_allowlist([name.clone()]);
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+
+    let values = inspect_environment(&mut session, &[name.as_str()])?;
+
+    assert_eq!(values[&name], parent_value);
+
+    let spec = mock_spec("newline")?
+        .env_allowlist([name.clone()])
+        .env(name.clone(), "explicit-override");
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+    let values = inspect_environment(&mut session, &[name.as_str()])?;
+    assert_eq!(values[&name], "explicit-override");
+    Ok(())
+}
+
+fn process_spec_can_explicitly_restore_full_inheritance() -> Result<()> {
+    let (name, parent_value) = unlisted_parent_environment()?;
+    let spec = mock_spec("newline")?.env_clear(false);
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+
+    let values = inspect_environment(&mut session, &[name.as_str()])?;
+
+    assert_eq!(values[&name], parent_value);
+    Ok(())
+}
+
+fn process_spec_rejects_invalid_environment() -> Result<()> {
+    let spec = ProcessSpec::new("this-command-must-not-be-spawned").env_allowlist(["INVALID=ENV"]);
+    let error = ProcessSession::spawn(&spec, NewlineJsonFraming::default())
+        .expect_err("invalid env name must fail before command spawn");
+
+    assert!(
+        error
+            .to_string()
+            .contains("invalid environment variable name"),
+        "unexpected environment validation error: {error}"
+    );
+
+    let spec =
+        ProcessSpec::new("this-command-must-not-be-spawned").env("VALID_ENV_NAME", "contains\0nul");
+    let error = ProcessSession::spawn(&spec, NewlineJsonFraming::default())
+        .expect_err("NUL env value must fail before command spawn");
+    assert!(
+        error.to_string().contains("contains a NUL byte"),
+        "unexpected environment value error: {error}"
+    );
+    Ok(())
+}
+
+fn unlisted_parent_environment() -> Result<(String, String)> {
+    env::vars()
+        .find(|(name, _)| {
+            name != "PROCESS_HOST_SCOPED" && !DEFAULT_ENV_ALLOWLIST.contains(&name.as_str())
+        })
+        .ok_or_else(|| anyhow!("test process has no environment outside the default allowlist"))
+}
+
+fn inspect_environment(
+    session: &mut ProcessSession<NewlineJsonFraming>,
+    names: &[&str],
+) -> Result<Value> {
+    session.request(
+        "inspect_environment",
+        json!({ "names": names }),
+        SHORT_TIMEOUT,
+    )
+}
+
 fn mock_spec(framing: &str) -> Result<ProcessSpec> {
     let exe = env::current_exe()?;
     let exe = exe
@@ -361,6 +465,22 @@ fn handle_request<F: Framing, W: Write>(
             framing.write_frame(writer, &large_notification(1))?;
             framing.write_frame(writer, &large_notification(2))?;
             write_response(framing, writer, id, message["params"].clone())
+        }
+        "inspect_environment" => {
+            let names = message["params"]["names"]
+                .as_array()
+                .ok_or_else(|| anyhow!("inspect_environment requires names array"))?;
+            let mut values = serde_json::Map::new();
+            for name in names {
+                let name = name
+                    .as_str()
+                    .ok_or_else(|| anyhow!("environment name must be a string"))?;
+                values.insert(
+                    name.to_owned(),
+                    env::var(name).map(Value::String).unwrap_or(Value::Null),
+                );
+            }
+            write_response(framing, writer, id, Value::Object(values))
         }
         "never_respond" => loop {
             std::thread::sleep(Duration::from_secs(60));

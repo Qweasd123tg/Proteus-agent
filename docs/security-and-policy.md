@@ -166,6 +166,15 @@ Persistent stdio host дополнительно ограничивает receiv
 останавливается с явной ошибкой; он не продолжает накапливать валидные, но
 невостребованные сообщения.
 
+Тот же host запускает `ProcessSpec` с очищенным parent environment. На Unix по
+умолчанию наследуется только `PATH`; Windows дополнительно сохраняет
+необходимые system/process/temp variables. Inline и discovered MCP принимают
+`env_allowlist = ["TOKEN_NAME"]` для scoped копирования значения из parent и
+`env = { NAME = "value" }` для literal child-only значений. Literal перекрывает
+allowlisted parent value. `HOME`, cloud/API tokens, proxy variables и agent
+sockets автоматически не передаются. Для credentials предпочтителен allowlist,
+чтобы secret value не попадал в config-файл.
+
 ## Workspace Boundary
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в

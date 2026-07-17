@@ -655,6 +655,8 @@ pub enum ConfiguredToolExecutorConfig {
         command: String,
         #[serde(default)]
         args: Vec<String>,
+        #[serde(flatten)]
+        environment: ProcessEnvironmentConfig,
         tool: String,
         #[serde(default = "default_mcp_protocol_version")]
         protocol_version: String,
@@ -663,12 +665,27 @@ pub enum ConfiguredToolExecutorConfig {
     },
 }
 
+/// Explicit environment passed to a cleared child process.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProcessEnvironmentConfig {
+    /// Names copied from the current process. Prefer this for scoped secrets so
+    /// their values do not live in the config file.
+    #[serde(default)]
+    pub env_allowlist: Vec<String>,
+    /// Literal values passed only to this child. They override allowlisted
+    /// parent values with the same name.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfiguredMcpServerConfig {
     pub name: String,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    #[serde(flatten)]
+    pub environment: ProcessEnvironmentConfig,
     #[serde(default = "default_mcp_protocol_version")]
     pub protocol_version: String,
     #[serde(default = "default_mcp_discovered_tool_safety")]
@@ -1064,6 +1081,31 @@ fn expand_user_path_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_environment_config_is_flat_and_defaults_to_empty() {
+        let server = serde_json::from_value::<ConfiguredMcpServerConfig>(serde_json::json!({
+            "name": "docs",
+            "command": "node",
+            "env_allowlist": ["DOCS_TOKEN"],
+            "env": { "MCP_MODE": "isolated" }
+        }))
+        .expect("MCP server environment config");
+        assert_eq!(server.environment.env_allowlist, ["DOCS_TOKEN"]);
+        assert_eq!(server.environment.env["MCP_MODE"], "isolated");
+
+        let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
+            "kind": "mcp",
+            "command": "node",
+            "tool": "lookup"
+        }))
+        .expect("inline MCP environment defaults");
+        let ConfiguredToolExecutorConfig::Mcp { environment, .. } = executor else {
+            panic!("expected MCP executor");
+        };
+        assert!(environment.env_allowlist.is_empty());
+        assert!(environment.env.is_empty());
+    }
 
     #[test]
     fn modules_config_iter_and_set_cover_all_selectable_slots() {
