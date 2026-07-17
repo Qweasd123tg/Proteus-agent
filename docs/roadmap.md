@@ -22,11 +22,12 @@ Roadmap хранит порядок работ и журнал уже приня
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. 🟡 Неделя 1: raw seam и `env_clear`/allowlist в `proteus-process-host` плюс
-   хвост lifecycle-стабилизации — ownership, age cleanup и cancellation для
-   уже count-bounded interactive exec sessions. (Контекст: collaboration
-   control ранее закрыт session ownership, hard caps и sequential
-   mailbox/follow-up; process subagents — bounded idle/resume LRU retention.)
+3. 🟡 Неделя 1: raw seam в `proteus-process-host` закрыт 2026-07-17; дальше
+   `env_clear`/allowlist плюс хвост lifecycle-стабилизации — ownership, age
+   cleanup и cancellation для уже count-bounded interactive exec sessions.
+   (Контекст: collaboration control ранее закрыт session ownership, hard caps
+   и sequential mailbox/follow-up; process subagents — bounded idle/resume LRU
+   retention.)
 4. Неделя 2: external process modules v0 — `SearchBackend` внешним процессом,
    референс-модуль на TypeScript, расширение swap-тестов.
 5. Неделя 3: root-session steering/follow-up через runtime-очередь на границе
@@ -191,13 +192,15 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
 
 Одна зона кода, три результата:
 
-- **Raw seam в `proteus-process-host`**: `send_frame(Value)`,
+- ✅ **Raw seam в `proteus-process-host`** (2026-07-17): `send_frame(Value)`,
   `recv_frame(timeout)` / `try_recv_frame`, явные `terminate`/`reset`,
   bounded receive buffering (max frame bytes, count, aggregate). Timeout сам
   не решает судьбу процесса — это делает вызывающий adapter; классификация
   фреймов не живёт в host (protocol-neutral seam из
   `docs/research/pi-vs-proteus.md`, этап 2). Sync request/response API
-  крейта сохраняется для существующих потребителей (MCP).
+  крейта сохранён для существующих потребителей (MCP). Frame-count и aggregate
+  budget общие для reader queue и retained JSON-RPC notifications; exhaustion
+  завершает reader явной ошибкой вместо дальнейшего накопления.
 - **`ProcessSpec` env hygiene**: generic `env_clear` + allowlist вместо
   наследования environment; дочерний процесс получает только объявленные
   переменные и scoped credentials.
@@ -376,9 +379,12 @@ pipeline) почти бесплатно.
 process host как named задачу до LSP и parallel subagents — обе дешевеют.
 
 **Реализовано:** общий sync process host выделен в
-`crates/proteus-process-host` (framing, request/response, notifications,
-kill-on-timeout, lazy restart, session initializer hook для protocol
-handshake). MCP stdio host в core мигрирован на
+`crates/proteus-process-host` (framing, protocol-neutral raw send/receive,
+bounded reader/notification budget, совместимый JSON-RPC
+request/response/notifications API, explicit terminate/reset, lazy restart и
+session initializer hook для protocol handshake). Raw timeout не меняет
+lifecycle child-а; старый JSON-RPC request timeout сохраняет kill-on-timeout.
+MCP stdio host в core мигрирован на
 `ProcessHost<NewlineJsonFraming>` (`initialize`-handshake живёт в
 initializer, выполняется на каждом (re)spawn); собственные
 session/protocol-модули MCP удалены. Следующий потребитель — будущий

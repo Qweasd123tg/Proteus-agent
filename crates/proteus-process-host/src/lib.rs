@@ -9,10 +9,14 @@
 
 mod framing;
 mod host;
+mod receive;
 mod session;
 mod spec;
 
 pub use framing::{ContentLengthFraming, DEFAULT_MAX_FRAME_BYTES, Framing, NewlineJsonFraming};
 pub use host::{ProcessHost, ProcessSessionGuard, SessionInitializer};
+pub use receive::{
+    DEFAULT_MAX_BUFFERED_BYTES, DEFAULT_MAX_BUFFERED_FRAMES, ReceiveFrameError, ReceiveLimits,
+};
 pub use session::ProcessSession;
 pub use spec::ProcessSpec;

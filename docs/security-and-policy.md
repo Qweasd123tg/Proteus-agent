@@ -159,6 +159,13 @@ truncation перед событием `ToolFinished` и передачей ре
 remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
 фактическим downstream вызовом.
 
+Persistent stdio host дополнительно ограничивает receive backlog: reader queue
+и ещё не drained JSON-RPC notifications делят один budget по числу кадров и
+суммарному compact-JSON размеру (по умолчанию 256 кадров / 32 MiB), а framing
+отдельно ограничивает размер одного wire frame. При исчерпании budget reader
+останавливается с явной ошибкой; он не продолжает накапливать валидные, но
+невостребованные сообщения.
+
 ## Workspace Boundary
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в

@@ -1,7 +1,7 @@
 use std::{
     io::{self, BufReader, Read},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError, TrySendError},
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -9,16 +9,20 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
-use crate::{Framing, ProcessSpec};
+use crate::{
+    Framing, ProcessSpec, ReceiveFrameError, ReceiveLimits,
+    receive::{BufferedFrame, ReaderStatus, ReceiveBudget, compact_json_len},
+};
 
 /// Live persistent child process session.
 #[derive(Debug)]
 pub struct ProcessSession<F: Framing> {
     child: Child,
     stdin: ChildStdin,
-    stdout_rx: Receiver<Result<Value>>,
+    stdout_rx: Receiver<BufferedFrame>,
+    reader_status: ReaderStatus,
     next_request_id: i64,
-    notifications: Vec<Value>,
+    notifications: Vec<BufferedFrame>,
     framing: F,
     stdout_thread: Option<JoinHandle<()>>,
     stderr_thread: Option<JoinHandle<()>>,
@@ -26,6 +30,15 @@ pub struct ProcessSession<F: Framing> {
 
 impl<F: Framing> ProcessSession<F> {
     pub fn spawn(spec: &ProcessSpec, framing: F) -> Result<Self> {
+        Self::spawn_with_receive_limits(spec, framing, ReceiveLimits::default())
+    }
+
+    pub fn spawn_with_receive_limits(
+        spec: &ProcessSpec,
+        framing: F,
+        receive_limits: ReceiveLimits,
+    ) -> Result<Self> {
+        receive_limits.validate()?;
         let mut command = Command::new(&spec.command);
         command
             .args(&spec.args)
@@ -48,19 +61,43 @@ impl<F: Framing> ProcessSession<F> {
             .ok_or_else(|| anyhow!("failed to open child stdout"))?;
         let stderr = child.stderr.take();
 
-        let (stdout_rx, stdout_thread) = spawn_stdout_reader(stdout, framing.clone());
+        let (stdout_rx, reader_status, stdout_thread) =
+            spawn_stdout_reader(stdout, framing.clone(), receive_limits);
         let stderr_thread = stderr.map(spawn_stderr_drain);
 
         Ok(Self {
             child,
             stdin,
             stdout_rx,
+            reader_status,
             next_request_id: 1,
             notifications: Vec::new(),
             framing,
             stdout_thread: Some(stdout_thread),
             stderr_thread,
         })
+    }
+
+    /// Sends one protocol-neutral frame to the child.
+    pub fn send_frame(&mut self, message: Value) -> Result<()> {
+        self.framing.write_frame(&mut self.stdin, &message)
+    }
+
+    /// Waits for one protocol-neutral frame without changing process state on
+    /// timeout. The caller decides whether to continue, abort, or terminate.
+    pub fn recv_frame(
+        &mut self,
+        timeout: Duration,
+    ) -> std::result::Result<Value, ReceiveFrameError> {
+        self.recv_buffered_frame(timeout)
+            .map(BufferedFrame::into_value)
+    }
+
+    /// Returns a queued frame immediately, or `None` while the reader remains
+    /// live and no frame is ready.
+    pub fn try_recv_frame(&mut self) -> std::result::Result<Option<Value>, ReceiveFrameError> {
+        self.try_recv_buffered_frame()
+            .map(|frame| frame.map(BufferedFrame::into_value))
     }
 
     pub fn request(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
@@ -71,7 +108,7 @@ impl<F: Framing> ProcessSession<F> {
             "method": method,
             "params": params,
         });
-        self.framing.write_frame(&mut self.stdin, &request)?;
+        self.send_frame(request)?;
         self.recv_response(request_id, timeout)
     }
 
@@ -81,29 +118,32 @@ impl<F: Framing> ProcessSession<F> {
             "method": method,
             "params": params,
         });
-        self.framing.write_frame(&mut self.stdin, &notification)
+        self.send_frame(notification)
     }
 
     pub fn drain_notifications(&mut self) -> Vec<Value> {
-        self.notifications.drain(..).collect()
+        self.notifications
+            .drain(..)
+            .map(BufferedFrame::into_value)
+            .collect()
     }
 
     pub fn wait_notification(&mut self, method: &str, timeout: Duration) -> Result<Value> {
         if let Some(index) = self
             .notifications
             .iter()
-            .position(|message| notification_method(message) == Some(method))
+            .position(|message| notification_method(message.value()) == Some(method))
         {
-            return Ok(self.notifications.remove(index));
+            return Ok(self.notifications.remove(index).into_value());
         }
 
         let started = Instant::now();
         loop {
             let message = self.recv_frame_before(started, timeout, "notification")?;
-            if notification_method(&message) == Some(method) {
-                return Ok(message);
+            if notification_method(message.value()) == Some(method) {
+                return Ok(message.into_value());
             }
-            if is_notification(&message) {
+            if is_notification(message.value()) {
                 self.notifications.push(message);
             }
         }
@@ -113,21 +153,22 @@ impl<F: Framing> ProcessSession<F> {
         let started = Instant::now();
         loop {
             let message = self.recv_frame_before(started, timeout, "response")?;
-            if is_notification(&message) {
+            if is_notification(message.value()) {
                 self.notifications.push(message);
                 continue;
             }
 
-            let Some(id) = message.get("id") else {
+            let Some(id) = message.value().get("id") else {
                 continue;
             };
             if id != &json!(expected_id) {
                 bail!("response id {id} did not match expected id {expected_id}");
             }
-            if let Some(error) = message.get("error") {
+            if let Some(error) = message.value().get("error") {
                 bail!("JSON-RPC error response: {error}");
             }
             return message
+                .value()
                 .get("result")
                 .cloned()
                 .ok_or_else(|| anyhow!("JSON-RPC response missing result"));
@@ -139,26 +180,53 @@ impl<F: Framing> ProcessSession<F> {
         started: Instant,
         timeout: Duration,
         expected: &str,
-    ) -> Result<Value> {
+    ) -> Result<BufferedFrame> {
         let elapsed = started.elapsed();
         if elapsed >= timeout {
-            self.kill_and_wait();
+            self.terminate_best_effort();
             bail!(
                 "child did not send {expected} within {}ms",
                 timeout.as_millis()
             );
         }
 
-        match self.stdout_rx.recv_timeout(timeout - elapsed) {
-            Ok(value) => value,
-            Err(RecvTimeoutError::Timeout) => {
-                self.kill_and_wait();
+        match self.recv_buffered_frame(timeout - elapsed) {
+            Ok(frame) => Ok(frame),
+            Err(ReceiveFrameError::Timeout { .. }) => {
+                self.terminate_best_effort();
                 bail!(
                     "child did not send {expected} within {}ms",
                     timeout.as_millis()
                 );
             }
-            Err(RecvTimeoutError::Disconnected) => bail!("child stdout reader stopped"),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn recv_buffered_frame(
+        &mut self,
+        timeout: Duration,
+    ) -> std::result::Result<BufferedFrame, ReceiveFrameError> {
+        match self.stdout_rx.recv_timeout(timeout) {
+            Ok(frame) => Ok(frame),
+            Err(RecvTimeoutError::Timeout) => Err(self
+                .reader_status
+                .failure_if_any()
+                .unwrap_or(ReceiveFrameError::Timeout { timeout })),
+            Err(RecvTimeoutError::Disconnected) => Err(self.reader_status.failure()),
+        }
+    }
+
+    fn try_recv_buffered_frame(
+        &mut self,
+    ) -> std::result::Result<Option<BufferedFrame>, ReceiveFrameError> {
+        match self.stdout_rx.try_recv() {
+            Ok(frame) => Ok(Some(frame)),
+            Err(TryRecvError::Empty) => match self.reader_status.failure_if_any() {
+                Some(error) => Err(error),
+                None => Ok(None),
+            },
+            Err(TryRecvError::Disconnected) => Err(self.reader_status.failure()),
         }
     }
 
@@ -168,15 +236,23 @@ impl<F: Framing> ProcessSession<F> {
         request_id
     }
 
-    fn kill_and_wait(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    /// Terminates the child without creating a replacement session.
+    pub fn terminate(&mut self) -> Result<()> {
+        if self.child.try_wait()?.is_none() {
+            self.child.kill()?;
+            self.child.wait()?;
+        }
+        Ok(())
+    }
+
+    fn terminate_best_effort(&mut self) {
+        let _ = self.terminate();
     }
 }
 
 impl<F: Framing> Drop for ProcessSession<F> {
     fn drop(&mut self) {
-        self.kill_and_wait();
+        self.terminate_best_effort();
         if let Some(thread) = self.stdout_thread.take() {
             let _ = thread.join();
         }
@@ -186,23 +262,58 @@ impl<F: Framing> Drop for ProcessSession<F> {
     }
 }
 
-fn spawn_stdout_reader<R, F>(reader: R, framing: F) -> (Receiver<Result<Value>>, JoinHandle<()>)
+fn spawn_stdout_reader<R, F>(
+    reader: R,
+    framing: F,
+    receive_limits: ReceiveLimits,
+) -> (Receiver<BufferedFrame>, ReaderStatus, JoinHandle<()>)
 where
     R: Read + Send + 'static,
     F: Framing,
 {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(receive_limits.max_buffered_frames());
+    let budget = ReceiveBudget::new(receive_limits);
+    let reader_status = ReaderStatus::default();
+    let thread_status = reader_status.clone();
     let thread = std::thread::spawn(move || {
         let mut reader = BufReader::new(reader);
         loop {
-            let value = framing.read_frame(&mut reader);
-            let done = value.is_err();
-            if tx.send(value).is_err() || done {
-                break;
+            let value = match framing.read_frame(&mut reader) {
+                Ok(value) => value,
+                Err(error) => {
+                    thread_status.fail(error.to_string());
+                    break;
+                }
+            };
+            let serialized_bytes = match compact_json_len(&value) {
+                Ok(serialized_bytes) => serialized_bytes,
+                Err(error) => {
+                    thread_status.fail(format!("failed to measure received JSON frame: {error}"));
+                    break;
+                }
+            };
+            let permit = match budget.reserve(serialized_bytes) {
+                Ok(permit) => permit,
+                Err(error) => {
+                    thread_status.fail(error);
+                    break;
+                }
+            };
+            let frame = BufferedFrame::new(value, permit);
+            match tx.try_send(frame) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    thread_status.fail(format!(
+                        "receive channel exceeded frame count limit: max {}",
+                        receive_limits.max_buffered_frames()
+                    ));
+                    break;
+                }
+                Err(TrySendError::Disconnected(_)) => break,
             }
         }
     });
-    (rx, thread)
+    (rx, reader_status, thread)
 }
 
 fn spawn_stderr_drain<R>(mut reader: R) -> JoinHandle<()>

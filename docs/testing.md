@@ -52,6 +52,10 @@ Leptos-клиенты исключены из root workspace и проверяю
 - stdio MCP tools проходят через `ToolRegistry`, discovery регистрирует
   `mcp:<server>` source, а host process переиспользуется между calls внутри
   одного snapshot;
+- harness `proteus-process-host` проверяет raw frame round-trip, non-blocking
+  receive, timeout без implicit kill, explicit `terminate`/`reset`, прежний
+  JSON-RPC kill-on-timeout и общие count/aggregate bounds для stdout queue и
+  notification backlog;
 - `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `subagents.surface` взаимно исключительно переключает `task`, runner-backed
   collaboration tools и `none`, не смешивая model-facing surfaces;

@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use proteus_process_host::{
     ContentLengthFraming, Framing, NewlineJsonFraming, ProcessHost, ProcessSession, ProcessSpec,
+    ReceiveFrameError, ReceiveLimits,
 };
 use serde_json::{Value, json};
 
@@ -36,6 +37,11 @@ fn run_tests() -> Result<()> {
             "request_response_content_length_framing",
             request_response_content_length_framing,
         ),
+        ("raw_frame_round_trip", raw_frame_round_trip),
+        (
+            "raw_timeout_does_not_terminate_child",
+            raw_timeout_does_not_terminate_child,
+        ),
         (
             "notifications_buffered_during_request_and_drained",
             notifications_buffered_during_request_and_drained,
@@ -51,6 +57,22 @@ fn run_tests() -> Result<()> {
         (
             "lazy_restart_after_child_exit",
             lazy_restart_after_child_exit,
+        ),
+        (
+            "explicit_terminate_and_reset_restart_child",
+            explicit_terminate_and_reset_restart_child,
+        ),
+        (
+            "receive_frame_count_bounds_notification_backlog",
+            receive_frame_count_bounds_notification_backlog,
+        ),
+        (
+            "receive_aggregate_bytes_bound_notification_backlog",
+            receive_aggregate_bytes_bound_notification_backlog,
+        ),
+        (
+            "invalid_receive_limits_fail_before_spawn",
+            invalid_receive_limits_fail_before_spawn,
         ),
     ];
 
@@ -90,6 +112,47 @@ fn request_response_content_length_framing() -> Result<()> {
     let response = session.request("echo", json!({ "answer": 42 }), SHORT_TIMEOUT)?;
 
     assert_eq!(response, json!({ "answer": 42 }));
+    Ok(())
+}
+
+fn raw_frame_round_trip() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let host = ProcessHost::new(spec, NewlineJsonFraming::default());
+
+    assert_eq!(host.try_recv_frame()?, None);
+    host.send_frame(json!({
+        "jsonrpc": "2.0",
+        "id": "raw-1",
+        "method": "echo",
+        "params": { "raw": true }
+    }))?;
+    let response = host.recv_frame(SHORT_TIMEOUT)?;
+
+    assert_eq!(response["id"], "raw-1");
+    assert_eq!(response["result"], json!({ "raw": true }));
+    Ok(())
+}
+
+fn raw_timeout_does_not_terminate_child() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+
+    let error = session
+        .recv_frame(Duration::from_millis(20))
+        .expect_err("raw receive should time out while the child stays idle");
+    assert!(
+        matches!(error, ReceiveFrameError::Timeout { .. }),
+        "unexpected raw receive error: {error}"
+    );
+
+    session.send_frame(json!({
+        "jsonrpc": "2.0",
+        "id": "after-timeout",
+        "method": "echo",
+        "params": { "alive": true }
+    }))?;
+    let response = session.recv_frame(SHORT_TIMEOUT)?;
+    assert_eq!(response["result"], json!({ "alive": true }));
     Ok(())
 }
 
@@ -149,6 +212,81 @@ fn lazy_restart_after_child_exit() -> Result<()> {
     Ok(())
 }
 
+fn explicit_terminate_and_reset_restart_child() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let host = ProcessHost::new(spec, NewlineJsonFraming::default());
+
+    let first_pid = host.request("pid", json!({}), SHORT_TIMEOUT)?;
+    host.terminate()?;
+    let second_pid = host.request("pid", json!({}), SHORT_TIMEOUT)?;
+    assert_ne!(first_pid, second_pid, "terminate must discard the child");
+
+    host.reset();
+    let third_pid = host.request("pid", json!({}), SHORT_TIMEOUT)?;
+    assert_ne!(second_pid, third_pid, "reset must discard the child");
+    Ok(())
+}
+
+fn receive_frame_count_bounds_notification_backlog() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let limits = ReceiveLimits::new(2, 1024 * 1024);
+    let mut session =
+        ProcessSession::spawn_with_receive_limits(&spec, NewlineJsonFraming::default(), limits)?;
+
+    let error = session
+        .request("three_notifications_then_echo", json!({}), SHORT_TIMEOUT)
+        .expect_err("third retained notification must exceed the frame budget");
+
+    assert!(
+        error
+            .to_string()
+            .contains("receive buffer exceeded frame count limit"),
+        "unexpected count-limit error: {error}"
+    );
+    assert_eq!(session.drain_notifications().len(), 2);
+    Ok(())
+}
+
+fn receive_aggregate_bytes_bound_notification_backlog() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let first_bytes = serde_json::to_vec(&large_notification(1))?.len();
+    let second_bytes = serde_json::to_vec(&large_notification(2))?.len();
+    let limits = ReceiveLimits::new(8, first_bytes + second_bytes - 1);
+    let mut session =
+        ProcessSession::spawn_with_receive_limits(&spec, NewlineJsonFraming::default(), limits)?;
+
+    let error = session
+        .request("large_notifications_then_echo", json!({}), SHORT_TIMEOUT)
+        .expect_err("second retained notification must exceed aggregate bytes");
+
+    assert!(
+        error
+            .to_string()
+            .contains("receive buffer exceeded aggregate byte limit"),
+        "unexpected aggregate-limit error: {error}"
+    );
+    assert_eq!(session.drain_notifications().len(), 1);
+    Ok(())
+}
+
+fn invalid_receive_limits_fail_before_spawn() -> Result<()> {
+    let spec = ProcessSpec::new("this-command-must-not-be-spawned");
+    let error = ProcessSession::spawn_with_receive_limits(
+        &spec,
+        NewlineJsonFraming::default(),
+        ReceiveLimits::new(0, 1024),
+    )
+    .expect_err("zero frame budget must fail before command spawn");
+
+    assert!(
+        error
+            .to_string()
+            .contains("max_buffered_frames must be greater than zero"),
+        "unexpected receive-limit validation error: {error}"
+    );
+    Ok(())
+}
+
 fn mock_spec(framing: &str) -> Result<ProcessSpec> {
     let exe = env::current_exe()?;
     let exe = exe
@@ -194,6 +332,7 @@ fn handle_request<F: Framing, W: Write>(
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
         "echo" => write_response(framing, writer, id, message["params"].clone()),
+        "pid" => write_response(framing, writer, id, json!(std::process::id())),
         "notify_then_echo" => {
             framing.write_frame(
                 writer,
@@ -205,12 +344,41 @@ fn handle_request<F: Framing, W: Write>(
             )?;
             write_response(framing, writer, id, message["params"].clone())
         }
+        "three_notifications_then_echo" => {
+            for order in 1..=3 {
+                framing.write_frame(
+                    writer,
+                    &json!({
+                        "jsonrpc": "2.0",
+                        "method": "mock/burst",
+                        "params": { "order": order }
+                    }),
+                )?;
+            }
+            write_response(framing, writer, id, message["params"].clone())
+        }
+        "large_notifications_then_echo" => {
+            framing.write_frame(writer, &large_notification(1))?;
+            framing.write_frame(writer, &large_notification(2))?;
+            write_response(framing, writer, id, message["params"].clone())
+        }
         "never_respond" => loop {
             std::thread::sleep(Duration::from_secs(60));
         },
         "exit" => std::process::exit(0),
         other => write_error(framing, writer, id, format!("unknown method: {other}")),
     }
+}
+
+fn large_notification(order: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "mock/large",
+        "params": {
+            "order": order,
+            "payload": "x".repeat(256)
+        }
+    })
 }
 
 fn handle_notification<F: Framing, W: Write>(

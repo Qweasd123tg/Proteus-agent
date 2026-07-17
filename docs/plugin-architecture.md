@@ -247,6 +247,14 @@ Workspace-плагины этого репозитория используют 
 текущее содержимое default plugin `Cargo.toml`. Cargo проверяет dependency при
 сборке, а `abi_stable` проверяет совместимость ABI layout при загрузке dylib.
 
+`proteus-process-host` предоставляет protocol-neutral raw seam
+`send_frame`/`recv_frame`/`try_recv_frame`: timeout raw receive не убивает
+child, а его судьбу явно выбирает adapter через `terminate`/`reset`. Per-frame
+лимит задаёт framing, а `ReceiveLimits` ограничивает количество и суммарный
+compact-JSON размер кадров одновременно в stdout queue и retained JSON-RPC
+notifications. Совместимый sync JSON-RPC request/response API остаётся для MCP
+и сохраняет прежний kill-on-timeout/lazy-restart lifecycle.
+
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
 "пропустить проверку" было бы undefined behavior. Config может управлять
