@@ -25,8 +25,6 @@ const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     session_dir: PathBuf,
-    messages_path: PathBuf,
-    metadata_path: PathBuf,
     session_id: SessionId,
     workspace_path: PathBuf,
     lock: Arc<Mutex<()>>,
@@ -47,13 +45,9 @@ impl SessionStore {
             .join("sessions")
             .join(workspace)
             .join(session_id.to_string());
-        let messages_path = session_dir.join(MESSAGES_FILE);
-        let metadata_path = session_dir.join(SESSION_METADATA_FILE);
-        let lock = lock_for_messages_path(&messages_path);
+        let lock = lock_for_session_dir(&session_dir);
         Self {
             session_dir,
-            messages_path,
-            metadata_path,
             session_id,
             workspace_path: canonical_or_original(cwd),
             lock,
@@ -62,13 +56,9 @@ impl SessionStore {
 
     pub fn open(session_dir: PathBuf) -> Result<Self> {
         let metadata = require_session_metadata(&session_dir)?;
-        let messages_path = session_dir.join(MESSAGES_FILE);
-        let metadata_path = session_dir.join(SESSION_METADATA_FILE);
-        let lock = lock_for_messages_path(&messages_path);
+        let lock = lock_for_session_dir(&session_dir);
         Ok(Self {
             session_dir,
-            messages_path,
-            metadata_path,
             session_id: metadata.session_id,
             workspace_path: metadata.workspace_path,
             lock,
@@ -87,6 +77,14 @@ impl SessionStore {
         &self.workspace_path
     }
 
+    fn messages_path(&self) -> PathBuf {
+        self.session_dir.join(MESSAGES_FILE)
+    }
+
+    fn metadata_path(&self) -> PathBuf {
+        self.session_dir.join(SESSION_METADATA_FILE)
+    }
+
     pub async fn materialize(&self) -> Result<()> {
         let _guard = self.lock.lock().await;
         tokio::fs::create_dir_all(&self.session_dir)
@@ -101,12 +99,13 @@ impl SessionStore {
     }
 
     pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
-        let content = match std::fs::read_to_string(&self.messages_path) {
+        let messages_path = self.messages_path();
+        let content = match std::fs::read_to_string(&messages_path) {
             Ok(content) => content,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => {
                 return Err(error)
-                    .with_context(|| format!("failed to read {}", self.messages_path.display()));
+                    .with_context(|| format!("failed to read {}", messages_path.display()));
             }
         };
 
@@ -118,7 +117,7 @@ impl SessionStore {
                 serde_json::from_str::<CanonicalMessage>(line).with_context(|| {
                     format!(
                         "failed to parse {} line {}",
-                        self.messages_path.display(),
+                        messages_path.display(),
                         index + 1
                     )
                 })
@@ -141,12 +140,13 @@ impl SessionStore {
                 )
             })?;
         self.write_metadata_if_needed().await?;
+        let messages_path = self.messages_path();
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&self.messages_path)
+            .open(&messages_path)
             .await
-            .with_context(|| format!("failed to open {}", self.messages_path.display()))?;
+            .with_context(|| format!("failed to open {}", messages_path.display()))?;
 
         for message in messages {
             let mut line = serde_json::to_vec(message)?;
@@ -169,9 +169,8 @@ impl SessionStore {
             })?;
         self.write_metadata_if_needed().await?;
 
-        let tmp_path = self
-            .messages_path
-            .with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
+        let messages_path = self.messages_path();
+        let tmp_path = messages_path.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
         let mut content = Vec::new();
         for message in messages {
             let mut line = serde_json::to_vec(message)?;
@@ -184,12 +183,12 @@ impl SessionStore {
 
         self.archive_messages_before_compaction().await?;
 
-        tokio::fs::rename(&tmp_path, &self.messages_path)
+        tokio::fs::rename(&tmp_path, &messages_path)
             .await
             .with_context(|| {
                 format!(
                     "failed to replace {} with {}",
-                    self.messages_path.display(),
+                    messages_path.display(),
                     tmp_path.display()
                 )
             })?;
@@ -197,13 +196,13 @@ impl SessionStore {
     }
 
     async fn archive_messages_before_compaction(&self) -> Result<()> {
-        match tokio::fs::metadata(&self.messages_path).await {
+        let messages_path = self.messages_path();
+        match tokio::fs::metadata(&messages_path).await {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("failed to inspect {}", self.messages_path.display())
-                });
+                return Err(error)
+                    .with_context(|| format!("failed to inspect {}", messages_path.display()));
             }
         }
 
@@ -211,12 +210,12 @@ impl SessionStore {
         let archive_path = self.session_dir.join(format!(
             "{PRE_COMPACTION_PREFIX}{seq}{PRE_COMPACTION_SUFFIX}"
         ));
-        tokio::fs::rename(&self.messages_path, &archive_path)
+        tokio::fs::rename(&messages_path, &archive_path)
             .await
             .with_context(|| {
                 format!(
                     "failed to archive {} as {} before compaction",
-                    self.messages_path.display(),
+                    messages_path.display(),
                     archive_path.display()
                 )
             })?;
@@ -224,7 +223,8 @@ impl SessionStore {
     }
 
     async fn write_metadata_if_needed(&self) -> Result<()> {
-        if tokio::fs::try_exists(&self.metadata_path).await? {
+        let metadata_path = self.metadata_path();
+        if tokio::fs::try_exists(&metadata_path).await? {
             return Ok(());
         }
 
@@ -235,16 +235,17 @@ impl SessionStore {
         };
         let mut content = serde_json::to_vec_pretty(&metadata)?;
         content.push(b'\n');
-        tokio::fs::write(&self.metadata_path, content)
+        tokio::fs::write(&metadata_path, content)
             .await
-            .with_context(|| format!("failed to write {}", self.metadata_path.display()))?;
+            .with_context(|| format!("failed to write {}", metadata_path.display()))?;
         Ok(())
     }
 
     pub async fn clear(&self) -> Result<()> {
         let _guard = self.lock.lock().await;
-        if tokio::fs::try_exists(&self.messages_path).await? {
-            tokio::fs::write(&self.messages_path, b"").await?;
+        let messages_path = self.messages_path();
+        if tokio::fs::try_exists(&messages_path).await? {
+            tokio::fs::write(&messages_path, b"").await?;
         }
         Ok(())
     }
@@ -587,9 +588,9 @@ fn canonical_or_original(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-fn lock_for_messages_path(messages_path: &Path) -> Arc<Mutex<()>> {
+fn lock_for_session_dir(session_dir: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let key = canonicalize_message_lock_path(messages_path);
+    let key = canonicalize_message_lock_path(&session_dir.join(MESSAGES_FILE));
     let locks = LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
     let mut locks = locks.lock().expect("session store lock map poisoned");
     locks
@@ -790,7 +791,7 @@ mod tests {
 
         store.materialize().await.expect("materialize session");
 
-        assert!(!store.messages_path.exists());
+        assert!(!store.messages_path().exists());
         let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
         assert_eq!(reopened.session_id(), session_id);
 

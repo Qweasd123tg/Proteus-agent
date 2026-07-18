@@ -1042,7 +1042,9 @@ Scope:
   используется в runtime, DTO, metadata и пути; несовпадение basename с
   `session.json.session_id` является ошибкой без compatibility path. Resume
   получает identity и workspace из единственного strict-opened `SessionStore`,
-  не принимает дублирующий `session_id` от caller-а.
+  не принимает дублирующий `session_id` от caller-а. Сам `SessionStore` хранит
+  только root directory, а пути `messages.jsonl` и `session.json` выводит из
+  него без дублированного path-state.
 
 ## Не Делать Сейчас
 
