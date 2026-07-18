@@ -177,6 +177,12 @@ JSON-RPC error или неправильная форма результата �
 ошибки текущая process session удаляется, следующий search делает lazy restart
 и повторяет handshake.
 
+В async entrypoints сборка snapshot, включая spawn и handshake, уходит в
+blocking pool и не занимает Tokio worker. Read-only пути `tools list`,
+`inspect topology` и `doctor` не создают выбранный search backend: они строят
+tool metadata на безопасных заглушках и отдельно валидируют process config и
+доступность команды без запуска child-а.
+
 Wire v0 — compact JSON-RPC 2.0, один объект на строку. Первый вызов:
 
 ```json

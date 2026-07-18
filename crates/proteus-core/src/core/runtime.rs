@@ -959,6 +959,7 @@ mod tests {
             executor: ConfiguredToolExecutorConfig::Process {
                 command: "printf".to_owned(),
                 args: vec!["ok".to_owned()],
+                environment: Default::default(),
             },
         });
         let next_registry =

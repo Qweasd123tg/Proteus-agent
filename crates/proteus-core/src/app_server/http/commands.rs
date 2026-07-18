@@ -330,7 +330,8 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
         current.cwd.clone(),
         current.config_path.as_deref(),
         session_dir,
-    )?;
+    )
+    .await?;
     state.set_current_server(next).await;
     let next = state.current_server().await;
     let summary = config_summary_with_activity(state, &next).await?;
@@ -365,7 +366,8 @@ async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
         let current = state.current_server().await;
         let config = current.config.read().await.clone();
         let next =
-            AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
+            AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())
+                .await?;
         next.start_session().await?;
         replacement_summary = Some(next.config_summary().await);
         state.set_current_server(next).await;
@@ -382,7 +384,8 @@ async fn delete_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
 async fn new_session(state: &HttpAppState) -> Result<Value> {
     let current = state.current_server().await;
     let config = current.config.read().await.clone();
-    let next = AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref())?;
+    let next =
+        AgentAppServer::launch(config, current.cwd.clone(), current.config_path.as_deref()).await?;
     next.start_session().await?;
     let summary = next.config_summary().await;
     state.set_current_server(next).await;

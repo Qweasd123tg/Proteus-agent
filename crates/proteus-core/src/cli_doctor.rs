@@ -7,7 +7,9 @@ use anyhow::{Result, bail};
 use proteus_core::{
     core::{AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig, expand_user_path},
     domain::ModuleKind,
+    process_adapters::ProcessSearchConfig,
 };
+use proteus_process_host::ProcessSpec;
 use serde_json::Value;
 
 use crate::cli_init::{mixed_config_files_warning, single_config_file_for_warning};
@@ -365,20 +367,57 @@ fn collect_unknown_tool_references(
     }
 }
 
-fn check_external_commands(findings: &mut DoctorFindings, config: &AppConfig, cwd: &Path) {
+pub(crate) fn check_external_commands(
+    findings: &mut DoctorFindings,
+    config: &AppConfig,
+    cwd: &Path,
+) {
     if config.modules.search == "rg" {
         check_command(findings, "rg", cwd, "search backend rg");
+    }
+    if config.modules.search == "process" {
+        let process = ProcessSearchConfig::from_value(
+            config.module_config_value(ModuleKind::Search, "process"),
+        )
+        .and_then(|config| {
+            let spec = config.process_spec(cwd)?;
+            spec.resolved_environment()?;
+            Ok(spec)
+        });
+        match process {
+            Ok(spec) => check_command(
+                findings,
+                &spec.command,
+                spec.cwd.as_deref().unwrap_or(cwd),
+                "search backend process",
+            ),
+            Err(error) => findings.error(format!("search backend process config: {error:#}")),
+        }
     }
 
     for tool in &config.tools.configured {
         match &tool.executor {
-            ConfiguredToolExecutorConfig::Process { command, .. } => {
+            ConfiguredToolExecutorConfig::Process {
+                command,
+                args,
+                environment,
+            } => {
                 check_command(
                     findings,
                     command,
                     cwd,
                     &format!("configured process tool '{}'", tool.name),
                 );
+                let spec = ProcessSpec::new(command.clone())
+                    .args(args.clone())
+                    .env_allowlist(environment.env_allowlist.clone())
+                    .envs(environment.env.clone());
+                if let Err(error) = spec.resolved_environment() {
+                    findings.error(format!(
+                        "configured process tool '{}' environment: {error:#}",
+                        tool.name
+                    ));
+                }
             }
             ConfiguredToolExecutorConfig::Mcp { command, .. } => {
                 check_command(

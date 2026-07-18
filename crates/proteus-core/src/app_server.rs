@@ -319,7 +319,7 @@ impl AppServerHandle {
         validate_module_config_toml(&next_config.module_config)?;
 
         let (registry, plugin_reports, catalog_entries) =
-            build_registry_and_plugin_reports(&next_config, &self.cwd)?;
+            build_registry_and_plugin_reports(&next_config, &self.cwd).await?;
         let target_path = config_builder_target_path(self.config_path.as_deref())
             .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
         persist_config_builder(&target_path, &next_config).await?;
@@ -546,7 +546,7 @@ impl AppServerHandle {
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
         let (registry, plugin_reports, catalog_entries) =
-            build_registry_and_plugin_reports(&config, &self.cwd)?;
+            build_registry_and_plugin_reports(&config, &self.cwd).await?;
         let report = self.runtime.reload_registry(registry).await?;
         *self.config.write().await = config;
         *self.plugin_reports.write().await = plugin_reports;
@@ -563,45 +563,45 @@ impl AppServerHandle {
 pub struct AgentAppServer;
 
 impl AgentAppServer {
-    pub fn launch(
+    pub async fn launch(
         config: AppConfig,
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None, None)
+        Self::launch_inner(config, cwd, config_path, None, None).await
     }
 
-    pub fn launch_or_resume_latest(
+    pub async fn launch_or_resume_latest(
         config: AppConfig,
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
         if let Some(session_dir) = latest_workspace_session_dir(config_path, &cwd)? {
-            return Self::launch_resumed(config, cwd, config_path, session_dir);
+            return Self::launch_resumed(config, cwd, config_path, session_dir).await;
         }
-        Self::launch(config, cwd, config_path)
+        Self::launch(config, cwd, config_path).await
     }
 
-    pub fn launch_resumed(
+    pub async fn launch_resumed(
         config: AppConfig,
         cwd: PathBuf,
         config_path: Option<&Path>,
         session_dir: PathBuf,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None, Some(session_dir))
+        Self::launch_inner(config, cwd, config_path, None, Some(session_dir)).await
     }
 
     #[cfg(test)]
-    pub(crate) fn launch_with_module_catalog(
+    pub(crate) async fn launch_with_module_catalog(
         config: AppConfig,
         cwd: PathBuf,
         config_path: Option<&Path>,
         module_catalog: BuiltinModuleCatalog,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None)
+        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None).await
     }
 
-    fn launch_inner(
+    async fn launch_inner(
         config: AppConfig,
         mut cwd: PathBuf,
         config_path: Option<&Path>,
@@ -626,8 +626,13 @@ impl AgentAppServer {
                 (Some(catalog), Vec::new(), catalog_entries)
             }
             None => {
-                let (catalog, reports) = crate::core::load_default_module_catalog();
-                let catalog_entries = catalog.entry_summaries();
+                let (catalog, reports, catalog_entries) = tokio::task::spawn_blocking(|| {
+                    let (catalog, reports) = crate::core::load_default_module_catalog();
+                    let catalog_entries = catalog.entry_summaries();
+                    (catalog, reports, catalog_entries)
+                })
+                .await
+                .map_err(|error| anyhow!("module catalog blocking task failed: {error}"))?;
                 (Some(catalog), reports, catalog_entries)
             }
         };
@@ -662,7 +667,7 @@ impl AgentAppServer {
         if let Some(module_catalog) = module_catalog {
             builder = builder.with_module_catalog(module_catalog);
         }
-        let runtime = Arc::new(builder.build()?);
+        let runtime = Arc::new(builder.build_async().await?);
         let (events, _) = broadcast::channel(1024);
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
@@ -721,7 +726,7 @@ async fn reload_tools_config(
     Ok(config)
 }
 
-fn build_registry_and_plugin_reports(
+async fn build_registry_and_plugin_reports(
     config: &AppConfig,
     cwd: &Path,
 ) -> Result<(
@@ -729,10 +734,16 @@ fn build_registry_and_plugin_reports(
     Vec<crate::core::PluginLoadReport>,
     Vec<ModuleCatalogEntrySummary>,
 )> {
-    let (catalog, reports) = crate::core::load_default_module_catalog();
-    let catalog_entries = catalog.entry_summaries();
-    let registry = crate::core::BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), catalog)?;
-    Ok((registry, reports, catalog_entries))
+    let config = config.clone();
+    let cwd = cwd.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let (catalog, reports) = crate::core::load_default_module_catalog();
+        let catalog_entries = catalog.entry_summaries();
+        let registry = crate::core::BuiltinRegistry::from_catalog(&config, cwd, catalog)?;
+        Ok((registry, reports, catalog_entries))
+    })
+    .await
+    .map_err(|error| anyhow!("registry builder blocking task failed: {error}"))?
 }
 
 fn spawn_runtime_event_forwarder(

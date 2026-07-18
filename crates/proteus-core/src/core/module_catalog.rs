@@ -475,6 +475,7 @@ impl BuiltinModuleCatalog {
         search: Arc<dyn SearchBackend>,
         patch: Arc<dyn PatchApplier>,
         memory: Arc<dyn MemoryStore>,
+        subagent: Arc<dyn SubagentRunner>,
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
 
@@ -546,7 +547,6 @@ impl BuiltinModuleCatalog {
         // Facade над выбранным SubagentRunner регистрируется в каждом
         // ToolRegistry builder path (runtime, doctor, tools list, topology),
         // чтобы observability не расходилась с model-visible surface.
-        let subagent = self.build_subagent(&ctx.config.modules.subagent, ctx)?;
         match ctx.config.subagents.surface {
             crate::core::SubagentSurface::Task => crate::tools::register_task_tool(
                 &mut tools,
@@ -610,6 +610,8 @@ fn validate_plugin_id(kind: &str, id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use proteus_contracts::{
         abi_stable::{
             sabi_trait::TD_Opaque,
@@ -624,7 +626,18 @@ mod tests {
     };
 
     use super::*;
-    use crate::domain::{ToolResult, ToolSafety, ToolSpec};
+    use crate::{
+        core::{BuiltinRegistry, SubagentSurface},
+        domain::{ToolResult, ToolSafety, ToolSpec},
+        stubs::NoSubagent,
+    };
+
+    static SUBAGENT_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    fn build_counting_subagent(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
+        SUBAGENT_BUILD_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(NoSubagent))
+    }
 
     struct NoopContextProvider;
 
@@ -679,6 +692,28 @@ mod tests {
 
     fn plugin_tool(name: &'static str) -> PluginToolObject {
         PluginTool_TO::from_value(NoopPluginTool { name }, TD_Opaque)
+    }
+
+    #[test]
+    fn registry_builds_selected_subagent_once() {
+        SUBAGENT_BUILD_COUNT.store(0, Ordering::SeqCst);
+        let mut catalog = BuiltinModuleCatalog::new();
+        catalog.register_module::<dyn SubagentRunner>(
+            slot::SUBAGENT,
+            "counting",
+            ModuleManifest::builtin("counting", ModuleKind::Subagent, &["test"]),
+            build_counting_subagent,
+        );
+        let mut config = AppConfig::default();
+        config.modules.subagent = "counting".to_owned();
+        config.subagents.surface = SubagentSurface::None;
+        let workspace = tempfile::tempdir().expect("workspace");
+
+        let _registry =
+            BuiltinRegistry::from_catalog(&config, workspace.path().to_path_buf(), catalog)
+                .expect("registry");
+
+        assert_eq!(SUBAGENT_BUILD_COUNT.load(Ordering::SeqCst), 1);
     }
 
     #[test]

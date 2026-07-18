@@ -38,8 +38,8 @@ use cli_init::{parse_init_command, run_init};
 
 #[cfg(test)]
 use cli_doctor::{
-    DoctorFindings, check_model_config, check_model_secret, check_module_config_tool_references,
-    check_timeout_ms, command_resolves, format_timeout_ms,
+    DoctorFindings, check_external_commands, check_model_config, check_model_secret,
+    check_module_config_tool_references, check_timeout_ms, command_resolves, format_timeout_ms,
 };
 #[cfg(test)]
 use cli_init::{
@@ -163,7 +163,8 @@ async fn main() -> Result<()> {
             cwd.clone(),
             config_path.as_deref(),
             cli.resume_session.clone(),
-        )?;
+        )
+        .await?;
         return run_repl(runtime, config, cwd).await;
     }
 
@@ -172,13 +173,14 @@ async fn main() -> Result<()> {
         cwd.clone(),
         config_path.as_deref(),
         cli.resume_session.clone(),
-    )?;
+    )
+    .await?;
     let output = runtime.run(cli.task.join(" ")).await?;
     println!("{}", runtime.render(&output).await?);
     Ok(())
 }
 
-fn build_cli_runtime(
+async fn build_cli_runtime(
     config: AppConfig,
     cwd: PathBuf,
     config_path: Option<&std::path::Path>,
@@ -191,7 +193,7 @@ fn build_cli_runtime(
         let session_dir = normalize_session_dir_path(session_dir)?;
         builder = builder.resume_from_session_dir(session_dir, new_thread_id())?;
     }
-    builder.build()
+    builder.build_async().await
 }
 
 fn render_module_list(manifests: &[ModuleManifest]) -> String {
@@ -274,10 +276,14 @@ fn build_tool_registry_for_listing(
         cwd,
         context_providers: catalog.context_providers(),
     };
-    let search = catalog.build_search(&config.modules.search, &build_ctx)?;
-    let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-    let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
-    catalog.build_tools(&build_ctx, search, patch, memory)
+    let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
+    catalog.build_tools(
+        &build_ctx,
+        Arc::new(proteus_core::stubs::NullSearch),
+        Arc::new(proteus_core::stubs::NullPatchApplier),
+        Arc::new(proteus_core::stubs::NoMemory),
+        subagent,
+    )
 }
 
 fn build_cli_topology(
@@ -294,49 +300,45 @@ fn build_cli_topology(
         context_providers: catalog.context_providers(),
     };
     let mut extra_warnings = Vec::new();
-    let search = match catalog.build_search(&config.modules.search, &build_ctx) {
-        Ok(search) => Some(search),
+    if config.modules.search == "process" {
+        let process_config = proteus_core::process_adapters::ProcessSearchConfig::from_value(
+            config.module_config_value(proteus_core::domain::ModuleKind::Search, "process"),
+        )
+        .and_then(|config| {
+            let spec = config.process_spec(cwd)?;
+            spec.resolved_environment()?;
+            Ok(())
+        });
+        if let Err(error) = process_config {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect found invalid process search config: {error:#}"
+            )));
+        }
+    }
+    let subagent = match catalog.build_subagent(&config.modules.subagent, &build_ctx) {
+        Ok(subagent) => subagent,
         Err(error) => {
             extra_warnings.push(TopologyWarning::error(format!(
-                "inspect could not build search module {}: {error:#}",
-                config.modules.search
+                "inspect could not build subagent module {}: {error:#}",
+                config.modules.subagent
             )));
-            None
+            Arc::new(proteus_core::stubs::NoSubagent)
         }
     };
-    let patch = match catalog.build_patch(&config.modules.patch, &build_ctx) {
-        Ok(patch) => Some(patch),
+    let tool_entries = match catalog.build_tools(
+        &build_ctx,
+        Arc::new(proteus_core::stubs::NullSearch),
+        Arc::new(proteus_core::stubs::NullPatchApplier),
+        Arc::new(proteus_core::stubs::NoMemory),
+        subagent,
+    ) {
+        Ok(tools) => tools.entries(),
         Err(error) => {
             extra_warnings.push(TopologyWarning::error(format!(
-                "inspect could not build patch module {}: {error:#}",
-                config.modules.patch
+                "inspect could not build ToolRegistry: {error:#}"
             )));
-            None
+            Vec::new()
         }
-    };
-    let memory = match catalog.build_memory(&config.modules.memory, &build_ctx) {
-        Ok(memory) => Some(memory),
-        Err(error) => {
-            extra_warnings.push(TopologyWarning::error(format!(
-                "inspect could not build memory module {}: {error:#}",
-                config.modules.memory
-            )));
-            None
-        }
-    };
-    let tool_entries = match (search, patch, memory) {
-        (Some(search), Some(patch), Some(memory)) => {
-            match catalog.build_tools(&build_ctx, search, patch, memory) {
-                Ok(tools) => tools.entries(),
-                Err(error) => {
-                    extra_warnings.push(TopologyWarning::error(format!(
-                        "inspect could not build ToolRegistry: {error:#}"
-                    )));
-                    Vec::new()
-                }
-            }
-        }
-        _ => Vec::new(),
     };
 
     Ok(build_topology_snapshot(TopologyBuildInput {

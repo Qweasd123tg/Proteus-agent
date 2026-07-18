@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
@@ -101,6 +101,15 @@ impl AgentRuntimeBuilder {
         self.thread_id = Some(thread_id);
         self.resumed_session = Some(session_store);
         self
+    }
+
+    /// Builds a runtime without running synchronous module factories on a
+    /// Tokio worker. Process-backed modules may spawn and handshake during
+    /// registry construction, so async entrypoints must use this method.
+    pub async fn build_async(self) -> Result<AgentRuntime> {
+        tokio::task::spawn_blocking(move || self.build())
+            .await
+            .map_err(|error| anyhow!("runtime builder blocking task failed: {error}"))?
     }
 
     pub fn build(self) -> Result<AgentRuntime> {

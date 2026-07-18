@@ -178,6 +178,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
         executor: ConfiguredToolExecutorConfig::Process {
             command: "sh".to_owned(),
             args: vec!["-lc".to_owned(), "cat".to_owned()],
+            environment: ProcessEnvironmentConfig::default(),
         },
     });
     config.modules.policy = "allow_all".to_owned();
@@ -217,6 +218,49 @@ async fn configured_process_tool_executes_through_orchestrator() {
 }
 
 #[tokio::test]
+async fn configured_process_tool_clears_parent_environment() {
+    let dir = temp_workspace();
+    let mut config = test_config();
+    config.tools.enabled = Vec::new();
+    config.tools.configured.push(ConfiguredToolConfig {
+        name: "env_probe".to_owned(),
+        description: "Report selected child environment values".to_owned(),
+        input_schema: json!({ "type": "object", "properties": {} }),
+        surface: ToolSurface::default(),
+        safety: ToolSafety::RunsCommands,
+        timeout_ms: Some(1_000),
+        metadata: serde_json::Value::Null,
+        executor: ConfiguredToolExecutorConfig::Process {
+            command: "sh".to_owned(),
+            args: vec![
+                "-c".to_owned(),
+                "cat >/dev/null; printf '%s|%s|%s' \"${HOME-unset}\" \"${PATH:+set}\" \"$TOOL_MODE\""
+                    .to_owned(),
+            ],
+            environment: ProcessEnvironmentConfig {
+                env_allowlist: Vec::new(),
+                env: std::collections::BTreeMap::from([(
+                    "TOOL_MODE".to_owned(),
+                    "isolated".to_owned(),
+                )]),
+            },
+        },
+    });
+    let registry = registry_from_test_config(&config, dir.path());
+    let tool = registry.tools.get("env_probe").expect("configured tool");
+    let result = tool
+        .invoke(
+            &ToolCall::new(new_call_id(), "env_probe", json!({})),
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
+        .await
+        .expect("process tool result");
+
+    assert!(result.ok, "{result:?}");
+    assert_eq!(result.output, "unset|set|isolated");
+}
+
+#[tokio::test]
 async fn configured_process_tool_still_obeys_permission_mode() {
     let dir = temp_workspace();
     let mut config = test_config();
@@ -236,6 +280,7 @@ async fn configured_process_tool_still_obeys_permission_mode() {
                 "-lc".to_owned(),
                 "touch should_not_exist_from_config_tool".to_owned(),
             ],
+            environment: ProcessEnvironmentConfig::default(),
         },
     });
     let registry = registry_from_test_config(&config, dir.path());

@@ -74,9 +74,9 @@ pub async fn run_http_app_server(
 ) -> Result<()> {
     http_config.validate()?;
     let server = if let Some(session_dir) = resume_session_dir {
-        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir)?
+        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir).await?
     } else {
-        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref())?
+        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref()).await?
     };
     let (shutdown, mut shutdown_rx) = broadcast::channel(1);
     let security = HttpSecurity::from_config(&http_config);

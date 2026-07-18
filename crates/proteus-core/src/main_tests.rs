@@ -107,7 +107,7 @@ fn inspect_topology_command_parses_default_and_formats() {
 }
 
 #[test]
-fn inspect_topology_builds_snapshot_when_tool_backend_is_invalid() {
+fn inspect_topology_reports_invalid_backend_without_building_it() {
     disable_plugins();
     let mut config = AppConfig::default();
     config.modules.search = "missing-search".to_owned();
@@ -124,13 +124,51 @@ fn inspect_topology_builds_snapshot_when_tool_backend_is_invalid() {
     assert!(snapshot.warnings.iter().any(|warning| {
         warning
             .message
-            .contains("inspect could not build search module missing-search")
-    }));
-    assert!(snapshot.warnings.iter().any(|warning| {
-        warning
-            .message
             .contains("active module is not registered: search/missing-search")
     }));
+}
+
+#[test]
+fn read_only_cli_paths_do_not_start_process_search() {
+    disable_plugins();
+    let dir = tempfile::tempdir().expect("workspace");
+    let marker = dir.path().join("process-search-started");
+    let mut config = AppConfig::default();
+    config.modules.search = "process".to_owned();
+    config.modules.patch = "null".to_owned();
+    config.modules.subagent = "none".to_owned();
+    config.subagents.surface = proteus_core::core::SubagentSurface::None;
+    config.tools.path = None;
+    config.tools.enabled = vec!["search".to_owned()];
+    config
+        .module_config
+        .entry("search".to_owned())
+        .or_default()
+        .insert(
+            "process".to_owned(),
+            serde_json::json!({
+                "module_id": "marker",
+                "command": "/bin/sh",
+                "args": ["-c", format!("touch {}", marker.display())],
+                "timeout_ms": 1000
+            }),
+        );
+
+    let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
+    let _topology =
+        build_cli_topology(&config, None, dir.path(), config.permissions.mode).expect("topology");
+    let mut findings = DoctorFindings::default();
+    check_external_commands(&mut findings, &config, dir.path());
+
+    assert!(
+        !marker.exists(),
+        "read-only CLI path unexpectedly spawned process search"
+    );
+    assert!(
+        findings.entries.iter().any(|entry| {
+            entry.level == "ok" && entry.message.contains("search backend process")
+        })
+    );
 }
 
 #[test]

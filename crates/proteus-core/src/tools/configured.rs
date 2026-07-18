@@ -2,6 +2,7 @@ use std::{path::Path, process::Stdio, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
+use proteus_process_host::ProcessSpec;
 use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
 
@@ -31,8 +32,7 @@ pub struct ConfiguredNativeTool {
 #[derive(Debug, Clone)]
 pub struct ConfiguredProcessTool {
     spec: ToolSpec,
-    command: String,
-    args: Vec<String>,
+    process: ProcessSpec,
 }
 
 impl ConfiguredNativeTool {
@@ -42,12 +42,8 @@ impl ConfiguredNativeTool {
 }
 
 impl ConfiguredProcessTool {
-    pub fn new(spec: ToolSpec, command: String, args: Vec<String>) -> Self {
-        Self {
-            spec,
-            command,
-            args,
-        }
+    pub fn new(spec: ToolSpec, process: ProcessSpec) -> Self {
+        Self { spec, process }
     }
 }
 
@@ -69,14 +65,17 @@ impl Tool for ConfiguredProcessTool {
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        let mut child = Command::new(&self.command)
-            .args(&self.args)
+        let mut command = Command::new(&self.process.command);
+        command
+            .args(&self.process.args)
             .current_dir(ctx.cwd)
+            .env_clear()
+            .envs(self.process.resolved_environment()?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
+            .kill_on_drop(true);
+        let mut child = command.spawn()?;
 
         let mut stdin = child
             .stdin
@@ -142,11 +141,17 @@ pub fn register_configured_tools(
                 let inner = configured_native_handler(handler, search.clone(), patch.clone())?;
                 registry.register_with_source(source, ConfiguredNativeTool::new(spec, inner))?;
             }
-            ConfiguredToolExecutorConfig::Process { command, args } => {
-                registry.register_with_source(
-                    source,
-                    ConfiguredProcessTool::new(spec, command.clone(), args.clone()),
-                )?;
+            ConfiguredToolExecutorConfig::Process {
+                command,
+                args,
+                environment,
+            } => {
+                let process = ProcessSpec::new(command.clone())
+                    .args(args.clone())
+                    .env_allowlist(environment.env_allowlist.clone())
+                    .envs(environment.env.clone());
+                process.resolved_environment()?;
+                registry.register_with_source(source, ConfiguredProcessTool::new(spec, process))?;
             }
             ConfiguredToolExecutorConfig::Mcp {
                 server: _,
@@ -293,11 +298,10 @@ mod tests {
                 ToolSafety::RunsCommands,
             )
             .with_timeout(30_000),
-            "sh".to_owned(),
-            vec![
+            ProcessSpec::new("sh").args(vec![
                 "-c".to_owned(),
                 "i=0; while [ \"$i\" -lt 5000 ]; do printf 0123456789; i=$((i+1)); done".to_owned(),
-            ],
+            ]),
         );
         let call = ToolCall::new(new_call_id(), "big_process".to_owned(), json!({}));
 

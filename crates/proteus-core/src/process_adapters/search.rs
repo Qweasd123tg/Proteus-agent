@@ -25,7 +25,7 @@ const DEFAULT_PROCESS_SEARCH_TIMEOUT_MS: u64 = 30_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProcessSearchConfig {
+pub struct ProcessSearchConfig {
     module_id: String,
     command: String,
     #[serde(default)]
@@ -44,6 +44,33 @@ fn default_timeout_ms() -> u64 {
     DEFAULT_PROCESS_SEARCH_TIMEOUT_MS
 }
 
+impl ProcessSearchConfig {
+    pub fn from_value(config: Value) -> Result<Self> {
+        if config.is_null() {
+            bail!("module_config.search.process is required when modules.search = \"process\"");
+        }
+        let config: Self = serde_json::from_value(config)
+            .context("failed to parse module_config.search.process")?;
+        validate_config(&config)?;
+        Ok(config)
+    }
+
+    /// Builds the launch description without starting the child. Read-only
+    /// diagnostics use this to validate config and command resolution without
+    /// triggering the module handshake.
+    pub fn process_spec(&self, workspace: &Path) -> Result<ProcessSpec> {
+        Ok(ProcessSpec::new(self.command.clone())
+            .args(self.args.clone())
+            .env_allowlist(self.env_allowlist.clone())
+            .envs(self.env.clone())
+            .cwd(resolve_process_cwd(self.cwd.as_deref(), workspace)?))
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
 /// `SearchBackend` implemented by one persistent newline-JSON child process.
 pub struct ProcessSearchBackend {
     module_id: String,
@@ -53,22 +80,11 @@ pub struct ProcessSearchBackend {
 
 impl ProcessSearchBackend {
     pub fn from_config(config: Value, workspace: &Path) -> Result<Self> {
-        if config.is_null() {
-            bail!("module_config.search.process is required when modules.search = \"process\"");
-        }
-        let config: ProcessSearchConfig = serde_json::from_value(config)
-            .context("failed to parse module_config.search.process")?;
-        validate_config(&config)?;
-
-        let process_cwd = resolve_process_cwd(config.cwd.as_deref(), workspace)?;
-        let timeout = Duration::from_millis(config.timeout_ms);
+        let config = ProcessSearchConfig::from_value(config)?;
+        let spec = config.process_spec(workspace)?;
+        let timeout = config.timeout();
         let expected_module_id = config.module_id.clone();
         let initializer_module_id = expected_module_id.clone();
-        let spec = ProcessSpec::new(config.command)
-            .args(config.args)
-            .env_allowlist(config.env_allowlist)
-            .envs(config.env)
-            .cwd(process_cwd);
         let host = Arc::new(ProcessHost::with_initializer(
             spec,
             NewlineJsonFraming::default(),

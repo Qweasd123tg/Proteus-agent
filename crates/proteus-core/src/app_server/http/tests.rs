@@ -55,6 +55,7 @@ fn request_with_origin(origin: Option<&str>) -> Request<()> {
 async fn test_state() -> (HttpAppState, AppServerHandle) {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -107,6 +108,7 @@ async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
         None,
         dogfood_loop_catalog(),
     )
+    .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -429,6 +431,7 @@ tool_exposure = "all_visible"
         toml::from_str::<AppConfig>(&raw).expect("parse config")
     };
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -526,6 +529,7 @@ async fn route_config_builder_creates_complete_provider_config() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -835,8 +839,9 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     let cwd = tempfile::tempdir().expect("cwd");
     let mut config = AppConfig::default();
     config.tools.enabled = vec!["apply_patch".to_owned()];
-    let server =
-        AgentAppServer::launch(config, cwd.path().to_path_buf(), None).expect("app server");
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
+        .await
+        .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -1023,6 +1028,7 @@ async fn event_stream_flushes_initial_heartbeat() {
 async fn request_dispatch_sets_permission_mode() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1065,6 +1071,7 @@ async fn request_dispatch_sets_permission_mode() {
 async fn request_dispatch_sets_reasoning_effort() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1111,6 +1118,7 @@ async fn request_dispatch_sets_reasoning_effort() {
 async fn reasoning_effort_none_toggles_reasoning() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1166,6 +1174,7 @@ async fn reasoning_effort_none_toggles_reasoning() {
 async fn request_dispatch_sets_model_and_reasoning_enabled() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1372,6 +1381,7 @@ async fn route_history_can_read_requested_session_without_switching_current() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1427,6 +1437,7 @@ async fn route_context_can_read_requested_session_without_switching_current() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1479,6 +1490,7 @@ async fn route_new_session_replaces_active_session_dir() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let original_session_dir = server
         .config_summary()
@@ -1580,6 +1592,7 @@ async fn route_new_session_keeps_background_turn_registered() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let original_session_dir = server
         .config_summary()
@@ -1664,6 +1677,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let original_session_dir = server
         .config_summary()
@@ -1734,6 +1748,7 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let original_session_dir = server
         .config_summary()
@@ -1826,6 +1841,7 @@ async fn route_approval_resolves_background_session_request() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -1882,6 +1898,7 @@ async fn route_delete_unsaved_active_session_opens_new_one() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
     let original_session_dir = server
         .config_summary()
@@ -2262,6 +2279,7 @@ async fn route_send_user_input_loop_completes_after_http_response() {
 async fn cancel_unknown_turn_returns_protocol_error() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
@@ -2296,6 +2314,7 @@ async fn cancel_unknown_turn_returns_protocol_error() {
 async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+        .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());

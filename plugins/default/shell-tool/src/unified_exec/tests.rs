@@ -147,6 +147,52 @@ fn exec_command_keeps_session_and_write_stdin_interacts() {
 }
 
 #[test]
+fn janitor_keeps_recently_exited_session_until_output_is_collected() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let context = invocation_context(dir.path());
+    let started = exec_command_with_context(
+        &context,
+        json!({
+            "cmd": "sleep 0.5; printf late-tail; exit 7",
+            "yield_time_ms": 250,
+            "with_escalated_permissions": true
+        }),
+    );
+    assert_eq!(started["metadata"]["exited"], false, "{started}");
+    let session_id = started["metadata"]["session_id"]
+        .as_i64()
+        .expect("session id");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let exited = lock(sessions())
+            .get(&session_id)
+            .is_some_and(|session| lock(&session.output).exited);
+        if exited {
+            break;
+        }
+        assert!(Instant::now() < deadline, "process did not exit in time");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    prune_expired_sessions(Instant::now(), SESSION_MAX_IDLE);
+    let collected = write_stdin(
+        &context,
+        json!({ "session_id": session_id, "yield_time_ms": 1000 }),
+    );
+
+    assert_eq!(collected["metadata"]["exited"], true, "{collected}");
+    assert_eq!(collected["metadata"]["exit_code"], 7, "{collected}");
+    assert!(
+        collected["output"]
+            .as_str()
+            .expect("output")
+            .contains("late-tail"),
+        "{collected}"
+    );
+}
+
+#[test]
 fn write_stdin_enforces_session_thread_and_workspace_ownership() {
     let dir = tempfile::tempdir().expect("workspace");
     let owner_context = invocation_context(dir.path());
@@ -216,9 +262,33 @@ fn cancellation_kills_and_removes_interactive_session() {
     assert!(
         lock(sessions())
             .values()
-            .all(|session| session.owner != ExecSessionOwner::from_context(&context)),
+            .all(|session| !session.owner.matches(&context)),
         "cancelled session must be removed from the registry"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn session_owner_compares_canonical_workspace_paths() {
+    let dir = tempfile::tempdir().expect("workspace root");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).expect("workspace");
+    let alias = dir.path().join("workspace-link");
+    std::os::unix::fs::symlink(&workspace, &alias).expect("workspace symlink");
+
+    let alias_context = invocation_context(&alias);
+    let owner = ExecSessionOwner::from_context(
+        &alias_context,
+        workspace
+            .canonicalize()
+            .expect("canonical workspace")
+            .to_string_lossy()
+            .as_ref(),
+    );
+    let mut canonical_context = alias_context;
+    canonical_context.cwd = workspace;
+
+    assert!(owner.matches(&canonical_context));
 }
 
 #[test]
@@ -362,18 +432,23 @@ fn prune_prefers_exited_then_oldest() {
 }
 
 #[test]
-fn age_cleanup_selects_exited_and_idle_sessions() {
+fn age_cleanup_selects_only_idle_sessions() {
     let now = Instant::now();
     let old = now - SESSION_MAX_IDLE - Duration::from_secs(1);
     let fresh = now - Duration::from_secs(1);
     let mut expired = expired_session_ids(
-        &[(1, old, false), (2, fresh, false), (3, fresh, true)],
+        &[
+            (1, old, false),
+            (2, fresh, false),
+            (3, fresh, true),
+            (4, old, true),
+        ],
         now,
         SESSION_MAX_IDLE,
     );
     expired.sort_unstable();
 
-    assert_eq!(expired, vec![1, 3]);
+    assert_eq!(expired, vec![1, 4]);
 }
 
 #[test]

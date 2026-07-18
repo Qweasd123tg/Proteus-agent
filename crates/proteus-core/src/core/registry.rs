@@ -72,15 +72,20 @@ impl BuiltinRegistry {
         let compactor = catalog.build_compactor(&config.modules.compactor, &build_ctx)?;
         let tool_exposure =
             catalog.build_tool_exposure(&config.modules.tool_exposure, &build_ctx)?;
-        let tools =
-            catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
+        let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
+        let tools = catalog.build_tools(
+            &build_ctx,
+            search.clone(),
+            patch.clone(),
+            memory.clone(),
+            subagent.clone(),
+        )?;
         let policy_ctx = PolicyBuildContext {
             config,
             cwd: &cwd,
             tools: &tools,
         };
         let policy = catalog.build_policy(&config.modules.policy, &policy_ctx)?;
-        let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
         let workflow = catalog.build_workflow(&config.modules.workflow, &build_ctx)?;
         let renderer = catalog.build_renderer(&config.modules.renderer, &build_ctx)?;
 

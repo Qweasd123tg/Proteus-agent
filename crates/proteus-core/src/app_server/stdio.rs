@@ -19,14 +19,14 @@ pub async fn run_stdio_app_server(
     fresh_session: bool,
 ) -> Result<()> {
     let server = if let Some(session_dir) = resume_session_dir {
-        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir)?
+        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir).await?
     } else if fresh_session {
         // Subagent process runner (и любой orchestrating-родитель) запускает
         // ребёнка со свежей session: resume последней workspace session здесь
         // подхватил бы чужую (например, родительскую) историю.
-        AgentAppServer::launch(config, cwd, config_path.as_deref())?
+        AgentAppServer::launch(config, cwd, config_path.as_deref()).await?
     } else {
-        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref())?
+        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref()).await?
     };
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
 

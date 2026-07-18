@@ -914,6 +914,9 @@ input_schema = { type = "object", additionalProperties = true }
 kind = "process"
 command = "python3"
 args = ["tools/echo_args.py"]
+# Скопировать только явно нужный parent credential.
+# env_allowlist = ["TOOL_TOKEN"]
+# env = { TOOL_MODE = "isolated" }
 ```
 
 Для `native` executor указывается `handler`, например
@@ -927,7 +930,12 @@ optional `args`, optional `server`, remote `tool`, optional
 
 `native` использует встроенный Rust handler (`apply_patch`, `search`), но `ToolSpec` берёт из config. Handlers для file/shell tools удалены — соответствующие tools теперь в плагинах (`file-tools`, `git-tools`, `shell-tool`), а не в runtime-catalog.
 
-`process` запускает фиксированные `command` + `args` в рабочей директории задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как `ToolResult`.
+`process` запускает фиксированные `command` + `args` в рабочей директории
+задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как
+`ToolResult`. Запуск использует ту же fail-closed environment policy, что и
+`ProcessSpec`: parent environment очищается, автоматически остаётся только
+platform-minimal набор (`PATH` на Unix), а остальные значения требуют явных
+`env_allowlist` или `env`.
 
 Inline `mcp` создаёт ленивый persistent stdio MCP host внутри текущего
 `ToolRegistry` snapshot: при первом вызове выполняет `initialize`, отправляет
@@ -936,15 +944,13 @@ Inline `mcp` создаёт ленивый persistent stdio MCP host внутр�
 замены snapshot или ошибки transport. Model args становятся только MCP
 `arguments`; имя remote tool не берётся из model args.
 
-MCP child стартует с очищенным parent environment. Минимальный platform
-allowlist сохраняет `PATH` (на Windows также обязательные system/process/temp
-variables). `env_allowlist = ["GITHUB_TOKEN"]` копирует только перечисленные
-parent values; `env = { MCP_MODE = "isolated" }` задаёт literal child-only
-значения и перекрывает одноимённый allowlisted value. Для credentials
-предпочитайте `env_allowlist`, чтобы значение секрета не сохранялось в config.
-`HOME`, proxy variables, API keys и agent sockets без явного разрешения не
-наследуются. Эти поля относятся к `ProcessSpec`-based MCP host; обычный
-configured executor `kind = "process"` пока использует собственный lifecycle.
+MCP child стартует с той же очищенной средой. На Windows minimal allowlist
+дополнительно сохраняет обязательные system/process/temp variables.
+`env_allowlist = ["GITHUB_TOKEN"]` копирует только перечисленные parent values;
+`env = { MCP_MODE = "isolated" }` задаёт literal child-only значения и
+перекрывает одноимённый allowlisted value. Для credentials предпочитайте
+`env_allowlist`, чтобы значение секрета не сохранялось в config. `HOME`, proxy
+variables, API keys и agent sockets без явного разрешения не наследуются.
 
 Для стандартного MCP discovery используйте `tools.mcp_servers`. Сервер
 описывается один раз, runtime при сборке `ToolRegistry` стартует persistent

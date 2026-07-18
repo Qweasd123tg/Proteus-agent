@@ -178,9 +178,10 @@ Persistent stdio host дополнительно ограничивает receiv
 останавливается с явной ошибкой; он не продолжает накапливать валидные, но
 невостребованные сообщения.
 
-Тот же host запускает `ProcessSpec` с очищенным parent environment. На Unix по
+Process search, inline/discovered MCP и configured executor `kind = "process"`
+используют одну fail-closed environment policy из `ProcessSpec`. На Unix по
 умолчанию наследуется только `PATH`; Windows дополнительно сохраняет
-необходимые system/process/temp variables. Inline и discovered MCP принимают
+необходимые system/process/temp variables. Все эти config-пути принимают
 `env_allowlist = ["TOKEN_NAME"]` для scoped копирования значения из parent и
 `env = { NAME = "value" }` для literal child-only значений. Literal перекрывает
 allowlisted parent value. `HOME`, cloud/API tokens, proxy variables и agent

@@ -27,9 +27,12 @@ Leptos-клиенты исключены из root workspace и проверяю
 
 - `search = null` и `search = rg` не требуют изменений runtime;
 - `search = process` проходит тот же `SearchBackend` contract: тестовый процесс
-  и Python + `rg` reference меняются с in-process backend без изменений
-  runtime; handshake mismatch отклоняется при сборке snapshot, а смерть child,
+  на POSIX `sh` и Python + `rg` reference меняются с in-process backend без
+  изменений runtime; обязательные protocol cases не скипаются при отсутствии
+  Python. Handshake mismatch отклоняется при сборке snapshot, а смерть child,
   JSON-RPC error и невалидный slot DTO возвращаются как ошибка без fallback;
+  current-thread regression подтверждает, что медленный handshake при async
+  сборке snapshot не блокирует Tokio worker;
 - `BuiltinModuleCatalog` перечисляет built-in manifests для core-owned slots и
   не содержит production workflow/context без плагина;
 - `modules list` рендерит catalog без запуска runtime;
@@ -53,6 +56,10 @@ Leptos-клиенты исключены из root workspace и проверяю
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
+- configured process tool очищает parent environment, сохраняет минимальный
+  runtime allowlist и получает только явно разрешённые/literal значения;
+- runtime registry строит выбранный `SubagentRunner` ровно один раз и передаёт
+  тот же instance в registry и subagent tool facade;
 - stdio MCP tools проходят через `ToolRegistry`, discovery регистрирует
   `mcp:<server>` source, а host process переиспользуется между calls внутри
   одного snapshot;
@@ -97,9 +104,12 @@ non-loopback config.
 
 Interactive `exec_command`/`write_stdin` дополнительно покрывает owner boundary:
 чужой session/thread/workspace не может управлять PTY, а тот же thread может
-продолжить её в новом turn. Отдельные regression-тесты фиксируют остановку и
-удаление процесса при cancellation, а pure policy test — выбор завершённых и
-просроченных по idle age sessions для janitor cleanup.
+продолжить её в новом turn; canonical и symlink-пути одного workspace считаются
+одним owner scope. Отдельные regression-тесты фиксируют остановку и удаление
+процесса при cancellation. Pure policy tests разделяют две причины cleanup:
+при заполнении store завершённые sessions вытесняются первыми, но janitor
+удаляет завершённую или живую session только после idle timeout, сохраняя
+непрочитанный output и exit code между вызовами.
 
 Focused collaboration tests в `crates/proteus-core/src/tools/collaboration/`
 проверяют async spawn/wait, timeout без потери будущего completion, interrupt,
@@ -237,7 +247,9 @@ canonical DTO не ломаются.
 - plugin-provided disabled tools, plugin load errors, unknown active modules и
   multiple config files остаются видимыми как warnings/diagnostic nodes;
 - CLI inspect строит best-effort snapshot при сломанном backend/tool registry и
-  добавляет ошибку в warnings вместо abort до renderer-а.
+  добавляет ошибку в warnings вместо abort до renderer-а;
+- `tools list`, CLI inspect и doctor при `modules.search = "process"` валидируют
+  metadata/config/command, но не запускают внешний search child.
 
 ## Eval Harness
 

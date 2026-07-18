@@ -203,16 +203,21 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   умолчанию, минимальный platform runtime allowlist сохраняет `PATH` (и
   обязательные Windows process variables), остальные значения передаются
   только через `env_allowlist` или explicit `env`. Inline/discovered MCP config
-  поддерживает оба поля; literal `env` перекрывает allowlisted parent value.
+  и configured executor `kind = "process"` поддерживают оба поля; literal
+  `env` перекрывает allowlisted parent value. Все перечисленные config launch
+  paths используют общий resolver окружения вместо прямого наследования env
+  родителя.
 - ✅ **Хвост lifecycle-стабилизации** (2026-07-18): обязательный
   `ToolInvocationOwner` проходит через `PluginToolInvocationContext`, а
   borrowed `PluginToolHost` даёт sync-плагину live cancellation signal.
   Interactive PTY handle принадлежит session/thread/workspace и остаётся
-  доступен тому же thread между turn'ами; чужой owner отклоняется. Store
-  сохраняет cap 16 с LRU-eviction, janitor раз в минуту убивает завершённые и
-  простаивавшие 30 минут сессии, cancellation убивает процесс и удаляет
-  handle. Старый plugin-tool ABI `(call_json, cwd)` удалён без compatibility
-  shim; все tracked плагины переведены на новый контракт.
+  доступен тому же thread между turn'ами; workspace сравнивается по canonical
+  path, чужой owner отклоняется. Store сохраняет cap 16 с LRU-eviction
+  (завершённые вытесняются первыми при заполнении), а janitor удаляет любую
+  сессию только после 30 минут idle. Поэтому завершившийся между tool-вызовами
+  процесс сохраняет непрочитанный хвост и exit code. Cancellation убивает
+  процесс и удаляет handle. Старый plugin-tool ABI `(call_json, cwd)` удалён
+  без compatibility shim; все tracked плагины переведены на новый контракт.
 
 Done: root gate зелёный; существующие MCP/process-subagent тесты проходят;
 у seam есть unit-тесты на timeout/terminate/bounds, у interactive exec — на
@@ -235,14 +240,17 @@ ownership, cross-turn continuation, idle selection и cancellation cleanup.
   таблица `module_config.search.process` (`module_id`, `command`, `args`, `cwd`,
   `env_allowlist`, `env`, `timeout_ms`). Путь не дублируется в selector-е.
 - ✅ **Регистрация**: module catalog регистрирует process-модуль рядом с
-  builtin/dylib; `modules list`/Inspector показывают источник модуля.
+  builtin/dylib; `modules list`/Inspector показывают источник модуля. Read-only
+  CLI/doctor не запускают search child ради metadata, а выбранный subagent
+  строится один раз и переиспользуется registry и его tool facade.
 - ✅ **Референс**: `examples/modules/search-process/search.py` — один
   dependency-free Python-файл поверх обычного `rg`. Python выбран только для
   запуска без build step; тот же wire contract можно реализовать на любом
   языке.
 - ✅ **Тесты**: расширение `module_swap.rs` покрывает замену backend-а,
-  настоящий reference + `rg`, process/JSON-RPC/DTO failures без подмены и
-  handshake mismatch как config error.
+  обязательный POSIX-sh protocol fixture, настоящий reference + `rg`,
+  process/JSON-RPC/DTO failures без подмены, handshake mismatch как config
+  error и отзывчивость current-thread Tokio во время медленного handshake.
 - ✅ **Доки**: секция в `modules.md` и правка тамошнего утверждения про
   нереализованные external process modules.
 
@@ -252,7 +260,8 @@ ABI. Wire-конверт generic; специфика слота живёт в е
 
 Done: integration-сценарий строит snapshot и ищет через внешний Python + `rg`
 модуль. Новый snapshot создаёт новый process host; ошибки текущего child не
-маскируются, а следующий вызов запускает его заново с handshake. Живой web
+маскируются, а следующий вызов запускает его заново с handshake. Async runtime
+и app-server строят snapshot в blocking pool. Живой web
 dogfood остаётся частью общего readiness-checkpoint, а не скрытым условием
 контракта недели.
 

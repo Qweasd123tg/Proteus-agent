@@ -227,6 +227,7 @@ async fn app_server_updates_permission_mode_without_restart() {
         None,
         test_catalog(),
     )
+    .await
     .expect("app server");
 
     assert_eq!(server.permission_mode().await, PermissionMode::Normal);
@@ -740,6 +741,7 @@ async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
         None,
         test_catalog(),
     )
+    .await
     .expect("app server");
     let mut event_rx = handle.subscribe();
     let send_handle = handle.clone();
@@ -795,6 +797,7 @@ async fn transcript_projects_runtime_history_for_resume_ui() {
         None,
         test_catalog(),
     )
+    .await
     .expect("app server");
 
     handle
@@ -848,6 +851,7 @@ async fn config_summary_includes_current_session_dir_field() {
         Some(&config_path),
         test_catalog(),
     )
+    .await
     .expect("app server");
 
     let summary = handle.config_summary().await;
@@ -891,6 +895,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
+    .await
     .expect("app server");
 
     assert_eq!(
@@ -926,6 +931,7 @@ enabled = []
         .await
         .expect("load initial config");
     let handle = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
+        .await
         .expect("app server");
     let mut event_rx = handle.subscribe();
 

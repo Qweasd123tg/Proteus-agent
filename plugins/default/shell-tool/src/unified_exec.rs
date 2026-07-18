@@ -196,18 +196,21 @@ struct ExecSessionOwner {
 }
 
 impl ExecSessionOwner {
-    fn from_context(context: &PluginToolInvocationContext) -> Self {
+    fn from_context(context: &PluginToolInvocationContext, canonical_workspace: &str) -> Self {
         Self {
             session_id: context.owner.session_id,
             thread_id: context.owner.thread_id,
-            workspace: context.cwd.clone(),
+            workspace: PathBuf::from(canonical_workspace),
         }
     }
 
     fn matches(&self, context: &PluginToolInvocationContext) -> bool {
+        let Ok(workspace) = context.cwd.canonicalize() else {
+            return false;
+        };
         self.session_id == context.owner.session_id
             && self.thread_id == context.owner.thread_id
-            && self.workspace == context.cwd
+            && self.workspace == workspace
     }
 }
 
@@ -263,22 +266,21 @@ fn sessions() -> &'static Mutex<SessionMap> {
 
 fn ensure_session_janitor() -> Result<()> {
     static JANITOR: OnceLock<std::result::Result<(), String>> = OnceLock::new();
-    JANITOR
-        .get_or_init(|| {
-            std::thread::Builder::new()
-                .name("proteus-exec-session-janitor".to_owned())
-                .spawn(|| {
-                    loop {
-                        std::thread::sleep(SESSION_JANITOR_INTERVAL);
-                        prune_expired_sessions(Instant::now(), SESSION_MAX_IDLE);
-                    }
-                })
-                .map(|_| ())
-                .map_err(|error| format!("failed to spawn exec session janitor: {error}"))
-        })
-        .as_ref()
-        .map(|()| ())
-        .map_err(|message| anyhow!(message.clone()))
+    match JANITOR.get_or_init(|| {
+        std::thread::Builder::new()
+            .name("proteus-exec-session-janitor".to_owned())
+            .spawn(|| {
+                loop {
+                    std::thread::sleep(SESSION_JANITOR_INTERVAL);
+                    prune_expired_sessions(Instant::now(), SESSION_MAX_IDLE);
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| format!("failed to spawn exec session janitor: {error}"))
+    }) {
+        Ok(()) => Ok(()),
+        Err(message) => Err(anyhow!(message.clone())),
+    }
 }
 
 static NEXT_SESSION_ID: AtomicI64 = AtomicI64::new(1001);
@@ -353,7 +355,7 @@ fn execute_command(
         &resolved.workspace,
         &resolved.workdir,
         sandbox,
-        ExecSessionOwner::from_context(context),
+        ExecSessionOwner::from_context(context, &resolved.workspace),
     )?;
     let collected = match wait_and_collect(&session, Duration::from_millis(yield_time_ms), host) {
         Ok(collected) => collected,
@@ -626,9 +628,7 @@ fn expired_session_ids(
     max_idle: Duration,
 ) -> Vec<i64> {
     meta.iter()
-        .filter(|(_, last_used, exited)| {
-            *exited || now.saturating_duration_since(*last_used) >= max_idle
-        })
+        .filter(|(_, last_used, _)| now.saturating_duration_since(*last_used) >= max_idle)
         .map(|(id, _, _)| *id)
         .collect()
 }

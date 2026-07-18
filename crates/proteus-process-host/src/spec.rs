@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env,
+    ffi::OsString,
     path::PathBuf,
     process::Command,
 };
@@ -92,7 +93,11 @@ impl ProcessSpec {
         self
     }
 
-    pub(crate) fn apply_environment(&self, command: &mut Command) -> Result<()> {
+    /// Resolves the exact child environment after validating configured names
+    /// and values. Callers using a process API other than `std::process` can
+    /// reuse the same fail-closed environment policy instead of reimplementing
+    /// it.
+    pub fn resolved_environment(&self) -> Result<BTreeMap<String, OsString>> {
         for name in self.env_allowlist.iter().chain(self.env.keys()) {
             validate_env_name(name)?;
         }
@@ -102,13 +107,21 @@ impl ProcessSpec {
             }
         }
 
-        command.env_clear();
+        let mut resolved = BTreeMap::new();
         for name in &self.env_allowlist {
             if let Some(value) = env::var_os(name) {
-                command.env(name, value);
+                resolved.insert(name.clone(), value);
             }
         }
-        command.envs(&self.env);
+        for (name, value) in &self.env {
+            resolved.insert(name.clone(), OsString::from(value));
+        }
+        Ok(resolved)
+    }
+
+    pub(crate) fn apply_environment(&self, command: &mut Command) -> Result<()> {
+        command.env_clear();
+        command.envs(self.resolved_environment()?);
         Ok(())
     }
 }

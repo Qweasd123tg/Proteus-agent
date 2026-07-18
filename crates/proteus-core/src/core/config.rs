@@ -634,6 +634,8 @@ pub enum ConfiguredToolExecutorConfig {
         command: String,
         #[serde(default)]
         args: Vec<String>,
+        #[serde(flatten)]
+        environment: ProcessEnvironmentConfig,
     },
     Mcp {
         #[serde(default)]
@@ -1069,7 +1071,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_environment_config_is_flat_and_defaults_to_empty() {
+    fn process_environment_config_is_flat_and_defaults_to_empty() {
         let server = serde_json::from_value::<ConfiguredMcpServerConfig>(serde_json::json!({
             "name": "docs",
             "command": "node",
@@ -1088,6 +1090,30 @@ mod tests {
         .expect("inline MCP environment defaults");
         let ConfiguredToolExecutorConfig::Mcp { environment, .. } = executor else {
             panic!("expected MCP executor");
+        };
+        assert!(environment.env_allowlist.is_empty());
+        assert!(environment.env.is_empty());
+
+        let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
+            "kind": "process",
+            "command": "python3",
+            "env_allowlist": ["TOOL_TOKEN"],
+            "env": { "TOOL_MODE": "isolated" }
+        }))
+        .expect("process tool environment config");
+        let ConfiguredToolExecutorConfig::Process { environment, .. } = executor else {
+            panic!("expected process executor");
+        };
+        assert_eq!(environment.env_allowlist, ["TOOL_TOKEN"]);
+        assert_eq!(environment.env["TOOL_MODE"], "isolated");
+
+        let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
+            "kind": "process",
+            "command": "python3"
+        }))
+        .expect("process tool environment defaults");
+        let ConfiguredToolExecutorConfig::Process { environment, .. } = executor else {
+            panic!("expected process executor");
         };
         assert!(environment.env_allowlist.is_empty());
         assert!(environment.env.is_empty());

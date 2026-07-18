@@ -667,6 +667,14 @@ fn codex_loop_empty_final_response_stays_strict_by_default() {
 
     assert_eq!(output.output.text, "<empty model response>");
     assert!(!output.output.text.contains("read_file ok"));
+    assert!(
+        !output.new_messages.is_empty(),
+        "even an empty final response must persist the completed turn"
+    );
+    assert_eq!(
+        output.new_messages.last().map(|message| &message.role),
+        Some(&MessageRole::Assistant)
+    );
 }
 
 #[test]
