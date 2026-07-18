@@ -501,8 +501,10 @@ sessions.
 `encoded-workspace` строится из canonical path рабочего каталога:
 
 - path components соединяются через `|`;
-- пробелы и нестандартные символы заменяются на `_`;
-- кириллица сохраняется как alphanumeric.
+- буквы, цифры, `-`, `_` и `.` сохраняются, включая кириллицу;
+- пробелы, `|`, `%` и другие символы кодируются обратимыми uppercase
+  percent-escape последовательностями (`моя игра` → `моя%20игра`);
+- корневой workspace `/` кодируется как `%2F`.
 
 Имя самой session directory не дублирует имя workspace и дату: workspace уже
 находится в parent directory, а время создания/изменения берётся из metadata
@@ -510,14 +512,17 @@ sessions.
 точно совпадать с `session.json.session_id`. Numeric basename старого
 чернового формата не распознаётся и не мигрируется.
 
-`session.json` также хранит `workspace_path`. Resume использует его как
-источник cwd до создания runtime services, event log sink и tool registry,
-чтобы tools работали в исходном проекте, а не в cwd процесса, который вызвал
-resume. Resume требует `session.json` текущей schema с обязательным
-`workspace_path`; другие форматы core отклоняет явной ошибкой. Runtime builder
-получает `SessionId` и workspace из одного уже проверенного `SessionStore`:
-caller передаёт только session directory и новый `ThreadId`, поэтому отдельной
-копии identity в resume API нет.
+`session.json` schema v3 хранит только `schema_version` и `session_id`.
+Workspace принадлежит не session metadata, а имени внешней
+`<encoded-workspace>` directory. Resume декодирует этот parent до создания
+runtime services, event log sink и tool registry. Поэтому перенос UUID-папки
+под другой encoded workspace или переименование внешней папки меняет cwd при
+следующем cold resume; активную session во время записи перемещать нельзя.
+Target workspace обязан существовать, а имя — быть canonical encoding его
+пути. Старая schema с `workspace_path` не распознаётся и не мигрируется.
+Runtime builder получает identity из уже проверенного `SessionStore`, а
+workspace — из его directory; caller передаёт только session directory и новый
+`ThreadId`.
 
 ## History
 
@@ -547,8 +552,9 @@ suffix без повторной передачи user prompt. Changed compactio
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
 существующую session directory через `resume_from_session_dir`. При resume
-runtime восстанавливает cwd из `session.json`, загружает `messages.jsonl` в
-in-memory history и следующие turns дописывают только новые сообщения.
+runtime восстанавливает cwd из имени parent workspace directory, загружает
+`messages.jsonl` в in-memory history и следующие turns дописывают только новые
+сообщения.
 
 Во внешнем UI resume picker является app-client командой, а не visual-layer
 логикой. HTTP app-server отдаёт список sessions через `GET /sessions`,

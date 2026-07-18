@@ -328,7 +328,8 @@ harness и недеструктивная компакция — потреби�
   в durable log по умолчанию не пишутся;
   **реализовано частично:** полный shaped `CanonicalModelRequest` пишется в
   session-local `requests.jsonl` вне event enum;
-- `session.json` хранит только id+workspace, config/profile снапшота нет —
+- `session.json` хранит только id, workspace задаётся encoded parent directory,
+  config/profile снапшота нет —
   **реализовано:** session-local `config_snapshot.json` фиксирует последний
   resolved startup/persist snapshot.
 
@@ -1040,11 +1041,13 @@ Scope:
 - ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
   10-digit basename на полный canonical `SessionId`. Один identity теперь
   используется в runtime, DTO, metadata и пути; несовпадение basename с
-  `session.json.session_id` является ошибкой без compatibility path. Resume
-  получает identity и workspace из единственного strict-opened `SessionStore`,
-  не принимает дублирующий `session_id` от caller-а. Сам `SessionStore` хранит
-  только root directory, а пути `messages.jsonl` и `session.json` выводит из
-  него без дублированного path-state.
+  `session.json.session_id` является ошибкой без compatibility path. Workspace
+  вынесен из session metadata: reversible encoded parent directory является
+  authoritative, поэтому её rename или перенос UUID-папки меняет cwd при
+  следующем resume. `session.json` schema v3 хранит только identity, старый
+  `workspace_path` не распознаётся. Сам `SessionStore` хранит root directory и
+  единый `SessionMetadata`, а file paths и workspace выводит из root без
+  дублированного path/identity-state.
 
 ## Не Делать Сейчас
 

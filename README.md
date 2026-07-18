@@ -208,7 +208,7 @@ Inspector при необходимости запускается так же �
 ~/.proteus/plugins/<plugin>/
 ~/.config/Proteus-agent/configs/config.toml
 ~/.config/Proteus-agent/configs/<name>.config.toml
-~/.config/Proteus-agent/sessions/<encoded-workspace>/<short-id>/messages.jsonl
+~/.config/Proteus-agent/sessions/<encoded-workspace>/<session-id>/messages.jsonl
 ~/.config/Proteus-agent/.proteus/events.jsonl
 ```
 

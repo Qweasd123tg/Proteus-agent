@@ -872,7 +872,8 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = new_session_id();
-    let saved_store = SessionStore::new(config_dir.path(), cwd.path(), saved_session_id);
+    let saved_store =
+        SessionStore::new(config_dir.path(), cwd.path(), saved_session_id).expect("session store");
     saved_store
         .append_messages(&[CanonicalMessage::text(
             MessageRole::User,
@@ -881,7 +882,8 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         .await
         .expect("append saved messages");
 
-    let empty_store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+    let empty_store =
+        SessionStore::new(config_dir.path(), cwd.path(), new_session_id()).expect("session store");
     empty_store
         .materialize()
         .await

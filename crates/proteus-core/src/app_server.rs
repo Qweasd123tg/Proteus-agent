@@ -461,7 +461,7 @@ impl AppServerHandle {
         let session_store = SessionStore::open(session_dir.clone())?;
         let history = session_store.load_messages()?;
         let session_id = session_store.session_id();
-        let workspace_path = session_store.workspace_path().to_path_buf();
+        let workspace_path = session_store.workspace_path()?;
         let event_log_path = self.context_event_log_path(&workspace_path).await;
         build_context_map_snapshot(ContextMapInput {
             session_dir: Some(session_dir),
@@ -612,7 +612,7 @@ impl AgentAppServer {
             .map(SessionStore::open)
             .transpose()?;
         if let Some(session_store) = resumed_session.as_ref() {
-            cwd = session_store.workspace_path().to_path_buf();
+            cwd = session_store.workspace_path()?;
         }
 
         let config_snapshot = Arc::new(RwLock::new(config.clone()));

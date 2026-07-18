@@ -117,10 +117,10 @@ impl AgentRuntimeBuilder {
             resumed_session,
         } = self;
 
-        let cwd = resumed_session
-            .as_ref()
-            .map(|store| store.workspace_path().to_path_buf())
-            .unwrap_or(cwd);
+        let cwd = match resumed_session.as_ref() {
+            Some(store) => store.workspace_path()?,
+            None => cwd,
+        };
         let permission_mode = config.permissions.mode;
         let registry = if let Some(catalog) = module_catalog {
             BuiltinRegistry::from_catalog(&config, cwd.clone(), catalog)?
@@ -163,6 +163,7 @@ impl AgentRuntimeBuilder {
                 .as_deref()
                 .map(config_store_root)
                 .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id))
+                .transpose()?
         };
         let config_snapshot = session_store.as_ref().map(|_| {
             SessionConfigSnapshot::from_runtime_config(&config, &registry, permission_mode)

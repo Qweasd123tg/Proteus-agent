@@ -1314,7 +1314,8 @@ async fn route_history_can_read_requested_session_without_switching_current() {
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = crate::domain::new_session_id();
     let saved_store =
-        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id);
+        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
+            .expect("session store");
     saved_store
         .append_messages(&[crate::model_standard::CanonicalMessage::text(
             crate::model_standard::MessageRole::User,
@@ -1368,7 +1369,8 @@ async fn route_context_can_read_requested_session_without_switching_current() {
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = crate::domain::new_session_id();
     let saved_store =
-        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id);
+        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
+            .expect("session store");
     saved_store
         .append_messages(&[crate::model_standard::CanonicalMessage::text(
             crate::model_standard::MessageRole::User,

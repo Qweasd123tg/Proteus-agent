@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, OnceLock},
     time::UNIX_EPOCH,
 };
@@ -16,8 +16,13 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
+mod workspace_dir;
+
+use workspace_dir::workspace_path_from_session_dir;
+pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
+
 const SESSION_METADATA_FILE: &str = "session.json";
-const SESSION_SCHEMA_VERSION: u32 = 2;
+const SESSION_SCHEMA_VERSION: u32 = 3;
 const MESSAGES_FILE: &str = "messages.jsonl";
 const PRE_COMPACTION_PREFIX: &str = "messages.pre-compaction.";
 const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
@@ -25,8 +30,7 @@ const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     session_dir: PathBuf,
-    session_id: SessionId,
-    workspace_path: PathBuf,
+    metadata: SessionMetadata,
     lock: Arc<Mutex<()>>,
 }
 
@@ -35,32 +39,34 @@ pub struct SessionStore {
 struct SessionMetadata {
     schema_version: u32,
     session_id: SessionId,
-    workspace_path: PathBuf,
 }
 
 impl SessionStore {
-    pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Self {
-        let workspace = encode_workspace_path(cwd);
+    pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Result<Self> {
+        let workspace = encode_workspace_path(cwd)?;
         let session_dir = config_dir
             .join("sessions")
             .join(workspace)
             .join(session_id.to_string());
         let lock = lock_for_session_dir(&session_dir);
-        Self {
-            session_dir,
+        let metadata = SessionMetadata {
+            schema_version: SESSION_SCHEMA_VERSION,
             session_id,
-            workspace_path: canonical_or_original(cwd),
+        };
+        Ok(Self {
+            session_dir,
+            metadata,
             lock,
-        }
+        })
     }
 
     pub fn open(session_dir: PathBuf) -> Result<Self> {
         let metadata = require_session_metadata(&session_dir)?;
+        workspace_path_from_session_dir(&session_dir)?;
         let lock = lock_for_session_dir(&session_dir);
         Ok(Self {
             session_dir,
-            session_id: metadata.session_id,
-            workspace_path: metadata.workspace_path,
+            metadata,
             lock,
         })
     }
@@ -70,11 +76,11 @@ impl SessionStore {
     }
 
     pub fn session_id(&self) -> SessionId {
-        self.session_id
+        self.metadata.session_id
     }
 
-    pub fn workspace_path(&self) -> &Path {
-        &self.workspace_path
+    pub fn workspace_path(&self) -> Result<PathBuf> {
+        workspace_path_from_session_dir(&self.session_dir)
     }
 
     fn messages_path(&self) -> PathBuf {
@@ -228,12 +234,7 @@ impl SessionStore {
             return Ok(());
         }
 
-        let metadata = SessionMetadata {
-            schema_version: SESSION_SCHEMA_VERSION,
-            session_id: self.session_id,
-            workspace_path: self.workspace_path.clone(),
-        };
-        let mut content = serde_json::to_vec_pretty(&metadata)?;
+        let mut content = serde_json::to_vec_pretty(&self.metadata)?;
         content.push(b'\n');
         tokio::fs::write(&metadata_path, content)
             .await
@@ -298,7 +299,7 @@ pub fn list_workspace_session_summaries(
 ) -> Result<Vec<AppSessionSummary>> {
     let workspace_dir = config_root
         .join("sessions")
-        .join(encode_workspace_path(workspace_path));
+        .join(encode_workspace_path(workspace_path)?);
     let session_dirs = match std::fs::read_dir(&workspace_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -351,7 +352,7 @@ pub async fn delete_workspace_session(
 
     let workspace_dir = config_root
         .join("sessions")
-        .join(encode_workspace_path(workspace_path));
+        .join(encode_workspace_path(workspace_path)?);
     let workspace_root = std::fs::canonicalize(&workspace_dir)
         .with_context(|| format!("failed to resolve {}", workspace_dir.display()))?;
     let target = std::fs::canonicalize(&session_dir)
@@ -395,6 +396,7 @@ pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     let metadata = require_session_metadata(&session_dir)?;
+    let workspace_path = workspace_path_from_session_dir(&session_dir)?;
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
     let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE))
         .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
@@ -402,7 +404,7 @@ fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     Ok(AppSessionSummary::new(
         session_dir,
         metadata.session_id,
-        metadata.workspace_path,
+        workspace_path,
         message_count,
         updated_at_ms,
         preview,
@@ -549,45 +551,6 @@ fn require_session_metadata(session_dir: &Path) -> Result<SessionMetadata> {
     Ok(metadata)
 }
 
-pub fn encode_workspace_path(path: &Path) -> String {
-    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let parts = path
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(part) => Some(sanitize_path_part(&part.to_string_lossy())),
-            _ => None,
-        })
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-
-    if parts.is_empty() {
-        "root".to_owned()
-    } else {
-        parts.join("|")
-    }
-}
-
-fn sanitize_path_part(input: &str) -> String {
-    let mut out = String::new();
-    for ch in input.trim().chars() {
-        if ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-
-    while out.contains("__") {
-        out = out.replace("__", "_");
-    }
-
-    out.trim_matches('_').to_owned()
-}
-
-fn canonical_or_original(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
 fn lock_for_session_dir(session_dir: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
     let key = canonicalize_message_lock_path(&session_dir.join(MESSAGES_FILE));
@@ -621,22 +584,25 @@ mod tests {
     #[test]
     fn open_reads_session_identity_from_metadata() {
         let session_id = new_session_id();
-        let root = tempfile::tempdir().expect("session root");
-        let session_dir = root.path().join(session_id.to_string());
-        write_session_metadata(&session_dir, session_id, root.path());
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let session_dir = test_session_dir(config_dir.path(), workspace.path(), session_id);
+        write_session_metadata(&session_dir, session_id);
 
         let store = SessionStore::open(session_dir).expect("open session");
 
         assert_eq!(store.session_id(), session_id);
-        assert_eq!(store.workspace_path(), root.path());
+        assert_eq!(store.workspace_path().expect("workspace"), workspace.path());
     }
 
     #[test]
     fn open_rejects_noncanonical_basename() {
         let session_id = new_session_id();
-        let root = tempfile::tempdir().expect("session root");
-        let session_dir = root.path().join("1234567890");
-        write_session_metadata(&session_dir, session_id, root.path());
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let session_dir = test_session_dir(config_dir.path(), workspace.path(), session_id)
+            .with_file_name("1234567890");
+        write_session_metadata(&session_dir, session_id);
 
         let error =
             SessionStore::open(session_dir).expect_err("legacy numeric basename must be rejected");
@@ -646,14 +612,39 @@ mod tests {
 
     #[test]
     fn open_requires_metadata() {
-        let error = SessionStore::open(PathBuf::from("1234567890"))
-            .expect_err("session dir needs metadata");
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let session_dir = test_session_dir(config_dir.path(), workspace.path(), new_session_id());
+        let error = SessionStore::open(session_dir).expect_err("session dir needs metadata");
 
         assert!(
             error
                 .to_string()
                 .contains("session metadata file is required")
         );
+    }
+
+    #[test]
+    fn open_rejects_workspace_path_in_old_session_metadata() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let session_id = new_session_id();
+        let session_dir = test_session_dir(config_dir.path(), workspace.path(), session_id);
+        std::fs::create_dir_all(&session_dir).expect("create session dir");
+        std::fs::write(
+            session_dir.join(SESSION_METADATA_FILE),
+            serde_json::json!({
+                "schema_version": 2,
+                "session_id": session_id,
+                "workspace_path": workspace.path(),
+            })
+            .to_string(),
+        )
+        .expect("metadata file");
+
+        let error = SessionStore::open(session_dir).expect_err("old metadata must be rejected");
+
+        assert!(format!("{error:#}").contains("unknown field `workspace_path`"));
     }
 
     #[test]
@@ -672,7 +663,7 @@ mod tests {
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
 
-        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        let store = test_store(config_dir.path(), cwd.path(), session_id);
         let name = store
             .session_dir()
             .file_name()
@@ -686,7 +677,7 @@ mod tests {
     async fn opened_session_without_messages_loads_empty_history() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        let store = test_store(config_dir.path(), cwd.path(), new_session_id());
         store.materialize().await.expect("materialize session");
         let store = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
 
@@ -699,7 +690,7 @@ mod tests {
     async fn messages_round_trip_through_jsonl_store() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        let store = test_store(config_dir.path(), cwd.path(), new_session_id());
         let messages = vec![
             CanonicalMessage::text(MessageRole::User, "hello"),
             CanonicalMessage::text(MessageRole::Assistant, "hi"),
@@ -719,7 +710,7 @@ mod tests {
     async fn replace_messages_archives_pre_compaction_history_with_incrementing_seq() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        let store = test_store(config_dir.path(), cwd.path(), new_session_id());
         let first = vec![CanonicalMessage::text(MessageRole::User, "before first")];
         let second = vec![CanonicalMessage::text(
             MessageRole::Assistant,
@@ -750,7 +741,7 @@ mod tests {
     async fn load_messages_ignores_pre_compaction_archives() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        let store = test_store(config_dir.path(), cwd.path(), new_session_id());
         store.materialize().await.expect("materialize session");
         let session_dir = store.session_dir();
         let archived = CanonicalMessage::text(MessageRole::User, "archived only");
@@ -770,16 +761,64 @@ mod tests {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
-        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        let store = test_store(config_dir.path(), cwd.path(), session_id);
 
         store
             .append_messages(&[CanonicalMessage::text(MessageRole::User, "hello")])
             .await
             .expect("append messages");
         let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
+        let metadata: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(store.metadata_path()).expect("metadata file"),
+        )
+        .expect("metadata json");
 
         assert_eq!(reopened.session_id(), session_id);
-        assert_eq!(reopened.workspace_path(), cwd.path());
+        assert_eq!(reopened.workspace_path().expect("workspace"), cwd.path());
+        assert_eq!(metadata["schema_version"], SESSION_SCHEMA_VERSION);
+        assert!(metadata.get("workspace_path").is_none());
+    }
+
+    #[tokio::test]
+    async fn renaming_workspace_directory_changes_session_workspace() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let original_workspace = tempfile::tempdir().expect("original workspace");
+        let moved_workspace = tempfile::tempdir().expect("moved workspace");
+        let session_id = new_session_id();
+        let store = test_store(config_dir.path(), original_workspace.path(), session_id);
+        store
+            .append_messages(&[CanonicalMessage::text(MessageRole::User, "move me")])
+            .await
+            .expect("append messages");
+
+        let original_workspace_dir = store
+            .session_dir()
+            .parent()
+            .expect("workspace session dir")
+            .to_path_buf();
+        let moved_workspace_dir = config_dir
+            .path()
+            .join("sessions")
+            .join(encode_workspace_path(moved_workspace.path()).expect("encoded workspace"));
+        std::fs::rename(&original_workspace_dir, &moved_workspace_dir)
+            .expect("rename workspace session dir");
+        let moved_session_dir = moved_workspace_dir.join(session_id.to_string());
+
+        let reopened = SessionStore::open(moved_session_dir).expect("open moved session");
+        let old_summaries =
+            list_workspace_session_summaries(config_dir.path(), original_workspace.path())
+                .expect("old workspace sessions");
+        let moved_summaries =
+            list_workspace_session_summaries(config_dir.path(), moved_workspace.path())
+                .expect("moved workspace sessions");
+
+        assert_eq!(
+            reopened.workspace_path().expect("moved workspace"),
+            moved_workspace.path()
+        );
+        assert!(old_summaries.is_empty());
+        assert_eq!(moved_summaries.len(), 1);
+        assert_eq!(moved_summaries[0].workspace_path, moved_workspace.path());
     }
 
     #[tokio::test]
@@ -787,7 +826,7 @@ mod tests {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
-        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        let store = test_store(config_dir.path(), cwd.path(), session_id);
 
         store.materialize().await.expect("materialize session");
 
@@ -807,8 +846,8 @@ mod tests {
         let other_cwd = tempfile::tempdir().expect("other cwd");
         let session_id = new_session_id();
         let other_session_id = new_session_id();
-        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
-        let other_store = SessionStore::new(config_dir.path(), other_cwd.path(), other_session_id);
+        let store = test_store(config_dir.path(), cwd.path(), session_id);
+        let other_store = test_store(config_dir.path(), other_cwd.path(), other_session_id);
         store.materialize().await.expect("materialize session");
         other_store
             .materialize()
@@ -846,7 +885,7 @@ mod tests {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
-        let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
+        let store = test_store(config_dir.path(), cwd.path(), session_id);
         store
             .append_messages(&[
                 CanonicalMessage::text(MessageRole::User, "inspect this project"),
@@ -875,9 +914,8 @@ mod tests {
         let second_cwd = tempfile::tempdir().expect("second cwd");
         let first_session_id = new_session_id();
         let second_session_id = new_session_id();
-        let first_store = SessionStore::new(config_dir.path(), first_cwd.path(), first_session_id);
-        let second_store =
-            SessionStore::new(config_dir.path(), second_cwd.path(), second_session_id);
+        let first_store = test_store(config_dir.path(), first_cwd.path(), first_session_id);
+        let second_store = test_store(config_dir.path(), second_cwd.path(), second_session_id);
         first_store
             .append_messages(&[CanonicalMessage::text(MessageRole::User, "first workspace")])
             .await
@@ -932,14 +970,28 @@ mod tests {
             .collect()
     }
 
-    fn write_session_metadata(session_dir: &Path, session_id: SessionId, workspace_path: &Path) {
+    fn test_store(config_dir: &Path, workspace_path: &Path, session_id: SessionId) -> SessionStore {
+        SessionStore::new(config_dir, workspace_path, session_id).expect("session store")
+    }
+
+    fn test_session_dir(
+        config_dir: &Path,
+        workspace_path: &Path,
+        session_id: SessionId,
+    ) -> PathBuf {
+        config_dir
+            .join("sessions")
+            .join(encode_workspace_path(workspace_path).expect("encoded workspace"))
+            .join(session_id.to_string())
+    }
+
+    fn write_session_metadata(session_dir: &Path, session_id: SessionId) {
         std::fs::create_dir_all(session_dir).expect("create session dir");
         std::fs::write(
             session_dir.join(SESSION_METADATA_FILE),
             serde_json::to_string(&SessionMetadata {
                 schema_version: SESSION_SCHEMA_VERSION,
                 session_id,
-                workspace_path: workspace_path.to_path_buf(),
             })
             .expect("metadata json"),
         )

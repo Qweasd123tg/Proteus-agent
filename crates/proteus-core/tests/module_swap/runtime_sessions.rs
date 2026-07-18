@@ -246,8 +246,9 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
 }
 
 #[tokio::test]
-async fn runtime_resume_uses_workspace_from_session_metadata() {
+async fn runtime_resume_uses_renamed_workspace_directory() {
     let original_dir = temp_workspace();
+    let moved_dir = temp_workspace();
     let wrong_dir = temp_workspace();
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -268,12 +269,26 @@ async fn runtime_resume_uses_workspace_from_session_metadata() {
         .expect("thread id")
         .parse()
         .expect("thread uuid");
+
+    let original_workspace_dir = session_dir.parent().expect("workspace session directory");
+    let moved_workspace_dir = original_workspace_dir
+        .parent()
+        .expect("sessions directory")
+        .join(
+            proteus_core::core::encode_workspace_path(moved_dir.path())
+                .expect("encoded moved workspace"),
+        );
+    std::fs::rename(original_workspace_dir, &moved_workspace_dir)
+        .expect("rename workspace session directory");
+    let moved_session_dir =
+        moved_workspace_dir.join(session_dir.file_name().expect("session directory basename"));
+
     let resumed = AgentRuntime::builder(test_config(), wrong_dir.path().to_path_buf())
-        .resume_from_session_dir(session_dir, thread_id)
+        .resume_from_session_dir(moved_session_dir, thread_id)
         .unwrap()
         .with_module_catalog(test_catalog())
         .build()
         .unwrap();
 
-    assert_eq!(resumed.cwd(), original_dir.path());
+    assert_eq!(resumed.cwd(), moved_dir.path());
 }

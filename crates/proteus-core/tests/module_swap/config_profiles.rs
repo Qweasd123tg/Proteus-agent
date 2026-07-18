@@ -575,7 +575,8 @@ async fn json_config_can_switch_to_custom_provider_url() {
 
 #[test]
 fn workspace_path_is_encoded_as_folder_name() {
-    let encoded = proteus_core::core::encode_workspace_path(std::path::Path::new("/home/game"));
+    let encoded = proteus_core::core::encode_workspace_path(std::path::Path::new("/home/game"))
+        .expect("encoded workspace");
 
     assert_eq!(encoded, "home|game");
 }
@@ -584,9 +585,10 @@ fn workspace_path_is_encoded_as_folder_name() {
 fn workspace_path_keeps_cyrillic_folder_names() {
     let encoded = proteus_core::core::encode_workspace_path(std::path::Path::new(
         "/home/alice/Проекты/моя игра",
-    ));
+    ))
+    .expect("encoded workspace");
 
-    assert_eq!(encoded, "home|alice|Проекты|моя_игра");
+    assert_eq!(encoded, "home|alice|Проекты|моя%20игра");
 }
 
 #[test]
