@@ -597,8 +597,7 @@ fn request_serializes_prompt_cache_fields_when_cache_hints_are_enabled() {
         ModelRef::new("openai", "gpt-test"),
         vec![CanonicalMessage::text(MessageRole::User, "solve it")],
     )
-    .with_cache(CacheHints::new(true, true))
-    .with_metadata(json!({ "prompt_cache_key": "proteus:gpt-test:abc" }));
+    .with_cache(CacheHints::new(true, true).with_routing_key("proteus:gpt-test:abc"));
     let cache = OpenAiPromptCacheConfig::from_provider_config(&json!({
         "prompt_cache_retention": "24h"
     }));
@@ -616,7 +615,7 @@ fn request_omits_prompt_cache_fields_without_cache_hints() {
         ModelRef::new("openai", "gpt-test"),
         vec![CanonicalMessage::text(MessageRole::User, "solve it")],
     )
-    .with_metadata(json!({ "prompt_cache_key": "proteus:gpt-test:abc" }));
+    .with_cache(CacheHints::default().with_routing_key("proteus:gpt-test:abc"));
     let cache = OpenAiPromptCacheConfig::from_provider_config(&json!({
         "prompt_cache_retention": "24h"
     }));
@@ -626,6 +625,23 @@ fn request_omits_prompt_cache_fields_without_cache_hints() {
 
     assert!(body.get("prompt_cache_key").is_none());
     assert!(body.get("prompt_cache_retention").is_none());
+}
+
+#[test]
+fn request_does_not_read_prompt_cache_key_from_metadata() {
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("openai", "gpt-test"),
+        vec![CanonicalMessage::text(MessageRole::User, "solve it")],
+    )
+    .with_cache(CacheHints::new(true, true))
+    .with_metadata(json!({ "prompt_cache_key": "old-metadata-path" }));
+
+    let profile = OpenAiModelProfile::from_provider_config(&json!({})).unwrap();
+    let body =
+        to_openai_request_with_cache(&request, &OpenAiPromptCacheConfig::default(), &profile)
+            .unwrap();
+
+    assert!(body.get("prompt_cache_key").is_none());
 }
 
 #[test]

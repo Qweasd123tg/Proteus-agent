@@ -102,10 +102,12 @@ pub(super) async fn run_child_loop(
             CanonicalModelRequest::new(ctx.model_ref.clone(), state.history.clone())
                 .with_tools(tools.to_vec())
                 .with_reasoning(ctx.reasoning.clone())
-                .with_cache(CacheHints::new(true, true))
+                .with_cache(
+                    CacheHints::new(true, true)
+                        .with_routing_key(child_cache_routing_key(ctx.thread_id)),
+                )
                 .with_metadata(json!({
                     "suppress_stream_deltas": true,
-                    "prompt_cache_key": child_prompt_cache_key(ctx.thread_id),
                 }));
         // Снимок именно отправленного request-а: role allowlist и dynamic
         // exposure являются capability-boundary этого model response.
@@ -177,13 +179,12 @@ pub(super) fn append_mailbox_messages(state: &mut ChildLoopState, messages: Vec<
     );
 }
 
-/// Стабильный prompt-cache ключ дочернего цикла. История ребёнка растёт
+/// Стабильный cache routing key дочернего цикла. История ребёнка растёт
 /// append-only, поэтому ключа на `child_thread_id`
 /// достаточно для консистентного prefix-cache routing между итерациями;
 /// resume по `task_id` переиспользует тот же `child_thread_id`, так что кеш
-/// продолжается и после resume. Короткий namespace оставляет key в лимите
-/// 64 символов, который применяют OpenAI-compatible providers.
-pub(super) fn child_prompt_cache_key(thread_id: ThreadId) -> String {
+/// продолжается и после resume.
+pub(super) fn child_cache_routing_key(thread_id: ThreadId) -> String {
     format!("proteus:thread:{thread_id}")
 }
 
@@ -365,11 +366,11 @@ mod tests {
     }
 
     #[test]
-    fn child_prompt_cache_key_is_stable_and_bounded() {
+    fn child_cache_routing_key_is_stable_and_bounded() {
         let thread_id = new_thread_id();
-        let key = child_prompt_cache_key(thread_id);
+        let key = child_cache_routing_key(thread_id);
         assert_eq!(key, format!("proteus:thread:{thread_id}"));
-        assert_eq!(key, child_prompt_cache_key(thread_id));
+        assert_eq!(key, child_cache_routing_key(thread_id));
         assert!(key.len() <= 64);
     }
 }

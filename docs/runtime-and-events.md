@@ -275,10 +275,13 @@ Category breakdown остаётся оценкой для UI и исследов
 Provider prompt cache не является локальным response-cache. Workflow выставляет
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
 активный adapter заявил `supports_cache_hints`, а provider adapter переводит их
-в свой API. OpenAI получает request-level `prompt_cache_key` и optional
-`prompt_cache_retention`; стандартный workflow использует стабильный routing
-key `proteus:session:<session_id>`. Сам key не гарантирует hit: OpenAI отдельно
-сопоставляет фактический prefix, поэтому tools/instructions должны сохранять
+в свой API. Provider-neutral `CacheHints.routing_key` задаёт стабильный
+namespace запроса без provider wire-знания в workflow. OpenAI adapter переводит
+его в request-level `prompt_cache_key` (если provider config не задал явный
+override) и при необходимости добавляет `prompt_cache_retention`; стандартный
+workflow использует routing key `proteus:session:<session_id>`. Сам key не
+гарантирует hit: OpenAI отдельно сопоставляет фактический prefix, поэтому
+tools/instructions должны сохранять
 общую начальную часть. Workflow размещает заново собранный ephemeral context
 перед persistent conversation: при неизменном context следующий turn дописывает
 новые сообщения в конец provider-visible input, а не вставляет их перед

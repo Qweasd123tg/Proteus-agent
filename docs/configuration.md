@@ -253,11 +253,12 @@ path. Для диагностического совместимого proxy м�
 
 Provider prompt cache включается через `CanonicalModelRequest.cache` и
 `ModelCapabilities.supports_cache_hints`. Coding workflows выставляют
-`CacheHints::new(true, true)`, а `RequestShaper` обнуляет hints для adapters,
-которые их не поддерживают. OpenAI Responses получает `prompt_cache_key` из
-metadata запроса или явного `providers.*.provider_config.prompt_cache_key`; если
-в `provider_config` задан `prompt_cache_retention`, adapter прокидывает его как
-`prompt_cache_retention`. Значение retention не выставляется по умолчанию:
+`CacheHints::new(true, true).with_routing_key(...)`, а `RequestShaper` обнуляет
+hints вместе с routing key для adapters, которые их не поддерживают. OpenAI
+Responses получает `prompt_cache_key` из typed `CacheHints.routing_key`; явно
+заданный `providers.*.provider_config.prompt_cache_key` перекрывает request key.
+Если в `provider_config` задан `prompt_cache_retention`, adapter прокидывает его
+как `prompt_cache_retention`. Значение retention не выставляется по умолчанию:
 для `24h`/`in_memory` это provider policy, а не поведение workflow. Стандартные
 coding workflows используют короткий routing key `proteus:session:<session_id>`.
 Это не fingerprint содержимого: provider
@@ -548,8 +549,9 @@ canonical context вставляется перед последним retained 
 deterministic fallback. Если compaction реально меняет историю, runtime получает
 `HistoryCompactionReport`, испускает lifecycle events и атомарно заменяет
 in-memory/session `messages.jsonl` compacted-срезом; request-scoped
-`ContentPart::Context` в persistent history не попадает. Ключ prompt cache
-компактора всегда укладывается в provider limit `64` символа.
+`ContentPart::Context` в persistent history не попадает. Typed
+`CacheHints.routing_key` компактора всегда укладывается в `64` символа;
+provider wire field формируется только adapter-ом.
 
 Пример настройки:
 

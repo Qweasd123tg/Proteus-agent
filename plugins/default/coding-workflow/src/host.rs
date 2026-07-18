@@ -10,11 +10,10 @@ use proteus_contracts::{
     },
     plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
 };
-use serde_json::json;
 
 use super::{
     dynamic_tools,
-    metadata::{insert_request_metadata_u32, insert_request_metadata_value, prompt_cache_key},
+    metadata::{cache_routing_key, insert_request_metadata_u32, insert_request_metadata_value},
     token_accounting::{LastModelUsage, effective_token_estimate, request_token_usage_snapshot},
 };
 
@@ -132,7 +131,7 @@ fn request_from_state_with_instruction_blocks_and_options(
             .with_instructions(instructions)
             .with_tools(tools)
             .with_reasoning(input.runtime.reasoning.clone())
-            .with_cache(CacheHints::new(true, true));
+            .with_cache(CacheHints::new(true, true).with_routing_key(cache_routing_key(input)));
     // Прокидываем потолок окна из capabilities в лимиты запроса, чтобы снимок
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как плагин собрал снимок, поэтому делаем это здесь).
@@ -147,8 +146,6 @@ fn request_from_state_with_instruction_blocks_and_options(
     {
         insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", trigger);
     }
-    let prompt_cache_key = prompt_cache_key(input);
-    insert_request_metadata_value(&mut request, "prompt_cache_key", json!(prompt_cache_key));
     // Telemetry селектора (hidden count, saved schema tokens и т.п.) не должна
     // теряться на workflow-границе: кладём её в metadata запроса, откуда её
     // видят снимки usage и event log.

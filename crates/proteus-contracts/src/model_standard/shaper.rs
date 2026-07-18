@@ -92,4 +92,19 @@ mod tests {
             ResponseFormat::JsonSchema { strict: true, .. }
         ));
     }
+
+    #[test]
+    fn unsupported_cache_hints_drop_routing_key_with_the_hints() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("local", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "answer")],
+        )
+        .with_cache(CacheHints::new(true, true).with_routing_key("session-1"));
+
+        let shaped = RequestShaper
+            .shape(request, &ModelCapabilities::empty())
+            .unwrap();
+
+        assert_eq!(shaped.cache, CacheHints::default());
+    }
 }

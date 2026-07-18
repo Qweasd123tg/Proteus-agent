@@ -23,7 +23,7 @@ use crate::{
     },
     compaction::compact,
     history::{message_text, select_recent_user_messages},
-    summary::{SUMMARY_PREFIX, prompt_cache_key_for_test, validate_summary_response_for_test},
+    summary::{SUMMARY_PREFIX, cache_routing_key_for_test, validate_summary_response_for_test},
 };
 
 #[derive(Default)]
@@ -113,12 +113,12 @@ fn context_message(text: &str) -> CanonicalMessage {
 }
 
 #[test]
-fn prompt_cache_key_is_bounded_and_varies_by_workspace_and_model() {
+fn cache_routing_key_is_bounded_and_varies_by_workspace_and_model() {
     let base = input(
         vec![CanonicalMessage::text(MessageRole::User, "old request")],
         DEFAULT_TRIGGER_TOKENS + 1,
     );
-    let key = prompt_cache_key_for_test(&base);
+    let key = cache_routing_key_for_test(&base);
 
     assert!(key.starts_with("proteus:compact:"), "{key}");
     assert!(key.len() <= 64, "{}: {key}", key.len());
@@ -128,14 +128,14 @@ fn prompt_cache_key_is_bounded_and_varies_by_workspace_and_model() {
         ModelRef::new("fake", "fake"),
         base.messages.clone(),
     );
-    assert_ne!(key, prompt_cache_key_for_test(&other_workspace));
+    assert_ne!(key, cache_routing_key_for_test(&other_workspace));
 
     let huge_model = CompactionInput::new(
         AgentTask::new("continue implementation", "/repo".into()),
         ModelRef::new("provider".repeat(100), "model".repeat(100)),
         base.messages,
     );
-    let huge_key = prompt_cache_key_for_test(&huge_model);
+    let huge_key = cache_routing_key_for_test(&huge_model);
     assert_ne!(key, huge_key);
     assert!(huge_key.len() <= 64, "{}: {huge_key}", huge_key.len());
 }
@@ -320,6 +320,13 @@ fn uses_model_summary_when_host_returns_text() {
     assert_eq!(requests[0].tool_choice, ToolChoice::None);
     assert_eq!(requests[0].model.model, "fake");
     assert_eq!(requests[0].metadata["suppress_stream_deltas"], true);
+    assert!(
+        requests[0]
+            .cache
+            .routing_key
+            .as_deref()
+            .is_some_and(|key| key.starts_with("proteus:compact:"))
+    );
     assert_eq!(
         requests[0].limits.max_output_tokens,
         Some(summary_budget_tokens().unwrap())

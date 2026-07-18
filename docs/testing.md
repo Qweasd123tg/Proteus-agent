@@ -121,8 +121,8 @@ unit-тестами в `plugins/default/codex-compactor/src/tests.rs`: model-bac
 summary path, строгий `Stop`/assistant/no-tools ответ вместо fallback,
 фильтрация generated user messages, reinjection canonical context перед
 последним real user, summary-last replacement, bounded oversized current user,
-сворачивание текущего assistant/tool tail и `prompt_cache_key <= 64`. Отдельно
-проверяется случай, где replacement не сокращает историю. Core adapter тестирует
+сворачивание текущего assistant/tool tail и typed cache `routing_key <= 64`.
+Отдельно проверяется случай, где replacement не сокращает историю. Core adapter тестирует
 ABI bridge для compactor host, включая `complete_model_json`; runtime-тесты
 проверяют, что changed compaction заменяет in-memory history и `messages.jsonl`,
 а workflow-тесты проверяют model-aware окно в `CompactionInput.window_tokens`
@@ -142,7 +142,8 @@ assistant/tool `new_messages`, а generated user-summary после current user
 - `ToolCall::new(id, name, args)`, `ToolResult::ok(call_id, output)` / `::new(...)` + `.with_metadata(...)`;
 - `ToolSpec::new(name, description, input_schema, safety)` + `.with_timeout(...)`;
 - `ModelCapabilities::empty()` + `.with_tools(true)` / `.with_streaming(true)` / `.with_reasoning_config(true)` / ...;
-- `SamplingConfig::new`, `ReasoningConfig::new`, `ModelLimits::new`, `CacheHints::new` — тот же паттерн.
+- `SamplingConfig::new`, `ReasoningConfig::new`, `ModelLimits::new`,
+  `CacheHints::new(...).with_routing_key(...)` — тот же паттерн.
 
 Тесты и адаптеры не должны конструировать эти типы через struct-expression: `#[non_exhaustive]` это блокирует по дизайну, чтобы добавление нового поля не ломало call-sites вне crate.
 

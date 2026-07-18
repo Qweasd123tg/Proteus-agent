@@ -87,18 +87,17 @@ fn model_summary_request(
             100,
         )])
         .with_tool_choice(ToolChoice::None)
-        .with_cache(CacheHints::new(true, false))
+        .with_cache(CacheHints::new(true, false).with_routing_key(cache_routing_key(input)))
         .with_metadata(json!({
             "compactor": MODULE_ID,
             "phase": "history_compaction",
-            "prompt_cache_key": prompt_cache_key(input),
             "suppress_stream_deltas": true,
         }));
     request.limits.max_output_tokens = Some(summary_budget);
     request
 }
 
-fn prompt_cache_key(input: &CompactionInput) -> String {
+fn cache_routing_key(input: &CompactionInput) -> String {
     let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
     let request_shape = format!(
         "{}\0{}\0{}\0{}",
@@ -109,9 +108,9 @@ fn prompt_cache_key(input: &CompactionInput) -> String {
     );
     let request_shape_hash = stable_hash64(request_shape.as_bytes());
 
-    // OpenAI accepts at most 64 characters for `prompt_cache_key`. Hash all
-    // unbounded components instead of truncating provider/model independently,
-    // which could still produce a key well above the provider limit.
+    // Hash unbounded components instead of exposing cwd/model or truncating
+    // them independently. The resulting routing namespace is compact and
+    // stable for an unchanged compaction request shape.
     format!("proteus:compact:{workspace_hash:016x}:{request_shape_hash:016x}")
 }
 
@@ -168,8 +167,8 @@ fn ensure_not_cancelled(host: &mut PluginCompactorHostMut<'_>) -> Result<(), Str
 }
 
 #[cfg(test)]
-pub(crate) fn prompt_cache_key_for_test(input: &CompactionInput) -> String {
-    prompt_cache_key(input)
+pub(crate) fn cache_routing_key_for_test(input: &CompactionInput) -> String {
+    cache_routing_key(input)
 }
 
 #[cfg(test)]

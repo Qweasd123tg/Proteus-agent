@@ -94,6 +94,10 @@ impl Default for ModelLimits {
 pub struct CacheHints {
     pub cache_instructions: bool,
     pub cache_context: bool,
+    /// Provider-neutral routing namespace for requests that share a stable
+    /// prompt prefix. Adapters decide whether and how to map it to provider
+    /// wire fields.
+    pub routing_key: Option<String>,
 }
 
 impl CacheHints {
@@ -101,7 +105,13 @@ impl CacheHints {
         Self {
             cache_instructions,
             cache_context,
+            routing_key: None,
         }
+    }
+
+    pub fn with_routing_key(mut self, routing_key: impl Into<String>) -> Self {
+        self.routing_key = Some(routing_key.into());
+        self
     }
 }
 

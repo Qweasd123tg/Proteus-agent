@@ -119,12 +119,12 @@ pub(crate) fn insert_request_metadata_value(
     }
 }
 
-/// Стабильный routing key provider prompt cache для одной durable session.
+/// Стабильный cache routing key для одной durable session.
 ///
 /// Это не fingerprint содержимого запроса: provider отдельно хеширует
 /// фактический prefix и переиспользует только совпавшую часть. Если включать в
 /// key tools/instructions, любое легитимное изменение prefix разбрасывает одну
 /// conversation по разным cache buckets и убивает reuse последующих turn-ов.
-pub(crate) fn prompt_cache_key(input: &PluginWorkflowInput) -> String {
+pub(crate) fn cache_routing_key(input: &PluginWorkflowInput) -> String {
     format!("proteus:session:{}", input.runtime.session_id)
 }

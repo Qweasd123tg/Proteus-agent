@@ -54,7 +54,7 @@ use host::{
     request_from_state, request_from_state_with_instruction_blocks,
 };
 #[cfg(test)]
-use metadata::{insert_request_metadata_u32, prompt_cache_key};
+use metadata::{cache_routing_key, insert_request_metadata_u32};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};

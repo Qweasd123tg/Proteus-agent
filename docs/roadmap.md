@@ -615,8 +615,8 @@ envelopes verbatim. Responses Lite и websocket transport остаются plann
   (a) ребёнок читал файлы по одному `read_file` на итерацию при доступном
   `read_many_files` — промпт роли `explore` дополнен требованиями "map before
   reading" и батчинга (configs поправлены); (b) дочерние model-запросы шли
-  без cache hints и `prompt_cache_key` — исправлено в `core/subagent.rs`
-  (стабильный ключ на child thread); (c) ребёнок унаследовал reasoning=high
+  без cache hints и cache routing key — исправлено в `core/subagent.rs`
+  (стабильный typed ключ на child thread); (c) ребёнок унаследовал reasoning=high
   родителя для чтения конфигов — per-role model/effort override нужен,
   аргумент к пути B/"роль = профиль"; (d) (частично закрыто 2026-07-07)
   cancel родительского turn терял всю работу ребёнка — теперь ребёнок на
@@ -1031,10 +1031,10 @@ Scope:
 - ✅ Закрыто 2026-07-18: live session summary overlay сведён к единому
   `AppSessionSummary` из app protocol. `SessionStore` и HTTP live synthesis
   создают один тип, transport больше не собирает и не сортирует raw JSON.
-- Убрать provider-shaped prompt cache metadata из generic workflow. Базовый
-  stable-prefix-aware key уже есть в стандартных workflows, но namespace и
-  serialization всё ещё идут через metadata `prompt_cache_key`; в будущем это
-  должно переехать в canonical request contract или provider adapter/config.
+- ✅ Закрыто 2026-07-18: provider-shaped prompt cache metadata удалена из
+  workflow, compactor и child loop. Canonical `CacheHints.routing_key` несёт
+  typed provider-neutral namespace, а OpenAI adapter единолично сериализует
+  его как `prompt_cache_key`; старый metadata path не распознаётся.
 - Пересмотреть storage name для session directories: numeric 10-digit basename
   удобен для UI, но это storage contract с возможными collisions. Metadata уже
   хранит настоящий `SessionId`, поэтому будущий формат должен быть opaque

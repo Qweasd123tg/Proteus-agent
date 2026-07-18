@@ -153,25 +153,25 @@ fn token_usage_snapshot_adds_provider_cache_categories_without_changing_estimate
 }
 
 #[test]
-fn prompt_cache_key_is_stable_for_session() {
+fn cache_routing_key_is_stable_for_session() {
     let input = workflow_input("first turn");
     let mut next_turn = input.clone();
     next_turn.task.text = "second turn with another tool intent".to_owned();
     next_turn.runtime.turn_id = new_turn_id();
 
-    let key = prompt_cache_key(&input);
-    assert_eq!(key, prompt_cache_key(&next_turn));
+    let key = cache_routing_key(&input);
+    assert_eq!(key, cache_routing_key(&next_turn));
     assert_eq!(key, format!("proteus:session:{}", input.runtime.session_id));
     assert!(key.len() <= 64);
 }
 
 #[test]
-fn prompt_cache_key_changes_between_sessions() {
+fn cache_routing_key_changes_between_sessions() {
     let first = workflow_input("change code");
     let mut second = first.clone();
     second.runtime.session_id = new_session_id();
 
-    assert_ne!(prompt_cache_key(&first), prompt_cache_key(&second));
+    assert_ne!(cache_routing_key(&first), cache_routing_key(&second));
 }
 
 fn category_tokens(usage: &TokenUsageSnapshot, name: &str) -> Option<u32> {

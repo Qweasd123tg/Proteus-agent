@@ -854,22 +854,21 @@ async fn child_loop_model_requests_enable_prompt_cache() {
         .await
         .unwrap();
 
-    let metadatas = model.metadatas();
-    assert!(!metadatas.is_empty());
-    let first_key = metadatas[0]["prompt_cache_key"]
-        .as_str()
-        .expect("prompt_cache_key present");
+    let caches = model.caches();
+    assert!(!caches.is_empty());
+    let first_key = caches[0]
+        .routing_key
+        .as_deref()
+        .expect("cache routing key present");
     assert!(first_key.starts_with("proteus:thread:"));
     assert!(first_key.len() <= 64);
     assert!(
-        metadatas
+        caches
             .iter()
-            .all(|metadata| metadata["prompt_cache_key"].as_str() == Some(first_key)),
-        "cache key must be stable across child iterations"
+            .all(|cache| cache.routing_key.as_deref() == Some(first_key)),
+        "cache routing key must be stable across child iterations"
     );
 
-    let caches = model.caches();
-    assert!(!caches.is_empty());
     assert!(
         caches
             .iter()

@@ -57,8 +57,8 @@ fn stable_context_keeps_the_next_turn_wire_input_append_only() {
     assert_eq!(first_request.instructions, second_request.instructions);
     assert_eq!(first_request.tools, second_request.tools);
     assert_eq!(
-        first_request.metadata["prompt_cache_key"],
-        second_request.metadata["prompt_cache_key"]
+        first_request.cache.routing_key.as_deref(),
+        second_request.cache.routing_key.as_deref()
     );
     let first_wire_input = cache_relevant_input(&first_request);
     let second_wire_input = cache_relevant_input(&second_request);

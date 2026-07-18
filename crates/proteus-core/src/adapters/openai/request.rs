@@ -154,9 +154,9 @@ fn apply_openai_prompt_cache(
 
     let key = prompt_cache.key.as_deref().or_else(|| {
         request
-            .metadata
-            .get("prompt_cache_key")
-            .and_then(Value::as_str)
+            .cache
+            .routing_key
+            .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
     });

@@ -476,9 +476,10 @@ compactor повторно не сохраняет.
 без tool calls. Если model call падает, возвращает пустой/невалидный ответ или
 replacement не сокращает историю, плагин возвращает ошибку compaction.
 Codex-compatible режим не скрывает такие сбои deterministic fallback-ом.
-Отмена turn также возвращается как ошибка compaction. `prompt_cache_key`
-компактора детерминированно хеширует workspace/model/request shape и не
-превышает provider limit в 64 символа.
+Отмена turn также возвращается как ошибка compaction. Typed
+`CacheHints.routing_key` компактора детерминированно хеширует
+workspace/model/request shape и остаётся компактным (не более 64 символов);
+provider-specific wire field формирует adapter.
 
 Threshold берётся из `module_config.compactor.codex.trigger_tokens`, если он
 задан. Затем проверяется env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`. Затем
@@ -690,9 +691,9 @@ calls перед скрытым тоже не исполняются. Ответ
 не завершает ребёнка: он добавляется в history, после budget check запускается
 следующий sampling round.
 
-Model-запросы дочернего цикла включают prompt cache: `CacheHints(true, true)`
-и стабильный `prompt_cache_key` вида
-`proteus:thread:<child_thread_id>` — история ребёнка
+Model-запросы дочернего цикла включают prompt cache:
+`CacheHints::new(true, true).with_routing_key(...)` и стабильный typed routing
+key вида `proteus:thread:<child_thread_id>` — история ребёнка
 append-only, поэтому ключ на child thread даёт консистентный prefix-cache
 routing между итерациями и продолжается после resume по `task_id`. Ребёнок
 наследует модель и reasoning-настройки родителя; per-role model/effort в
