@@ -154,9 +154,11 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 `runtime.persist_request_snapshots = false`.
 
 `config_snapshot.json` — последний startup/persist snapshot resolved runtime
-config для этой сессии. Он перезаписывается при открытии существующей сессии и
-при первой материализации новой сессии. В snapshot входят profile name, active
-provider, active model ref, reasoning config, выбранные module ids, список
+config для этой сессии. Текущая `schema_version = 2`: поле `active_provider`
+обязательно и содержит id точного профиля из `providers`. Snapshot
+перезаписывается при открытии существующей сессии и при первой материализации
+новой сессии. В snapshot входят profile name, active provider, active model
+ref, reasoning config, выбранные module ids, список
 зарегистрированных tools с source/spec, `subagent_surface` и default permission
 mode. Изменения
 посреди session (например смена model из UI) остаются событиями runtime и не

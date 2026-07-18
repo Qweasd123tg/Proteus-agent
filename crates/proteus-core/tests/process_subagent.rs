@@ -70,7 +70,18 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
     let configs_dir = config_home.join("configs");
     std::fs::create_dir_all(&configs_dir).expect("create configs dir");
     let config_path = configs_dir.join("config.toml");
-    std::fs::write(&config_path, "[modules]\nworkflow = \"none\"\n").expect("write child config");
+    std::fs::write(
+        &config_path,
+        concat!(
+            "active_provider = \"fake\"\n\n",
+            "[providers.fake]\n",
+            "provider = \"fake\"\n",
+            "model = \"fake-tool-model\"\n\n",
+            "[modules]\n",
+            "workflow = \"none\"\n",
+        ),
+    )
+    .expect("write child config");
     config_path
 }
 

@@ -15,8 +15,7 @@ pub struct SessionConfigSnapshot {
     pub schema_version: u32,
     pub ts: u64,
     pub profile_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_provider: Option<String>,
+    pub active_provider: String,
     pub model: ModelRef,
     pub reasoning: ReasoningConfig,
     pub modules: SessionConfigModules,
@@ -50,7 +49,7 @@ impl SessionConfigSnapshot {
             })
             .collect();
         Self {
-            schema_version: 1,
+            schema_version: 2,
             ts: unix_timestamp_ms(),
             profile_name: config.profile.name.clone(),
             active_provider: config.active_provider.clone(),

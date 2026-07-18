@@ -86,7 +86,7 @@ pub(crate) struct ConfigBuilderSnapshot {
     pub(crate) config_path: Option<String>,
     pub(crate) target_path: Option<String>,
     pub(crate) writable: bool,
-    pub(crate) active_provider: Option<String>,
+    pub(crate) active_provider: String,
     pub(crate) providers: Vec<ConfigBuilderProvider>,
     pub(crate) permission_mode: String,
     pub(crate) permission_modes: Vec<String>,

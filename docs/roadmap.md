@@ -1037,6 +1037,10 @@ Scope:
   workflow, compactor и child loop. Canonical `CacheHints.routing_key` несёт
   typed provider-neutral namespace, а OpenAI adapter единолично сериализует
   его как `prompt_cache_key`; старый metadata path не распознаётся.
+- ✅ Закрыто 2026-07-18: выбор model provider сведён к одному config-контракту:
+  обязательный `active_provider` ссылается на `providers.<id>`. Прямая секция
+  `[model]`, implicit-выбор `providers.default` и optional provider state в
+  config builder/snapshot удалены; tracked configs используют одну форму.
 - ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
   10-digit basename на полный canonical `SessionId`. Один identity теперь
   используется в runtime, DTO и пути. Metadata sidecar удалён: basename

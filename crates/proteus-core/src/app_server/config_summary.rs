@@ -154,14 +154,7 @@ fn matching_provider_profiles<'a>(
 }
 
 fn active_provider_profile(config: &AppConfig) -> Option<&crate::core::ProviderProfileConfig> {
-    if let Some(active_provider) = config
-        .active_provider
-        .as_ref()
-        .filter(|provider| !provider.trim().is_empty())
-    {
-        return config.providers.get(active_provider);
-    }
-    config.providers.get("default")
+    config.providers.get(&config.active_provider)
 }
 
 fn looks_like_deepseek(config: &AppConfig, active_model: &crate::domain::ModelRef) -> bool {

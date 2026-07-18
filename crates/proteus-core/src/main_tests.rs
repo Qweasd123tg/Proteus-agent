@@ -346,7 +346,7 @@ async fn init_coding_writes_loadable_single_config_file() {
     let model = config.active_model_config().expect("active model");
 
     assert_eq!(config.profile.name, "coding-local");
-    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
+    assert_eq!(config.active_provider, "anthropic");
     assert_eq!(model.provider, "anthropic");
     assert_eq!(config.modules.workflow, "coding.single_loop");
 }

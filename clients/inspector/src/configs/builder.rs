@@ -18,7 +18,7 @@ pub(super) fn ConfigBuilderView(
     draft_config_texts: ReadSignal<BTreeMap<String, String>>,
     draft_module_config: ReadSignal<BTreeMap<String, BTreeMap<String, Value>>>,
     draft_tools: ReadSignal<BTreeSet<String>>,
-    draft_provider: ReadSignal<Option<String>>,
+    draft_provider: ReadSignal<String>,
     draft_mode: ReadSignal<String>,
     drafts: DraftSetters,
     set_builder: WriteSignal<Option<ConfigBuilderSnapshot>>,
@@ -60,7 +60,7 @@ pub(super) fn ConfigBuilderView(
         let mut module_config = draft_module_config.get_untracked();
         let text_by_slot = draft_config_texts.get_untracked();
         let tools_enabled = draft_tools.get_untracked().into_iter().collect::<Vec<_>>();
-        let active_provider = draft_provider.get_untracked();
+        let active_provider = Some(draft_provider.get_untracked());
         let permission_mode = Some(draft_mode.get_untracked()).filter(|mode| !mode.is_empty());
         let mut errors = Vec::new();
 
@@ -184,12 +184,11 @@ pub(super) fn ConfigBuilderView(
 }
 
 /// Provider (модель) и permission mode: config-уровневые настройки за
-/// пределами module slots. Provider доступен только когда в config есть
-/// `[providers]`; иначе модель задана секцией `[model]` и выбор недоступен.
+/// пределами module slots.
 #[component]
 fn RuntimeSettings(
     builder: ConfigBuilderSnapshot,
-    draft_provider: ReadSignal<Option<String>>,
+    draft_provider: ReadSignal<String>,
     draft_mode: ReadSignal<String>,
     drafts: DraftSetters,
 ) -> impl IntoView {
@@ -207,36 +206,27 @@ fn RuntimeSettings(
                     <code>"active_provider"</code>
                 </div>
                 <p>"Активный provider из [providers]; save переключает модель и перезагружает runtime."</p>
-                {if providers.is_empty() {
-                    view! {
-                        <div class="config-empty">"[providers] не настроены — модель задаётся секцией [model]"</div>
-                    }.into_any()
-                } else {
-                    let options = providers.clone();
-                    view! {
-                        <label class="config-builder-field">
-                            <span>"provider"</span>
-                            <select
-                                prop:value=move || draft_provider.get().unwrap_or_default()
-                                on:change:target=move |ev| {
-                                    drafts.provider.set(Some(ev.target().value()));
+                <label class="config-builder-field">
+                    <span>"provider"</span>
+                    <select
+                        prop:value=move || draft_provider.get()
+                        on:change:target=move |ev| {
+                            drafts.provider.set(ev.target().value());
+                        }
+                    >
+                        <For
+                            each=move || providers.clone()
+                            key=|provider| provider.id.clone()
+                            children=move |provider| {
+                                view! {
+                                    <option value=provider.id.clone()>
+                                        {format!("{} · {}", provider.id, provider.label)}
+                                    </option>
                                 }
-                            >
-                                <For
-                                    each=move || options.clone()
-                                    key=|provider| provider.id.clone()
-                                    children=move |provider| {
-                                        view! {
-                                            <option value=provider.id.clone()>
-                                                {format!("{} · {}", provider.id, provider.label)}
-                                            </option>
-                                        }
-                                    }
-                                />
-                            </select>
-                        </label>
-                    }.into_any()
-                }}
+                            }
+                        />
+                    </select>
+                </label>
             </article>
             <article class="config-builder-slot">
                 <div class="config-builder-slot-head">

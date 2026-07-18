@@ -1,7 +1,9 @@
+active_provider = "fake"
+
 [profile]
 name = "dev-basic"
 
-[model]
+[providers.fake]
 provider = "fake"
 model = "fake-tool-model"
 stream = true

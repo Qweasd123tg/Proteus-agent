@@ -24,7 +24,7 @@ pub(crate) fn ConfigsView() -> impl IntoView {
     let (draft_module_config, set_draft_module_config) =
         signal(BTreeMap::<String, BTreeMap<String, Value>>::new());
     let (draft_tools, set_draft_tools) = signal(BTreeSet::<String>::new());
-    let (draft_provider, set_draft_provider) = signal(None::<String>);
+    let (draft_provider, set_draft_provider) = signal(String::new());
     let (draft_mode, set_draft_mode) = signal(String::new());
     let (status, set_status) = signal("загружаю конфигурацию".to_owned());
 
@@ -117,7 +117,7 @@ struct DraftSetters {
     config_texts: WriteSignal<BTreeMap<String, String>>,
     module_config: WriteSignal<BTreeMap<String, BTreeMap<String, Value>>>,
     tools: WriteSignal<BTreeSet<String>>,
-    provider: WriteSignal<Option<String>>,
+    provider: WriteSignal<String>,
     mode: WriteSignal<String>,
 }
 

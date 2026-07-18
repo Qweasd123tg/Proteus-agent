@@ -307,10 +307,11 @@ impl AppServerHandle {
         // Смену provider применяем к runtime model_ref только при фактическом
         // изменении: иначе save builder-а сбрасывал бы model, переключённую
         // на лету через POST /model.
-        let provider_changed =
-            active_provider.is_some() && active_provider != previous_active_provider;
+        let provider_changed = active_provider
+            .as_ref()
+            .is_some_and(|provider| provider != &previous_active_provider);
         if let Some(active_provider) = active_provider {
-            next_config.active_provider = Some(active_provider);
+            next_config.active_provider = active_provider;
         }
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
@@ -324,7 +325,8 @@ impl AppServerHandle {
         persist_config_builder(&target_path, &next_config).await?;
 
         let report = self.runtime.reload_registry(registry).await?;
-        if provider_changed && let Ok(model) = next_config.active_model_config() {
+        if provider_changed {
+            let model = next_config.active_model_config()?;
             self.runtime.set_model_ref(model.model_ref()).await;
         }
         if let Some(mode) = permission_mode {

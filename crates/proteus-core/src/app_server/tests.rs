@@ -913,6 +913,10 @@ async fn reload_tools_rebuilds_registry_from_config_path_and_emits_event() {
     std::fs::write(
         &config_path,
         r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [tools]
 enabled = []
 "#,
@@ -928,6 +932,10 @@ enabled = []
     std::fs::write(
         &config_path,
         r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [modules]
 workflow = "missing_after_reload"
 

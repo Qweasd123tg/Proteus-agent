@@ -115,7 +115,12 @@ async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
 
 fn dogfood_loop_config() -> AppConfig {
     let mut config = AppConfig::default();
-    config.model.stream = false;
+    let active_provider = config.active_provider.clone();
+    config
+        .providers
+        .get_mut(&active_provider)
+        .expect("default provider")
+        .stream = false;
     config.modules.workflow = "coding.single_loop".to_owned();
     config.modules.context = "simple".to_owned();
     config.modules.policy = "ask_write".to_owned();
@@ -507,6 +512,45 @@ tool_exposure = "all_visible"
             .and_then(Value::as_u64)
             .is_some_and(|epoch| epoch > 0)
     );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn route_config_builder_creates_complete_provider_config() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .expect("app server");
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+
+    let response = route_request(
+        state,
+        authed_json_request(
+            "/config/builder",
+            json!({
+                "modules": {},
+                "module_config": {}
+            }),
+        ),
+    )
+    .await
+    .expect("config builder save response");
+
+    let status = response.status();
+    let body = response_bytes(response).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let persisted = AppConfig::load(Some(&config_path))
+        .await
+        .expect("persisted config must load");
+    assert_eq!(persisted.active_provider, "fake");
+    assert!(persisted.providers.contains_key("fake"));
 
     server.shutdown().await;
 }

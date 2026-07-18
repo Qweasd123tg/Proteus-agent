@@ -1,7 +1,9 @@
+active_provider = "fake"
+
 [profile]
 name = "external-tools"
 
-[model]
+[providers.fake]
 provider = "fake"
 model = "fake-tool-model"
 stream = true

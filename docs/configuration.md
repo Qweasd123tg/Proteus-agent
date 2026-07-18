@@ -226,7 +226,11 @@ core выбирает id модуля, а выбранная реализаци�
 }
 ```
 
-`active_provider` выбирает ключ из `providers`. Если `active_provider` пустой, но есть `providers.default`, используется он. Иначе используется прямой `[model]` / `"model"` config.
+`active_provider` обязателен и выбирает одноимённый ключ из `providers`.
+Пустое значение, отсутствующий профиль и прежняя прямая секция `[model]` /
+`"model"` являются ошибками config. Имя `default` не имеет особой семантики:
+если нужен `providers.default`, его всё равно надо явно выбрать через
+`active_provider = "default"`.
 
 Provider profile превращается в `ModelConfig` и имеет фиксированные поля
 `provider`, `model`, `stream`, `reasoning`, `reasoning_efforts` и
@@ -503,8 +507,8 @@ Inspector route `/configs` содержит Config builder для редакти
 - текущие `module_config.<slot>.<module_id>` payloads;
 - каталог tools с флагами `enabled`/`registered` и текущий `tools.enabled`;
 - provider profiles из `[providers.*]` (id + provider/model label), выбранный
-  `active_provider` (с учётом fallback на `default`) и persisted
-  `[permissions] mode` со списком допустимых значений.
+  explicit `active_provider` и persisted `[permissions] mode` со списком
+  допустимых значений.
 
 Сохранение идёт через `POST /config/builder`. Endpoint валидирует, что
 выбранный `module_id` зарегистрирован для своего slot-а и что

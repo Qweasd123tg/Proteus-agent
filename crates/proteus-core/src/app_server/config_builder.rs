@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        TopologySnapshot,
+        ProviderProfileConfig, TopologySnapshot,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
@@ -20,9 +20,7 @@ pub struct ConfigBuilderSnapshot {
     pub config_path: Option<String>,
     pub target_path: Option<String>,
     pub writable: bool,
-    /// Выбранный provider с учётом fallback на "default"; `None` — providers
-    /// не настроены и модель берётся из секции `[model]`.
-    pub active_provider: Option<String>,
+    pub active_provider: String,
     pub providers: Vec<ConfigBuilderProvider>,
     /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
     /// builder. Runtime mode может отличаться после `POST /mode`.
@@ -121,7 +119,7 @@ pub(super) fn config_builder_snapshot_from_topology(
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
-        active_provider: resolved_active_provider(config),
+        active_provider: config.active_provider.clone(),
         providers: config_builder_providers(config),
         permission_mode: permission_mode_str(config.permissions.mode),
         permission_modes: PERMISSION_MODES
@@ -203,24 +201,7 @@ fn permission_mode_str(mode: PermissionMode) -> String {
         .unwrap_or_else(|| "normal".to_owned())
 }
 
-/// Provider id, который фактически выберет `active_model_config()`:
-/// явный `active_provider` или fallback на "default".
-fn resolved_active_provider(config: &AppConfig) -> Option<String> {
-    if let Some(active) = config
-        .active_provider
-        .as_ref()
-        .filter(|provider| !provider.trim().is_empty())
-    {
-        return Some(active.clone());
-    }
-    config
-        .providers
-        .contains_key("default")
-        .then(|| "default".to_owned())
-}
-
 fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
-    let active = resolved_active_provider(config);
     config
         .providers
         .iter()
@@ -229,7 +210,7 @@ fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
             provider: profile.provider.clone(),
             model: profile.model.clone(),
             label: format!("{}/{}", profile.provider, profile.model),
-            active: active.as_deref() == Some(id.as_str()),
+            active: config.active_provider == *id,
         })
         .collect()
 }
@@ -288,6 +269,11 @@ struct ModuleConfigToml<'a> {
     module_config: &'a BTreeMap<String, BTreeMap<String, Value>>,
 }
 
+#[derive(serde::Serialize)]
+struct ProvidersToml<'a> {
+    providers: &'a BTreeMap<String, ProviderProfileConfig>,
+}
+
 pub(super) fn validate_module_config_toml(
     module_config: &BTreeMap<String, BTreeMap<String, Value>>,
 ) -> Result<()> {
@@ -310,14 +296,16 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
 
     let mut doc = read_toml_document_or_empty(path).await?;
 
-    // active_provider записываем только когда выбор provider вообще возможен:
-    // без [providers] ключ в файле не нужен.
-    if let Some(active_provider) = config
-        .active_provider
-        .as_ref()
-        .filter(|provider| !provider.trim().is_empty())
-    {
-        doc["active_provider"] = toml_edit::value(active_provider.clone());
+    doc["active_provider"] = toml_edit::value(config.active_provider.clone());
+    if doc.get("providers").is_none() {
+        let text = toml::to_string_pretty(&ProvidersToml {
+            providers: &config.providers,
+        })
+        .context("providers cannot be represented as TOML")?;
+        let providers_doc = text
+            .parse::<toml_edit::DocumentMut>()
+            .context("serialized providers TOML could not be parsed")?;
+        doc["providers"] = providers_doc["providers"].clone();
     }
 
     if doc

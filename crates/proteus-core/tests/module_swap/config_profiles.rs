@@ -9,7 +9,7 @@ async fn json_config_file_can_select_anthropic_provider() {
     .unwrap();
     let model_config = config.active_model_config().unwrap();
 
-    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
+    assert_eq!(config.active_provider, "anthropic");
     assert_eq!(model_config.provider, "anthropic");
     assert!(model_config.stream);
     assert_eq!(model_config.provider_config["api_key"], "sk-ant-...");
@@ -334,7 +334,7 @@ async fn glm_toml_config_loads_strict_workflow_profile() {
             .unwrap();
 
     assert_eq!(config.profile.name, "codex-experimental");
-    assert_eq!(config.active_provider.as_deref(), Some("openai"));
+    assert_eq!(config.active_provider, "openai");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.policy, "codex_policy");
@@ -447,7 +447,7 @@ workflow = "coding.plan_execute_review"
     let model = config.active_model_config().unwrap();
 
     assert_eq!(config.profile.name, "behavior-only");
-    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
+    assert_eq!(config.active_provider, "anthropic");
     assert_eq!(model.provider, "anthropic");
     assert_eq!(model.model, "profile-overrides-model");
     assert_eq!(model.provider_config["api_key_env"], "ANTHROPIC_API_KEY");
@@ -461,6 +461,10 @@ async fn module_config_loads_plugin_specific_config() {
     std::fs::write(
         &config_path,
         r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [modules]
 context = "simple"
 
@@ -488,6 +492,10 @@ async fn config_directory_loads_tools_from_config_root_tools_dir_by_default() {
     std::fs::write(
         configs_dir.join("01-runtime.toml"),
         r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [tools]
 enabled = []
 "#,
@@ -527,6 +535,10 @@ async fn config_file_in_configs_loads_tools_from_config_root_tools_dir_by_defaul
     std::fs::write(
         &config_path,
         r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [tools]
 enabled = []
 "#,
@@ -562,7 +574,7 @@ async fn json_config_can_switch_to_custom_provider_url() {
     )))
     .await
     .unwrap();
-    config.active_provider = Some("local".to_owned());
+    config.active_provider = "local".to_owned();
 
     let model_config = config.active_model_config().unwrap();
 

@@ -16,16 +16,13 @@ use crate::{
 
 use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_descriptor_by_id};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfig {
     #[serde(default)]
     pub profile: ProfileConfig,
-    #[serde(default)]
-    pub active_provider: Option<String>,
-    #[serde(default)]
+    pub active_provider: String,
     pub providers: BTreeMap<String, ProviderProfileConfig>,
-    #[serde(default)]
-    pub model: ModelConfig,
     #[serde(default)]
     pub instructions: Vec<InstructionSourceConfig>,
     #[serde(default)]
@@ -46,6 +43,30 @@ pub struct AppConfig {
     pub event_log: EventLogConfig,
     #[serde(default)]
     pub web: WebConfig,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        let active_provider = "fake".to_owned();
+        Self {
+            profile: ProfileConfig::default(),
+            providers: BTreeMap::from([(
+                active_provider.clone(),
+                ProviderProfileConfig::default(),
+            )]),
+            active_provider,
+            instructions: Vec::new(),
+            modules: ModulesConfig::default(),
+            module_config: BTreeMap::new(),
+            tools: ToolsConfig::default(),
+            subagents: SubagentsConfig::default(),
+            permissions: PermissionsConfig::default(),
+            app_server: AppServerConfig::default(),
+            runtime: RuntimeConfig::default(),
+            event_log: EventLogConfig::default(),
+            web: WebConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -120,6 +141,7 @@ impl AppConfig {
                 path.display()
             )
         })?;
+        config.active_model_config()?;
         config.validate_module_config_slots()?;
         Ok(config)
     }
@@ -141,23 +163,18 @@ impl AppConfig {
     }
 
     pub fn active_model_config(&self) -> Result<ModelConfig> {
-        if let Some(active_provider) = self
-            .active_provider
-            .as_ref()
-            .filter(|provider| !provider.trim().is_empty())
-        {
-            let profile = self
-                .providers
-                .get(active_provider)
-                .with_context(|| format!("active_provider '{active_provider}' is not defined"))?;
-            return profile.to_model_config();
+        if self.active_provider.trim().is_empty() {
+            bail!("active_provider must not be empty");
         }
-
-        if let Some(profile) = self.providers.get("default") {
-            return profile.to_model_config();
-        }
-
-        Ok(self.model.clone())
+        self.providers
+            .get(&self.active_provider)
+            .with_context(|| {
+                format!(
+                    "active_provider '{}' is not defined in providers",
+                    self.active_provider
+                )
+            })?
+            .to_model_config()
     }
 
     pub fn module_config_or<T>(&self, kind: ModuleKind, id: &str, fallback: T) -> Result<T>
@@ -385,8 +402,21 @@ pub struct ProviderProfileConfig {
     pub reasoning: ReasoningConfig,
     #[serde(default)]
     pub reasoning_efforts: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub provider_config: serde_json::Value,
+}
+
+impl Default for ProviderProfileConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_model_provider(),
+            model: default_model_name(),
+            stream: default_model_stream(),
+            reasoning: ReasoningConfig::default(),
+            reasoning_efforts: Vec::new(),
+            provider_config: serde_json::Value::Null,
+        }
+    }
 }
 
 impl ProviderProfileConfig {
@@ -1086,11 +1116,12 @@ mod tests {
 
     #[test]
     fn subagent_surface_defaults_to_task_and_rejects_unknown_values() {
-        let default =
-            serde_json::from_value::<AppConfig>(serde_json::json!({})).expect("default config");
+        let default = AppConfig::default();
         assert_eq!(default.subagents.surface, SubagentSurface::Task);
 
         let collaboration = serde_json::from_value::<AppConfig>(serde_json::json!({
+            "active_provider": "fake",
+            "providers": { "fake": {} },
             "subagents": { "surface": "collaboration" }
         }))
         .expect("collaboration config");
@@ -1101,10 +1132,47 @@ mod tests {
 
         assert!(
             serde_json::from_value::<AppConfig>(serde_json::json!({
+                "active_provider": "fake",
+                "providers": { "fake": {} },
                 "subagents": { "surface": "both" }
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn app_config_requires_explicit_provider_selection_and_rejects_model_field() {
+        let error = serde_json::from_value::<AppConfig>(serde_json::json!({
+            "providers": { "default": {} }
+        }))
+        .expect_err("provider selection is required");
+
+        assert!(
+            error
+                .to_string()
+                .contains("missing field `active_provider`")
+        );
+
+        let error = serde_json::from_value::<AppConfig>(serde_json::json!({
+            "active_provider": "fake",
+            "providers": { "fake": {} },
+            "model": {}
+        }))
+        .expect_err("direct model config was removed");
+        assert!(error.to_string().contains("unknown field `model`"));
+
+        let mut config = AppConfig::default();
+        config.active_provider.clear();
+        let error = config
+            .active_model_config()
+            .expect_err("empty provider id must be rejected");
+        assert!(error.to_string().contains("must not be empty"));
+
+        config.active_provider = "missing".to_owned();
+        let error = config
+            .active_model_config()
+            .expect_err("unknown provider id must be rejected");
+        assert!(error.to_string().contains("is not defined in providers"));
     }
 
     #[test]
@@ -1191,6 +1259,10 @@ mod tests {
         std::fs::write(
             &config_path,
             r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [[instructions]]
 kind = "System"
 file = "prompts/base.md"
@@ -1219,6 +1291,10 @@ priority = 90
         std::fs::write(
             &config_path,
             r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [[instructions]]
 kind = "System"
 file = "prompts/missing.md"
@@ -1243,6 +1319,10 @@ priority = 100
         std::fs::write(
             &config_path,
             r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [[instructions]]
 kind = "System"
 text = "inline"
@@ -1292,6 +1372,10 @@ memory_policy = "carry_forward"
         std::fs::write(
             &config_path,
             r#"
+active_provider = "fake"
+
+[providers.fake]
+
 [module_config.memory_policy.carry_forward]
 "#,
         )
