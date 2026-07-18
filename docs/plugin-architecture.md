@@ -263,6 +263,17 @@ allowlisted только минимальные runtime variables (`PATH`; на 
 adapter обязан перечислить через `env_allowlist` либо задать scoped literal
 через `env`. Полное наследование parent environment API не предоставляет.
 
+Первый production process-module adapter реализован для `SearchBackend` в
+`crates/proteus-core/src/process_adapters/search.rs`. Он использует generic
+JSON-RPC request/response API `ProcessHost<NewlineJsonFraming>`, но mapping
+`initialize`/`search`, contract version и строгий response DTO принадлежат
+search slot-у. Snapshot build сразу выполняет handshake, а mismatch не
+подменяется builtin/dylib backend-ом. После process/JSON-RPC/DTO error host
+сбрасывает session; следующий вызов делает lazy restart с новым handshake.
+Выбор `modules.search = "process"` виден catalog-у как обычная реализация
+слота, конфигурация executable живёт только в
+`module_config.search.process`.
+
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
 "пропустить проверку" было бы undefined behavior. Config может управлять
@@ -404,6 +415,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   NoSubagent, NoWorkflow, TextRenderer, FakeModelClient.
 - `SequentialSubagentRunner` и `ProcessSubagentRunner` остаются concrete
   core-owned реализациями subagent slot.
+- `process_adapters/search.rs` — host-side adapter, а не алгоритм поиска:
+  concrete implementation живёт в выбранном внешнем executable.
 - Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо collaboration lifecycle + optional `send_message`/`followup_task` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
@@ -431,8 +444,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   Плагин `coding-workflow` регистрирует baseline `coding.single_loop`,
   strict Codex-shaped `coding.codex_loop` и staged workflow
   `coding.plan_execute_review`. Исторический
-  `coding.codex_loop_diagnostic` удалён 2026-07-16; config loader мигрирует
-  старый id на strict loop с предупреждением.
+  `coding.codex_loop_diagnostic` удалён 2026-07-16 без legacy alias.
 - ✅ Capability-based `PluginContextBuilder` ABI + host callbacks добавлены.
   Плагин `context-pack` регистрирует `simple`, `repo_aware` и
   `codex_context`.
@@ -447,7 +459,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `approval_policy`, `patch_applier`, `search_backend`, `memory_store`,
   `context_provider`, `context_builder`, `compactor`, `tool_exposure`,
   `subagent` и `workflow`.
-- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Config loader мигрирует retired ids `sqlite_plugin` → `sqlite` и `coding.codex_loop_diagnostic` → `coding.codex_loop` с предупреждением.
+- ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Retired ids не распознаются и не мигрируются.
 - 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и

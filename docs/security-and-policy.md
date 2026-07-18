@@ -22,6 +22,18 @@ bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общ
 protected paths и secrets policy являются следующими слоями, а не заменой
 текущего `ToolOrchestrator`.
 
+## Доверенные Process-Модули
+
+`modules.search = "process"` запускает настроенный локальный executable при
+сборке runtime snapshot. Это реализация module slot, а не model-callable tool:
+`ToolSafety`, approval policy и shell sandbox не оборачивают этот child process.
+Процесс работает с правами самого Proteus, поэтому в config нельзя подключать
+недоверенную команду.
+
+Host очищает parent environment и передаёт только минимальные runtime variables,
+явный `env_allowlist` и literal `env`. Строгий handshake защищает от ошибочно
+подключённого executable, но не является sandbox или границей доверия.
+
 ## App-Server HTTP Boundary
 
 `proteus server http` предназначен для локального web-клиента и dogfood

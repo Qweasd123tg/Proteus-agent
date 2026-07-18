@@ -26,6 +26,10 @@ Leptos-клиенты исключены из root workspace и проверяю
 `crates/proteus-core/tests/module_swap.rs` проверяет:
 
 - `search = null` и `search = rg` не требуют изменений runtime;
+- `search = process` проходит тот же `SearchBackend` contract: тестовый процесс
+  и Python + `rg` reference меняются с in-process backend без изменений
+  runtime; handshake mismatch отклоняется при сборке snapshot, а смерть child,
+  JSON-RPC error и невалидный slot DTO возвращаются как ошибка без fallback;
 - `BuiltinModuleCatalog` перечисляет built-in manifests для core-owned slots и
   не содержит production workflow/context без плагина;
 - `modules list` рендерит catalog без запуска runtime;

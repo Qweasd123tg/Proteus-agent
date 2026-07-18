@@ -74,7 +74,38 @@ fn module_source(
     }
     if manifest_looks_plugin_owned(&entry.manifest) {
         ModuleSourceTopology::Unknown
+    } else if entry
+        .manifest
+        .capabilities
+        .iter()
+        .any(|capability| capability == "config_defined")
+    {
+        ModuleSourceTopology::Config
     } else {
         ModuleSourceTopology::Builtin
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{ModuleKind, ModuleManifest};
+
+    #[test]
+    fn config_defined_process_module_is_reported_as_config_source() {
+        let entry = ModuleCatalogEntrySummary {
+            slot: "search".to_owned(),
+            id: "process".to_owned(),
+            manifest: ModuleManifest::builtin(
+                "process",
+                ModuleKind::Search,
+                &["config_defined", "process"],
+            ),
+        };
+
+        assert_eq!(
+            module_source(&entry, &BTreeMap::new()),
+            ModuleSourceTopology::Config
+        );
     }
 }

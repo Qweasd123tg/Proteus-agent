@@ -11,6 +11,7 @@ use crate::{
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
+    process_adapters::ProcessSearchBackend,
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
         NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
@@ -71,6 +72,17 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "Поиск отключён: всегда возвращает пустой результат.",
         ),
         build_null_search,
+    );
+    catalog.register_module::<dyn SearchBackend>(
+        slot::SEARCH,
+        "process",
+        manifest(
+            "process",
+            ModuleKind::Search,
+            &["config_defined", "process", "stdio", "newline_json"],
+            "SearchBackend из persistent stdio-процесса; команда и handshake identity задаются в module_config.search.process.",
+        ),
+        build_process_search,
     );
     // Memory stores
     catalog.register_module::<dyn MemoryStore>(
@@ -261,6 +273,15 @@ fn provider_config_with_stream(config: &ModelConfig) -> Result<serde_json::Value
 
 fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
     Ok(Arc::new(NullSearch))
+}
+
+fn build_process_search(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
+    let config = ctx
+        .config
+        .module_config_value(ModuleKind::Search, "process");
+    Ok(Arc::new(ProcessSearchBackend::from_config(
+        config, ctx.cwd,
+    )?))
 }
 
 fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {

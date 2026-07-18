@@ -56,13 +56,15 @@ CLI / Web / Inspector
      +-------+-------+-------+-------+------------+
                      contracts
                          |
-               builtin / dylib modules
+          builtin / dylib / process modules
 ```
 
 Внешний клиент не вызывает provider или tool напрямую. Он отправляет команды в
 app-server и получает contract-события. Runtime на старте собирает immutable
 `RuntimeSnapshot`; активный turn заканчивается на своём snapshot, даже если
-следующий уже будет собран из обновлённого config/tool registry.
+следующий уже будет собран из обновлённого config/tool registry. Process-модуль
+не меняет эту границу: core-owned adapter связывает contract с доверенным
+внешним executable, а алгоритм остаётся за пределами core.
 
 ## Кто За Что Отвечает
 

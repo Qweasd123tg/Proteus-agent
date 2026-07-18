@@ -437,6 +437,8 @@ mod orchestrator;
 mod patch_model;
 #[path = "module_swap/policy.rs"]
 mod policy;
+#[path = "module_swap/process_search.rs"]
+mod process_search;
 #[path = "module_swap/runtime_sessions.rs"]
 mod runtime_sessions;
 #[path = "module_swap/workflow_models.rs"]

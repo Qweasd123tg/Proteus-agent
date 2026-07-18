@@ -54,7 +54,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
         model_ids,
         ["anthropic", "fake", "openai", "openai_compatible"]
     );
-    assert_eq!(search_ids, ["null"]);
+    assert_eq!(search_ids, ["null", "process"]);
     assert_eq!(context_ids, ["none"]);
     assert_eq!(policy_ids, ["deny_all"]);
     assert_eq!(workflow_ids, ["none"]);

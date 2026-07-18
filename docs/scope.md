@@ -28,6 +28,7 @@ model + context + workflow + tools + policy
 
 - OpenAI, Anthropic и OpenAI-compatible model adapters;
 - configurable workflows, context builders, compaction и tool exposure;
+- внешний process `SearchBackend` с языконезависимым JSON-RPC протоколом;
 - file/git/shell/plan tools через default plugins;
 - mode-aware policy, approvals и session-scoped control plane;
 - JSONL sessions, request/config snapshots и pre-compaction archives;
@@ -46,11 +47,12 @@ ABI и внутренние DTO, если dogfood показывает непр�
 ## Текущий Приоритет
 
 Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Неделя 1 — raw
-seam, env allowlist и lifecycle interactive exec — закрыта. Текущий следующий
-шаг — неделя 2: external process modules v0 (`SearchBackend`,
-референс-модуль на TypeScript); затем root-session steering на неделе 3 и
-`Compactor` как второй process-слот или `pi_rpc_reasoner` плюс design doc
-canonical turn data на неделе 4.
+seam, env allowlist и lifecycle interactive exec — закрыта. Неделя 2 также
+закрыта: `SearchBackend` может быть внешним процессом на любом языке, а
+dependency-free Python + `rg` реализация служит проверяемым примером. Текущий
+следующий шаг — root-session steering на неделе 3; затем `Compactor` как второй
+process-слот или `pi_rpc_reasoner` плюс design doc canonical turn data на
+неделе 4.
 
 Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
 readiness-checkpoint ниже остаётся обязательным: он дополнительно включает

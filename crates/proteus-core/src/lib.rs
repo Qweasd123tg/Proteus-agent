@@ -4,5 +4,6 @@ pub mod adapters;
 pub mod app_server;
 pub mod core;
 pub mod plugin_adapters;
+pub mod process_adapters;
 pub mod stubs;
 pub mod tools;

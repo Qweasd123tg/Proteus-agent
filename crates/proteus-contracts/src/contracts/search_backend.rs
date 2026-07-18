@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::ContextChunk;
 
+pub const PROCESS_SEARCH_CONTRACT_VERSION: &str = "v0";
+pub const PROCESS_SEARCH_METHOD: &str = "search";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -56,6 +59,19 @@ impl SearchQuery {
     }
 }
 
+/// Строгий result метода `search` в process-module protocol.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessSearchResponse {
+    pub chunks: Vec<ContextChunk>,
+}
+
+impl ProcessSearchResponse {
+    pub fn new(chunks: Vec<ContextChunk>) -> Self {
+        Self { chunks }
+    }
+}
+
 #[async_trait]
 pub trait SearchBackend: Send + Sync {
     async fn search(&self, query: SearchQuery) -> Result<Vec<ContextChunk>>;
@@ -90,5 +106,16 @@ mod tests {
         assert!(query.matches_path("src/main.rs"));
         assert!(!query.matches_path("tests/main.rs"));
         assert!(!query.matches_path("src/main.md"));
+    }
+
+    #[test]
+    fn process_search_response_rejects_old_array_and_unknown_fields() {
+        serde_json::from_value::<ProcessSearchResponse>(serde_json::json!([]))
+            .expect_err("bare array is not the v0 response envelope");
+        serde_json::from_value::<ProcessSearchResponse>(serde_json::json!({
+            "chunks": [],
+            "legacy_results": []
+        }))
+        .expect_err("unknown response fields must be rejected");
     }
 }

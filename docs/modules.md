@@ -1,7 +1,9 @@
 # Модули
 
 Модульность v0 означает выбор реализации через config: встроенный fallback из
-ядра там, где он ещё нужен, или dylib-плагин из `~/.proteus/plugins`.
+ядра там, где он ещё нужен, dylib-плагин из `~/.proteus/plugins` или
+поддержанный конкретным slot adapter-ом внешний процесс. Первый process-slot —
+`SearchBackend`.
 Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
 `crates/proteus-core/src/core/module_catalog.rs`, а
 `crates/proteus-core/src/core/registry.rs` использует catalog для сборки
@@ -17,6 +19,11 @@ dylib-плагинов, а не реализации модулей и не DTO.
 adapter для plugin `MemoryStore`. `jsonl` вынесен в
 `plugins/default/memory-pack`, SQLite FTS5 backend — в
 `plugins/default/sqlite-memory`.
+
+`crates/proteus-core/src/process_adapters/<slot>` содержит другой glue layer:
+он переводит generic stdio process protocol в конкретный contract. Сейчас там
+есть только search adapter; protocol framing и lifecycle принадлежат
+`proteus-process-host`, а алгоритм поиска остаётся во внешнем child-е.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
@@ -41,8 +48,9 @@ proteus modules list
 
 Эта команда читает `BuiltinModuleCatalog`; она не устанавливает модули и не является package manager.
 
-В текущей реализации config-defined tools уже поддерживают process и stdio MCP
-executors, но external process modules и package manager ещё не реализованы.
+Config-defined tools поддерживают process и stdio MCP executors, а
+`SearchBackend` дополнительно может быть внешним process module. Для остальных
+slots external process adapters и package manager ещё не реализованы.
 Для config-defined tools и MCP discovery есть app-server reload:
 `StdioRequest::ReloadTools` / HTTP `POST /reload-tools` перечитывает `tools.*`
 из config, пересобирает catalog/registry и публикует новый `RuntimeSnapshot`.
@@ -77,7 +85,7 @@ pseudo-slot из topology.
 | Slot | Contract | Selection key | Реализации v0 |
 |---|---|---|---|
 | Model | `Model` | provider config | `fake`, `openai`, `openai_compatible`, `anthropic` |
-| Search | `SearchBackend` | `modules.search` | `null`, plugin-provided (`rg` если подключён `rg-search`) |
+| Search | `SearchBackend` | `modules.search` | `null`, `process`, plugin-provided (`rg` если подключён `rg-search`) |
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite` из `sqlite-memory`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
@@ -158,6 +166,40 @@ compactor использует свой fallback threshold.
 для child process. Это важно для `proteus server stdio`: без явного path `rg`
 может читать открытый JSON stdin вместо файлов workspace и зависнуть до
 timeout.
+
+`modules.search = "process"` строит persistent stdio backend из
+`module_config.search.process`. Выбор и запуск fail-closed: config обязан
+задать ожидаемый `module_id`, команду и при необходимости args/cwd/environment;
+snapshot build сразу запускает child и проверяет handshake. Несовпадение
+protocol/slot/module/contract — config error до turn-а. Смерть child-а,
+JSON-RPC error или неправильная форма результата возвращаются как ошибка
+выбранного search slot-а; `NullSearch` автоматически не подставляется. После
+ошибки текущая process session удаляется, следующий search делает lazy restart
+и повторяет handshake.
+
+Wire v0 — compact JSON-RPC 2.0, один объект на строку. Первый вызов:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol_version":"v0","slot":"search","contract_version":"v0"}}
+```
+
+Ответ содержит строгий manifest:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"protocol_version":"v0","slot":"search","module_id":"python_rg","contract_version":"v0"}}
+```
+
+Затем метод `search` получает canonical `SearchQuery`, а result имеет строгую
+форму `{ "chunks": [ContextChunk, ...] }`. Bare array, неизвестные поля и
+неполные DTO отклоняются; старой формы и auto-detection нет. Generic JSON-RPC
+envelope/framing не знает деталей search, а mapping метода и DTO живёт только в
+search process adapter-е.
+
+Reference в `examples/modules/search-process/search.py` использует Python
+stdlib и `rg`, но язык не является частью контракта: любой executable с тем же
+stdin/stdout protocol подходит. `proteus modules list` показывает module id
+`process` и process-capabilities; Inspector topology помечает источник как
+config.
 
 `SearchQuery` остаётся единым DTO для lexical, path-aware и будущих semantic
 backends. Помимо `text`, `cwd` и `max_results`, в нём есть optional поля

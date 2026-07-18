@@ -25,8 +25,9 @@ Roadmap хранит порядок работ и журнал уже приня
 3. ✅ Неделя 1 закрыта 2026-07-18: кроме raw seam и env hygiene,
    interactive exec получил session/thread/workspace ownership, 30-минутный
    idle cleanup и честную cancellation с остановкой процесса.
-4. Неделя 2: external process modules v0 — `SearchBackend` внешним процессом,
-   референс-модуль на TypeScript, расширение swap-тестов.
+4. ✅ Неделя 2 закрыта 2026-07-18: `SearchBackend` работает внешним процессом
+   на любом языке; добавлены строгий handshake, Python + `rg` reference и
+   swap/failure regression-тесты.
 5. Неделя 3: root-session steering/follow-up через runtime-очередь на границе
    tool-батчей.
 6. Неделя 4: `Compactor` как второй process-слот или `pi_rpc_reasoner`;
@@ -34,7 +35,7 @@ Roadmap хранит порядок работ и журнал уже приня
 7. После месяца: canonical turn data как один кластер (parts + storage +
    replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
 
-Пункт 3 закрыт; текущий следующий шаг — неделя 2. Новые platform features вне
+Пункт 4 закрыт; текущий следующий шаг — неделя 3. Новые platform features вне
 плана месяца не являются приоритетом.
 
 ## Цель
@@ -219,38 +220,41 @@ ownership, cross-turn continuation, idle selection и cancellation cleanup.
 
 ### Неделя 2 (до 2026-07-30): External Process Modules v0
 
-`modules.md` честно фиксирует дыру: process/MCP executors есть у
-config-defined tools, но external process modules не реализованы. Закрываем
-для одного слота — `SearchBackend`:
+Первый внешний process slot закрыт для `SearchBackend`:
 
-- **Протокол v0** поверх `ProcessHost<NewlineJsonFraming>`: search —
+- ✅ **Протокол v0** поверх `ProcessHost<NewlineJsonFraming>`: search —
   request/response, sync-модель крейта подходит (в отличие от subagent
   process runner-а, см. Кластер 3 аудита). Handshake-манифест
   `{protocol_version, slot, module_id, contract_version}` в
   initializer-hook, затем request/response по методам trait-а. Несовпадение
   slot/contract_version — ошибка конфигурации при сборке snapshot.
-- **Fail-closed**: смерть процесса или невалидный ответ = ошибка слота в
+- ✅ **Fail-closed**: смерть процесса или невалидный ответ = ошибка слота в
   turn-е, не тихий fallback на stub; lazy restart на следующий вызов — по
   существующей семантике host-а.
-- **Config**: по образцу config-defined tools — `search = "process:<путь>"`
-  плюс таблица `module_config.search.process` (command, args, cwd, env
-  allowlist, timeout).
-- **Регистрация**: `module_catalog.rs` регистрирует process-модули рядом с
+- ✅ **Config**: один стабильный selector `search = "process"` и одна строгая
+  таблица `module_config.search.process` (`module_id`, `command`, `args`, `cwd`,
+  `env_allowlist`, `env`, `timeout_ms`). Путь не дублируется в selector-е.
+- ✅ **Регистрация**: module catalog регистрирует process-модуль рядом с
   builtin/dylib; `modules list`/Inspector показывают источник модуля.
-- **Референс**: `examples/modules/search-ts/` — один TypeScript-файл
-  (node/bun), реализующий `SearchBackend` поверх обычного `rg`-вызова,
-  чтобы сравнение с builtin `rg` было честным.
-- **Тесты**: расширение `module_swap.rs` — swap `rg` ↔ process-модуль; сбой
-  процесса → ошибка, не подмена; handshake mismatch → config error.
-- **Доки**: секция в `modules.md` и правка тамошнего утверждения про
+- ✅ **Референс**: `examples/modules/search-process/search.py` — один
+  dependency-free Python-файл поверх обычного `rg`. Python выбран только для
+  запуска без build step; тот же wire contract можно реализовать на любом
+  языке.
+- ✅ **Тесты**: расширение `module_swap.rs` покрывает замену backend-а,
+  настоящий reference + `rg`, process/JSON-RPC/DTO failures без подмены и
+  handshake mismatch как config error.
+- ✅ **Доки**: секция в `modules.md` и правка тамошнего утверждения про
   нереализованные external process modules.
 
 Протокол v0 — внутренний: стабильность формата не обещается, как и у dylib
 ABI. Wire-конверт generic; специфика слота живёт в его adapter-е, не в
 протоколе.
 
-Done: dogfood-сессия ищет через TypeScript-модуль; «reload» = перезапуск
-процесса.
+Done: integration-сценарий строит snapshot и ищет через внешний Python + `rg`
+модуль. Новый snapshot создаёт новый process host; ошибки текущего child не
+маскируются, а следующий вызов запускает его заново с handshake. Живой web
+dogfood остаётся частью общего readiness-checkpoint, а не скрытым условием
+контракта недели.
 
 ### Неделя 3 (до 2026-08-06): Root-Session Steering
 

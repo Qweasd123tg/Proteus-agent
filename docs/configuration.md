@@ -1187,10 +1187,40 @@ hunks вида `@@ -1,4 +1,5 @@` и команды вроде `replace file:2-3`
 
 ## Search
 
-Core содержит только no-op backend `modules.search = "null"`. Ripgrep backend
-поставляется плагином `rg-search` под module id `rg`; лимиты результатов
-передаются через `SearchQuery.max_results` из context builder или tool
-`search`, а не через core-specific `[search.rg]`.
+Core содержит no-op backend `modules.search = "null"` и process adapter
+`modules.search = "process"`. Ripgrep backend также поставляется dylib-плагином
+`rg-search` под module id `rg`; лимиты результатов передаются через
+`SearchQuery.max_results` из context builder или tool `search`, а не через
+backend-specific `[search.rg]`.
+
+Внешний process backend настраивается одним строгим блоком:
+
+```toml
+[modules]
+search = "process"
+
+[module_config.search.process]
+module_id = "python_rg" # ожидаемая identity из initialize manifest
+command = "python3"
+args = ["examples/modules/search-process/search.py"]
+# cwd = "."               # optional; relative к workspace, default = workspace
+# env_allowlist = ["TOKEN"]
+# env = { MODE = "local" }
+timeout_ms = 60000         # initialize и каждый search; default 30000, > 0
+```
+
+`command` обязателен и запускается через `ProcessSpec`: parent environment
+очищается, автоматически сохраняется platform-minimal allowlist (`PATH` на
+Unix), затем добавляются только `env_allowlist` и literal `env`. Относительный
+`cwd` считается от текущего workspace, `~` разворачивается; несуществующий cwd,
+пустые `module_id`/`command`, нулевой timeout и неизвестные config fields —
+ошибка сборки registry. `module_id` сверяется с handshake, поэтому случайная
+подмена executable не принимается молча.
+
+Полный runnable пример —
+`examples/configs/proteus.process-search.example.toml`. Путь к script в нём
+рассчитан на запуск из корня репозитория; для другого workspace укажите
+absolute path или подходящий process `cwd`/args.
 
 ## Context
 
