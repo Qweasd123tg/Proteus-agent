@@ -22,12 +22,9 @@ Roadmap хранит порядок работ и журнал уже приня
 2. ✅ Закрыто 2026-07-11: shell sandbox работает fail-closed, внешний `workdir`
    не расширяет RW boundary без escalation, Ptyxis требует escalation, а
    non-loopback HTTP требует token.
-3. 🟡 Неделя 1: raw seam и `env_clear`/allowlist в `proteus-process-host`
-   закрыты 2026-07-17; остался хвост lifecycle-стабилизации — ownership, age
-   cleanup и cancellation для уже count-bounded interactive exec sessions.
-   (Контекст: collaboration control ранее закрыт session ownership, hard caps
-   и sequential mailbox/follow-up; process subagents — bounded idle/resume LRU
-   retention.)
+3. ✅ Неделя 1 закрыта 2026-07-18: кроме raw seam и env hygiene,
+   interactive exec получил session/thread/workspace ownership, 30-минутный
+   idle cleanup и честную cancellation с остановкой процесса.
 4. Неделя 2: external process modules v0 — `SearchBackend` внешним процессом,
    референс-модуль на TypeScript, расширение swap-тестов.
 5. Неделя 3: root-session steering/follow-up через runtime-очередь на границе
@@ -37,7 +34,7 @@ Roadmap хранит порядок работ и журнал уже приня
 7. После месяца: canonical turn data как один кластер (parts + storage +
    replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
 
-До закрытия пункта 3 недели 2–4 не начинаются, а новые platform features вне
+Пункт 3 закрыт; текущий следующий шаг — неделя 2. Новые platform features вне
 плана месяца не являются приоритетом.
 
 ## Цель
@@ -206,12 +203,19 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   обязательные Windows process variables), остальные значения передаются
   только через `env_allowlist` или explicit `env`. Inline/discovered MCP config
   поддерживает оба поля; literal `env` перекрывает allowlisted parent value.
-- **Хвост lifecycle-стабилизации**: session/thread ownership, age cleanup и
-  честная cancellation для interactive exec sessions — закрывает пункт 3
-  «Ближайшего Порядка» и checkpoint из `scope.md`.
+- ✅ **Хвост lifecycle-стабилизации** (2026-07-18): обязательный
+  `ToolInvocationOwner` проходит через `PluginToolInvocationContext`, а
+  borrowed `PluginToolHost` даёт sync-плагину live cancellation signal.
+  Interactive PTY handle принадлежит session/thread/workspace и остаётся
+  доступен тому же thread между turn'ами; чужой owner отклоняется. Store
+  сохраняет cap 16 с LRU-eviction, janitor раз в минуту убивает завершённые и
+  простаивавшие 30 минут сессии, cancellation убивает процесс и удаляет
+  handle. Старый plugin-tool ABI `(call_json, cwd)` удалён без compatibility
+  shim; все tracked плагины переведены на новый контракт.
 
 Done: root gate зелёный; существующие MCP/process-subagent тесты проходят;
-у seam есть unit-тесты на timeout/terminate/bounds.
+у seam есть unit-тесты на timeout/terminate/bounds, у interactive exec — на
+ownership, cross-turn continuation, idle selection и cancellation cleanup.
 
 ### Неделя 2 (до 2026-07-30): External Process Modules v0
 

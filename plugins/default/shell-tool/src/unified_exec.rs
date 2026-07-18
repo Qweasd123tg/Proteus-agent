@@ -3,14 +3,15 @@
 //!
 //! `exec_command` запускает команду в PTY и ждёт вывод до `yield_time_ms`;
 //! если процесс ещё жив, модель получает Session ID и продолжает диалог через
-//! `write_stdin` (в том числе Ctrl-C/Ctrl-D как "\u{3}"/"\u{4}"). Сессии
-//! живут в глобальном store внутри dylib и умирают вместе с ядром; sandbox —
-//! тот же bubblewrap, что и у one-shot `shell`, с той же эскалацией через
-//! `with_escalated_permissions`.
+//! `write_stdin` (в том числе Ctrl-C/Ctrl-D как "\u{3}"/"\u{4}"). Сессия
+//! принадлежит runtime session/thread/workspace, очищается после 30 минут
+//! простоя и умирает вместе с ядром; sandbox — тот же bubblewrap, что и у
+//! one-shot `shell`, с той же эскалацией через `with_escalated_permissions`.
 
 use std::{
     collections::HashMap,
     io::{Read as _, Write as _},
+    path::PathBuf,
     sync::{
         Arc, Condvar, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicI64, Ordering},
@@ -22,8 +23,8 @@ use anyhow::{Context, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
-    domain::EXEC_SHELL,
-    plugin::{PluginTool, PluginToolError},
+    domain::{EXEC_SHELL, SessionId, ThreadId},
+    plugin::{PluginTool, PluginToolError, PluginToolHostMut, PluginToolInvocationContext},
 };
 use serde_json::{Value, json};
 
@@ -47,6 +48,9 @@ const APPROX_BYTES_PER_TOKEN: u64 = 4;
 /// Непрочитанный вывод сессии между вызовами; старое выталкивается спереди.
 const SESSION_BUFFER_LIMIT: usize = 1024 * 1024;
 const MAX_SESSIONS: usize = 16;
+const SESSION_MAX_IDLE: Duration = Duration::from_secs(30 * 60);
+const SESSION_JANITOR_INTERVAL: Duration = Duration::from_secs(60);
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// После выхода процесса даём reader'у дочитать хвост из PTY.
 const EXIT_DRAIN_GRACE: Duration = Duration::from_millis(150);
 
@@ -56,7 +60,7 @@ impl PluginTool for ExecCommandTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "exec_command",
-            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
+            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. Live sessions belong to the current runtime session/thread/workspace, expire after 30 minutes idle, and are killed when the invocation is cancelled. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -95,8 +99,13 @@ impl PluginTool for ExecCommandTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
-        match exec_command_impl(call_json.as_str(), cwd.as_str()) {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        match exec_command_impl(call_json.as_str(), context_json.as_str(), host) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
         }
@@ -109,7 +118,7 @@ impl PluginTool for WriteStdinTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "write_stdin",
-            "description": "Writes characters to a running exec_command session and returns output produced within `yield_time_ms`. Send \"\\u0003\" (Ctrl-C) to interrupt or \"\\u0004\" (Ctrl-D) to close stdin; empty `chars` polls for more output. Safety: RunsCommands.",
+            "description": "Writes characters to a running exec_command session owned by the current runtime session/thread/workspace and returns output produced within `yield_time_ms`. Send \"\\u0003\" (Ctrl-C) to interrupt or \"\\u0004\" (Ctrl-D) to close stdin; empty `chars` polls for more output. Cancelling the invocation kills and removes the session. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -143,8 +152,13 @@ impl PluginTool for WriteStdinTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, _cwd: RString) -> RResult<RString, PluginToolError> {
-        match write_stdin_impl(call_json.as_str()) {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        match write_stdin_impl(call_json.as_str(), context_json.as_str(), host) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
         }
@@ -169,8 +183,32 @@ struct ExecSession {
     /// Держит master-сторону PTY живой, пока сессия существует.
     _master: Mutex<Box<dyn MasterPty + Send>>,
     sandbox: Option<SandboxKind>,
+    owner: ExecSessionOwner,
     /// Для LRU-prune: обновляется при каждом обращении к сессии.
     last_used: Mutex<Instant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExecSessionOwner {
+    session_id: SessionId,
+    thread_id: ThreadId,
+    workspace: PathBuf,
+}
+
+impl ExecSessionOwner {
+    fn from_context(context: &PluginToolInvocationContext) -> Self {
+        Self {
+            session_id: context.owner.session_id,
+            thread_id: context.owner.thread_id,
+            workspace: context.cwd.clone(),
+        }
+    }
+
+    fn matches(&self, context: &PluginToolInvocationContext) -> bool {
+        self.session_id == context.owner.session_id
+            && self.thread_id == context.owner.thread_id
+            && self.workspace == context.cwd
+    }
 }
 
 impl ExecSession {
@@ -202,6 +240,10 @@ impl ExecSession {
         drop(output);
         self.output_cond.notify_all();
     }
+
+    fn kill(&self) {
+        let _ = lock(&self.killer).kill();
+    }
 }
 
 /// Снимок, который вызов забирает из сессии после ожидания.
@@ -219,6 +261,26 @@ fn sessions() -> &'static Mutex<SessionMap> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn ensure_session_janitor() -> Result<()> {
+    static JANITOR: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+    JANITOR
+        .get_or_init(|| {
+            std::thread::Builder::new()
+                .name("proteus-exec-session-janitor".to_owned())
+                .spawn(|| {
+                    loop {
+                        std::thread::sleep(SESSION_JANITOR_INTERVAL);
+                        prune_expired_sessions(Instant::now(), SESSION_MAX_IDLE);
+                    }
+                })
+                .map(|_| ())
+                .map_err(|error| format!("failed to spawn exec session janitor: {error}"))
+        })
+        .as_ref()
+        .map(|()| ())
+        .map_err(|message| anyhow!(message.clone()))
+}
+
 static NEXT_SESSION_ID: AtomicI64 = AtomicI64::new(1001);
 
 /// Mutex-и делят только потоки этого модуля; после паники внутри guard'а
@@ -230,9 +292,16 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn exec_command_impl(call_json: &str, cwd: &str) -> Result<String> {
+fn exec_command_impl(
+    call_json: &str,
+    context_json: &str,
+    host: &mut PluginToolHostMut<'_>,
+) -> Result<String> {
+    ensure_not_cancelled(host)?;
     let call: Value =
         serde_json::from_str(call_json).with_context(|| "failed to parse ToolCall JSON")?;
+    let context: PluginToolInvocationContext = serde_json::from_str(context_json)
+        .with_context(|| "failed to parse PluginToolInvocationContext")?;
     let call_id = call
         .get("id")
         .and_then(Value::as_str)
@@ -251,9 +320,10 @@ fn exec_command_impl(call_json: &str, cwd: &str) -> Result<String> {
         call_id,
         args,
         cmd,
-        cwd,
+        &context,
         escalated,
-        SandboxPolicy::detect(cwd),
+        SandboxPolicy::detect(context.cwd.to_string_lossy().as_ref()),
+        host,
     )
 }
 
@@ -261,19 +331,37 @@ fn execute_command(
     call_id: String,
     args: Option<&Value>,
     cmd: &str,
-    cwd: &str,
+    context: &PluginToolInvocationContext,
     escalated: bool,
     sandbox_policy: SandboxPolicy,
+    host: &mut PluginToolHostMut<'_>,
 ) -> Result<String> {
-    let resolved = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")), escalated)?;
+    ensure_not_cancelled(host)?;
+    let cwd = context.cwd.to_string_lossy();
+    let resolved = resolve_workdir(
+        cwd.as_ref(),
+        args.and_then(|args| args.get("workdir")),
+        escalated,
+    )?;
     let yield_time_ms = resolve_yield_time_ms(args, DEFAULT_EXEC_YIELD_MS);
     let max_output_bytes = resolve_max_output_bytes(args);
     let sandbox = sandbox_policy.select(escalated, false)?;
 
     let started = Instant::now();
-    let (session_id, session) =
-        spawn_session(cmd, &resolved.workspace, &resolved.workdir, sandbox)?;
-    let collected = wait_and_collect(&session, Duration::from_millis(yield_time_ms));
+    let (session_id, session) = spawn_session(
+        cmd,
+        &resolved.workspace,
+        &resolved.workdir,
+        sandbox,
+        ExecSessionOwner::from_context(context),
+    )?;
+    let collected = match wait_and_collect(&session, Duration::from_millis(yield_time_ms), host) {
+        Ok(collected) => collected,
+        Err(error) => {
+            terminate_session(session_id, &session);
+            return Err(error);
+        }
+    };
     let wall_time = started.elapsed();
     if collected.exited {
         lock(sessions()).remove(&session_id);
@@ -295,9 +383,16 @@ fn execute_command(
     ))
 }
 
-fn write_stdin_impl(call_json: &str) -> Result<String> {
+fn write_stdin_impl(
+    call_json: &str,
+    context_json: &str,
+    host: &mut PluginToolHostMut<'_>,
+) -> Result<String> {
+    ensure_not_cancelled(host)?;
     let call: Value =
         serde_json::from_str(call_json).with_context(|| "failed to parse ToolCall JSON")?;
+    let context: PluginToolInvocationContext = serde_json::from_str(context_json)
+        .with_context(|| "failed to parse PluginToolInvocationContext")?;
     let call_id = call
         .get("id")
         .and_then(Value::as_str)
@@ -318,10 +413,19 @@ fn write_stdin_impl(call_json: &str) -> Result<String> {
     }
     let max_output_bytes = resolve_max_output_bytes(args);
 
-    let session = lock(sessions()).get(&session_id).cloned().ok_or_else(|| {
-        anyhow!("unknown exec session {session_id}; the process may have already exited")
-    })?;
-    session.touch();
+    let session = {
+        let sessions = lock(sessions());
+        let session = sessions.get(&session_id).cloned().ok_or_else(|| {
+            anyhow!("unknown exec session {session_id}; the process may have already exited")
+        })?;
+        if !session.owner.matches(&context) {
+            anyhow::bail!(
+                "exec session {session_id} is not owned by the current session/thread/workspace"
+            );
+        }
+        session.touch();
+        session
+    };
 
     let started = Instant::now();
     if !chars.is_empty() {
@@ -339,7 +443,13 @@ fn write_stdin_impl(call_json: &str) -> Result<String> {
             return Err(anyhow!(error).context("failed to write to session stdin"));
         }
     }
-    let collected = wait_and_collect(&session, Duration::from_millis(yield_time_ms));
+    let collected = match wait_and_collect(&session, Duration::from_millis(yield_time_ms), host) {
+        Ok(collected) => collected,
+        Err(error) => {
+            terminate_session(session_id, &session);
+            return Err(error);
+        }
+    };
     let wall_time = started.elapsed();
     if collected.exited {
         lock(sessions()).remove(&session_id);
@@ -383,7 +493,9 @@ fn spawn_session(
     workspace: &str,
     workdir: &str,
     sandbox: Option<SandboxKind>,
+    owner: ExecSessionOwner,
 ) -> Result<(i64, Arc<ExecSession>)> {
+    ensure_session_janitor()?;
     let pty = native_pty_system();
     let pair = pty
         .openpty(PtySize {
@@ -441,6 +553,7 @@ fn spawn_session(
         killer: Mutex::new(killer),
         _master: Mutex::new(pair.master),
         sandbox,
+        owner,
         last_used: Mutex::new(Instant::now()),
     });
 
@@ -486,8 +599,43 @@ fn prune_session_if_needed(sessions: &mut SessionMap) {
         return;
     };
     if let Some(victim) = sessions.remove(&victim_id) {
-        let _ = lock(&victim.killer).kill();
+        victim.kill();
     }
+}
+
+fn prune_expired_sessions(now: Instant, max_idle: Duration) {
+    let victims = {
+        let mut sessions = lock(sessions());
+        let meta = sessions
+            .iter()
+            .map(|(id, session)| (*id, *lock(&session.last_used), lock(&session.output).exited))
+            .collect::<Vec<_>>();
+        expired_session_ids(&meta, now, max_idle)
+            .into_iter()
+            .filter_map(|id| sessions.remove(&id))
+            .collect::<Vec<_>>()
+    };
+    for victim in victims {
+        victim.kill();
+    }
+}
+
+fn expired_session_ids(
+    meta: &[(i64, Instant, bool)],
+    now: Instant,
+    max_idle: Duration,
+) -> Vec<i64> {
+    meta.iter()
+        .filter(|(_, last_used, exited)| {
+            *exited || now.saturating_duration_since(*last_used) >= max_idle
+        })
+        .map(|(id, _, _)| *id)
+        .collect()
+}
+
+fn terminate_session(session_id: i64, session: &ExecSession) {
+    lock(sessions()).remove(&session_id);
+    session.kill();
 }
 
 /// Чистая политика выбора жертвы: сначала exited, затем самый старый
@@ -499,11 +647,20 @@ fn session_to_prune(meta: &[(i64, Instant, bool)]) -> Option<i64> {
 }
 
 /// Ждёт до дедлайна (или до exit + drain) и забирает накопленный вывод.
-fn wait_and_collect(session: &ExecSession, yield_time: Duration) -> Collected {
+fn wait_and_collect(
+    session: &ExecSession,
+    yield_time: Duration,
+    host: &mut PluginToolHostMut<'_>,
+) -> Result<Collected> {
     let deadline = Instant::now() + yield_time;
     let mut output = lock(&session.output);
     let mut exit_seen_at: Option<Instant> = None;
     loop {
+        if invocation_is_cancelled(host)? {
+            drop(output);
+            session.kill();
+            anyhow::bail!("tool invocation canceled");
+        }
         if output.exited {
             let seen = *exit_seen_at.get_or_insert_with(Instant::now);
             if output.closed || seen.elapsed() >= EXIT_DRAIN_GRACE {
@@ -519,17 +676,35 @@ fn wait_and_collect(session: &ExecSession, yield_time: Duration) -> Collected {
             let grace_left = EXIT_DRAIN_GRACE.saturating_sub(seen.elapsed());
             wait = wait.min(grace_left.max(Duration::from_millis(1)));
         }
+        wait = wait.min(CANCELLATION_POLL_INTERVAL);
         let (guard, _timeout) = session
             .output_cond
             .wait_timeout(output, wait)
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         output = guard;
     }
-    Collected {
+    Ok(Collected {
         bytes: std::mem::take(&mut output.buffer),
         dropped_bytes: std::mem::take(&mut output.dropped_bytes),
         exited: output.exited,
         exit_code: output.exit_code,
+    })
+}
+
+fn ensure_not_cancelled(host: &mut PluginToolHostMut<'_>) -> Result<()> {
+    if invocation_is_cancelled(host)? {
+        anyhow::bail!("tool invocation canceled");
+    }
+    Ok(())
+}
+
+fn invocation_is_cancelled(host: &mut PluginToolHostMut<'_>) -> Result<bool> {
+    match host.is_cancelled() {
+        RResult::ROk(cancelled) => Ok(cancelled),
+        RResult::RErr(error) => Err(anyhow!(
+            "failed to query plugin tool cancellation: {}",
+            error.message
+        )),
     }
 }
 
@@ -633,239 +808,4 @@ fn ceil_char_boundary(text: &str, mut index: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::*;
-
-    fn exec_command(cwd: &std::path::Path, args: Value) -> Value {
-        let call = json!({ "id": "call_exec", "name": "exec_command", "args": args });
-        let result =
-            exec_command_impl(&call.to_string(), &cwd.display().to_string()).expect("invoke");
-        serde_json::from_str(&result).expect("tool result")
-    }
-
-    fn write_stdin(args: Value) -> Value {
-        let call = json!({ "id": "call_stdin", "name": "write_stdin", "args": args });
-        let result = write_stdin_impl(&call.to_string()).expect("invoke");
-        serde_json::from_str(&result).expect("tool result")
-    }
-
-    #[test]
-    fn exec_command_reports_exit_for_quick_command() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = exec_command(dir.path(), json!({ "cmd": "printf marker42" }));
-
-        assert_eq!(result["ok"], true);
-        let output = result["output"].as_str().expect("output");
-        assert!(output.contains("marker42"), "{output}");
-        assert!(output.contains("Process exited with code 0"), "{output}");
-        assert_eq!(result["metadata"]["exited"], true);
-        assert_eq!(result["metadata"]["exit_code"], 0);
-        assert_eq!(result["metadata"]["session_id"], Value::Null);
-    }
-
-    #[test]
-    fn exec_command_neutralizes_interactive_env() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = exec_command(
-            dir.path(),
-            json!({ "cmd": "printf '%s|%s|%s' \"$TERM\" \"$GIT_PAGER\" \"$PAGER\"" }),
-        );
-
-        let output = result["output"].as_str().expect("output");
-        assert!(output.contains("dumb|cat|cat"), "{output}");
-    }
-
-    #[test]
-    fn exec_command_keeps_session_and_write_stdin_interacts() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let started = exec_command(dir.path(), json!({ "cmd": "cat", "yield_time_ms": 300 }));
-        assert_eq!(started["ok"], true);
-        assert_eq!(started["metadata"]["exited"], false);
-        let session_id = started["metadata"]["session_id"]
-            .as_i64()
-            .expect("session id");
-        assert!(
-            started["output"]
-                .as_str()
-                .expect("output")
-                .contains(&format!("Process running with session ID {session_id}"))
-        );
-
-        let echoed = write_stdin(json!({
-            "session_id": session_id,
-            "chars": "hello\n",
-            "yield_time_ms": 500
-        }));
-        assert_eq!(echoed["ok"], true);
-        assert!(
-            echoed["output"].as_str().expect("output").contains("hello"),
-            "{echoed}"
-        );
-
-        // Ctrl-D закрывает stdin, cat выходит с кодом 0 и сессия исчезает.
-        let finished = write_stdin(json!({
-            "session_id": session_id,
-            "chars": "\u{4}",
-            "yield_time_ms": 5000
-        }));
-        assert_eq!(finished["metadata"]["exited"], true, "{finished}");
-        assert_eq!(finished["metadata"]["exit_code"], 0);
-
-        let call = json!({
-            "id": "call_stdin",
-            "name": "write_stdin",
-            "args": { "session_id": session_id, "chars": "x" }
-        });
-        let error = write_stdin_impl(&call.to_string()).expect_err("session must be gone");
-        assert!(
-            error.to_string().contains("unknown exec session"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn write_stdin_rejects_unknown_session() {
-        let call = json!({
-            "id": "call_stdin",
-            "name": "write_stdin",
-            "args": { "session_id": -1 }
-        });
-
-        let error = write_stdin_impl(&call.to_string()).expect_err("unknown session must error");
-
-        assert!(
-            error.to_string().contains("unknown exec session"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn exec_command_requires_cmd_arg() {
-        let dir = tempfile::tempdir().expect("workspace");
-        let call = json!({ "id": "call_exec", "name": "exec_command", "args": {} });
-
-        let error = exec_command_impl(&call.to_string(), &dir.path().display().to_string())
-            .expect_err("missing cmd must error");
-
-        assert!(error.to_string().contains("requires string arg 'cmd'"));
-    }
-
-    #[test]
-    fn exec_command_fails_closed_without_bwrap() {
-        let dir = tempfile::tempdir().expect("workspace");
-        let marker = dir.path().join("must-not-exist");
-        let args = json!({ "cmd": "touch must-not-exist" });
-
-        let error = execute_command(
-            "call_exec".to_owned(),
-            Some(&args),
-            args["cmd"].as_str().unwrap(),
-            &dir.path().display().to_string(),
-            false,
-            SandboxPolicy::unavailable_for_test(),
-        )
-        .expect_err("missing bwrap must reject non-escalated exec_command");
-
-        assert!(error.to_string().contains("requires executable 'bwrap'"));
-        assert!(!marker.exists(), "command must not be spawned");
-    }
-
-    #[test]
-    fn exec_command_rejects_external_workdir_without_escalation() {
-        let workspace = tempfile::tempdir().expect("workspace");
-        let external = tempfile::tempdir().expect("external workdir");
-        let call = json!({
-            "id": "call_exec",
-            "name": "exec_command",
-            "args": { "cmd": "pwd", "workdir": external.path() }
-        });
-
-        let error = exec_command_impl(&call.to_string(), &workspace.path().display().to_string())
-            .expect_err("external workdir must require escalation");
-
-        assert!(
-            error.to_string().contains("outside the workspace"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn exec_command_truncates_output_head_and_tail() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = exec_command(
-            dir.path(),
-            json!({
-                "cmd": "yes 0123456789 | head -c 60000",
-                "max_output_tokens": 100
-            }),
-        );
-
-        assert_eq!(result["metadata"]["truncated"], true);
-        let output = result["output"].as_str().expect("output");
-        assert!(output.contains("omitted"), "{output}");
-    }
-
-    #[test]
-    fn exec_command_reports_nonzero_exit_as_data_not_tool_failure() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = exec_command(dir.path(), json!({ "cmd": "exit 7" }));
-
-        // Parity с upstream: exit code — данные в тексте/metadata, ok=true.
-        assert_eq!(result["ok"], true);
-        assert_eq!(result["error"], Value::Null);
-        assert_eq!(result["metadata"]["exit_code"], 7);
-        let output = result["output"].as_str().expect("output");
-        assert!(output.contains("Process exited with code 7"), "{output}");
-    }
-
-    #[test]
-    fn exec_command_clamps_yield_time() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = exec_command(dir.path(), json!({ "cmd": "sleep 3", "yield_time_ms": 1 }));
-
-        assert_eq!(result["metadata"]["yield_time_ms"], MIN_YIELD_MS);
-        assert_eq!(result["metadata"]["exited"], false);
-        let session_id = result["metadata"]["session_id"]
-            .as_i64()
-            .expect("session id");
-        // Прибираем за собой, чтобы не упереться в MAX_SESSIONS в других тестах.
-        write_stdin(json!({ "session_id": session_id, "chars": "\u{3}", "yield_time_ms": 5000 }));
-    }
-
-    #[test]
-    fn prune_prefers_exited_then_oldest() {
-        let now = Instant::now();
-        let older = now - Duration::from_secs(60);
-        // Живая старая vs живая свежая: выкидываем старую.
-        assert_eq!(
-            session_to_prune(&[(1, older, false), (2, now, false)]),
-            Some(1)
-        );
-        // Завершённая свежая vs живая старая: сначала завершённая.
-        assert_eq!(
-            session_to_prune(&[(1, older, false), (2, now, true)]),
-            Some(2)
-        );
-        assert_eq!(session_to_prune(&[]), None);
-    }
-
-    #[test]
-    fn truncate_head_tail_respects_char_boundaries() {
-        let text = "ёжик".repeat(100); // 800 байт, все символы двухбайтовые
-        let (truncated, was_truncated) = truncate_head_tail(&text, 101);
-        assert!(was_truncated);
-        assert!(truncated.contains("omitted"));
-
-        let (untouched, was_truncated) = truncate_head_tail("short", 100);
-        assert!(!was_truncated);
-        assert_eq!(untouched, "short");
-    }
-}
+mod tests;

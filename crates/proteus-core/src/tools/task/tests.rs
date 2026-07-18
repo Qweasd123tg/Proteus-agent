@@ -9,8 +9,12 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::*;
-use crate::contracts::{SubagentIsolation, SubagentToolHost, Tool};
-use crate::domain::ToolSafety;
+use crate::contracts::{SubagentIsolation, SubagentToolHost, Tool, ToolInvocationOwner};
+use crate::domain::{ToolSafety, new_session_id, new_thread_id, new_turn_id};
+
+fn test_tool_owner() -> ToolInvocationOwner {
+    ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id())
+}
 
 #[derive(Default)]
 struct RecordingSubagentHost {
@@ -180,7 +184,7 @@ async fn invoke_delegates_through_runtime_bound_host() {
             "description": "inspect code"
         }),
     );
-    let mut ctx = ToolContext::new(parent_task.cwd.clone());
+    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     ctx.task = Some(parent_task.clone());
     ctx.subagent = Some(host.clone());
 
@@ -243,7 +247,7 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
         TASK_TOOL,
         json!({"agent_type": "coder", "prompt": "make a change"}),
     );
-    let mut ctx = ToolContext::new(parent_task.cwd.clone());
+    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     ctx.task = Some(parent_task);
     ctx.subagent = Some(Arc::new(WritingSubagentHost));
 
@@ -312,7 +316,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
         TASK_TOOL,
         json!({"agent_type": "coder", "prompt": "make a change"}),
     );
-    let mut owner_ctx = ToolContext::new(parent_task.cwd.clone());
+    let mut owner_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     owner_ctx.task = Some(parent_task.clone());
     owner_ctx.subagent = Some(owner.clone());
 
@@ -333,7 +337,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
             "task_id": child_thread_id.to_string()
         }),
     );
-    let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone());
+    let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     foreign_ctx.task = Some(parent_task.clone());
     foreign_ctx.subagent = Some(foreign.clone());
     let rejected = tool.invoke(&resume, foreign_ctx).await.unwrap();

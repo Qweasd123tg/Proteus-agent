@@ -7,8 +7,10 @@ use super::control::{FollowupRequest, MAX_OUTSTANDING_COMPLETIONS};
 use super::spec::{followup_spec, send_message_spec};
 use super::*;
 use crate::{
-    contracts::{CancellationToken, SubagentHandle, SubagentResult, SubagentStatus},
-    domain::{AgentTask, ToolCall, new_call_id, new_session_id, new_thread_id},
+    contracts::{
+        CancellationToken, SubagentHandle, SubagentResult, SubagentStatus, ToolInvocationOwner,
+    },
+    domain::{AgentTask, ToolCall, new_call_id, new_session_id, new_thread_id, new_turn_id},
 };
 
 struct TestHost {
@@ -89,7 +91,8 @@ fn call(name: &str, args: Value) -> ToolCall {
 }
 
 fn context(host: Arc<TestHost>) -> ToolContext {
-    let mut ctx = ToolContext::new(std::env::current_dir().expect("cwd"));
+    let owner = ToolInvocationOwner::new(host.session_id, new_thread_id(), new_turn_id());
+    let mut ctx = ToolContext::new(std::env::current_dir().expect("cwd"), owner);
     ctx.task = Some(AgentTask::new("parent", ctx.cwd.clone()));
     ctx.subagent = Some(host);
     ctx

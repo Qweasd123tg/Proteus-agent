@@ -109,13 +109,29 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 #[cfg(test)]
 mod tests {
     use proteus_contracts::{
-        abi_stable::std_types::{RResult, RString},
-        plugin::PluginTool,
+        abi_stable::{
+            sabi_trait::TD_Opaque,
+            std_types::{RResult, RString},
+        },
+        contracts::ToolInvocationOwner,
+        domain::{new_session_id, new_thread_id, new_turn_id},
+        plugin::{
+            PluginTool, PluginToolError, PluginToolHost, PluginToolHost_TO, PluginToolHostMut,
+            PluginToolInvocationContext,
+        },
     };
     use serde_json::{Value, json};
 
     use super::*;
     use crate::{find::FindFilesTool, read_many::ReadManyFilesTool};
+
+    struct TestToolHost;
+
+    impl PluginToolHost for TestToolHost {
+        fn is_cancelled(&self) -> RResult<bool, PluginToolError> {
+            RResult::ROk(false)
+        }
+    }
 
     fn invoke<T: PluginTool>(tool: &T, cwd: &std::path::Path, args: Value) -> Value {
         let call = json!({
@@ -126,9 +142,16 @@ mod tests {
                 .expect("tool name"),
             "args": args
         });
+        let context = PluginToolInvocationContext {
+            cwd: cwd.to_path_buf(),
+            owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        };
+        let mut host = TestToolHost;
+        let mut host_to: PluginToolHostMut<'_> = PluginToolHost_TO::from_ptr(&mut host, TD_Opaque);
         match tool.invoke_json(
             RString::from(call.to_string()),
-            RString::from(cwd.display().to_string()),
+            RString::from(serde_json::to_string(&context).expect("context json")),
+            &mut host_to,
         ) {
             RResult::ROk(result) => serde_json::from_str(result.as_str()).expect("tool result"),
             RResult::RErr(err) => panic!("plugin error: {}", err.message),

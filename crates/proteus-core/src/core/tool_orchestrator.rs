@@ -205,6 +205,11 @@ impl ToolOrchestrator {
         // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
             cwd: task.cwd.clone(),
+            owner: crate::contracts::ToolInvocationOwner::new(
+                ctx.session_id,
+                ctx.thread_id,
+                ctx.turn_id,
+            ),
             cancellation: tool_cancellation.clone(),
             user_input: Some(std::sync::Arc::new(
                 crate::core::AttributedUserInputTransport::new(

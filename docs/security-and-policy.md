@@ -515,22 +515,28 @@ split_commands = true
 правилами группы `bash`. Порядок правил значим — более специфичные правила
 ставьте ниже общих.
 
+## Interactive Exec Lifecycle
+
+PTY registry `exec_command`/`write_stdin` остаётся process-wide как деталь
+реализации, но numeric session id служит только locator-ом. Handle принадлежит
+runtime session/thread/workspace: тот же thread может продолжить процесс между
+turn'ами, а другой session, thread или workspace получает явную ошибку.
+Завершённые sessions и sessions с idle age от 30 минут удаляет минутный
+janitor; общий cap 16 сохраняет LRU-eviction. Cancellation активного вызова
+убивает процесс и удаляет handle.
+
 ## Известные Ограничения Текущей Реализации
 
 Это текущие gaps, а не целевое поведение:
 
-- PTY sessions `exec_command`/`write_stdin` хранятся process-wide;
-  `write_stdin` адресует их по предсказуемому numeric id без ownership по
-  caller/session/cwd;
 - `process` SubagentRunner ограничивает concurrent leases semaphore-ом и idle
   residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;
 
-До устранения этих gaps не считайте plan mode или shared unified exec
-полноценной process isolation boundary. Внешний `workdir` допустим только для
-явно эскалированного unsandboxed вызова и сам по себе isolation boundary не
-создаёт.
+До устранения этих gaps не считайте process-subagent/collaboration handles
+durable process isolation boundary. Внешний `workdir` допустим только для явно
+эскалированного unsandboxed вызова и сам по себе isolation boundary не создаёт.
 
 ## Planned Rights Model
 

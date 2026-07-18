@@ -182,7 +182,17 @@ mod tests {
         );
 
         let result = tool
-            .invoke(&call, ToolContext::new(".".into()))
+            .invoke(
+                &call,
+                ToolContext::new(
+                    ".".into(),
+                    crate::contracts::ToolInvocationOwner::new(
+                        crate::domain::new_session_id(),
+                        crate::domain::new_thread_id(),
+                        crate::domain::new_turn_id(),
+                    ),
+                ),
+            )
             .await
             .unwrap();
 
@@ -207,7 +217,17 @@ mod tests {
         );
 
         let result = tool
-            .invoke(&call, ToolContext::new(".".into()))
+            .invoke(
+                &call,
+                ToolContext::new(
+                    ".".into(),
+                    crate::contracts::ToolInvocationOwner::new(
+                        crate::domain::new_session_id(),
+                        crate::domain::new_thread_id(),
+                        crate::domain::new_turn_id(),
+                    ),
+                ),
+            )
             .await
             .unwrap();
 

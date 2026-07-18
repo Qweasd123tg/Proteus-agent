@@ -36,7 +36,7 @@ use proteus_core::{
         ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
         EventEmitter, Model, PatchApplier, PolicyContext, PolicyVisibilityContext, RequestOrigin,
         SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput, ToolExposureRequest,
-        ToolRegistry, ToolSource, Workflow,
+        ToolInvocationOwner, ToolRegistry, ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
@@ -88,6 +88,10 @@ fn workspace_root_file(name: &str) -> std::path::PathBuf {
         .join("..")
         .join("..")
         .join(name)
+}
+
+fn test_tool_owner() -> ToolInvocationOwner {
+    ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id())
 }
 
 struct NoopPluginContextProvider;

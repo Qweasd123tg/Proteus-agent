@@ -91,6 +91,12 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 отклоняют non-loopback без token до bind и разрешают authenticated
 non-loopback config.
 
+Interactive `exec_command`/`write_stdin` дополнительно покрывает owner boundary:
+чужой session/thread/workspace не может управлять PTY, а тот же thread может
+продолжить её в новом turn. Отдельные regression-тесты фиксируют остановку и
+удаление процесса при cancellation, а pure policy test — выбор завершённых и
+просроченных по idle age sessions для janitor cleanup.
+
 Focused collaboration tests в `crates/proteus-core/src/tools/collaboration/`
 проверяют async spawn/wait, timeout без потери будущего completion, interrupt,
 session ownership, уникальность `task_name`, отказ writer/worktree ролям и

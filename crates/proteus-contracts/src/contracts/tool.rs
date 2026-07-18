@@ -10,16 +10,36 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
 use crate::{
     contracts::{SubagentToolHost, UserInputTransport},
-    domain::{AgentTask, ToolCall, ToolResult, ToolSpec},
+    domain::{AgentTask, SessionId, ThreadId, ToolCall, ToolResult, ToolSpec, TurnId},
 };
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(deny_unknown_fields)]
+pub struct ToolInvocationOwner {
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+}
+
+impl ToolInvocationOwner {
+    pub fn new(session_id: SessionId, thread_id: ThreadId, turn_id: TurnId) -> Self {
+        Self {
+            session_id,
+            thread_id,
+            turn_id,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ToolContext {
     pub cwd: PathBuf,
+    pub owner: ToolInvocationOwner,
     pub cancellation: CancellationToken,
     pub user_input: Option<Arc<dyn UserInputTransport>>,
     /// Текущий canonical task. Обычным tools достаточно `cwd`; facade-tools,
@@ -31,9 +51,10 @@ pub struct ToolContext {
 }
 
 impl ToolContext {
-    pub fn new(cwd: PathBuf) -> Self {
+    pub fn new(cwd: PathBuf, owner: ToolInvocationOwner) -> Self {
         Self {
             cwd,
+            owner,
             cancellation: CancellationToken::new(),
             user_input: None,
             task: None,

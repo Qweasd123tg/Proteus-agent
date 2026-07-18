@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::{
     abi_stable::std_types::{RResult, RString},
-    plugin::PluginToolError,
+    plugin::{PluginToolError, PluginToolInvocationContext},
 };
 
 /// Входные данные tool: разбор serialized `ToolCall` JSON.
@@ -25,6 +25,12 @@ pub struct ToolCallDto {
 /// Парсит `ToolCall` из JSON-строки.
 pub fn parse_call(call_json: &str) -> Result<ToolCallDto, String> {
     serde_json::from_str(call_json).map_err(|e| format!("failed to parse ToolCall: {e}"))
+}
+
+/// Парсит обязательный runtime context одного plugin-tool invoke.
+pub fn parse_invocation_context(context_json: &str) -> Result<PluginToolInvocationContext, String> {
+    serde_json::from_str(context_json)
+        .map_err(|e| format!("failed to parse PluginToolInvocationContext: {e}"))
 }
 
 /// Сериализует успешный результат в JSON `ToolResult`.
@@ -242,7 +248,36 @@ fn ensure_workspace_dirs(base: &Path, parent: &Path) -> Result<(), String> {
 mod tests {
     use std::path::Path;
 
+    use crate::{
+        contracts::ToolInvocationOwner,
+        domain::{new_session_id, new_thread_id, new_turn_id},
+    };
+
     use super::*;
+
+    #[test]
+    fn invocation_context_is_required_and_strict() {
+        let context = PluginToolInvocationContext {
+            cwd: PathBuf::from("/workspace"),
+            owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        };
+        let value = serde_json::to_value(&context).expect("context value");
+        parse_invocation_context(&value.to_string()).expect("valid context");
+
+        let mut missing_owner = value.clone();
+        missing_owner
+            .as_object_mut()
+            .expect("context object")
+            .remove("owner");
+        assert!(parse_invocation_context(&missing_owner.to_string()).is_err());
+
+        let mut unknown_field = value;
+        unknown_field
+            .as_object_mut()
+            .expect("context object")
+            .insert("legacy_cwd".to_owned(), json!("/workspace"));
+        assert!(parse_invocation_context(&unknown_field.to_string()).is_err());
+    }
 
     #[test]
     fn write_path_rejects_parent_escape() {

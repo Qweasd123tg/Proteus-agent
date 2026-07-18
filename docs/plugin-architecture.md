@@ -135,8 +135,10 @@ non-stdio transports — отдельная задача. Если они поя
 
 ### Доступны плагинам сейчас (sync, sabi_trait)
 
-- **tool** - `PluginTool::invoke_json(call_json, cwd) -> ToolResult`.
-  Выполняет действие: чтение/запись файлов, shell, поиск, HTTP.
+- **tool** - `PluginTool::invoke_json(call_json, context_json, host) ->
+  ToolResult`. Выполняет действие: чтение/запись файлов, shell, поиск, HTTP.
+  Обязательный `PluginToolInvocationContext` содержит `cwd` и typed owner
+  session/thread/turn; borrowed host даёт live `is_cancelled()`.
 - **search** - `PluginSearchBackend::search_json(query_json) -> Vec<ContextChunk>`.
   Ищет по проекту и возвращает provider-neutral chunks.
 - **renderer** - `Renderer::render_json(output_json) -> String`.
@@ -566,7 +568,13 @@ Stdio MCP server процессы изолированы через границ
 плагинов (sabi_trait не поддерживает async). `PluginToolAdapter` мостит через
 `spawn_blocking`, валидирует JSON результата и требует, чтобы
 `ToolResult.call_id` совпадал с id исходного `ToolCall`; cross-wired результат
-плагина отклоняется на ABI-границе.
+плагина отклоняется на ABI-границе. Каждый invoke получает обязательный
+JSON-serialized `PluginToolInvocationContext { cwd, owner }`; owner включает
+typed session/thread/turn ids. Borrowed `PluginToolHost` действует только во
+время invoke и сейчас предоставляет cooperative `is_cancelled()`, поэтому
+sync-плагин может остановить собственную блокирующую работу при timeout или
+отмене turn. Старый ABI `(call_json, cwd)` удалён: проект pre-release, поэтому
+tracked плагины обновляются вместе с contracts без legacy adapter-а.
 
 **`RootModule::load_from_file` не использовать** — кеширует root-module по типу в static slot'е, ломает multi-plugin. Использовать `RawLibrary::load_at` + `lib_header_from_raw_library` + `init_root_module` напрямую.
 

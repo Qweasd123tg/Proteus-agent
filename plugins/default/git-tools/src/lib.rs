@@ -25,7 +25,8 @@ use proteus_contracts::{
     },
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolObject,
+        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolInvocationContext,
+        PluginToolObject,
     },
 };
 use serde::Deserialize;
@@ -65,8 +66,17 @@ impl PluginTool for GitStatusTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
-        invoke_tool(call_json.as_str(), cwd.as_str(), GitCommand::Status)
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        invoke_tool(
+            call_json.as_str(),
+            context_json.as_str(),
+            GitCommand::Status,
+        )
     }
 }
 
@@ -114,8 +124,13 @@ impl PluginTool for GitDiffTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
-        invoke_tool(call_json.as_str(), cwd.as_str(), GitCommand::Diff)
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        invoke_tool(call_json.as_str(), context_json.as_str(), GitCommand::Diff)
     }
 }
 
@@ -135,14 +150,22 @@ enum GitCommand {
 
 fn invoke_tool(
     call_json: &str,
-    cwd: &str,
+    context_json: &str,
     command_kind: GitCommand,
 ) -> RResult<RString, PluginToolError> {
     let call = match parse_call(call_json) {
         Ok(call) => call,
         Err(error) => return RResult::RErr(PluginToolError::new(error)),
     };
-    match invoke_impl(&call, cwd, command_kind) {
+    let context: PluginToolInvocationContext = match serde_json::from_str(context_json) {
+        Ok(context) => context,
+        Err(error) => {
+            return RResult::RErr(PluginToolError::new(format!(
+                "failed to parse PluginToolInvocationContext: {error}"
+            )));
+        }
+    };
+    match invoke_impl(&call, &context.cwd, command_kind) {
         Ok(result) => RResult::ROk(RString::from(result)),
         Err(error) => RResult::ROk(RString::from(
             tool_result(&call.id, &call.name, false, "", Some(error), json!({})).to_string(),
@@ -154,11 +177,11 @@ fn parse_call(call_json: &str) -> Result<ToolCallDto, String> {
     serde_json::from_str(call_json).map_err(|e| format!("failed to parse ToolCall: {e}"))
 }
 
-fn invoke_impl(call: &ToolCallDto, cwd: &str, command_kind: GitCommand) -> Result<String, String> {
+fn invoke_impl(call: &ToolCallDto, cwd: &Path, command_kind: GitCommand) -> Result<String, String> {
     let max_bytes = optional_usize(&call.args, "max_bytes")?
         .unwrap_or(DEFAULT_MAX_BYTES)
         .min(MAX_MAX_BYTES);
-    let cwd_path = Path::new(cwd);
+    let cwd_path = cwd;
     if !cwd_path.exists() {
         return Err(format!("cwd does not exist: {}", cwd_path.display()));
     }
@@ -438,8 +461,7 @@ mod tests {
             name: tool_name.to_owned(),
             args,
         };
-        let result = invoke_impl(&call, cwd.to_str().expect("utf-8 cwd"), command)
-            .expect("tool result json");
+        let result = invoke_impl(&call, cwd, command).expect("tool result json");
         serde_json::from_str(&result).expect("result json")
     }
 

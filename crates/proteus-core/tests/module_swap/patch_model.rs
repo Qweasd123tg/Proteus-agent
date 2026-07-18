@@ -19,7 +19,10 @@ async fn apply_patch_delegates_to_patch_applier() {
     );
 
     let result = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .invoke(
+            &call,
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
         .await
         .unwrap();
 
@@ -48,7 +51,10 @@ async fn apply_patch_accepts_freeform_input_for_codex_surface() {
     .with_surface(ToolCallSurface::Freeform);
 
     let result = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .invoke(
+            &call,
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
         .await
         .unwrap();
 
@@ -66,7 +72,10 @@ async fn apply_patch_rejects_missing_patch_arg() {
     let call = ToolCall::new(new_call_id(), "apply_patch".to_owned(), json!({}));
 
     let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .invoke(
+            &call,
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
         .await
         .unwrap_err();
 
@@ -81,7 +90,10 @@ async fn apply_patch_rejects_missing_freeform_input_arg() {
         .with_surface(ToolCallSurface::Freeform);
 
     let error = tool
-        .invoke(&call, ToolContext::new(dir.path().to_path_buf()))
+        .invoke(
+            &call,
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
         .await
         .unwrap_err();
 

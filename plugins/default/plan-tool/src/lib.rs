@@ -19,8 +19,9 @@ use proteus_contracts::{
     },
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolObject,
+        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolObject,
     },
+    tool_support::parse_invocation_context,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -69,7 +70,15 @@ impl PluginTool for PlanTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, _cwd: RString) -> RResult<RString, PluginToolError> {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        if let Err(error) = parse_invocation_context(context_json.as_str()) {
+            return RResult::RErr(PluginToolError::new(error));
+        }
         match invoke_impl(call_json.as_str()) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(error) => RResult::RErr(PluginToolError::new(error)),

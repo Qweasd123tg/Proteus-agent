@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-16.
+Последнее обновление: 2026-07-18.
 
 ## Короткий Ответ
 
@@ -19,10 +19,10 @@ model + context + workflow + tools + policy
 
 Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
 2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
-из внешних процессов на любом языке и steering корневого цикла. Хвост
-lifecycle-стабилизации закрывается в первой неделе плана. Общий safety
-path, fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
-закрыты regression-тестами.
+из внешних процессов на любом языке и steering корневого цикла. Первая неделя
+плана, включая хвост lifecycle-стабилизации interactive exec, закрыта
+2026-07-18. Общий safety path, fail-closed shell isolation и обязательный auth
+для non-loopback HTTP уже закрыты regression-тестами.
 
 ## Что Работает
 
@@ -45,17 +45,17 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`: неделя 1 —
-raw seam и env allowlist в `proteus-process-host` плюс остаток
-lifecycle-стабилизации; неделя 2 — external process modules v0
-(`SearchBackend`, референс-модуль на TypeScript); неделя 3 — root-session
-steering; неделя 4 — `Compactor` как второй process-слот или
-`pi_rpc_reasoner`, плюс design doc canonical turn data.
+Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Неделя 1 — raw
+seam, env allowlist и lifecycle interactive exec — закрыта. Текущий следующий
+шаг — неделя 2: external process modules v0 (`SearchBackend`,
+референс-модуль на TypeScript); затем root-session steering на неделе 3 и
+`Compactor` как второй process-слот или `pi_rpc_reasoner` плюс design doc
+canonical turn data на неделе 4.
 
-Stabilization checkpoint остаётся обязательным и закрывается неделей 1.
-Первый collaboration/UI slice не заменяет эту работу:
-его records bounded, но process-resident, а idle pool process runner-а живёт по
-старым правилам.
+Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
+readiness-checkpoint ниже остаётся обязательным: он дополнительно включает
+install и реальный dogfood. Первый collaboration/UI slice не заменяет эту
+проверку: его records bounded, но process-resident.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -81,16 +81,20 @@ Loopback без token остаётся удобным debug-режимом. Лю
 требует непустой token и отклоняется до запуска runtime/bind без него;
 CORS/`Origin` не используются как замена auth.
 
-### 4. Ограниченный Lifecycle Процессов
+### 4. Ограниченный Lifecycle Процессов — interactive exec закрыт 2026-07-18
 
 Process subagents получили глобальный bounded idle/resume LRU-cap: уникальные
 worktree cwd больше не оставляют неограниченное число живых children; resume
 дополнительно привязан к session и cwd, а active/reserved child не эвиктится.
-Строгий wall-clock TTL/janitor остаётся отдельным улучшением, не условием
-bounded resident state.
-Interactive exec уже ограничивает число сессий, но ему нужны session/thread
-ownership, age cleanup и честная cancellation semantics, чтобы один turn не мог
-управлять процессом другого.
+Строгий wall-clock TTL/janitor process-subagent pool остаётся отдельным
+улучшением, не условием bounded resident state.
+
+Interactive exec хранит не больше 16 PTY sessions с LRU-eviction. Каждый
+handle принадлежит runtime session/thread/workspace: тот же thread может
+продолжить работу в следующем turn, чужой caller получает явную ошибку.
+Минутный janitor удаляет завершённые sessions и убивает процессы после 30 минут
+простоя; cancellation активного `exec_command`/`write_stdin` также убивает
+процесс и удаляет handle.
 
 Отдельный collaboration facade уже имеет session ownership и hard caps, но
 намеренно не поддерживает durable restart, fork, nesting, writer/worktree spawn

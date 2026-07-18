@@ -661,7 +661,8 @@ mod tests {
         fn invoke_json(
             &self,
             _call_json: RString,
-            _cwd: RString,
+            _context_json: RString,
+            _host: &mut proteus_contracts::plugin::PluginToolHostMut<'_>,
         ) -> RResult<RString, PluginToolError> {
             let result = ToolResult::ok("call".into(), "noop");
             RResult::ROk(serde_json::to_string(&result).unwrap().into())

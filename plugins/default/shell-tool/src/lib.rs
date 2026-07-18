@@ -38,7 +38,8 @@ use proteus_contracts::{
     domain::EXEC_SHELL,
     plugin::{
         PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolObject,
+        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolInvocationContext,
+        PluginToolObject,
     },
 };
 use serde_json::{Value, json};
@@ -104,8 +105,22 @@ impl PluginTool for ShellTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
-        match invoke_impl(call_json.as_str(), cwd.as_str()) {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        let context: PluginToolInvocationContext = match serde_json::from_str(context_json.as_str())
+        {
+            Ok(context) => context,
+            Err(error) => {
+                return RResult::RErr(PluginToolError::new(format!(
+                    "failed to parse PluginToolInvocationContext: {error}"
+                )));
+            }
+        };
+        match invoke_impl(call_json.as_str(), &context.cwd.to_string_lossy()) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
         }

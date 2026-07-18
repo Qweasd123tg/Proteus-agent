@@ -7,12 +7,12 @@ use std::{
 };
 
 use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError};
+use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
 use serde_json::json;
 
 use crate::util::{
-    err_result, ok_result, optional_positive_usize, parse_call, plugin_error, required_string,
-    workspace_path,
+    err_result, ok_result, optional_positive_usize, parse_call, parse_invocation_context,
+    plugin_error, required_string, workspace_path,
 };
 
 pub(crate) const MAX_READ_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -57,17 +57,26 @@ impl PluginTool for ReadFileTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
             Err(e) => return plugin_error(e),
+        };
+        let context = match parse_invocation_context(context_json.as_str()) {
+            Ok(context) => context,
+            Err(error) => return plugin_error(error),
         };
 
         let path_str = match required_string(&call.args, "path", &call.name) {
             Ok(p) => p,
             Err(e) => return err_result(&call.id, &call.name, e),
         };
-        let cwd_path = Path::new(cwd.as_str());
+        let cwd_path = context.cwd.as_path();
         let path = match workspace_path(cwd_path, Path::new(path_str)) {
             Ok(p) => p,
             Err(e) => return err_result(&call.id, &call.name, e),

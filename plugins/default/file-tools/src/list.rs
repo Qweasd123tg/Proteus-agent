@@ -3,10 +3,12 @@
 use std::path::Path;
 
 use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError};
+use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
 use serde_json::{Value, json};
 
-use crate::util::{err_result, ok_result, parse_call, plugin_error, workspace_path};
+use crate::util::{
+    err_result, ok_result, parse_call, parse_invocation_context, plugin_error, workspace_path,
+};
 
 pub struct ListDirTool;
 
@@ -37,14 +39,23 @@ impl PluginTool for ListDirTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError> {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
             Err(e) => return plugin_error(e),
         };
+        let context = match parse_invocation_context(context_json.as_str()) {
+            Ok(context) => context,
+            Err(error) => return plugin_error(error),
+        };
 
         let path_str = call.args.get("path").and_then(Value::as_str).unwrap_or(".");
-        let cwd_path = Path::new(cwd.as_str());
+        let cwd_path = context.cwd.as_path();
         let target_path = match workspace_path(cwd_path, Path::new(path_str)) {
             Ok(p) => p,
             Err(e) => return err_result(&call.id, &call.name, e),

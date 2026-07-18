@@ -90,7 +90,7 @@ installed smoke зафиксированы в конце документа.
 | Patch | Add/Update/Delete/Move отклоняют final symlink, включая dangling и внутренние links | TOCTOU и behavior fixtures |
 | Shell sandbox | Добавлены `--unshare-pid` + matching `/proc` и live regression, sandbox больше не адресует host PID | Explicit user/session namespace и Unix-socket policy |
 | Policy/cache | `ModeAwarePolicy` больше не превращает inner `Deny` в allow; generic `metadata.approval.cache.disabled=true` используется `request_permissions` | Полный permission-profile contract |
-| Tool ABI | Dylib adapter отклоняет `ToolResult` с `call_id`, отличным от исходного вызова | Общий bounded serializer для `content`/`metadata` |
+| Tool ABI | Dylib adapter отклоняет `ToolResult` с `call_id`, отличным от исходного вызова; с 2026-07-18 каждый invoke получает typed session/thread/turn owner и borrowed cancellation host | Общий bounded serializer для `content`/`metadata` |
 | Plan tool | Output/schema/deserialization повторяют f90 handler: допускаются empty/all-pending/multi-active/blank/long plans, неизвестные поля и status отклоняются; `at most one in_progress` остаётся только model-facing инструкцией | Upstream mode gate: `update_plan` всё ещё доступен в Plan mode |
 
 ## Concrete tool и runtime layer
@@ -105,6 +105,12 @@ installed smoke зафиксированы в конце документа.
 | Workspace path — check-then-open | Параллельный sandboxed процесс может заменить symlink после canonical check и направить host-side write наружу | `crates/proteus-contracts/src/tool_support.rs:128-184`, `file-tools/src/write.rs`, `edit.rs`, `direct-patch/src/lib.rs` | fd-relative `openat2`/`O_NOFOLLOW` workspace capability; path string после проверки не должен повторно открываться |
 | MCP discovery и stdout не bounded | Repeated `nextCursor` даёт infinite loop/OOM; chatty valid-frame process заполняет unbounded queue/notifications до response | `crates/proteus-core/src/tools/configured/mcp.rs:138-155`, `crates/proteus-process-host/src/session.rs:189-205` | Repeated-cursor detection, max pages/tools, dedup; bounded channel/notification budget и config validation. Новый slot не нужен |
 | Permission grant не выражает upstream profile | Модель не может запросить/получить точный filesystem/network subset и scope; coarse `escalated_exec` меняет security semantics | `plugins/default/policy-pack/src/request_permissions.rs`, `contracts/approval_policy.rs`, `core/tool_orchestrator.rs` | Typed PermissionProfile, environment target, granted subset, turn/session scope и persistence rules в approval contracts |
+
+Обновление 2026-07-18: два lifecycle finding выше — отсутствие execution
+context/cancellation у `PluginTool` и отсутствие ownership у unified exec —
+закрыты. Новый обязательный ABI context передаёт session/thread/turn owner и
+live cancellation host; PTY handle проверяет session/thread/workspace, оставаясь
+доступным тому же thread между turn'ами.
 
 ### P1 — fidelity, resource bounds и lifecycle
 

@@ -37,10 +37,12 @@ use abi_stable::{
     std_types::{RResult, RStr, RString},
 };
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    contracts::RendererObject,
+    contracts::{RendererObject, ToolInvocationOwner},
     domain::{
         AgentOutput, AgentTask, HistoryCompactionReport, ModelRef, ReasoningConfig, SessionId,
         ThreadId, TurnId,
@@ -60,8 +62,9 @@ use crate::{
 ///
 /// ## DTO через границу
 ///
-/// `ToolCall` и `ToolResult` сериализуются в JSON (`RString`) для передачи
-/// через FFI. Плагин десериализует через `serde_json` обратно в native DTO.
+/// `ToolCall`, `PluginToolInvocationContext` и `ToolResult` сериализуются в
+/// JSON (`RString`) для передачи через FFI. Плагин десериализует через
+/// `serde_json` обратно в native DTO.
 /// Это избавляет от необходимости переделывать DTO в `#[repr(C)]` (у них есть
 /// `serde_json::Value`-поля, которые не прямо перекладываются в FFI-safe).
 ///
@@ -69,16 +72,21 @@ use crate::{
 ///
 /// `spec()` возвращает JSON с описанием tool. Ядро десериализует в `ToolSpec`
 /// и регистрирует в ToolRegistry.
-#[sabi_trait]
-pub trait PluginTool: Send + Sync + 'static {
-    /// Возвращает JSON-сериализованный `ToolSpec`.
-    fn spec_json(&self) -> RString;
-
-    /// Вызывает tool. `call_json` — сериализованный `ToolCall`.
-    /// `cwd` — рабочая директория для tool'а.
-    /// Возврат — сериализованный `ToolResult` или ошибка.
-    fn invoke_json(&self, call_json: RString, cwd: RString) -> RResult<RString, PluginToolError>;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PluginToolInvocationContext {
+    pub cwd: PathBuf,
+    pub owner: ToolInvocationOwner,
 }
+
+/// Узкая runtime-capability для sync tool-плагина. Borrowed host действует
+/// только во время одного invoke и не должен сохраняться плагином.
+#[sabi_trait]
+pub trait PluginToolHost: Send + Sync {
+    fn is_cancelled(&self) -> RResult<bool, PluginToolError>;
+}
+
+pub type PluginToolHostMut<'a> = PluginToolHost_TO<'a, abi_stable::sabi_types::RMut<'a, ()>>;
 
 /// Ошибка выполнения tool-плагина.
 #[repr(C)]
@@ -103,6 +111,22 @@ impl std::fmt::Display for PluginToolError {
 }
 
 impl std::error::Error for PluginToolError {}
+
+#[sabi_trait]
+pub trait PluginTool: Send + Sync + 'static {
+    /// Возвращает JSON-сериализованный `ToolSpec`.
+    fn spec_json(&self) -> RString;
+
+    /// Вызывает tool. `call_json` — сериализованный `ToolCall`,
+    /// `context_json` — обязательный `PluginToolInvocationContext`.
+    /// Возврат — сериализованный `ToolResult` или ошибка.
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError>;
+}
 
 /// Ffi-safe trait object для PluginTool.
 pub type PluginToolObject = PluginTool_TO<abi_stable::std_types::RBox<()>>;

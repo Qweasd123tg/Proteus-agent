@@ -9,7 +9,8 @@
 
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
-    plugin::{PluginTool, PluginToolError},
+    plugin::{PluginTool, PluginToolError, PluginToolHostMut},
+    tool_support::parse_invocation_context,
 };
 use serde_json::{Value, json};
 
@@ -55,7 +56,15 @@ impl PluginTool for RequestPermissionsTool {
         RString::from(spec.to_string())
     }
 
-    fn invoke_json(&self, call_json: RString, _cwd: RString) -> RResult<RString, PluginToolError> {
+    fn invoke_json(
+        &self,
+        call_json: RString,
+        context_json: RString,
+        _host: &mut PluginToolHostMut<'_>,
+    ) -> RResult<RString, PluginToolError> {
+        if let Err(error) = parse_invocation_context(context_json.as_str()) {
+            return RResult::RErr(PluginToolError::new(error));
+        }
         match invoke_impl(call_json.as_str()) {
             Ok(result_json) => RResult::ROk(RString::from(result_json)),
             Err(message) => RResult::RErr(PluginToolError::new(message)),
