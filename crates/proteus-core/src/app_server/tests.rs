@@ -884,10 +884,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
 
     let empty_store =
         SessionStore::new(config_dir.path(), cwd.path(), new_session_id()).expect("session store");
-    empty_store
-        .materialize()
-        .await
-        .expect("materialize empty session");
+    std::fs::create_dir_all(empty_store.session_dir()).expect("empty session dir");
 
     let handle = AgentAppServer::launch_or_resume_latest(
         AppConfig::default(),

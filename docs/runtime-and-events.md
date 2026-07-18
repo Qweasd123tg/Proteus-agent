@@ -483,13 +483,12 @@ session мутировать новый экран.
 Сессии И Durable Snapshots» выше). Для default layout
 `~/.config/Proteus-agent/configs/config.toml` session store живёт в
 `~/.config/Proteus-agent/sessions`. Пустой старт app-server не создаёт session
-directory: `session.json` и `messages.jsonl` появляются только при первой
+directory: `messages.jsonl` и сама directory появляются только при первой
 записи сообщений. Поэтому repeated refresh/start UI не засоряет список пустыми
 sessions.
 
 ```text
 <config-dir>/sessions/<encoded-workspace>/<session-id>/messages.jsonl
-<config-dir>/sessions/<encoded-workspace>/<session-id>/session.json
 ```
 
 Пример:
@@ -509,20 +508,17 @@ sessions.
 Имя самой session directory не дублирует имя workspace и дату: workspace уже
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Basename является полным canonical UUID `SessionId` и обязан
-точно совпадать с `session.json.session_id`. Numeric basename старого
-чернового формата не распознаётся и не мигрируется.
+сам является источником identity; отдельного metadata-файла с копией
+`session_id` нет. Любой не-canonical UUID basename является ошибкой.
 
-`session.json` schema v3 хранит только `schema_version` и `session_id`.
-Workspace принадлежит не session metadata, а имени внешней
-`<encoded-workspace>` directory. Resume декодирует этот parent до создания
-runtime services, event log sink и tool registry. Поэтому перенос UUID-папки
-под другой encoded workspace или переименование внешней папки меняет cwd при
-следующем cold resume; активную session во время записи перемещать нельзя.
-Target workspace обязан существовать, а имя — быть canonical encoding его
-пути. Старая schema с `workspace_path` не распознаётся и не мигрируется.
-Runtime builder получает identity из уже проверенного `SessionStore`, а
-workspace — из его directory; caller передаёт только session directory и новый
-`ThreadId`.
+Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
+декодирует этот parent до создания runtime services, event log sink и tool
+registry. Поэтому перенос UUID-папки под другой encoded workspace или
+переименование внешней папки меняет cwd при следующем cold resume; активную
+session во время записи перемещать нельзя. Target workspace обязан
+существовать, а имя — быть canonical encoding его пути. Runtime builder
+получает identity и workspace из уже проверенного `SessionStore`; caller
+передаёт только session directory и новый `ThreadId`.
 
 ## History
 

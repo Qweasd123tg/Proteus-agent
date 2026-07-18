@@ -1681,7 +1681,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
 }
 
 #[tokio::test]
-async fn route_resume_reuses_live_session_without_materialized_metadata() {
+async fn route_resume_reuses_live_session_without_persisted_directory() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");

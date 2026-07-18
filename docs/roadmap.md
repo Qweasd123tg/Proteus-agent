@@ -328,8 +328,8 @@ harness и недеструктивная компакция — потреби�
   в durable log по умолчанию не пишутся;
   **реализовано частично:** полный shaped `CanonicalModelRequest` пишется в
   session-local `requests.jsonl` вне event enum;
-- `session.json` хранит только id, workspace задаётся encoded parent directory,
-  config/profile снапшота нет —
+- отдельного session metadata-файла нет: id задаётся UUID basename, workspace —
+  encoded parent directory; config/profile снапшота нет —
   **реализовано:** session-local `config_snapshot.json` фиксирует последний
   resolved startup/persist snapshot.
 
@@ -430,8 +430,7 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 - межпаковые строковые контракты без producer-проверки — инвентарь в
   `docs/pack-contracts.md`;
 - ✅ Закрыто 2026-07-18: session directory использует полный canonical
-  `SessionId`; basename сверяется с `session.json`, старый 10-значный numeric
-  формат не распознаётся и не мигрируется;
+  `SessionId` как basename и единственный storage-источник identity;
 - ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
   перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
   `Response` теперь является обязанностью каждого provider adapter-а;
@@ -1040,14 +1039,12 @@ Scope:
   его как `prompt_cache_key`; старый metadata path не распознаётся.
 - ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
   10-digit basename на полный canonical `SessionId`. Один identity теперь
-  используется в runtime, DTO, metadata и пути; несовпадение basename с
-  `session.json.session_id` является ошибкой без compatibility path. Workspace
-  вынесен из session metadata: reversible encoded parent directory является
-  authoritative, поэтому её rename или перенос UUID-папки меняет cwd при
-  следующем resume. `session.json` schema v3 хранит только identity, старый
-  `workspace_path` не распознаётся. Сам `SessionStore` хранит root directory и
-  единый `SessionMetadata`, а file paths и workspace выводит из root без
-  дублированного path/identity-state.
+  используется в runtime, DTO и пути. Metadata sidecar удалён: basename
+  является единственным storage-источником identity. Reversible encoded parent
+  directory является источником workspace,
+  поэтому её rename или перенос UUID-папки меняет cwd при следующем resume.
+  `SessionStore` хранит только root directory и lock, а identity, file paths и
+  workspace выводит из root без дублированного состояния.
 
 ## Не Делать Сейчас
 
