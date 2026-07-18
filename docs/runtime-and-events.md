@@ -488,14 +488,14 @@ directory: `session.json` и `messages.jsonl` появляются только 
 sessions.
 
 ```text
-<config-dir>/sessions/<encoded-workspace>/<short-numeric-id>/messages.jsonl
-<config-dir>/sessions/<encoded-workspace>/<short-numeric-id>/session.json
+<config-dir>/sessions/<encoded-workspace>/<session-id>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<session-id>/session.json
 ```
 
 Пример:
 
 ```text
-/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/messages.jsonl
+/home/alice/.config/Proteus-agent/sessions/home|alice|game/550e8400-e29b-41d4-a716-446655440000/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:
@@ -506,9 +506,9 @@ sessions.
 
 Имя самой session directory не дублирует имя workspace и дату: workspace уже
 находится в parent directory, а время создания/изменения берётся из metadata
-файловой системы. Полный UUID `SessionId` остаётся runtime/DTO
-идентификатором и пишется в `session.json`; короткий numeric id нужен только
-для человекочитаемого имени папки.
+файловой системы. Basename является полным canonical UUID `SessionId` и обязан
+точно совпадать с `session.json.session_id`. Numeric basename старого
+чернового формата не распознаётся и не мигрируется.
 
 `session.json` также хранит `workspace_path`. Resume использует его как
 источник cwd до создания runtime services, event log sink и tool registry,

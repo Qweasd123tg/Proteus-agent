@@ -136,7 +136,7 @@ pub(super) async fn history_json(
         return Ok(server.transcript().await);
     }
 
-    let messages = SessionStore::from_session_dir(session_dir).load_messages()?;
+    let messages = SessionStore::open(session_dir)?.load_messages()?;
     Ok(transcript_messages(&messages))
 }
 

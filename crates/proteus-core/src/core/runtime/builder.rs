@@ -147,7 +147,7 @@ impl AgentRuntimeBuilder {
         let session_id = session_id.unwrap_or_else(new_session_id);
         let thread_id = thread_id.unwrap_or_else(new_thread_id);
         let session_store = if let Some(session_dir) = session_dir {
-            Some(SessionStore::from_session_dir(session_dir))
+            Some(SessionStore::open(session_dir)?)
         } else {
             config_path
                 .as_deref()

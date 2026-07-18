@@ -428,7 +428,9 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 
 - межпаковые строковые контракты без producer-проверки — инвентарь в
   `docs/pack-contracts.md`;
-- session dir: 10-значный numeric basename с возможными коллизиями;
+- ✅ Закрыто 2026-07-18: session directory использует полный canonical
+  `SessionId`; basename сверяется с `session.json`, старый 10-значный numeric
+  формат не распознаётся и не мигрируется;
 - ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
   перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
   `Response` теперь является обязанностью каждого provider adapter-а;
@@ -1035,10 +1037,10 @@ Scope:
   workflow, compactor и child loop. Canonical `CacheHints.routing_key` несёт
   typed provider-neutral namespace, а OpenAI adapter единолично сериализует
   его как `prompt_cache_key`; старый metadata path не распознаётся.
-- Пересмотреть storage name для session directories: numeric 10-digit basename
-  удобен для UI, но это storage contract с возможными collisions. Metadata уже
-  хранит настоящий `SessionId`, поэтому будущий формат должен быть opaque
-  stable basename без cwd leakage, а тесты не должны закреплять “только цифры”.
+- ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
+  10-digit basename на полный canonical `SessionId`. Один identity теперь
+  используется в runtime, DTO, metadata и пути; несовпадение basename с
+  `session.json.session_id` является ошибкой без compatibility path.
 
 ## Не Делать Сейчас
 

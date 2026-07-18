@@ -459,7 +459,7 @@ impl AppServerHandle {
         activity: Option<AppSessionActivity>,
     ) -> Result<AppContextMapSnapshot> {
         let session_dir = crate::core::canonicalize_session_dir_path(session_dir)?;
-        let history = SessionStore::from_session_dir(session_dir.clone()).load_messages()?;
+        let history = SessionStore::open(session_dir.clone())?.load_messages()?;
         let session_id = session_id_from_session_dir(&session_dir)?;
         let workspace_path = session_workspace_from_session_dir(&session_dir)?;
         let event_log_path = self.context_event_log_path(&workspace_path).await;

@@ -27,8 +27,8 @@ pub struct SessionStore {
     session_dir: PathBuf,
     messages_path: PathBuf,
     metadata_path: PathBuf,
-    session_id: Option<SessionId>,
-    workspace_path: Option<PathBuf>,
+    session_id: SessionId,
+    workspace_path: PathBuf,
     lock: Arc<Mutex<()>>,
 }
 
@@ -43,11 +43,10 @@ struct SessionMetadata {
 impl SessionStore {
     pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Self {
         let workspace = encode_workspace_path(cwd);
-        let session_name = session_dir_name(session_id);
         let session_dir = config_dir
             .join("sessions")
             .join(workspace)
-            .join(session_name);
+            .join(session_id.to_string());
         let messages_path = session_dir.join(MESSAGES_FILE);
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
         let lock = lock_for_messages_path(&messages_path);
@@ -55,24 +54,25 @@ impl SessionStore {
             session_dir,
             messages_path,
             metadata_path,
-            session_id: Some(session_id),
-            workspace_path: Some(canonical_or_original(cwd)),
+            session_id,
+            workspace_path: canonical_or_original(cwd),
             lock,
         }
     }
 
-    pub fn from_session_dir(session_dir: PathBuf) -> Self {
+    pub fn open(session_dir: PathBuf) -> Result<Self> {
+        let metadata = require_session_metadata(&session_dir)?;
         let messages_path = session_dir.join(MESSAGES_FILE);
         let metadata_path = session_dir.join(SESSION_METADATA_FILE);
         let lock = lock_for_messages_path(&messages_path);
-        Self {
+        Ok(Self {
             session_dir,
             messages_path,
             metadata_path,
-            session_id: None,
-            workspace_path: None,
+            session_id: metadata.session_id,
+            workspace_path: metadata.workspace_path,
             lock,
-        }
+        })
     }
 
     pub fn session_dir(&self) -> &Path {
@@ -216,21 +216,14 @@ impl SessionStore {
     }
 
     async fn write_metadata_if_needed(&self) -> Result<()> {
-        let Some(session_id) = self.session_id else {
-            return Ok(());
-        };
         if tokio::fs::try_exists(&self.metadata_path).await? {
             return Ok(());
         }
 
-        let workspace_path = self
-            .workspace_path
-            .clone()
-            .ok_or_else(|| anyhow!("new session store is missing workspace_path"))?;
         let metadata = SessionMetadata {
             schema_version: SESSION_SCHEMA_VERSION,
-            session_id,
-            workspace_path,
+            session_id: self.session_id,
+            workspace_path: self.workspace_path.clone(),
         };
         let mut content = serde_json::to_vec_pretty(&metadata)?;
         content.push(b'\n');
@@ -360,6 +353,7 @@ pub async fn delete_workspace_session(
             session_dir.display()
         ));
     }
+    require_session_metadata(&target)?;
 
     tokio::fs::remove_dir_all(&target)
         .await
@@ -528,20 +522,30 @@ fn read_session_metadata(session_dir: &Path) -> Result<Option<SessionMetadata>> 
 }
 
 fn require_session_metadata(session_dir: &Path) -> Result<SessionMetadata> {
-    read_session_metadata(session_dir)?.ok_or_else(|| {
+    let metadata = read_session_metadata(session_dir)?.ok_or_else(|| {
         anyhow!(
             "session metadata file is required: {}",
             session_dir.join(SESSION_METADATA_FILE).display()
         )
-    })
-}
-
-fn session_dir_name(session_id: SessionId) -> String {
-    short_numeric_session_id(session_id)
-}
-
-fn short_numeric_session_id(session_id: SessionId) -> String {
-    format!("{:010}", session_id.as_u128() % 10_000_000_000)
+    })?;
+    let expected_name = metadata.session_id.to_string();
+    let actual_name = session_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            anyhow!(
+                "session directory must have a UTF-8 basename matching session_id {}: {}",
+                metadata.session_id,
+                session_dir.display()
+            )
+        })?;
+    if actual_name != expected_name {
+        bail!(
+            "session directory basename {actual_name:?} does not match session_id {expected_name}: {}",
+            session_dir.display()
+        );
+    }
+    Ok(metadata)
 }
 
 pub fn encode_workspace_path(path: &Path) -> String {
@@ -616,21 +620,26 @@ mod tests {
     #[test]
     fn session_id_from_dir_reads_metadata() {
         let session_id = new_session_id();
-        let dir = tempfile::tempdir().expect("session dir");
-        std::fs::write(
-            dir.path().join(SESSION_METADATA_FILE),
-            serde_json::to_string(&SessionMetadata {
-                schema_version: SESSION_SCHEMA_VERSION,
-                session_id,
-                workspace_path: dir.path().to_path_buf(),
-            })
-            .expect("metadata json"),
-        )
-        .expect("metadata file");
+        let root = tempfile::tempdir().expect("session root");
+        let session_dir = root.path().join(session_id.to_string());
+        write_session_metadata(&session_dir, session_id, root.path());
 
-        let parsed = session_id_from_session_dir(dir.path()).expect("session id");
+        let parsed = session_id_from_session_dir(&session_dir).expect("session id");
 
         assert_eq!(parsed, session_id);
+    }
+
+    #[test]
+    fn session_id_from_dir_rejects_noncanonical_basename() {
+        let session_id = new_session_id();
+        let root = tempfile::tempdir().expect("session root");
+        let session_dir = root.path().join("1234567890");
+        write_session_metadata(&session_dir, session_id, root.path());
+
+        let error = session_id_from_session_dir(&session_dir)
+            .expect_err("legacy numeric basename must be rejected");
+
+        assert!(error.to_string().contains("does not match session_id"));
     }
 
     #[test]
@@ -647,7 +656,7 @@ mod tests {
 
     #[test]
     fn normalize_session_dir_accepts_messages_jsonl_path() {
-        let session_dir = PathBuf::from("1234567890");
+        let session_dir = PathBuf::from(new_session_id().to_string());
         let messages_path = session_dir.join("messages.jsonl");
 
         let normalized = normalize_session_dir_path(messages_path).expect("normalized");
@@ -656,10 +665,9 @@ mod tests {
     }
 
     #[test]
-    fn session_dir_is_short_numeric_id_only() {
+    fn session_dir_uses_full_session_id() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let cwd_label = cwd.path().file_name().unwrap().to_string_lossy();
         let session_id = new_session_id();
 
         let store = SessionStore::new(config_dir.path(), cwd.path(), session_id);
@@ -669,15 +677,16 @@ mod tests {
             .and_then(|name| name.to_str())
             .expect("session dir name");
 
-        assert!(!name.contains(cwd_label.as_ref()));
-        assert_eq!(name.len(), 10);
-        assert!(name.chars().all(|ch| ch.is_ascii_digit()));
+        assert_eq!(name, session_id.to_string());
     }
 
-    #[test]
-    fn missing_messages_file_loads_empty_history() {
-        let dir = tempfile::tempdir().expect("session dir");
-        let store = SessionStore::from_session_dir(dir.path().join("missing-session"));
+    #[tokio::test]
+    async fn opened_session_without_messages_loads_empty_history() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        store.materialize().await.expect("materialize session");
+        let store = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
 
         let messages = store.load_messages().expect("load messages");
 
@@ -686,8 +695,9 @@ mod tests {
 
     #[tokio::test]
     async fn messages_round_trip_through_jsonl_store() {
-        let dir = tempfile::tempdir().expect("session dir");
-        let store = SessionStore::from_session_dir(dir.path().join("session"));
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
         let messages = vec![
             CanonicalMessage::text(MessageRole::User, "hello"),
             CanonicalMessage::text(MessageRole::Assistant, "hi"),
@@ -697,15 +707,17 @@ mod tests {
             .append_messages(&messages)
             .await
             .expect("append messages");
-        let loaded = store.load_messages().expect("load messages");
+        let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
+        let loaded = reopened.load_messages().expect("load messages");
 
         assert_eq!(loaded, messages);
     }
 
     #[tokio::test]
     async fn replace_messages_archives_pre_compaction_history_with_incrementing_seq() {
-        let dir = tempfile::tempdir().expect("session dir");
-        let store = SessionStore::from_session_dir(dir.path().join("session"));
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
         let first = vec![CanonicalMessage::text(MessageRole::User, "before first")];
         let second = vec![CanonicalMessage::text(
             MessageRole::Assistant,
@@ -732,19 +744,21 @@ mod tests {
         assert_eq!(store.load_messages().expect("load current"), third);
     }
 
-    #[test]
-    fn load_messages_ignores_pre_compaction_archives() {
-        let dir = tempfile::tempdir().expect("session dir");
-        let session_dir = dir.path().join("session");
-        std::fs::create_dir_all(&session_dir).expect("create session dir");
+    #[tokio::test]
+    async fn load_messages_ignores_pre_compaction_archives() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let cwd = tempfile::tempdir().expect("cwd");
+        let store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id());
+        store.materialize().await.expect("materialize session");
+        let session_dir = store.session_dir();
         let archived = CanonicalMessage::text(MessageRole::User, "archived only");
         let mut line = serde_json::to_vec(&archived).expect("archive json");
         line.push(b'\n');
         std::fs::write(session_dir.join("messages.pre-compaction.1.jsonl"), line)
             .expect("write archive");
 
-        let store = SessionStore::from_session_dir(session_dir);
-        let loaded = store.load_messages().expect("load messages");
+        let reopened = SessionStore::open(session_dir.to_path_buf()).expect("open session");
+        let loaded = reopened.load_messages().expect("load messages");
 
         assert!(loaded.is_empty());
     }
@@ -891,7 +905,7 @@ mod tests {
             .path()
             .join("sessions")
             .join("workspace")
-            .join("1234567890");
+            .join(new_session_id().to_string());
         std::fs::create_dir_all(&session_dir).expect("session dir");
         std::fs::write(
             session_dir.join(MESSAGES_FILE),
@@ -916,5 +930,19 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).expect("message json"))
             .collect()
+    }
+
+    fn write_session_metadata(session_dir: &Path, session_id: SessionId, workspace_path: &Path) {
+        std::fs::create_dir_all(session_dir).expect("create session dir");
+        std::fs::write(
+            session_dir.join(SESSION_METADATA_FILE),
+            serde_json::to_string(&SessionMetadata {
+                schema_version: SESSION_SCHEMA_VERSION,
+                session_id,
+                workspace_path: workspace_path.to_path_buf(),
+            })
+            .expect("metadata json"),
+        )
+        .expect("metadata file");
     }
 }
