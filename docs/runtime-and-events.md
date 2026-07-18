@@ -432,6 +432,12 @@ HTTP/SSE transport:
 - `POST /clear`, `/reload-tools` и `/shutdown` - control-plane команды без
   body.
 
+Оба session endpoint-а сериализуют единый contract DTO `AppSessionSummary`.
+`SessionStore` заполняет durable поля (`session_id`, workspace, count, preview
+и timestamp), а HTTP control-plane только накладывает live `activity`. Ещё не
+materialized live session строится через тот же DTO, поэтому transport не
+поддерживает отдельную JSON-форму summary.
+
 Live `activity` в session summary и `SessionActivityUpdated` содержит
 `status`, счётчики pending/running и `running_turn_ids`. Этот snapshot является
 source of truth для sidebar и активного чата после `/resume` или SSE reconnect:

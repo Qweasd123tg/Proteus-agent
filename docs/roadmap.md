@@ -432,8 +432,8 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 - ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
   перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
   `Response` теперь является обязанностью каждого provider adapter-а;
-- live session summary синтезируется в HTTP transport и может разъехаться
-  с persistent summaries;
+- ✅ Закрыто 2026-07-18: durable и live session summaries используют единый
+  contract DTO `AppSessionSummary`; HTTP только накладывает activity;
 - web client: O(N²) fingerprint-скан ленты на событие + полный
   markdown-рендер истории при mount — повиснет на длинных сессиях
   (детали в UX/перф backlog ниже).
@@ -1028,10 +1028,9 @@ Scope:
   в OpenAI adapter-е (`output_item.done`, затем text deltas), generic
   `ModelService` доверяет terminal canonical `Response` и не угадывает
   provider semantics. Отсутствие terminal event является ошибкой adapter-а.
-- Свести live session summary overlay к helper/API рядом с `SessionStore`.
-  HTTP transport сейчас синтезирует summary для live sessions, что допустимо
-  как временный transport слой, но preview/count/resumable semantics не должны
-  расходиться с persistent summaries.
+- ✅ Закрыто 2026-07-18: live session summary overlay сведён к единому
+  `AppSessionSummary` из app protocol. `SessionStore` и HTTP live synthesis
+  создают один тип, transport больше не собирает и не сортирует raw JSON.
 - Убрать provider-shaped prompt cache metadata из generic workflow. Базовый
   stable-prefix-aware key уже есть в стандартных workflows, но namespace и
   serialization всё ещё идут через metadata `prompt_cache_key`; в будущем это

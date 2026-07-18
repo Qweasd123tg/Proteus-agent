@@ -45,7 +45,7 @@ use responses::{add_cors_headers, error_response, json_response, options_respons
 use security::{
     HttpSecurity, request_has_valid_token, request_requires_session_token, validate_origin,
 };
-use sessions::{context_map_json, history_json, session_summaries_json};
+use sessions::{context_map_json, history_json, session_summaries};
 use sse::sse_response;
 use state::HttpAppState;
 
@@ -186,11 +186,11 @@ where
             let snapshot = state.current_server().await.topology_snapshot().await;
             text_response(StatusCode::OK, render_topology_runtime_mermaid(&snapshot))
         }
-        (Method::GET, "/sessions") => match session_summaries_json(&state, false).await {
+        (Method::GET, "/sessions") => match session_summaries(&state, false).await {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
-        (Method::GET, "/sessions/current") => match session_summaries_json(&state, true).await {
+        (Method::GET, "/sessions/current") => match session_summaries(&state, true).await {
             Ok(sessions) => json_response(StatusCode::OK, &sessions),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },

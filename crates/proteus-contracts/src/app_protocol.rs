@@ -34,6 +34,10 @@ use crate::{
     model_standard::TokenUsage,
 };
 
+mod session;
+
+pub use session::{AppSessionActivity, AppSessionActivityStatus, AppSessionSummary};
+
 /// ID approval'а — произвольная строка, уникальная для session агента.
 pub type AppApprovalId = String;
 pub type AppUserInputRequestId = String;
@@ -97,77 +101,6 @@ pub enum AppServerEvent {
 
     /// Ядро завершило работу. Клиент должен выйти.
     Shutdown,
-}
-
-/// Короткий UI/control-plane snapshot работы одной session.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct AppSessionActivity {
-    pub status: AppSessionActivityStatus,
-    pub running_turns: usize,
-    pub running_turn_ids: Vec<String>,
-    pub pending_approvals: usize,
-    pub pending_user_inputs: usize,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum AppSessionActivityStatus {
-    Idle,
-    Running,
-    WaitingApproval,
-    WaitingInput,
-}
-
-impl AppSessionActivityStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Idle => "idle",
-            Self::Running => "running",
-            Self::WaitingApproval => "waiting_approval",
-            Self::WaitingInput => "waiting_input",
-        }
-    }
-}
-
-impl AppSessionActivity {
-    pub fn from_counts(
-        running_turns: usize,
-        pending_approvals: usize,
-        pending_user_inputs: usize,
-    ) -> Self {
-        let status = if pending_user_inputs > 0 {
-            AppSessionActivityStatus::WaitingInput
-        } else if pending_approvals > 0 {
-            AppSessionActivityStatus::WaitingApproval
-        } else if running_turns > 0 {
-            AppSessionActivityStatus::Running
-        } else {
-            AppSessionActivityStatus::Idle
-        };
-        Self {
-            status,
-            running_turns,
-            running_turn_ids: Vec::new(),
-            pending_approvals,
-            pending_user_inputs,
-        }
-    }
-
-    pub fn from_running_turn_ids(
-        running_turn_ids: Vec<String>,
-        pending_approvals: usize,
-        pending_user_inputs: usize,
-    ) -> Self {
-        let mut activity = Self::from_counts(
-            running_turn_ids.len(),
-            pending_approvals,
-            pending_user_inputs,
-        );
-        activity.running_turn_ids = running_turn_ids;
-        activity
-    }
 }
 
 /// Approval request, адресованный клиенту.

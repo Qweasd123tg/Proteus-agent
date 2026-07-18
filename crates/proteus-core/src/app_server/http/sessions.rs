@@ -5,43 +5,38 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use proteus_contracts::app_protocol::AppSessionActivityStatus;
-use serde_json::{Value, json};
 
 use crate::core::{SessionStore, canonicalize_session_dir_path};
 
 use super::{HttpAppState, state::session_key as canonical_session_key};
 use crate::app_server::{
-    AppContextMapSnapshot, AppServerHandle, AppSessionActivity, AppTranscriptMessage,
-    transcript_messages,
+    AppContextMapSnapshot, AppServerHandle, AppSessionActivity, AppSessionSummary,
+    AppTranscriptMessage, transcript_messages,
 };
 
-pub(super) async fn session_summaries_json(
+pub(super) async fn session_summaries(
     state: &HttpAppState,
     current_workspace_only: bool,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<AppSessionSummary>> {
     let current = state.current_server().await;
-    let summaries = if current_workspace_only {
+    let stored_summaries = if current_workspace_only {
         current.workspace_session_summaries()?
     } else {
         current.session_summaries()?
     };
     let activity_by_dir = state.activity_by_session_dir().await;
     let mut seen = HashSet::new();
-    let mut values = Vec::new();
+    let mut summaries = Vec::new();
     let current_session_key = current.session_dir_path().map(canonical_session_key);
 
-    for summary in summaries {
+    for mut summary in stored_summaries {
         let session_dir = summary.session_dir.clone();
         let session_key = canonical_session_key(session_dir.clone());
         seen.insert(session_key.clone());
-        let mut value = serde_json::to_value(&summary)?;
-        if let Some(activity) = activity_by_dir.get(&session_key)
-            && let Value::Object(fields) = &mut value
-        {
-            fields.insert("activity".to_owned(), serde_json::to_value(activity)?);
+        if let Some(activity) = activity_by_dir.get(&session_key) {
+            summary = summary.with_activity(activity.clone());
         }
-        values.push(value);
+        summaries.push(summary);
     }
 
     for server in state.all_servers().await {
@@ -59,51 +54,46 @@ pub(super) async fn session_summaries_json(
         }
         let activity = state.activity_for_server(&server).await;
         let include_empty_idle = Some(&session_key) == current_session_key.as_ref();
-        if let Some(value) =
-            known_session_summary_value(&server, &session_dir, activity, include_empty_idle).await?
+        if let Some(summary) =
+            known_session_summary(&server, &session_dir, activity, include_empty_idle).await?
         {
             seen.insert(session_key);
-            values.push(value);
+            summaries.push(summary);
         }
     }
 
-    values.sort_by(|left, right| {
-        summary_updated_at_ms(right)
-            .cmp(&summary_updated_at_ms(left))
-            .then_with(|| summary_session_dir(right).cmp(&summary_session_dir(left)))
+    summaries.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.session_dir.cmp(&left.session_dir))
     });
-    Ok(values)
+    Ok(summaries)
 }
 
-async fn known_session_summary_value(
+async fn known_session_summary(
     server: &AppServerHandle,
     session_dir: &Path,
     activity: AppSessionActivity,
     include_empty_idle: bool,
-) -> Result<Option<Value>> {
+) -> Result<Option<AppSessionSummary>> {
     let transcript = server.transcript().await;
     let message_count = transcript.len();
-    if message_count == 0 && session_activity_is_idle(&activity) && !include_empty_idle {
+    if message_count == 0 && activity.is_idle() && !include_empty_idle {
         return Ok(None);
     }
 
-    Ok(Some(json!({
-        "session_dir": session_dir.to_path_buf(),
-        "session_id": server.session_id(),
-        "workspace_path": server.cwd_path().to_path_buf(),
-        "message_count": message_count,
-        "updated_at_ms": current_time_ms(),
-        "preview": transcript_preview(&transcript),
-        "activity": activity,
-    })))
-}
-
-fn session_activity_is_idle(activity: &AppSessionActivity) -> bool {
-    activity.status == AppSessionActivityStatus::Idle
-        && activity.running_turns == 0
-        && activity.running_turn_ids.is_empty()
-        && activity.pending_approvals == 0
-        && activity.pending_user_inputs == 0
+    Ok(Some(
+        AppSessionSummary::new(
+            session_dir.to_path_buf(),
+            server.session_id(),
+            server.cwd_path().to_path_buf(),
+            message_count,
+            Some(current_time_ms()),
+            transcript_preview(&transcript),
+        )
+        .with_activity(activity),
+    ))
 }
 
 fn transcript_preview(transcript: &[AppTranscriptMessage]) -> Option<String> {
@@ -132,21 +122,6 @@ fn current_time_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
         .unwrap_or(0)
-}
-
-fn summary_updated_at_ms(value: &Value) -> u64 {
-    value
-        .get("updated_at_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-}
-
-fn summary_session_dir(value: &Value) -> String {
-    value
-        .get("session_dir")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
 }
 
 pub(super) async fn history_json(

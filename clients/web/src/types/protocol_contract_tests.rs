@@ -285,6 +285,39 @@ fn web_decodes_contract_pending_requests() {
 }
 
 #[test]
+fn web_decodes_contract_session_summary() {
+    let session_id = contract_domain::new_session_id();
+    let summary = contract_protocol::AppSessionSummary::new(
+        PathBuf::from("/tmp/session-1"),
+        session_id,
+        PathBuf::from("/workspace"),
+        3,
+        Some(42),
+        Some("first message".to_owned()),
+    )
+    .with_activity(
+        contract_protocol::AppSessionActivity::from_running_turn_ids(
+            vec!["turn-1".to_owned()],
+            0,
+            0,
+        ),
+    );
+
+    let value = serde_json::to_value(summary).expect("contract session summary JSON");
+    let decoded: SessionSummary = serde_json::from_value(value).expect("web session summary");
+
+    assert_eq!(decoded.session_dir, "/tmp/session-1");
+    assert_eq!(decoded.session_id, session_id.to_string());
+    assert_eq!(decoded.workspace_path, "/workspace");
+    assert_eq!(decoded.message_count, 3);
+    assert_eq!(decoded.updated_at_ms, Some(42));
+    assert_eq!(decoded.preview.as_deref(), Some("first message"));
+    let activity = decoded.activity.expect("live activity");
+    assert_eq!(activity.status, "running");
+    assert_eq!(activity.running_turn_ids, ["turn-1"]);
+}
+
+#[test]
 fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_tag() {
     assert_endpoint_body_matches_contract(
         SendRequest {

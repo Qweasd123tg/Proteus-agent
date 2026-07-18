@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use proteus_contracts::app_protocol::AppSessionSummary;
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 use uuid::Uuid;
@@ -37,17 +38,6 @@ struct SessionMetadata {
     schema_version: u32,
     session_id: SessionId,
     workspace_path: PathBuf,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct SessionSummary {
-    pub session_dir: PathBuf,
-    pub session_id: SessionId,
-    pub workspace_path: PathBuf,
-    pub message_count: usize,
-    pub updated_at_ms: Option<u64>,
-    pub preview: Option<String>,
 }
 
 impl SessionStore {
@@ -259,7 +249,7 @@ impl SessionStore {
     }
 }
 
-pub fn list_session_summaries(config_root: &Path) -> Result<Vec<SessionSummary>> {
+pub fn list_session_summaries(config_root: &Path) -> Result<Vec<AppSessionSummary>> {
     let sessions_root = config_root.join("sessions");
     let workspace_dirs = match std::fs::read_dir(&sessions_root) {
         Ok(entries) => entries,
@@ -303,7 +293,7 @@ pub fn list_session_summaries(config_root: &Path) -> Result<Vec<SessionSummary>>
 pub fn list_workspace_session_summaries(
     config_root: &Path,
     workspace_path: &Path,
-) -> Result<Vec<SessionSummary>> {
+) -> Result<Vec<AppSessionSummary>> {
     let workspace_dir = config_root
         .join("sessions")
         .join(encode_workspace_path(workspace_path));
@@ -408,20 +398,20 @@ pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<PathBuf>
     Ok(require_session_metadata(session_dir)?.workspace_path)
 }
 
-fn session_summary_from_dir(session_dir: PathBuf) -> Result<SessionSummary> {
+fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     let metadata = require_session_metadata(&session_dir)?;
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
     let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE))
         .or_else(|| session_updated_at_ms(&session_dir.join(SESSION_METADATA_FILE)));
 
-    Ok(SessionSummary {
+    Ok(AppSessionSummary::new(
         session_dir,
-        session_id: metadata.session_id,
-        workspace_path: metadata.workspace_path,
+        metadata.session_id,
+        metadata.workspace_path,
         message_count,
         updated_at_ms,
         preview,
-    })
+    ))
 }
 
 fn messages_summary(messages_path: &Path) -> Result<(usize, Option<String>)> {
@@ -857,6 +847,7 @@ mod tests {
         assert_eq!(summaries[0].session_id, session_id);
         assert_eq!(summaries[0].workspace_path, cwd.path());
         assert_eq!(summaries[0].message_count, 2);
+        assert_eq!(summaries[0].activity, None);
         assert_eq!(
             summaries[0].preview.as_deref(),
             Some("inspect this project")

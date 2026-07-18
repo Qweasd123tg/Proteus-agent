@@ -62,7 +62,8 @@ pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
     AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
     AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppPendingRequests,
-    AppServerEvent, AppSessionActivity, AppUserInputRequestId, StdioOutput, StdioRequest,
+    AppServerEvent, AppSessionActivity, AppSessionSummary, AppUserInputRequestId, StdioOutput,
+    StdioRequest,
 };
 
 use approvals::PendingApprovalResponders;
@@ -362,14 +363,14 @@ impl AppServerHandle {
         })
     }
 
-    pub fn session_summaries(&self) -> Result<Vec<crate::core::SessionSummary>> {
+    pub fn session_summaries(&self) -> Result<Vec<AppSessionSummary>> {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(Vec::new());
         };
         list_session_summaries(&config_store_root(config_path))
     }
 
-    pub fn workspace_session_summaries(&self) -> Result<Vec<crate::core::SessionSummary>> {
+    pub fn workspace_session_summaries(&self) -> Result<Vec<AppSessionSummary>> {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(Vec::new());
         };
