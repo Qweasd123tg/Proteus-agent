@@ -514,7 +514,10 @@ sessions.
 источник cwd до создания runtime services, event log sink и tool registry,
 чтобы tools работали в исходном проекте, а не в cwd процесса, который вызвал
 resume. Resume требует `session.json` текущей schema с обязательным
-`workspace_path`; другие форматы core отклоняет явной ошибкой.
+`workspace_path`; другие форматы core отклоняет явной ошибкой. Runtime builder
+получает `SessionId` и workspace из одного уже проверенного `SessionStore`:
+caller передаёт только session directory и новый `ThreadId`, поэтому отдельной
+копии identity в resume API нет.
 
 ## History
 

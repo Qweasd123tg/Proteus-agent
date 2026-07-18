@@ -1040,7 +1040,9 @@ Scope:
 - ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
   10-digit basename на полный canonical `SessionId`. Один identity теперь
   используется в runtime, DTO, metadata и пути; несовпадение basename с
-  `session.json.session_id` является ошибкой без compatibility path.
+  `session.json.session_id` является ошибкой без compatibility path. Resume
+  получает identity и workspace из единственного strict-opened `SessionStore`,
+  не принимает дублирующий `session_id` от caller-а.
 
 ## Не Делать Сейчас
 

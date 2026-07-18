@@ -20,7 +20,6 @@ use crate::{
         ModuleCatalogEntrySummary, RuntimeReloadReport, SessionStore, TopologyBuildInput,
         TopologySnapshot, build_topology_snapshot, config_store_root, delete_workspace_session,
         list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
-        session_id_from_session_dir, session_workspace_from_session_dir,
     },
     domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
 };
@@ -459,9 +458,10 @@ impl AppServerHandle {
         activity: Option<AppSessionActivity>,
     ) -> Result<AppContextMapSnapshot> {
         let session_dir = crate::core::canonicalize_session_dir_path(session_dir)?;
-        let history = SessionStore::open(session_dir.clone())?.load_messages()?;
-        let session_id = session_id_from_session_dir(&session_dir)?;
-        let workspace_path = session_workspace_from_session_dir(&session_dir)?;
+        let session_store = SessionStore::open(session_dir.clone())?;
+        let history = session_store.load_messages()?;
+        let session_id = session_store.session_id();
+        let workspace_path = session_store.workspace_path().to_path_buf();
         let event_log_path = self.context_event_log_path(&workspace_path).await;
         build_context_map_snapshot(ContextMapInput {
             session_dir: Some(session_dir),
@@ -606,11 +606,13 @@ impl AgentAppServer {
         module_catalog: Option<BuiltinModuleCatalog>,
         resume_session_dir: Option<PathBuf>,
     ) -> Result<AppServerHandle> {
-        let resume_session_dir = resume_session_dir
+        let resumed_session = resume_session_dir
             .map(normalize_session_dir_path)
+            .transpose()?
+            .map(SessionStore::open)
             .transpose()?;
-        if let Some(session_dir) = resume_session_dir.as_deref() {
-            cwd = crate::core::session_workspace_from_session_dir(session_dir)?;
+        if let Some(session_store) = resumed_session.as_ref() {
+            cwd = session_store.workspace_path().to_path_buf();
         }
 
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
@@ -652,9 +654,8 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
-        if let Some(session_dir) = resume_session_dir {
-            let session_id = session_id_from_session_dir(&session_dir)?;
-            builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id())?;
+        if let Some(session_store) = resumed_session {
+            builder = builder.resume_from_session_store(session_store, new_thread_id());
         }
         if let Some(module_catalog) = module_catalog {
             builder = builder.with_module_catalog(module_catalog);

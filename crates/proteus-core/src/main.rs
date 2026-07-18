@@ -18,7 +18,7 @@ use proteus_core::{
         AgentRuntime, AppConfig, ModuleBuildContext, ModuleEpoch, TopologyBuildInput,
         TopologyWarning, build_topology_snapshot, normalize_session_dir_path, render_topology_map,
         render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
-        render_topology_runtime_path, render_topology_table, session_id_from_session_dir,
+        render_topology_runtime_path, render_topology_table,
     },
 };
 use serde_json::Value;
@@ -189,8 +189,7 @@ fn build_cli_runtime(
         .with_approval(terminal_approval_transport());
     if let Some(session_dir) = resume_session {
         let session_dir = normalize_session_dir_path(session_dir)?;
-        let session_id = session_id_from_session_dir(&session_dir)?;
-        builder = builder.resume_from_session_dir(session_dir, session_id, new_thread_id())?;
+        builder = builder.resume_from_session_dir(session_dir, new_thread_id())?;
     }
     builder.build()
 }

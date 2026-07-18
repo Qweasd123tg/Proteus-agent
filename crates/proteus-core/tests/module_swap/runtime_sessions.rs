@@ -211,8 +211,7 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
     let session_id = first.metadata["session_id"]
         .as_str()
         .expect("session id")
-        .parse()
-        .expect("session uuid");
+        .to_owned();
     let thread_id = first.metadata["thread_id"]
         .as_str()
         .expect("thread id")
@@ -220,7 +219,7 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
         .expect("thread uuid");
 
     let resumed = AgentRuntime::builder(test_config(), dir.path().to_path_buf())
-        .resume_from_session_dir(session_dir.clone(), session_id, thread_id)
+        .resume_from_session_dir(session_dir.clone(), thread_id)
         .unwrap()
         .with_module_catalog(test_catalog())
         .build()
@@ -231,7 +230,10 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
         .run("summarize after resume".to_owned())
         .await
         .unwrap();
-    assert_eq!(second.metadata["session_id"], session_id.to_string());
+    assert_eq!(
+        second.metadata["session_id"].as_str(),
+        Some(session_id.as_str())
+    );
     assert_eq!(second.metadata["thread_id"], thread_id.to_string());
     assert_eq!(resumed.history_len().await, 4);
 
@@ -261,18 +263,13 @@ async fn runtime_resume_uses_workspace_from_session_metadata() {
         .await
         .unwrap();
     let session_dir = first_runtime.session_dir().unwrap().to_path_buf();
-    let session_id = first.metadata["session_id"]
-        .as_str()
-        .expect("session id")
-        .parse()
-        .expect("session uuid");
     let thread_id = first.metadata["thread_id"]
         .as_str()
         .expect("thread id")
         .parse()
         .expect("thread uuid");
     let resumed = AgentRuntime::builder(test_config(), wrong_dir.path().to_path_buf())
-        .resume_from_session_dir(session_dir, session_id, thread_id)
+        .resume_from_session_dir(session_dir, thread_id)
         .unwrap()
         .with_module_catalog(test_catalog())
         .build()

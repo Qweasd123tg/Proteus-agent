@@ -79,6 +79,14 @@ impl SessionStore {
         &self.session_dir
     }
 
+    pub fn session_id(&self) -> SessionId {
+        self.session_id
+    }
+
+    pub fn workspace_path(&self) -> &Path {
+        &self.workspace_path
+    }
+
     pub async fn materialize(&self) -> Result<()> {
         let _guard = self.lock.lock().await;
         tokio::fs::create_dir_all(&self.session_dir)
@@ -384,14 +392,6 @@ pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     Ok(session_dir)
 }
 
-pub fn session_id_from_session_dir(session_dir: &Path) -> Result<SessionId> {
-    Ok(require_session_metadata(session_dir)?.session_id)
-}
-
-pub fn session_workspace_from_session_dir(session_dir: &Path) -> Result<PathBuf> {
-    Ok(require_session_metadata(session_dir)?.workspace_path)
-}
-
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     let metadata = require_session_metadata(&session_dir)?;
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
@@ -618,33 +618,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_id_from_dir_reads_metadata() {
+    fn open_reads_session_identity_from_metadata() {
         let session_id = new_session_id();
         let root = tempfile::tempdir().expect("session root");
         let session_dir = root.path().join(session_id.to_string());
         write_session_metadata(&session_dir, session_id, root.path());
 
-        let parsed = session_id_from_session_dir(&session_dir).expect("session id");
+        let store = SessionStore::open(session_dir).expect("open session");
 
-        assert_eq!(parsed, session_id);
+        assert_eq!(store.session_id(), session_id);
+        assert_eq!(store.workspace_path(), root.path());
     }
 
     #[test]
-    fn session_id_from_dir_rejects_noncanonical_basename() {
+    fn open_rejects_noncanonical_basename() {
         let session_id = new_session_id();
         let root = tempfile::tempdir().expect("session root");
         let session_dir = root.path().join("1234567890");
         write_session_metadata(&session_dir, session_id, root.path());
 
-        let error = session_id_from_session_dir(&session_dir)
-            .expect_err("legacy numeric basename must be rejected");
+        let error =
+            SessionStore::open(session_dir).expect_err("legacy numeric basename must be rejected");
 
         assert!(error.to_string().contains("does not match session_id"));
     }
 
     #[test]
-    fn session_id_from_dir_requires_metadata() {
-        let error = session_id_from_session_dir(Path::new("1234567890"))
+    fn open_requires_metadata() {
+        let error = SessionStore::open(PathBuf::from("1234567890"))
             .expect_err("session dir needs metadata");
 
         assert!(
@@ -774,12 +775,10 @@ mod tests {
             .append_messages(&[CanonicalMessage::text(MessageRole::User, "hello")])
             .await
             .expect("append messages");
-        let parsed = session_id_from_session_dir(store.session_dir()).expect("metadata id");
-        let workspace =
-            session_workspace_from_session_dir(store.session_dir()).expect("metadata workspace");
+        let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
 
-        assert_eq!(parsed, session_id);
-        assert_eq!(workspace, cwd.path());
+        assert_eq!(reopened.session_id(), session_id);
+        assert_eq!(reopened.workspace_path(), cwd.path());
     }
 
     #[tokio::test]
@@ -792,8 +791,8 @@ mod tests {
         store.materialize().await.expect("materialize session");
 
         assert!(!store.messages_path.exists());
-        let parsed = session_id_from_session_dir(store.session_dir()).expect("metadata id");
-        assert_eq!(parsed, session_id);
+        let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
+        assert_eq!(reopened.session_id(), session_id);
 
         let summaries = list_workspace_session_summaries(config_dir.path(), cwd.path())
             .expect("workspace sessions");

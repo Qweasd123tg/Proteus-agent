@@ -34,8 +34,7 @@ pub struct AgentRuntimeBuilder {
     user_input: Option<Arc<dyn UserInputTransport>>,
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
-    session_dir: Option<PathBuf>,
-    resume_history: bool,
+    resumed_session: Option<SessionStore>,
 }
 
 impl AgentRuntimeBuilder {
@@ -50,8 +49,7 @@ impl AgentRuntimeBuilder {
             user_input: None,
             session_id: None,
             thread_id: None,
-            session_dir: None,
-            resume_history: false,
+            resumed_session: None,
         }
     }
 
@@ -87,18 +85,22 @@ impl AgentRuntimeBuilder {
     }
 
     pub fn resume_from_session_dir(
-        mut self,
+        self,
         session_dir: impl Into<PathBuf>,
-        session_id: SessionId,
         thread_id: ThreadId,
     ) -> Result<Self> {
-        let session_dir = session_dir.into();
-        self.cwd = crate::core::session_workspace_from_session_dir(&session_dir)?;
-        self.session_dir = Some(session_dir);
-        self.session_id = Some(session_id);
+        let session_store = SessionStore::open(session_dir.into())?;
+        Ok(self.resume_from_session_store(session_store, thread_id))
+    }
+
+    pub(crate) fn resume_from_session_store(
+        mut self,
+        session_store: SessionStore,
+        thread_id: ThreadId,
+    ) -> Self {
         self.thread_id = Some(thread_id);
-        self.resume_history = true;
-        Ok(self)
+        self.resumed_session = Some(session_store);
+        self
     }
 
     pub fn build(self) -> Result<AgentRuntime> {
@@ -112,10 +114,13 @@ impl AgentRuntimeBuilder {
             user_input,
             session_id,
             thread_id,
-            session_dir,
-            resume_history,
+            resumed_session,
         } = self;
 
+        let cwd = resumed_session
+            .as_ref()
+            .map(|store| store.workspace_path().to_path_buf())
+            .unwrap_or(cwd);
         let permission_mode = config.permissions.mode;
         let registry = if let Some(catalog) = module_catalog {
             BuiltinRegistry::from_catalog(&config, cwd.clone(), catalog)?
@@ -144,10 +149,15 @@ impl AgentRuntimeBuilder {
         ));
         let user_input: Arc<dyn UserInputTransport> =
             user_input.unwrap_or_else(|| Arc::new(HeadlessUserInputTransport));
-        let session_id = session_id.unwrap_or_else(new_session_id);
+        let session_id = resumed_session
+            .as_ref()
+            .map(SessionStore::session_id)
+            .or(session_id)
+            .unwrap_or_else(new_session_id);
         let thread_id = thread_id.unwrap_or_else(new_thread_id);
-        let session_store = if let Some(session_dir) = session_dir {
-            Some(SessionStore::open(session_dir)?)
+        let resume_history = resumed_session.is_some();
+        let session_store = if let Some(session_store) = resumed_session {
+            Some(session_store)
         } else {
             config_path
                 .as_deref()
