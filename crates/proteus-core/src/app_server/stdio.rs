@@ -1,4 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::{Result, anyhow};
 use serde_json::Value;
@@ -7,7 +15,10 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::{contracts::CancellationToken, core::AppConfig};
+use crate::{
+    contracts::CancellationToken,
+    core::{AppConfig, ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation},
+};
 
 use super::{AgentAppServer, AppServerEvent, AppServerHandle, StdioOutput, StdioRequest};
 
@@ -101,29 +112,37 @@ pub async fn run_stdio_app_server(
         match request {
             StdioRequest::Send { id, text } => {
                 prune_finished_turns(&mut keyed_turn_handles);
-                match id.clone() {
-                    Some(turn_id) if keyed_turn_handles.contains_key(&turn_id) => {
-                        send_stdio_response(
-                            &output_tx,
-                            id,
-                            Err(anyhow!("turn id is already running: {turn_id}")),
-                        )
-                        .await;
+                if let Some(turn_id) = id.clone()
+                    && keyed_turn_handles.contains_key(&turn_id)
+                {
+                    send_stdio_response(
+                        &output_tx,
+                        id,
+                        Err(anyhow!("turn id is already running: {turn_id}")),
+                    )
+                    .await;
+                    continue;
+                }
+                match server.reserve_user_message(text).await {
+                    Ok(UserMessageReservation::Queued(receipt)) => {
+                        send_stdio_response(&output_tx, id, Ok(Some(queued_response(&receipt))))
+                            .await;
                     }
-                    Some(turn_id) => {
-                        keyed_turn_handles.insert(
-                            turn_id,
-                            spawn_stdio_turn(server.clone(), output_tx.clone(), id, text),
-                        );
-                    }
-                    None => {
-                        anonymous_turn_handles.push(spawn_stdio_turn(
+                    Ok(UserMessageReservation::Start(reserved)) => match id.clone() {
+                        Some(turn_id) => {
+                            keyed_turn_handles.insert(
+                                turn_id,
+                                spawn_stdio_turn(server.clone(), output_tx.clone(), id, reserved),
+                            );
+                        }
+                        None => anonymous_turn_handles.push(spawn_stdio_turn(
                             server.clone(),
                             output_tx.clone(),
                             None,
-                            text,
-                        ));
-                    }
+                            reserved,
+                        )),
+                    },
+                    Err(error) => send_stdio_response(&output_tx, id, Err(error)).await,
                 }
             }
             StdioRequest::ClearHistory { .. } => {
@@ -244,13 +263,15 @@ fn spawn_stdio_turn(
     server: AppServerHandle,
     output_tx: mpsc::Sender<StdioOutput>,
     id: Option<String>,
-    text: String,
+    reserved: ReservedUserMessage,
 ) -> StdioTurnHandle {
     let cancellation = CancellationToken::new();
     let turn_cancellation = cancellation.clone();
+    let response_claimed = Arc::new(AtomicBool::new(false));
+    let task_response_claimed = response_claimed.clone();
     let join = tokio::spawn(async move {
         let result = match server
-            .send_user_message_with_cancellation(text, turn_cancellation)
+            .run_reserved_user_message(reserved, turn_cancellation)
             .await
         {
             Ok(output) => serde_json::to_value(output)
@@ -258,20 +279,37 @@ fn spawn_stdio_turn(
                 .map_err(anyhow::Error::from),
             Err(error) => Err(error),
         };
-        send_stdio_response(&output_tx, id, result).await;
+        if !task_response_claimed.swap(true, Ordering::AcqRel) {
+            send_stdio_response(&output_tx, id, result).await;
+        }
     });
-    StdioTurnHandle { join, cancellation }
+    StdioTurnHandle {
+        join,
+        cancellation,
+        response_claimed,
+    }
 }
 
 struct StdioTurnHandle {
     join: tokio::task::JoinHandle<()>,
     cancellation: CancellationToken,
+    response_claimed: Arc<AtomicBool>,
 }
 
 impl StdioTurnHandle {
-    fn cancel(&self) {
+    fn claim_response(&self) -> bool {
+        !self.response_claimed.swap(true, Ordering::AcqRel)
+    }
+
+    async fn cancel_and_join(mut self) {
         self.cancellation.cancel();
-        self.join.abort();
+        if tokio::time::timeout(Duration::from_secs(1), &mut self.join)
+            .await
+            .is_err()
+        {
+            self.join.abort();
+            let _ = self.join.await;
+        }
     }
 }
 
@@ -284,13 +322,16 @@ async fn cancel_stdio_turn(
     let handle = turn_handles
         .remove(target_id)
         .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
-    handle.cancel();
-    send_stdio_response(
-        output_tx,
-        Some(target_id.to_owned()),
-        Err(anyhow!("turn canceled by client")),
-    )
-    .await;
+    let should_send_target_response = handle.claim_response();
+    handle.cancel_and_join().await;
+    if should_send_target_response {
+        send_stdio_response(
+            output_tx,
+            Some(target_id.to_owned()),
+            Err(anyhow!("turn canceled by client")),
+        )
+        .await;
+    }
     // Pending approvals и user inputs отменённого turn-а резолвятся
     // watcher-ами app-server-а, когда orchestrator дропает свои futures:
     // blanket-deny здесь затрагивал бы pending запросы других конкурентных
@@ -306,18 +347,24 @@ async fn cancel_and_join_stdio_turns(
     keyed_turn_handles: HashMap<String, StdioTurnHandle>,
     anonymous_turn_handles: Vec<StdioTurnHandle>,
 ) {
-    for handle in keyed_turn_handles.values() {
-        handle.cancel();
-    }
-    for handle in &anonymous_turn_handles {
-        handle.cancel();
-    }
     for (_, handle) in keyed_turn_handles {
-        let _ = handle.join.await;
+        handle.claim_response();
+        handle.cancel_and_join().await;
     }
     for handle in anonymous_turn_handles {
-        let _ = handle.join.await;
+        handle.claim_response();
+        handle.cancel_and_join().await;
     }
+}
+
+fn queued_response(receipt: &SteeringQueueReceipt) -> Value {
+    serde_json::json!({
+        "accepted": true,
+        "queued": true,
+        "message_id": receipt.message_id,
+        "active_turn_id": receipt.active_turn_id,
+        "queued_count": receipt.queued_count,
+    })
 }
 
 async fn send_stdio_response(
@@ -344,24 +391,26 @@ async fn send_stdio_response(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, time::Duration};
+    use std::collections::HashMap;
 
     use tokio::sync::mpsc;
 
     use super::*;
 
     #[tokio::test]
-    async fn cancel_stdio_turn_aborts_handle_and_sends_target_error_response() {
+    async fn cancel_stdio_turn_joins_handle_and_sends_target_error_response() {
         let (output_tx, mut output_rx) = mpsc::channel(4);
         let mut turn_handles = HashMap::new();
         let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
         turn_handles.insert(
             "send-1".to_owned(),
             StdioTurnHandle {
-                join: tokio::spawn(async {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                join: tokio::spawn(async move {
+                    task_cancellation.cancelled().await;
                 }),
                 cancellation: cancellation.clone(),
+                response_claimed: Arc::new(AtomicBool::new(false)),
             },
         );
 
@@ -387,5 +436,9 @@ mod tests {
             StdioOutput::Event { .. } => panic!("expected response"),
             _ => panic!("unexpected output variant"),
         }
+        assert!(
+            output_rx.try_recv().is_err(),
+            "target response must be unique"
+        );
     }
 }

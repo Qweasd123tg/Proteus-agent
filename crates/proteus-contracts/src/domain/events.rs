@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AgentOutput, AgentTask, CallId, EventId, ModelRef, PatchResult, SessionId, ThreadId, ToolCall,
-    ToolResult, TurnId, new_event_id,
+    AgentOutput, AgentTask, CallId, EventId, MessageId, ModelRef, PatchResult, SessionId, ThreadId,
+    ToolCall, ToolResult, TurnId, new_event_id,
 };
 use crate::model_standard::{FinishReason, TokenUsage};
 
@@ -66,6 +66,18 @@ pub enum TokenUsageSource {
     Provider,
     /// Provider totals plus local category estimates.
     Mixed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SteeringDeliveryKind {
+    /// Сообщение добавлено перед следующим model call после tool-батча
+    /// текущего turn-а.
+    Steering,
+    /// В текущем turn-е подходящей tool-boundary не осталось, поэтому
+    /// сообщение стало новым root turn после settlement предыдущего.
+    FollowUp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -204,6 +216,22 @@ pub enum Event {
     },
     TaskReceived {
         task: AgentTask,
+    },
+    /// Пользователь отправил сообщение, пока root turn уже выполнялся.
+    /// Runtime владеет очередью и позже выберет steering или follow-up.
+    SteeringQueued {
+        message_id: MessageId,
+        text: String,
+        queued_count: usize,
+    },
+    /// Очередное сообщение доставлено модели как обычное user-attributed
+    /// сообщение. `kind` фиксирует, попало ли оно в текущий turn или открыло
+    /// следующий после settlement.
+    SteeringDelivered {
+        message_id: MessageId,
+        text: String,
+        kind: SteeringDeliveryKind,
+        queued_count: usize,
     },
     ContextBuilt {
         chunks: usize,

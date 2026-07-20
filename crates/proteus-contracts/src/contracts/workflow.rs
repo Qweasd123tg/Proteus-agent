@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -41,6 +44,10 @@ pub struct RuntimeContext {
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub subagent: Arc<dyn SubagentRunner>,
+    /// Динамическая наблюдаемость session-owned очереди root steering.
+    /// Workflow не управляет доставкой: core меняет счётчик и вставляет
+    /// сообщения на model boundary самостоятельно.
+    pub queued_user_messages: Arc<AtomicUsize>,
     /// Turn-scoped permission grants: контекст создаётся на каждый ход
     /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
     pub turn_grants: Arc<TurnPermissionGrants>,
@@ -97,6 +104,7 @@ impl RuntimeContext {
             compactor,
             tool_exposure,
             subagent,
+            queued_user_messages: Arc::new(AtomicUsize::new(0)),
             turn_grants: Arc::default(),
             thread_label: None,
         }
@@ -119,6 +127,10 @@ impl RuntimeContext {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancellation.is_cancelled()
+    }
+
+    pub fn queued_user_messages(&self) -> usize {
+        self.queued_user_messages.load(Ordering::Acquire)
     }
 
     pub fn event_context(&self) -> EventContext {

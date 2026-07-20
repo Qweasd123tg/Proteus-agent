@@ -377,12 +377,14 @@ server-side проверкам.
 {"id":"5","type":"shutdown"}
 ```
 
-Каждая строка stdout является либо `event`, либо `response`. `send` запускает
-turn асинхронно, поэтому UI может отправить `approval` или `cancel` в тот же
-процесс, пока turn работает или ждёт решения. `cancel.target_id` ссылается на
-`id` исходного `send`; transport сигналит turn-level `CancellationToken`,
-отклоняет pending approvals, abort-ит active/queued task и отправляет failed
-`response` для отменённого `send`.
+Каждая строка stdout является либо `event`, либо `response`. Первый `send`
+запускает root turn асинхронно, поэтому UI может отправить `approval`, `cancel`
+или следующий `send`, пока turn работает. Следующий `send` той же session
+получает немедленный receipt с `queued = true`, `message_id`,
+`active_turn_id` и `queued_count`; его текст уже принадлежит runtime-очереди,
+а не transport task. `cancel.target_id` ссылается на `id` исходного активного
+`send`: transport сигналит turn-level `CancellationToken`, после чего runtime
+закрывает root-цепочку и её ещё не доставленную очередь.
 
 HTTP/SSE transport:
 
@@ -409,8 +411,9 @@ HTTP/SSE transport:
   live `activity` для sessions, открытых в текущем app-server process;
 - `GET /sessions/current` - тот же список, ограниченный workspace текущего
   app-server;
-- `GET /pending` - snapshot pending approval/user-input запросов выбранной
-  session для восстановления UI после initial load или SSE reconnect;
+- `GET /pending` - snapshot pending approval/user-input запросов и ещё не
+  доставленных root steering messages выбранной session для восстановления UI
+  после initial load или SSE reconnect;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
 - `GET /history` - transcript текущей live session; `GET
   /history?session_dir=<path>` читает transcript указанной session, не меняя
@@ -419,8 +422,9 @@ HTTP/SSE transport:
   /context?session_dir=<path>` читает карту указанной session с fallback из
   event log/history и без обязательного cold resume;
 - `POST /send` - запускает turn и держит HTTP request до финального
-  `AgentOutput`;
-- `POST /send-async` - принимает turn без ожидания финального ответа; progress,
+  `AgentOutput`; если root turn уже активен, сразу возвращает queued receipt;
+- `POST /send-async` - принимает turn или steering message без ожидания
+  финального ответа; response различает `queued = false|true`, а progress,
   `TurnOutput` или `Error` приходят через `GET /events`;
 - `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
   `/effort` - короткие endpoint'ы над соответствующими командами; mutating
@@ -456,13 +460,13 @@ progress/final события через `/events`. `cancel.target_id` ссыл�
 исходного `send` и сигналит тот же turn-level `CancellationToken`, даже если
 пользователь уже переключился на другую session.
 `send-async` возвращает acceptance/protocol response сразу после постановки
-turn-а в работу; его завершение не возвращается вторым HTTP-ответом и должно
-наблюдаться через SSE (`TurnOutput` или `Error`).
-HTTP app-server принимает только один running turn на session: второй
-`/send-async` в ту же session получает protocol error, а разные sessions могут
-работать параллельно. `POST /request` сохраняет stdio-compatible поведение и
-работает с текущей выбранной session; для parallel-session UI нужно
-использовать короткие HTTP endpoint'ы с явным `session_dir`.
+root turn-а или сообщения в очередь; его завершение не возвращается вторым
+HTTP-ответом и наблюдается через SSE (`TurnOutput` или `Error`). В одной
+session выполняется одна root-цепочка, но последующие `Send` принимаются в её
+bounded runtime-очередь. Разные sessions по-прежнему работают параллельно.
+`POST /request` сохраняет stdio-compatible поведение и работает с текущей
+выбранной session; для parallel-session UI нужно использовать короткие HTTP
+endpoint'ы с явным `session_dir`.
 Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
 delete или shutdown. Если SSE connection оборвался до доставки
 `ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
@@ -526,8 +530,8 @@ session во время записи перемещать нельзя. Target w
 
 `AgentRuntime` разделяет runtime services и session state. Runtime services
 держат cwd, registry, event emitter, approval transport и permission mode.
-`SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history и
-optional session store.
+`SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history,
+optional session store и bounded root-steering queue.
 
 Session state держит history сообщений в памяти. После обычного turn новые
 сообщения дописываются в `messages.jsonl`, если session store подключён. Если
@@ -582,10 +586,11 @@ CLI тоже принимает `--resume-session <session-dir-or-messages.jsonl
 single-turn и interactive mode; это тот же runtime builder path, без отдельной
 client-side slash-команды.
 
-Каждый `run()` создаёт новый `TurnId`; `run_lock` живёт в `SessionState` и не
-даёт двум turns одной session одновременно читать и перезаписывать history.
-Разные sessions имеют разные `SessionState`, поэтому HTTP app-server может
-вести их turns параллельно без обхода runtime lock.
+Каждый исходный `run()` создаёт новый `TurnId`; автоматический follow-up из
+очереди получает следующий `TurnId` той же root-цепочки. `run_lock` живёт в
+`SessionState` и не даёт двум turns одной session одновременно читать и
+перезаписывать history. Разные sessions имеют разные `SessionState`, поэтому
+HTTP app-server может вести их turns параллельно без обхода runtime lock.
 Ключи live sessions и locks session store нормализуются через canonical
 session directory. Это убирает ситуации, где один и тот же `messages.jsonl`
 открыт через разные path spellings и два runtime handles параллельно пишут в
@@ -594,6 +599,47 @@ session directory. Это убирает ситуации, где один и т
 При обычном построении runtime новая session directory создаётся заново, если
 session store подключён. Для восстановления нужно явно передать путь к старой
 session directory.
+
+### Root-Session Steering
+
+Если пользователь отправляет сообщение во время активного root turn-а,
+`AgentRuntime` атомарно кладёт его в FIFO-очередь session state. Очередь
+ограничена 32 сообщениями, 512 KiB суммарного UTF-8 текста и 256 KiB на одно
+сообщение. Переполнение и пустой текст завершаются явной protocol error без
+legacy fallback.
+
+Runtime оборачивает выбранный `Model` turn-scoped декоратором, не меняя
+`Workflow` contract. Ответ модели с tool calls открывает одну delivery
+boundary: перед следующим обычным model call декоратор забирает одно сообщение
+и добавляет его как canonical `MessageRole::User`. Очередь остаётся FIFO и
+доставляется one-at-a-time. Model calls внутреннего `HistoryCompactor`
+выполняются в подавленном core scope и не могут случайно поглотить эту
+boundary. Если после settlement подходящего следующего model call не было,
+первое сообщение становится новым follow-up turn; остаток повторяет тот же
+алгоритм.
+
+Доставка не обходит `ToolRegistry`, `ApprovalPolicy` или `ToolSafety`: она
+меняет только следующий model request, а все tool calls после него проходят
+обычный orchestration path. Workflow host видит динамический
+`queued_user_messages`, но не может извлекать сообщения или управлять
+очередью. Только точные `MessageId`, созданные runtime, разрешены как
+дополнительные user messages в workflow output; произвольный generated user
+suffix по-прежнему отклоняется history validator-ом.
+
+Runtime пишет `SteeringQueued` и `SteeringDelivered` в обычные
+`EventEnvelope` с session/thread/turn/seq. `SteeringDelivered.kind` различает
+`steering` и `follow_up`. Доставленный текст сохраняется как user history; если
+provider или workflow падает уже после доставки, runtime всё равно дописывает
+это user message в session store, не коммитя незавершённые assistant/tool
+сообщения. Не доставленный хвост при cancel/error очищается вместе с root
+цепочкой.
+
+Terminal app event публикуется до снятия finalization gate session. Поэтому
+новый `Send` не может стартовать в узком окне между settlement старого turn-а
+и его `TurnOutput`/`Error` и затем быть ошибочно очищен старым событием. Web
+показывает server-owned queued cards, удаляет карточку по
+`SteeringDelivered`, а после reconnect восстанавливает остаток через
+`/pending` и transcript через `/history`.
 
 ## Workflow Loop
 

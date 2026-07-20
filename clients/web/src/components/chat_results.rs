@@ -6,7 +6,6 @@ use web_sys::WheelEvent;
 use super::{
     ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, UserInputCard, WorkingCard,
 };
-use crate::actions::{AppActions, send_prompt_for_mode};
 use crate::app_helpers::{CHAT_REATTACH_THRESHOLD_PX, active_user_message_id, is_at_bottom};
 use crate::types::*;
 
@@ -24,12 +23,10 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     activity_now_ms: ReadSignal<u64>,
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
-    queued_prompts: ReadSignal<Vec<(u64, String)>>,
-    set_queued_prompts: WriteSignal<Vec<(u64, String)>>,
+    queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
     mode: ReadSignal<PermissionMode>,
     is_sending: ReadSignal<bool>,
     agent_status: ReadSignal<String>,
-    actions: AppActions,
     on_resolve_approval: A,
     on_submit_user_input: I,
     on_revise_plan: R,
@@ -148,30 +145,9 @@ where
             }}
             <For
                 each=move || queued_prompts.get()
-                key=|(id, _)| *id
-                children=move |(queued_id, text)| {
-                    let send_text = text.clone();
-                    let on_send = move |_| {
-                        if is_sending.get() {
-                            return;
-                        }
-                        set_stick_to_bottom.set(true);
-                        set_queued_prompts
-                            .update(|items| items.retain(|(id, _)| *id != queued_id));
-                        send_prompt_for_mode(actions, mode.get(), send_text.clone());
-                    };
-                    let on_clear = move |_| {
-                        set_queued_prompts
-                            .update(|items| items.retain(|(id, _)| *id != queued_id));
-                    };
-                    view! {
-                        <QueuedPromptCard
-                            text
-                            is_sending=is_sending
-                            on_send
-                            on_clear
-                        />
-                    }
+                key=|queued| queued.message_id.clone()
+                children=move |queued| {
+                    view! { <QueuedPromptCard text=queued.text /> }
                 }
             />
 

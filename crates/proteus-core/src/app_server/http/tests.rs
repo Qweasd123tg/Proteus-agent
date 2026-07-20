@@ -2017,13 +2017,24 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
 }
 
 #[tokio::test]
-async fn route_send_async_rejects_second_turn_for_same_session() {
+async fn route_send_async_queues_second_message_for_same_session() {
     let (state, server) = dogfood_loop_state().await;
+    let mut event_rx = server.subscribe();
     let existing_cancellation = CancellationToken::new();
-    state.running_turns.lock().await.insert(
-        "turn-existing".to_owned(),
-        RunningTurn::new(existing_cancellation.clone(), server.session_dir_path()),
-    );
+    let existing_receiver = match spawn_send_turn(
+        &state,
+        server.clone(),
+        Some("turn-existing".to_owned()),
+        "apply_patch".to_owned(),
+        existing_cancellation.clone(),
+    )
+    .await
+    .expect("spawn existing turn")
+    {
+        SendDispatch::Started(receiver) => receiver,
+        SendDispatch::Queued(_) => panic!("first message must start a turn"),
+    };
+    let _approval = wait_for_approval_request(&mut event_rx).await;
 
     let response = route_request(
         state.clone(),
@@ -2040,20 +2051,30 @@ async fn route_send_async_rejects_second_turn_for_same_session() {
 
     assert_eq!(response.status(), StatusCode::OK);
     match response_output(response).await {
-        StdioOutput::Response { id, ok, error, .. } => {
+        StdioOutput::Response {
+            id,
+            ok,
+            output,
+            error,
+        } => {
             assert_eq!(id.as_deref(), Some("turn-next"));
-            assert!(!ok);
-            assert_eq!(
-                error.as_deref(),
-                Some("session already has a running turn: turn-existing")
-            );
+            assert!(ok);
+            assert!(error.is_none());
+            let output = output.expect("queued receipt");
+            assert_eq!(output["accepted"], true);
+            assert_eq!(output["queued"], true);
+            assert_eq!(output["queued_count"], 1);
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
         _ => panic!("unexpected output variant"),
     }
     assert!(!state.running_turns.lock().await.contains_key("turn-next"));
+    let pending = server.pending_requests().await;
+    assert_eq!(pending.queued_user_messages.len(), 1);
+    assert_eq!(pending.queued_user_messages[0].text, "hello");
 
     existing_cancellation.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(2), existing_receiver).await;
     server.shutdown().await;
 }
 
@@ -2062,7 +2083,7 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
     let (state, server) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let turn_id = "sync-send-drop".to_owned();
-    let receiver = spawn_send_turn(
+    let receiver = match spawn_send_turn(
         &state,
         server.clone(),
         Some(turn_id.clone()),
@@ -2070,7 +2091,11 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
         CancellationToken::new(),
     )
     .await
-    .expect("spawn send turn");
+    .expect("spawn send turn")
+    {
+        SendDispatch::Started(receiver) => receiver,
+        SendDispatch::Queued(_) => panic!("first message must start a turn"),
+    };
 
     let approval = wait_for_approval_request(&mut event_rx).await;
     assert!(state.running_turns.lock().await.contains_key(&turn_id));

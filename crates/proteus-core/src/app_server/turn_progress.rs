@@ -1,4 +1,4 @@
-use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
+use crate::domain::{Event, EventEnvelope, SteeringDeliveryKind, ThreadId, ToolCall};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 
@@ -44,6 +44,20 @@ impl TurnProgress {
                 self.append_text(text);
             }
             Event::AssistantTextDelta { .. } => {}
+            Event::SteeringDelivered {
+                text,
+                kind: SteeringDeliveryKind::Steering,
+                ..
+            } => {
+                self.messages.push(AppTranscriptMessage {
+                    role: "user".to_owned(),
+                    text: text.clone(),
+                    tool: None,
+                    subagent: None,
+                    streaming: false,
+                });
+            }
+            Event::SteeringDelivered { .. } => {}
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
@@ -126,6 +140,7 @@ impl TurnProgress {
     pub(super) fn snapshot(&self) -> Vec<AppTranscriptMessage> {
         let mut messages = self.messages.clone();
         if let Some(last) = messages.last_mut()
+            && last.role == "assistant"
             && last.tool.is_none()
             && last.subagent.is_none()
         {
@@ -140,6 +155,7 @@ impl TurnProgress {
             return;
         }
         if let Some(last) = self.messages.last_mut()
+            && last.role == "assistant"
             && last.tool.is_none()
             && last.subagent.is_none()
         {
@@ -714,5 +730,39 @@ mod tests {
         assert_eq!(subagent.status, "running");
         assert_eq!(subagent.tools.len(), 1);
         assert_eq!(subagent.tools[0].call_id, "child-late");
+    }
+
+    #[test]
+    fn steering_user_message_splits_assistant_stream_segments() {
+        let mut progress = TurnProgress::default();
+        apply(
+            &mut progress,
+            Event::TurnStarted {
+                session_id: new_session_id(),
+                thread_id: root_thread_id(),
+                turn_id: new_turn_id(),
+            },
+        );
+        apply(&mut progress, delta("before steering"));
+        apply(
+            &mut progress,
+            Event::SteeringDelivered {
+                message_id: crate::domain::new_message_id(),
+                text: "change direction".to_owned(),
+                kind: SteeringDeliveryKind::Steering,
+                queued_count: 0,
+            },
+        );
+        apply(&mut progress, delta("after steering"));
+
+        let snapshot = progress.snapshot();
+        assert_eq!(snapshot.len(), 3);
+        assert_eq!(snapshot[0].role, "assistant");
+        assert_eq!(snapshot[0].text, "before steering");
+        assert_eq!(snapshot[1].role, "user");
+        assert_eq!(snapshot[1].text, "change direction");
+        assert_eq!(snapshot[2].role, "assistant");
+        assert_eq!(snapshot[2].text, "after steering");
+        assert!(snapshot[2].streaming);
     }
 }

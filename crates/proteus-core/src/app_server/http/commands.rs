@@ -7,8 +7,8 @@ use tokio::sync::oneshot;
 use crate::{
     app_server::{AgentAppServer, AppServerHandle, StdioOutput, StdioRequest},
     contracts::CancellationToken,
-    core::canonicalize_session_dir_path,
-    domain::{AgentOutput, PermissionMode},
+    core::{SteeringQueueReceipt, UserMessageReservation, canonicalize_session_dir_path},
+    domain::PermissionMode,
 };
 
 use super::{
@@ -23,15 +23,7 @@ pub(super) async fn execute_app_request(
 ) -> StdioOutput {
     let id = request.id();
     let result = match request {
-        StdioRequest::Send { id, text } => {
-            execute_send(state, id, text, None)
-                .await
-                .and_then(|output| {
-                    serde_json::to_value(output)
-                        .map(Some)
-                        .map_err(anyhow::Error::from)
-                })
-        }
+        StdioRequest::Send { id, text } => execute_send(state, id, text, None).await.map(Some),
         StdioRequest::ClearHistory { .. } => state
             .current_server()
             .await
@@ -131,13 +123,23 @@ pub(super) async fn execute_send(
     id: Option<String>,
     text: String,
     session_dir: Option<PathBuf>,
-) -> Result<AgentOutput> {
+) -> Result<Value> {
     let cancellation = CancellationToken::new();
     let server = server_for_optional_session(state, session_dir).await?;
-    let receiver = spawn_send_turn(state, server, id, text, cancellation).await?;
-    receiver
-        .await
-        .map_err(|_| anyhow!("send turn task dropped before completion"))?
+    match spawn_send_turn(state, server, id, text, cancellation).await? {
+        SendDispatch::Started(receiver) => {
+            let output = receiver
+                .await
+                .map_err(|_| anyhow!("send turn task dropped before completion"))??;
+            serde_json::to_value(output).map_err(anyhow::Error::from)
+        }
+        SendDispatch::Queued(receipt) => Ok(queued_response(&receipt)),
+    }
+}
+
+pub(super) enum SendDispatch {
+    Started(oneshot::Receiver<Result<crate::domain::AgentOutput>>),
+    Queued(SteeringQueueReceipt),
 }
 
 pub(super) async fn spawn_send_turn(
@@ -146,34 +148,37 @@ pub(super) async fn spawn_send_turn(
     turn_id: Option<String>,
     text: String,
     cancellation: CancellationToken,
-) -> Result<oneshot::Receiver<Result<AgentOutput>>> {
+) -> Result<SendDispatch> {
     let session_dir = server.session_dir_path();
+    let mut running_turns = state.running_turns.lock().await;
     if let Some(turn_id) = turn_id.as_deref() {
-        let session_key = session_dir.clone().map(canonical_session_key);
-        let mut running_turns = state.running_turns.lock().await;
         if running_turns.contains_key(turn_id) {
             return Err(anyhow!("turn id is already running: {turn_id}"));
         }
-        if let Some((existing_turn_id, _)) = running_turns
-            .iter()
-            .find(|(_, turn)| turn.session_dir == session_key)
-        {
-            return Err(anyhow!(
-                "session already has a running turn: {existing_turn_id}"
-            ));
+    }
+    let reservation = server.reserve_user_message(text).await?;
+    let reserved = match reservation {
+        UserMessageReservation::Queued(receipt) => {
+            drop(running_turns);
+            state.emit_session_activity_for_server(&server).await;
+            return Ok(SendDispatch::Queued(receipt));
         }
+        UserMessageReservation::Start(reserved) => reserved,
+    };
+    if let Some(turn_id) = turn_id.as_deref() {
         running_turns.insert(
             turn_id.to_owned(),
             RunningTurn::new(cancellation.clone(), session_dir.clone()),
         );
     }
+    drop(running_turns);
     state.emit_session_activity_for_server(&server).await;
 
     let (result_tx, result_rx) = oneshot::channel();
     let state_for_activity = state.clone();
     tokio::spawn(async move {
         let result = server
-            .send_user_message_with_cancellation(text, cancellation)
+            .run_reserved_user_message(reserved, cancellation)
             .await;
         if let Some(turn_id) = turn_id.as_deref() {
             state_for_activity
@@ -187,7 +192,7 @@ pub(super) async fn spawn_send_turn(
             .await;
         let _ = result_tx.send(result);
     });
-    Ok(result_rx)
+    Ok(SendDispatch::Started(result_rx))
 }
 
 pub(super) async fn execute_send_async(
@@ -202,19 +207,37 @@ pub(super) async fn execute_send_async(
         Ok(server) => server,
         Err(error) => return command_response(Some(turn_id), Err(error)),
     };
-    if let Err(error) =
-        spawn_send_turn(state, server, Some(turn_id.clone()), text, cancellation).await
-    {
-        return command_response(Some(turn_id), Err(error));
+    match spawn_send_turn(state, server, Some(turn_id.clone()), text, cancellation).await {
+        Ok(SendDispatch::Started(_)) => command_response(
+            Some(turn_id.clone()),
+            Ok(Some(json!({
+                "turn_id": turn_id,
+                "accepted": true,
+                "queued": false,
+            }))),
+        ),
+        Ok(SendDispatch::Queued(receipt)) => command_response(
+            Some(turn_id.clone()),
+            Ok(Some(queued_response_with_request_id(&receipt, &turn_id))),
+        ),
+        Err(error) => command_response(Some(turn_id), Err(error)),
     }
+}
 
-    command_response(
-        Some(turn_id.clone()),
-        Ok(Some(json!({
-            "turn_id": turn_id,
-            "accepted": true,
-        }))),
-    )
+fn queued_response(receipt: &SteeringQueueReceipt) -> Value {
+    json!({
+        "accepted": true,
+        "queued": true,
+        "message_id": receipt.message_id,
+        "active_turn_id": receipt.active_turn_id,
+        "queued_count": receipt.queued_count,
+    })
+}
+
+fn queued_response_with_request_id(receipt: &SteeringQueueReceipt, request_id: &str) -> Value {
+    let mut response = queued_response(receipt);
+    response["turn_id"] = Value::String(request_id.to_owned());
+    response
 }
 
 pub(super) async fn execute_set_permission_mode(

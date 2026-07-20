@@ -19,10 +19,11 @@ model + context + workflow + tools + policy
 
 Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
 2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
-из внешних процессов на любом языке и steering корневого цикла. Первая неделя
-плана, включая хвост lifecycle-стабилизации interactive exec, закрыта
-2026-07-18. Общий safety path, fail-closed shell isolation и обязательный auth
-для non-loopback HTTP уже закрыты regression-тестами.
+из внешних процессов на любом языке и steering корневого цикла. Первые три
+недели плана закрыты 2026-07-20: lifecycle interactive exec, внешний process
+`SearchBackend` и root-session steering/follow-up. Общий safety path,
+fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
+закрыты regression-тестами.
 
 ## Что Работает
 
@@ -38,6 +39,8 @@ model + context + workflow + tools + policy
 - экспериментальный session-owned collaboration surface для bounded async
   spawn/list/wait/interrupt read-only детей, sequential messaging/follow-up и
   background UI lifecycle;
+- bounded root-session steering queue с model-boundary delivery,
+  settlement follow-up, HTTP/stdio receipts и web reconnect;
 - `doctor`, `inspect topology`, `modules list` и `eval report`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
@@ -46,13 +49,12 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Неделя 1 — raw
-seam, env allowlist и lifecycle interactive exec — закрыта. Неделя 2 также
-закрыта: `SearchBackend` может быть внешним процессом на любом языке, а
-dependency-free Python + `rg` реализация служит проверяемым примером. Текущий
-следующий шаг — root-session steering на неделе 3; затем `Compactor` как второй
-process-слот или `pi_rpc_reasoner` плюс design doc canonical turn data на
-неделе 4.
+Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Недели 1–3
+закрыты: raw seam и lifecycle interactive exec; внешний языконезависимый
+`SearchBackend` с Python + `rg` reference; root-session steering/follow-up с
+server-owned web queue. Текущий следующий шаг — выбрать трек недели 4:
+`Compactor` как второй process-слот или `pi_rpc_reasoner`, затем закрыть
+`install.sh`/dogfood хвосты и написать design doc canonical turn data.
 
 Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
 readiness-checkpoint ниже остаётся обязательным: он дополнительно включает

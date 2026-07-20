@@ -98,16 +98,7 @@ where
 }
 
 #[component]
-pub(crate) fn QueuedPromptCard<S, C>(
-    text: String,
-    is_sending: ReadSignal<bool>,
-    on_send: S,
-    on_clear: C,
-) -> impl IntoView
-where
-    S: Fn(MouseEvent) + 'static,
-    C: Fn(MouseEvent) + 'static,
-{
+pub(crate) fn QueuedPromptCard(text: String) -> impl IntoView {
     let preview = text.clone();
     view! {
         <article class="task-card running queued-card">
@@ -119,19 +110,7 @@ where
             </div>
             <div class="message system-message queued-message">
                 <p>{preview}</p>
-                <div class="queued-actions">
-                    <button
-                        type="button"
-                        class="btn-primary"
-                        disabled=move || is_sending.get()
-                        on:click=on_send
-                    >
-                        "Отправить"
-                    </button>
-                    <button type="button" class="secondary" on:click=on_clear>
-                        "Убрать"
-                    </button>
-                </div>
+                <p class="muted">"Будет передано между шагами или следующим ходом"</p>
             </div>
         </article>
     }

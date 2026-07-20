@@ -299,6 +299,10 @@ impl PluginWorkflowHost for FakeHost {
         RResult::ROk(false)
     }
 
+    fn queued_user_messages(&self) -> RResult<u32, PluginWorkflowHostError> {
+        RResult::ROk(0)
+    }
+
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
         let task: AgentTask = serde_json::from_str(task_json.as_str()).expect("task json");
         let context = self

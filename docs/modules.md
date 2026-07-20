@@ -795,6 +795,14 @@ events вызывает через host API (`build_context`, `complete_model`,
 `select_tools`, `visible_tools`, `execute_tool`, `emit_event`). Поэтому agent behavior живёт
 вне core, а ядро только даёт capabilities.
 
+Root-session steering не становится ответственностью workflow. Core
+декорирует `Model` на время turn-а и сам вставляет runtime-owned user message
+на следующей model boundary либо запускает follow-up после settlement.
+`PluginWorkflowHost::queued_user_messages` даёт плагину только динамический
+счётчик для наблюдаемости и stop-condition diagnostics; извлекать очередь,
+менять порядок или подтверждать доставку через ABI нельзя. Служебные model
+calls `HistoryCompactor` выполняются вне steering boundary.
+
 `modules.workflow = "coding.plan_execute_review"` поставляется тем же
 плагином и добавляет явные фазы:
 

@@ -18,23 +18,50 @@ use crate::{
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig,
-        SessionId, ThreadId, ToolSpec, new_turn_id,
+        SessionId, ThreadId, ToolSpec,
     },
-    model_standard::{CanonicalMessage, MessageRole},
+    model_standard::CanonicalMessage,
 };
 
 mod builder;
 mod history;
 mod paths;
+mod steering;
 
 pub use builder::AgentRuntimeBuilder;
 pub use paths::{config_store_root, event_log_path};
 
 use history::prepare_history_update;
+pub(crate) use steering::{
+    ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
+};
+use steering::{
+    RootTurnSettlement, SessionSteering, SteeringFinalizationGuard, SteeringModel,
+    weave_deliveries_into_output,
+};
 
 pub struct AgentRuntime {
     services: RuntimeServices,
     session: SessionState,
+}
+
+pub(crate) struct ReservedRunCompletion {
+    result: Result<AgentOutput>,
+    _finalization: SteeringFinalizationGuard,
+}
+
+impl ReservedRunCompletion {
+    pub(crate) fn output(&self) -> Option<&AgentOutput> {
+        self.result.as_ref().ok()
+    }
+
+    pub(crate) fn error(&self) -> Option<&anyhow::Error> {
+        self.result.as_ref().err()
+    }
+
+    pub(crate) fn into_result(self) -> Result<AgentOutput> {
+        self.result
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -95,6 +122,7 @@ struct SessionState {
     session_started: Mutex<bool>,
     history: Mutex<Vec<CanonicalMessage>>,
     session_store: Option<SessionStore>,
+    steering: Arc<SessionSteering>,
 }
 
 impl SessionState {
@@ -112,6 +140,7 @@ impl SessionState {
             session_started: Mutex::new(session_started),
             history: Mutex::new(history),
             session_store,
+            steering: Arc::new(SessionSteering::default()),
         }
     }
 }
@@ -185,12 +214,128 @@ impl AgentRuntime {
         text: String,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
+        self.run_completion(text, cancellation).await?.into_result()
+    }
+
+    pub(crate) async fn run_completion(
+        &self,
+        text: String,
+        cancellation: CancellationToken,
+    ) -> Result<ReservedRunCompletion> {
         let _run_guard = self.session.run_lock.lock().await;
+        let reserved = match self.reserve_user_message(text).await? {
+            UserMessageReservation::Start(reserved) => reserved,
+            UserMessageReservation::Queued(_) => {
+                anyhow::bail!("session acquired the run lock with an active root reservation")
+            }
+        };
+        Ok(self.run_reserved_chain(reserved, cancellation).await)
+    }
+
+    /// Atomically reserves an idle root session or appends to its bounded
+    /// steering queue. App-server transports call this before spawning a turn,
+    /// eliminating the race between the first and second `Send` commands.
+    pub(crate) async fn reserve_user_message(
+        &self,
+        text: String,
+    ) -> Result<UserMessageReservation> {
+        let reservation = self.session.steering.reserve(text).await?;
+        if let UserMessageReservation::Queued(receipt) = &reservation {
+            self.services
+                .events
+                .emit(
+                    EventContext::new(
+                        self.session.session_id,
+                        self.session.thread_id,
+                        Some(receipt.active_turn_id),
+                    ),
+                    Event::SteeringQueued {
+                        message_id: receipt.message_id,
+                        text: receipt.text.clone(),
+                        queued_count: receipt.queued_count,
+                    },
+                )
+                .await?;
+        }
+        Ok(reservation)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn run_reserved_with_cancellation(
+        &self,
+        reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+    ) -> Result<AgentOutput> {
+        self.run_reserved_completion(reserved, cancellation)
+            .await?
+            .into_result()
+    }
+
+    pub(crate) async fn run_reserved_completion(
+        &self,
+        reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+    ) -> Result<ReservedRunCompletion> {
+        let _run_guard = self.session.run_lock.lock().await;
+        self.session
+            .steering
+            .validate_reservation(reserved.turn_id)
+            .await?;
+        Ok(self.run_reserved_chain(reserved, cancellation).await)
+    }
+
+    async fn run_reserved_chain(
+        &self,
+        mut reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+    ) -> ReservedRunCompletion {
+        let mut reservation_guard = self.session.steering.run_guard();
+        let settled = async {
+            loop {
+                let turn_id = reserved.turn_id;
+                let output = self.run_one_turn(reserved, cancellation.clone()).await?;
+                if cancellation.is_cancelled() {
+                    anyhow::bail!("turn canceled by client");
+                }
+                match self
+                    .session
+                    .steering
+                    .settle_and_take_followup(turn_id)
+                    .await?
+                {
+                    RootTurnSettlement::FollowUp(followup) => reserved = followup,
+                    RootTurnSettlement::Complete(finalization) => {
+                        return Ok((output, finalization));
+                    }
+                }
+            }
+        }
+        .await;
+
+        let (result, finalization) = match settled {
+            Ok((output, finalization)) => (Ok(output), finalization),
+            Err(error) => {
+                let finalization = self.session.steering.finalization_guard().await;
+                (Err(error), finalization)
+            }
+        };
+        reservation_guard.disarm();
+        ReservedRunCompletion {
+            result,
+            _finalization: finalization,
+        }
+    }
+
+    async fn run_one_turn(
+        &self,
+        reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+    ) -> Result<AgentOutput> {
         let snapshot = self.snapshot().await;
         self.ensure_session_started_with_snapshot(&snapshot).await?;
-        let turn_id = new_turn_id();
-        let task = AgentTask::new(text.clone(), self.services.cwd.clone());
-        let user_message = CanonicalMessage::text(MessageRole::User, text);
+        let turn_id = reserved.turn_id;
+        let task = AgentTask::new(reserved.text.clone(), self.services.cwd.clone());
+        let user_message = reserved.message;
         if cancellation.is_cancelled() {
             anyhow::bail!("turn canceled by client");
         }
@@ -211,6 +356,28 @@ impl AgentRuntime {
             )
             .await?;
         let history = self.persist_current_user_message(&user_message).await?;
+        if let Some(kind) = reserved.delivery {
+            self.services
+                .events
+                .emit(
+                    EventContext::new(
+                        self.session.session_id,
+                        self.session.thread_id,
+                        Some(turn_id),
+                    ),
+                    Event::SteeringDelivered {
+                        message_id: user_message.id,
+                        text: task.text.clone(),
+                        kind,
+                        queued_count: self
+                            .session
+                            .steering
+                            .queued_count_handle()
+                            .load(std::sync::atomic::Ordering::Acquire),
+                    },
+                )
+                .await?;
+        }
         // Выставляем delta event context для ModelService, чтобы
         // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
         // правильным envelope (session/thread/turn). Без этого дельты
@@ -238,6 +405,16 @@ impl AgentRuntime {
         );
         runtime_context.model_ref = model_ref;
         runtime_context.reasoning = reasoning;
+        runtime_context.queued_user_messages = self.session.steering.queued_count_handle();
+        let steering_model = SteeringModel::new(
+            runtime_context.model.clone(),
+            self.session.steering.clone(),
+            self.services.events.clone(),
+            self.session.session_id,
+            self.session.thread_id,
+            turn_id,
+        );
+        runtime_context.model = Arc::new(steering_model.clone());
         let runtime_context = runtime_context.with_cancellation(cancellation.clone());
         let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
         let workflow =
@@ -245,30 +422,64 @@ impl AgentRuntime {
                 .registry
                 .workflow
                 .run(task.clone(), history.clone(), runtime_context);
-        let workflow_output = if workflow_timeout_ms == 0 {
-            workflow.await?
+        let workflow_result = if workflow_timeout_ms == 0 {
+            workflow.await
         } else {
-            timeout(Duration::from_millis(workflow_timeout_ms), workflow)
-                .await
-                .map_err(|_| {
+            match timeout(Duration::from_millis(workflow_timeout_ms), workflow).await {
+                Ok(result) => result,
+                Err(_) => {
                     cancellation.cancel();
-                    anyhow::anyhow!("workflow timed out after {workflow_timeout_ms}ms")
-                })??
+                    Err(anyhow::anyhow!(
+                        "workflow timed out after {workflow_timeout_ms}ms"
+                    ))
+                }
+            }
+        };
+        let delivery_records = steering_model.delivery_records().await;
+        let mut workflow_output = match workflow_result {
+            Ok(output) => output,
+            Err(error) => {
+                return self
+                    .fail_turn_preserving_steering(error, &delivery_records)
+                    .await;
+            }
         };
         if cancellation.is_cancelled() {
-            anyhow::bail!("turn canceled by client");
+            return self
+                .fail_turn_preserving_steering(
+                    anyhow::anyhow!("turn canceled by client"),
+                    &delivery_records,
+                )
+                .await;
         }
+        let runtime_user_messages =
+            match weave_deliveries_into_output(&mut workflow_output, &delivery_records) {
+                Ok(messages) => messages,
+                Err(error) => {
+                    return self
+                        .fail_turn_preserving_steering(error, &delivery_records)
+                        .await;
+                }
+            };
         let history_compacted = workflow_output
             .compactions
             .iter()
             .any(|report| report.changed);
-        let history_update = prepare_history_update(
+        let history_update = match prepare_history_update(
             &history,
             &user_message,
             &workflow_output.new_messages,
             workflow_output.history_replacement.as_deref(),
             history_compacted,
-        )?;
+            &runtime_user_messages,
+        ) {
+            Ok(update) => update,
+            Err(error) => {
+                return self
+                    .fail_turn_preserving_steering(error, &delivery_records)
+                    .await;
+            }
+        };
         let mut history = self.session.history.lock().await;
         if let Some(session_store) = &self.session.session_store {
             if history_update.replace {
@@ -283,6 +494,39 @@ impl AgentRuntime {
         }
         *history = history_update.final_messages;
         Ok(workflow_output.output)
+    }
+
+    async fn fail_turn_preserving_steering(
+        &self,
+        turn_error: anyhow::Error,
+        deliveries: &[steering::SteeringDeliveryRecord],
+    ) -> Result<AgentOutput> {
+        if let Err(persist_error) = self.persist_failed_steering_messages(deliveries).await {
+            return Err(anyhow::anyhow!(
+                "{turn_error:#}; additionally failed to persist delivered steering messages: {persist_error:#}"
+            ));
+        }
+        Err(turn_error)
+    }
+
+    async fn persist_failed_steering_messages(
+        &self,
+        deliveries: &[steering::SteeringDeliveryRecord],
+    ) -> Result<()> {
+        let mut history = self.session.history.lock().await;
+        let messages = deliveries
+            .iter()
+            .map(|delivery| delivery.message.clone())
+            .filter(|message| !history.iter().any(|stored| stored.id == message.id))
+            .collect::<Vec<_>>();
+        if messages.is_empty() {
+            return Ok(());
+        }
+        if let Some(session_store) = &self.session.session_store {
+            session_store.append_messages(&messages).await?;
+        }
+        history.extend(messages);
+        Ok(())
     }
 
     async fn persist_current_user_message(
@@ -463,6 +707,7 @@ impl AgentRuntime {
 
     pub async fn clear_history(&self) -> Result<()> {
         let _run_guard = self.session.run_lock.lock().await;
+        self.session.steering.abort().await;
         self.session.history.lock().await.clear();
         if let Some(session_store) = &self.session.session_store {
             session_store.clear().await?;
@@ -476,6 +721,10 @@ impl AgentRuntime {
 
     pub async fn history(&self) -> Vec<CanonicalMessage> {
         self.session.history.lock().await.clone()
+    }
+
+    pub(crate) async fn queued_user_messages(&self) -> Vec<(crate::domain::MessageId, String)> {
+        self.session.steering.queued_messages().await
     }
 
     pub fn session_id(&self) -> crate::domain::SessionId {
@@ -525,6 +774,8 @@ mod tests {
         domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
         model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
     };
+
+    mod steering_integration;
 
     fn test_catalog() -> BuiltinModuleCatalog {
         let mut catalog = BuiltinModuleCatalog::new();
@@ -583,7 +834,6 @@ mod tests {
         started: Arc<tokio::sync::Notify>,
         proceed: Arc<tokio::sync::Notify>,
     }
-
     async fn replace_workflow_for_test(runtime: &AgentRuntime, workflow: Arc<dyn Workflow>) {
         let mut snapshot = runtime.services.snapshot.write().await;
         snapshot.registry.workflow = workflow;
@@ -733,7 +983,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("workflow returned no new assistant/tool messages")
+                .contains("workflow returned no new persistent turn messages")
         );
     }
 
@@ -759,7 +1009,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("workflow returned no new assistant/tool messages")
+                .contains("workflow returned no new persistent turn messages")
         );
         let history = runtime.history().await;
         assert_eq!(history.len(), 1);

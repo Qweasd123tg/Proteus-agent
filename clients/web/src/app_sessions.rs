@@ -122,7 +122,7 @@ pub(crate) struct AppSessionActions {
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
-    pub(crate) set_queued_prompts: WriteSignal<Vec<(u64, String)>>,
+    pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     pub(crate) set_stick_to_bottom: WriteSignal<bool>,

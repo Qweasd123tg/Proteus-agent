@@ -28,8 +28,8 @@ use serde_json::Value;
 use crate::{
     contracts::{ApprovalCacheScope, RequestOrigin, UserInputRequest, UserInputResponse},
     domain::{
-        AgentOutput, EventEnvelope, HistoryCompactionReport, PermissionMode, SessionId, ToolCall,
-        ToolSpec, TurnId,
+        AgentOutput, EventEnvelope, HistoryCompactionReport, MessageId, PermissionMode, SessionId,
+        ToolCall, ToolSpec, TurnId,
     },
     model_standard::TokenUsage,
 };
@@ -213,6 +213,7 @@ impl AppApprovalPreview {
 pub struct AppPendingRequests {
     pub approvals: Vec<AppApprovalRequest>,
     pub user_inputs: Vec<UserInputRequest>,
+    pub queued_user_messages: Vec<AppQueuedUserMessage>,
 }
 
 impl AppPendingRequests {
@@ -220,6 +221,31 @@ impl AppPendingRequests {
         Self {
             approvals,
             user_inputs,
+            queued_user_messages: Vec::new(),
+        }
+    }
+
+    pub fn with_queued_user_messages(mut self, messages: Vec<AppQueuedUserMessage>) -> Self {
+        self.queued_user_messages = messages;
+        self
+    }
+}
+
+/// User message, принятый сервером во время активного root turn-а, но ещё не
+/// доставленный модели. Снимок используется `/pending` после reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AppQueuedUserMessage {
+    pub message_id: MessageId,
+    pub text: String,
+}
+
+impl AppQueuedUserMessage {
+    pub fn new(message_id: MessageId, text: impl Into<String>) -> Self {
+        Self {
+            message_id,
+            text: text.into(),
         }
     }
 }

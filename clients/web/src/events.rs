@@ -52,6 +52,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
     pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
@@ -114,6 +115,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
         refresh_pending_control_plane(
             bindings.set_pending_approvals,
             bindings.set_pending_user_inputs,
+            bindings.set_queued_prompts,
         );
         if was_disconnected {
             // События за время обрыва потеряны: стрим-состояние невалидно,
@@ -177,6 +179,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.transcript_generation,
                     bindings.set_pending_approvals,
                     bindings.set_pending_user_inputs,
+                    bindings.set_queued_prompts,
                     bindings.set_sidebar_sessions,
                     bindings.set_sidebar_sessions_status,
                 ),
@@ -237,12 +240,14 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
 fn refresh_pending_control_plane(
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 ) {
     spawn_local(async move {
         match get_json::<PendingControlPlaneInfo>("/pending").await {
             Ok(pending) => {
                 set_pending_approvals.set(pending.approvals);
                 set_pending_user_inputs.set(pending.user_inputs);
+                set_queued_prompts.set(pending.queued_user_messages);
             }
             Err(error) => {
                 web_sys::console::warn_1(&JsValue::from_str(&format!(
@@ -278,6 +283,7 @@ fn handle_app_output(
     transcript_generation: ReadSignal<u64>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
 ) {
@@ -309,6 +315,7 @@ fn handle_app_output(
                 transcript_generation,
                 set_pending_approvals,
                 set_pending_user_inputs,
+                set_queued_prompts,
                 set_sidebar_sessions,
                 set_sidebar_sessions_status,
             );
@@ -347,6 +354,7 @@ fn handle_app_event(
     transcript_generation: ReadSignal<u64>,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
+    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
 ) {
@@ -372,6 +380,7 @@ fn handle_app_event(
                 set_tool_activities,
                 active_session_dir,
                 set_context_usage,
+                set_queued_prompts,
             );
             update_session_labels(
                 envelope,
@@ -388,6 +397,7 @@ fn handle_app_event(
         }
         AppServerEvent::TurnOutput { output } => {
             flush_stream_delta_buffer(stream_bindings);
+            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ожидает".to_owned());
@@ -542,6 +552,7 @@ fn handle_app_event(
         }
         AppServerEvent::Error { message } => {
             flush_stream_delta_buffer(stream_bindings);
+            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("ошибка".to_owned());
@@ -576,10 +587,15 @@ fn handle_app_event(
                 set_streamed_this_turn,
                 set_transport_status,
             );
-            refresh_pending_control_plane(set_pending_approvals, set_pending_user_inputs);
+            refresh_pending_control_plane(
+                set_pending_approvals,
+                set_pending_user_inputs,
+                set_queued_prompts,
+            );
         }
         AppServerEvent::Shutdown => {
             flush_stream_delta_buffer(stream_bindings);
+            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_turn_id.set(None);
             set_agent_status.set("остановлено".to_owned());

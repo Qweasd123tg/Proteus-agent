@@ -21,6 +21,7 @@ use crate::{
     contracts::{
         CompactionHost, CompactionInput, CompactionOutput, HistoryCompactor, RuntimeContext,
     },
+    core::without_root_steering,
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
 
@@ -140,12 +141,13 @@ impl CompactionHost for RuntimeCompactionHost {
         let cancellation = ctx.cancellation.clone();
         tokio::select! {
             result = async move {
+                let completion = without_root_steering(ctx.model.complete(request));
                 if ctx.model_timeout_ms == 0 {
-                    ctx.model.complete(request).await
+                    completion.await
                 } else {
                     timeout(
                         Duration::from_millis(ctx.model_timeout_ms),
-                        ctx.model.complete(request),
+                        completion,
                     )
                     .await
                     .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?

@@ -17,8 +17,9 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        ModuleCatalogEntrySummary, RuntimeReloadReport, SessionStore, TopologyBuildInput,
-        TopologySnapshot, build_topology_snapshot, config_store_root, delete_workspace_session,
+        ModuleCatalogEntrySummary, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
+        SessionStore, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
+        build_topology_snapshot, config_store_root, delete_workspace_session,
         list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
     },
     domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
@@ -61,8 +62,8 @@ pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
     AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
     AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppPendingRequests,
-    AppServerEvent, AppSessionActivity, AppSessionSummary, AppUserInputRequestId, StdioOutput,
-    StdioRequest,
+    AppQueuedUserMessage, AppServerEvent, AppSessionActivity, AppSessionSummary,
+    AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
 use approvals::PendingApprovalResponders;
@@ -116,18 +117,57 @@ impl AppServerHandle {
         let _ = self
             .events
             .send(AppServerEvent::UserMessageSubmitted { text: text.clone() });
-        let result = self.runtime.run_with_cancellation(text, cancellation).await;
+        let completion = self.runtime.run_completion(text, cancellation).await;
         // Ход завершён: его сообщения уже в history (или потеряны при ошибке),
         // прогресс очищаем до эмита TurnOutput — чтобы /history, вызванный по
         // TurnOutput, не отдал текст хода дважды. Отмена и таймауты тоже
         // проходят здесь, у форвардера событий такой гарантии нет.
         self.turn_progress.lock().await.finish_parent_turn();
-        match result {
-            Ok(output) => {
-                let _ = self.events.send(AppServerEvent::TurnOutput {
-                    output: Box::new(output.clone()),
-                });
-                Ok(output)
+        self.publish_turn_completion(completion)
+    }
+
+    pub(crate) async fn reserve_user_message(
+        &self,
+        text: String,
+    ) -> Result<UserMessageReservation> {
+        let reservation = self.runtime.reserve_user_message(text.clone()).await?;
+        if matches!(reservation, UserMessageReservation::Start(_)) {
+            let _ = self
+                .events
+                .send(AppServerEvent::UserMessageSubmitted { text });
+        }
+        Ok(reservation)
+    }
+
+    pub(crate) async fn run_reserved_user_message(
+        &self,
+        reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+    ) -> Result<AgentOutput> {
+        let completion = self
+            .runtime
+            .run_reserved_completion(reserved, cancellation)
+            .await;
+        self.turn_progress.lock().await.finish_parent_turn();
+        self.publish_turn_completion(completion)
+    }
+
+    fn publish_turn_completion(
+        &self,
+        completion: Result<ReservedRunCompletion>,
+    ) -> Result<AgentOutput> {
+        match completion {
+            Ok(completion) => {
+                if let Some(output) = completion.output() {
+                    let _ = self.events.send(AppServerEvent::TurnOutput {
+                        output: Box::new(output.clone()),
+                    });
+                } else if let Some(error) = completion.error() {
+                    let _ = self.events.send(AppServerEvent::Error {
+                        message: format!("{error:#}"),
+                    });
+                }
+                completion.into_result()
             }
             Err(error) => {
                 let message = format!("{error:#}");
@@ -432,7 +472,16 @@ impl AppServerHandle {
                 .then_with(|| left.request_id.cmp(&right.request_id))
         });
 
+        let queued_user_messages = self
+            .runtime
+            .queued_user_messages()
+            .await
+            .into_iter()
+            .map(|(message_id, text)| AppQueuedUserMessage::new(message_id, text))
+            .collect();
+
         AppPendingRequests::new(approvals, user_inputs)
+            .with_queued_user_messages(queued_user_messages)
     }
 
     pub async fn context_map_snapshot(

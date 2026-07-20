@@ -52,6 +52,15 @@ Leptos-клиенты исключены из root workspace и проверяю
   `apply_patch`/`write_file`/`shell` и не заменяет `ToolRegistry`,
   `ApprovalPolicy`, `ToolSafety` или validation самих tools;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
+- root steering queue bounded по count/bytes, сохраняет FIFO и доставляет по
+  одному user message перед model call после tool boundary; без такой boundary
+  сообщение автоматически становится follow-up с новым `TurnId`;
+- внутренний model call compactor-а не потребляет открытую steering boundary,
+  а уже доставленное сообщение сохраняется в history/session store даже при
+  ошибке следующего model request;
+- terminal finalization gate не разрешает следующему root reservation обогнать
+  старый `TurnOutput`/`Error`; drop guard освобождает session даже после
+  принудительного abort transport task;
 - builder может принять существующие `SessionId`/`ThreadId` и восстановить history из existing session directory;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
@@ -122,6 +131,15 @@ stale monitor. App-server regression
 вкладывать поздние child tools для spawn и follow-up; web tests фиксируют тот же lifecycle без
 преждевременного перевода карточки в interrupted. Это не тесты restart
 persistence: collaboration registry намеренно process-resident.
+
+Root-session steering regressions живут отдельно в
+`core/runtime/tests/steering_integration.rs`: они фиксируют model-boundary,
+follow-up settlement, event attribution, compactor isolation, failure
+persistence и terminal ordering. HTTP test проверяет queued receipt и
+`/pending`; web protocol test — декодирование server-owned очереди после
+reconnect. `TurnProgress` отдельно проверяет, что steering user message делит
+assistant streaming на два сегмента, а не получает следующий delta в свой
+текст.
 
 Sequential child дополнительно проверяет model-response boundary до history и
 исполнения: exact request-visible tool set, message/vector projection,

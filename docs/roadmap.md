@@ -28,15 +28,16 @@ Roadmap хранит порядок работ и журнал уже приня
 4. ✅ Неделя 2 закрыта 2026-07-18: `SearchBackend` работает внешним процессом
    на любом языке; добавлены строгий handshake, Python + `rg` reference и
    swap/failure regression-тесты.
-5. Неделя 3: root-session steering/follow-up через runtime-очередь на границе
-   tool-батчей.
+5. ✅ Неделя 3 закрыта 2026-07-20: root-session steering/follow-up работает
+   через bounded runtime-очередь на границе tool-батчей, включая HTTP/stdio,
+   web reconnect и failure persistence.
 6. Неделя 4: `Compactor` как второй process-слот или `pi_rpc_reasoner`;
    хвосты, `install.sh`, design doc canonical turn data.
 7. После месяца: canonical turn data как один кластер (parts + storage +
    replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
 
-Пункт 4 закрыт; текущий следующий шаг — неделя 3. Новые platform features вне
-плана месяца не являются приоритетом.
+Пункты 4 и 5 закрыты; текущий следующий шаг — выбор трека недели 4. Новые
+platform features вне плана месяца не являются приоритетом.
 
 ## Цель
 
@@ -282,8 +283,15 @@ dogfood остаётся частью общего readiness-checkpoint, а не
 - **Клиенты**: web — ввод при активном turn с queued-индикатором; CLI/stdio
   — минимальная поддержка через существующий `Send` protocol.
 
-Done: сообщение, отправленное во время работы, доставлено между батчами и
-видно в trace с правильной атрибуцией; web smoke-тест lifecycle.
+✅ Done 2026-07-20: session-owned FIFO ограничен 32 сообщениями / 512 KiB,
+доставляет по одному сообщению перед model call после tool boundary либо новым
+follow-up turn после settlement. Runtime-owned user message попадает в history
+и trace с правильной атрибуцией, включая failure path; compactor model calls не
+поглощают boundary. HTTP/stdio возвращают queued receipt, `/pending`
+восстанавливает очередь, web показывает server-owned карточки и продолжает
+transcript через `SteeringDelivered`. Terminal finalization gate закрывает race
+между старым `TurnOutput` и новым `Send`; lifecycle покрыт core/HTTP/web
+regressions и Trunk build.
 
 ### Неделя 4 (до 2026-08-14): Выбор + Хвосты
 
@@ -942,8 +950,8 @@ Scope:
   Текущий sequential runner использует `complete`, поэтому UI видит live
   карточку `task` или background collaboration activity, nested tools и итог,
   но не текстовые deltas ребёнка.
-- UX backlog для web-клиента. Сделано: очередь composer requests во время
-  running turn (несколько карточек, ручная отправка), persistent layout sizes
+- UX backlog для web-клиента. Сделано: server-owned очередь composer requests
+  во время running turn (steering/follow-up без ручной повторной отправки), persistent layout sizes
   для sidebar/composer, message copy/collapse, streaming transcript по deltas,
   auto-dismiss toast для transport errors, resync transcript после SSE
   reconnect, autoscroll unstick при любом скролле вверх, диалоговое оформление
@@ -956,7 +964,6 @@ Scope:
   авто-сворачиванием после завершения. Осталось:
   - message actions: retry/continue;
   - compact typed controls и sticky latest controls для approval/user-input/plan;
-  - авто-отправка очереди после завершения turn (сейчас ручная кнопка);
   - composer polish: разгрузить нижнюю панель (настройки/стата/кнопки);
   - визуальный backlog: легенда карты topology, `:focus-visible` для кнопок,
     разгрузка плотной uppercase-mono типографики, опц. скругление/анимации.

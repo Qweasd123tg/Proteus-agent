@@ -26,6 +26,7 @@ pub(crate) struct AppActions {
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) active_turn_id: ReadSignal<Option<String>>,
     pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 }
 
 impl AppActions {
@@ -240,6 +241,83 @@ impl AppActions {
                     self.finish_turn();
                     self.push_error("Send failed", error);
                 }
+            }
+        });
+    }
+
+    /// Отправляет уточнение во время активного root turn-а. Сервер сразу
+    /// принимает его в session-owned очередь; локальный клиент не решает,
+    /// станет сообщение steering или follow-up.
+    pub(crate) fn queue_prompt(self, text: String) {
+        let text = text.trim().to_owned();
+        if text.is_empty() {
+            return;
+        }
+        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "steer");
+        let session_dir = self.active_session_dir.get_untracked();
+        let submitted_text = text.clone();
+        spawn_local(async move {
+            match post_json(
+                "/send-async",
+                &SendRequest {
+                    id: Some(request_id.clone()),
+                    text,
+                    session_dir,
+                },
+            )
+            .await
+            {
+                Ok(StdioOutput::Response {
+                    ok: true, output, ..
+                }) => {
+                    self.set_transport_status.set(TransportStatus::Connected);
+                    let queued = output
+                        .as_ref()
+                        .and_then(|value| value.get("queued"))
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if queued {
+                        if let Some(message_id) = output
+                            .as_ref()
+                            .and_then(|value| value.get("message_id"))
+                            .and_then(serde_json::Value::as_str)
+                        {
+                            let queued = QueuedPromptInfo {
+                                message_id: message_id.to_owned(),
+                                text: submitted_text,
+                            };
+                            self.set_queued_prompts.update(|items| {
+                                if let Some(existing) = items
+                                    .iter_mut()
+                                    .find(|item| item.message_id == queued.message_id)
+                                {
+                                    *existing = queued;
+                                } else {
+                                    items.push(queued);
+                                }
+                            });
+                        }
+                    } else {
+                        // Race: предыдущий turn успел завершиться до запроса,
+                        // поэтому runtime зарезервировал полноценный новый.
+                        self.set_is_sending.set(true);
+                        self.set_active_turn_id.set(Some(request_id));
+                        push_user_message_once(
+                            self.set_messages,
+                            self.next_message_id,
+                            self.set_next_message_id,
+                            submitted_text,
+                        );
+                    }
+                }
+                Ok(output) => handle_command_response(
+                    output,
+                    self.set_messages,
+                    self.next_message_id,
+                    self.set_next_message_id,
+                    self.set_transport_status,
+                ),
+                Err(error) => self.push_error("Queue send failed", error),
             }
         });
     }

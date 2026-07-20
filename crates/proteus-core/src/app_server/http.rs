@@ -28,7 +28,7 @@ mod sse;
 mod state;
 
 #[cfg(test)]
-use commands::spawn_send_turn;
+use commands::{SendDispatch, spawn_send_turn};
 use commands::{
     command_response, config_summary_with_activity, execute_app_request, execute_delete_session,
     execute_new_session, execute_resume, execute_send, execute_send_async, execute_set_model,
@@ -219,11 +219,7 @@ where
                     id.clone(),
                     execute_send(&state, id, command.text, command.session_dir)
                         .await
-                        .and_then(|output| {
-                            serde_json::to_value(output)
-                                .map(Some)
-                                .map_err(anyhow::Error::from)
-                        }),
+                        .map(Some),
                 );
                 json_response(StatusCode::OK, &output)
             }

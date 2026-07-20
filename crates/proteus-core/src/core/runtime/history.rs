@@ -1,6 +1,11 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, ensure};
 
-use crate::model_standard::{CanonicalMessage, MessageRole};
+use crate::{
+    domain::MessageId,
+    model_standard::{CanonicalMessage, MessageRole},
+};
 
 #[derive(Debug)]
 pub(super) struct PreparedHistoryUpdate {
@@ -14,6 +19,7 @@ pub(super) fn prepare_history_update(
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
     history_compacted: bool,
+    runtime_user_messages: &HashSet<MessageId>,
 ) -> Result<PreparedHistoryUpdate> {
     ensure!(
         current_history.last() == Some(persisted_user_message),
@@ -21,11 +27,13 @@ pub(super) fn prepare_history_update(
     );
     ensure!(
         !new_messages.is_empty(),
-        "workflow returned no new assistant/tool messages"
+        "workflow returned no new persistent turn messages"
     );
     for (index, message) in new_messages.iter().enumerate() {
         ensure!(
-            matches!(message.role, MessageRole::Assistant | MessageRole::Tool),
+            matches!(message.role, MessageRole::Assistant | MessageRole::Tool)
+                || (message.role == MessageRole::User
+                    && runtime_user_messages.contains(&message.id)),
             "workflow new_messages[{index}] has non-persistent turn role {:?}",
             message.role
         );
@@ -80,6 +88,7 @@ mod tests {
             std::slice::from_ref(&assistant),
             None,
             false,
+            &HashSet::new(),
         )
         .expect("append update");
 
@@ -99,6 +108,7 @@ mod tests {
             std::slice::from_ref(&assistant),
             Some(std::slice::from_ref(&recreated_user)),
             true,
+            &HashSet::new(),
         )
         .expect_err("replacement must preserve the stored message id");
 
@@ -118,6 +128,7 @@ mod tests {
             std::slice::from_ref(&assistant),
             Some(&replacement),
             true,
+            &HashSet::new(),
         )
         .expect("compacted history update");
 
@@ -135,6 +146,7 @@ mod tests {
             std::slice::from_ref(&user),
             None,
             false,
+            &HashSet::new(),
         )
         .expect_err("workflow must return only assistant/tool messages");
 

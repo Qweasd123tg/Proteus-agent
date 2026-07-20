@@ -142,6 +142,10 @@ impl PluginWorkflowHost for WorkflowHost {
         RResult::ROk(self.ctx.is_cancelled())
     }
 
+    fn queued_user_messages(&self) -> RResult<u32, PluginWorkflowHostError> {
+        RResult::ROk(self.ctx.queued_user_messages().min(u32::MAX as usize) as u32)
+    }
+
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
         let task: AgentTask = match serde_json::from_str(task_json.as_str()) {
             Ok(task) => task,

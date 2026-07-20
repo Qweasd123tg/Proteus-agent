@@ -7,8 +7,9 @@ use super::stream::{
 };
 use crate::app_helpers::save_context_usage;
 use crate::messages::{
-    finish_active_streaming_assistant_message, finish_streaming_reasoning, finish_subagent_message,
-    push_message, push_subagent_message, push_subagent_tool, push_tool_message, update_tool_status,
+    finish_active_streaming_assistant_message, finish_streaming_assistant_message,
+    finish_streaming_reasoning, finish_subagent_message, push_message, push_subagent_message,
+    push_subagent_tool, push_tool_message, push_user_message_once, update_tool_status,
 };
 use crate::types::*;
 use crate::ui_utils::{compact_text, format_json, short_id, short_path};
@@ -52,6 +53,7 @@ pub(crate) fn update_runtime_status_and_tools(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     active_session_dir: ReadSignal<Option<String>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
+    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 ) {
     let Some(event) = envelope.get("event") else {
         return;
@@ -59,6 +61,46 @@ pub(crate) fn update_runtime_status_and_tools(
     // thread_id конверта: события дочернего цикла субагента приходят под его
     // child_thread_id — по нему tool-вызовы вкладываются в карточку субагента.
     let envelope_thread_id = envelope.get("thread_id").and_then(Value::as_str);
+
+    if let Some(queued) = steering_queued_prompt(event) {
+        set_queued_prompts.update(|items| {
+            if let Some(existing) = items
+                .iter_mut()
+                .find(|item| item.message_id == queued.message_id)
+            {
+                *existing = queued;
+            } else {
+                items.push(queued);
+            }
+        });
+        set_agent_status.set("уточнение в очереди".to_owned());
+        return;
+    }
+
+    if let Some(delivered) = steering_delivered_update(event) {
+        set_queued_prompts.update(|items| {
+            items.retain(|item| item.message_id != delivered.message_id);
+        });
+        if let Some(text) = delivered.text {
+            flush_stream_delta_buffer(stream_bindings);
+            finish_active_streaming_assistant_message(
+                set_messages,
+                stream_bindings.active_stream_message_id,
+                stream_bindings.set_active_stream_message_id,
+            );
+            stream_bindings.set_streamed_this_turn.set(false);
+            push_user_message_once(set_messages, next_message_id, set_next_message_id, text);
+        }
+        set_agent_status.set(
+            if delivered.follow_up {
+                "начинает следующий ход"
+            } else {
+                "учитывает уточнение"
+            }
+            .to_owned(),
+        );
+        return;
+    }
 
     if let Some(usage_event) = event.get("TokenUsageUpdated") {
         if let Some(usage) = usage_event.get("usage").and_then(parse_context_usage) {
@@ -290,13 +332,54 @@ pub(crate) fn update_runtime_status_and_tools(
                 crate::ui_utils::now_ms(),
             );
         }
-    } else if event.get("TurnFinished").is_some() {
+    } else if let Some(turn_finished) = event.get("TurnFinished") {
         flush_stream_delta_buffer(stream_bindings);
+        if let Some(text) = turn_finished
+            .pointer("/output/text")
+            .and_then(Value::as_str)
+        {
+            finish_streaming_assistant_message(
+                set_messages,
+                next_message_id,
+                set_next_message_id,
+                stream_bindings.active_stream_message_id,
+                stream_bindings.set_active_stream_message_id,
+                text.to_owned(),
+            );
+            stream_bindings.set_streamed_this_turn.set(false);
+        }
         finish_streaming_reasoning(set_messages);
         set_agent_status.set("ожидает".to_owned());
     } else if event.get("Error").is_some() {
         set_agent_status.set("ошибка".to_owned());
     }
+}
+
+fn steering_queued_prompt(event: &Value) -> Option<QueuedPromptInfo> {
+    let queued = event.get("SteeringQueued")?;
+    Some(QueuedPromptInfo {
+        message_id: queued.get("message_id")?.as_str()?.to_owned(),
+        text: queued.get("text")?.as_str()?.to_owned(),
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SteeringDeliveredUpdate {
+    message_id: String,
+    text: Option<String>,
+    follow_up: bool,
+}
+
+fn steering_delivered_update(event: &Value) -> Option<SteeringDeliveredUpdate> {
+    let delivered = event.get("SteeringDelivered")?;
+    Some(SteeringDeliveredUpdate {
+        message_id: delivered.get("message_id")?.as_str()?.to_owned(),
+        text: delivered
+            .get("text")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        follow_up: delivered.get("kind").and_then(Value::as_str) == Some("follow_up"),
+    })
 }
 
 fn runtime_event_is_stream_delta(envelope: &Value) -> bool {
@@ -520,6 +603,54 @@ mod tests {
         assert!(rendered.contains("\"b\": ["));
         assert!(rendered.contains("fifth"));
         assert!(!rendered.contains("..."));
+    }
+
+    #[test]
+    fn contract_steering_queued_envelope_matches_runtime_parser() {
+        let session_id = contract_domain::new_session_id();
+        let thread_id = contract_domain::new_thread_id();
+        let turn_id = contract_domain::new_turn_id();
+        let message_id = contract_domain::new_message_id();
+        let envelope = contract_domain::EventEnvelope::new(
+            contract_domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            1,
+            contract_domain::Event::SteeringQueued {
+                message_id,
+                text: "queued instruction".to_owned(),
+                queued_count: 1,
+            },
+        );
+        let value = serde_json::to_value(envelope).expect("contract envelope JSON");
+
+        let queued = steering_queued_prompt(&value["event"]).expect("queued payload");
+
+        assert_eq!(queued.message_id, message_id.to_string());
+        assert_eq!(queued.text, "queued instruction");
+    }
+
+    #[test]
+    fn contract_steering_delivered_envelope_matches_runtime_parser() {
+        let session_id = contract_domain::new_session_id();
+        let thread_id = contract_domain::new_thread_id();
+        let turn_id = contract_domain::new_turn_id();
+        let message_id = contract_domain::new_message_id();
+        let envelope = contract_domain::EventEnvelope::new(
+            contract_domain::EventContext::new(session_id, thread_id, Some(turn_id)),
+            2,
+            contract_domain::Event::SteeringDelivered {
+                message_id,
+                text: "follow up".to_owned(),
+                kind: contract_domain::SteeringDeliveryKind::FollowUp,
+                queued_count: 0,
+            },
+        );
+        let value = serde_json::to_value(envelope).expect("contract envelope JSON");
+
+        let delivered = steering_delivered_update(&value["event"]).expect("delivered payload");
+
+        assert_eq!(delivered.message_id, message_id.to_string());
+        assert_eq!(delivered.text.as_deref(), Some("follow up"));
+        assert!(delivered.follow_up);
     }
 
     #[test]

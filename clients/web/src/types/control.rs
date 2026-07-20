@@ -90,4 +90,11 @@ pub(crate) struct UserInputRequestInfo {
 pub(crate) struct PendingControlPlaneInfo {
     pub(crate) approvals: Vec<ApprovalRequestInfo>,
     pub(crate) user_inputs: Vec<UserInputRequestInfo>,
+    pub(crate) queued_user_messages: Vec<QueuedPromptInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub(crate) struct QueuedPromptInfo {
+    pub(crate) message_id: String,
+    pub(crate) text: String,
 }

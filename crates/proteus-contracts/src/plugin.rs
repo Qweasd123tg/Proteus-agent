@@ -557,6 +557,10 @@ pub trait PluginWorkflowHost: Send + Sync {
     /// Cooperative cancellation signal for long sync workflow loops.
     fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError>;
 
+    /// Dynamic count of root-session user messages waiting for steering or a
+    /// follow-up turn. This is observability only; delivery stays core-owned.
+    fn queued_user_messages(&self) -> RResult<u32, PluginWorkflowHostError>;
+
     /// Input JSON: `AgentTask`. Output JSON: `ContextBundle`.
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError>;
 

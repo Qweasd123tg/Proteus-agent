@@ -267,7 +267,11 @@ fn web_decodes_contract_pending_requests() {
     let pending = contract_protocol::AppPendingRequests::new(
         vec![contract_approval_request()],
         vec![contract_user_input_request()],
-    );
+    )
+    .with_queued_user_messages(vec![contract_protocol::AppQueuedUserMessage::new(
+        contract_domain::new_message_id(),
+        "steer this",
+    )]);
 
     let value = serde_json::to_value(pending).expect("pending JSON");
     let decoded: PendingControlPlaneInfo =
@@ -282,6 +286,8 @@ fn web_decodes_contract_pending_requests() {
         decoded.user_inputs[0].questions[0].options[0].label,
         "Minimal"
     );
+    assert_eq!(decoded.queued_user_messages.len(), 1);
+    assert_eq!(decoded.queued_user_messages[0].text, "steer this");
 }
 
 #[test]

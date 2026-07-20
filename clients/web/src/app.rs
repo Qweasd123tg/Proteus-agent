@@ -91,8 +91,7 @@ pub(crate) fn App() -> impl IntoView {
         }
     };
     let (draft, set_draft) = signal(String::new());
-    let (queued_prompts, set_queued_prompts) = signal(Vec::<(u64, String)>::new());
-    let (next_queued_id, set_next_queued_id) = signal(1_u64);
+    let (queued_prompts, set_queued_prompts) = signal(Vec::<QueuedPromptInfo>::new());
     let (mode, set_mode) = signal(PermissionMode::Normal);
     let (model_name, set_model_name) = signal(String::new());
     let (model_options, set_model_options) = signal(Vec::<String>::new());
@@ -359,6 +358,7 @@ pub(crate) fn App() -> impl IntoView {
         transcript_generation,
         set_pending_approvals,
         set_pending_user_inputs,
+        set_queued_prompts,
         set_sidebar_sessions,
         set_sidebar_sessions_status,
     };
@@ -434,6 +434,7 @@ pub(crate) fn App() -> impl IntoView {
         set_is_sending,
         active_turn_id,
         set_active_turn_id,
+        set_queued_prompts,
     };
 
     let start_new_session = move |_| session_actions.start_new_session();
@@ -592,9 +593,7 @@ pub(crate) fn App() -> impl IntoView {
         set_stick_to_bottom.set(true);
         set_draft.set(String::new());
         if is_sending.get() {
-            let id = next_queued_id.get();
-            set_next_queued_id.set(id + 1);
-            set_queued_prompts.update(|items| items.push((id, text)));
+            actions.queue_prompt(text);
             return;
         }
 
@@ -856,11 +855,9 @@ pub(crate) fn App() -> impl IntoView {
                                 pending_approvals
                                 pending_user_inputs
                                 queued_prompts
-                                set_queued_prompts
                                 mode
                                 is_sending
                                 agent_status
-                                actions
                                 on_resolve_approval=resolve_approval
                                 on_submit_user_input=submit_user_input
                                 on_revise_plan=revise_plan
