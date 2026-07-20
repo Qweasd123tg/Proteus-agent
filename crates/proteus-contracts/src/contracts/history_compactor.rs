@@ -7,6 +7,9 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v0";
+pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -88,6 +91,21 @@ impl CompactionOutput {
             token_estimate: None,
             metadata: serde_json::Value::Null,
         }
+    }
+}
+
+/// Строгий result метода `compact` в process-module protocol.
+/// Отдельный envelope не позволяет молча принять старую bare-форму
+/// `CompactionOutput` при изменении draft wire contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessCompactionResponse {
+    pub output: CompactionOutput,
+}
+
+impl ProcessCompactionResponse {
+    pub fn new(output: CompactionOutput) -> Self {
+        Self { output }
     }
 }
 
@@ -189,5 +207,23 @@ mod tests {
         let report = HistoryCompactionReport::from_compaction_output(&input, &output);
 
         assert_eq!(report.trigger_tokens, Some(80));
+    }
+
+    #[test]
+    fn process_compaction_response_rejects_bare_output_and_unknown_fields() {
+        let input = sample_input();
+        let output = CompactionOutput::unchanged(input.messages);
+        let bare = serde_json::to_value(&output).expect("bare output value");
+        serde_json::from_value::<ProcessCompactionResponse>(bare)
+            .expect_err("bare CompactionOutput must not be accepted");
+
+        let mut envelope =
+            serde_json::to_value(ProcessCompactionResponse::new(output)).expect("envelope value");
+        envelope
+            .as_object_mut()
+            .expect("response object")
+            .insert("legacy_output".to_owned(), serde_json::Value::Null);
+        serde_json::from_value::<ProcessCompactionResponse>(envelope)
+            .expect_err("unknown response fields must be rejected");
     }
 }

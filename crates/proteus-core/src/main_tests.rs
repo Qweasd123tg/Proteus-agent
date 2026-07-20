@@ -129,12 +129,14 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
 }
 
 #[test]
-fn read_only_cli_paths_do_not_start_process_search() {
+fn read_only_cli_paths_do_not_start_process_modules() {
     disable_plugins();
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
+    let compactor_marker = dir.path().join("process-compactor-started");
     let mut config = AppConfig::default();
     config.modules.search = "process".to_owned();
+    config.modules.compactor = "process".to_owned();
     config.modules.patch = "null".to_owned();
     config.modules.subagent = "none".to_owned();
     config.subagents.surface = proteus_core::core::SubagentSurface::None;
@@ -153,6 +155,19 @@ fn read_only_cli_paths_do_not_start_process_search() {
                 "timeout_ms": 1000
             }),
         );
+    config
+        .module_config
+        .entry("compactor".to_owned())
+        .or_default()
+        .insert(
+            "process".to_owned(),
+            serde_json::json!({
+                "module_id": "marker",
+                "command": "/bin/sh",
+                "args": ["-c", format!("touch {}", compactor_marker.display())],
+                "timeout_ms": 1000
+            }),
+        );
 
     let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
     let _topology =
@@ -165,9 +180,19 @@ fn read_only_cli_paths_do_not_start_process_search() {
         "read-only CLI path unexpectedly spawned process search"
     );
     assert!(
+        !compactor_marker.exists(),
+        "read-only CLI path unexpectedly spawned process compactor"
+    );
+    assert!(
         findings.entries.iter().any(|entry| {
             entry.level == "ok" && entry.message.contains("search backend process")
         })
+    );
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| { entry.level == "ok" && entry.message.contains("compactor process") })
     );
 }
 

@@ -42,6 +42,7 @@ impl PluginTool for RequestPermissionsTool {
                 },
                 "required": ["permissions", "justification"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
             "timeout_ms": 5000,
             "metadata": {
@@ -130,6 +131,7 @@ fn invoke_impl(call_json: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use proteus_contracts::domain::ToolSpec;
     use serde_json::{Value, json};
 
     use super::*;
@@ -188,6 +190,8 @@ mod tests {
 
     #[test]
     fn spec_is_runs_commands_and_requires_args() {
+        serde_json::from_str::<ToolSpec>(RequestPermissionsTool.spec_json().as_str())
+            .expect("request_permissions spec must match strict ToolSpec");
         let spec: Value =
             serde_json::from_str(RequestPermissionsTool.spec_json().as_str()).expect("spec json");
 

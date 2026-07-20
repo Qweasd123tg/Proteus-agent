@@ -173,7 +173,9 @@ async fn configured_process_tool_executes_through_orchestrator() {
         }),
         surface: ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
-        timeout_ms: Some(1_000),
+        // This case verifies process execution, not the timeout boundary.
+        // Leave enough headroom for a fully parallel workspace test run.
+        timeout_ms: Some(5_000),
         metadata: serde_json::Value::Null,
         executor: ConfiguredToolExecutorConfig::Process {
             command: "sh".to_owned(),
@@ -210,7 +212,7 @@ async fn configured_process_tool_executes_through_orchestrator() {
         .await
         .unwrap();
 
-    assert!(result.ok);
+    assert!(result.ok, "configured process failed: {result:?}");
     assert_eq!(result.output, "{\"message\":\"hello\"}");
     let events = events.events().await;
     assert!(matches!(events[0], Event::ToolCallRequested { .. }));

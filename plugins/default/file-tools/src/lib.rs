@@ -114,7 +114,7 @@ mod tests {
             std_types::{RResult, RString},
         },
         contracts::ToolInvocationOwner,
-        domain::{new_session_id, new_thread_id, new_turn_id},
+        domain::{ToolSpec, new_session_id, new_thread_id, new_turn_id},
         plugin::{
             PluginTool, PluginToolError, PluginToolHost, PluginToolHost_TO, PluginToolHostMut,
             PluginToolInvocationContext,
@@ -160,6 +160,22 @@ mod tests {
 
     fn spec<T: PluginTool>(tool: &T) -> Value {
         serde_json::from_str(tool.spec_json().as_str()).expect("spec json")
+    }
+
+    fn assert_canonical_spec<T: PluginTool>(tool: &T) {
+        serde_json::from_str::<ToolSpec>(tool.spec_json().as_str())
+            .expect("plugin spec must match strict ToolSpec");
+    }
+
+    #[test]
+    fn every_file_tool_emits_strict_canonical_spec() {
+        assert_canonical_spec(&ReadFileTool);
+        assert_canonical_spec(&WriteFileTool);
+        assert_canonical_spec(&EditFileTool);
+        assert_canonical_spec(&ListDirTool);
+        assert_canonical_spec(&GrepTool);
+        assert_canonical_spec(&FindFilesTool);
+        assert_canonical_spec(&ReadManyFilesTool);
     }
 
     #[test]

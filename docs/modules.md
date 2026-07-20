@@ -1,9 +1,9 @@
 # Модули
 
 Модульность v0 означает выбор реализации через config: встроенный fallback из
-ядра там, где он ещё нужен, dylib-плагин из `~/.proteus/plugins` или
-поддержанный конкретным slot adapter-ом внешний процесс. Первый process-slot —
-`SearchBackend`.
+ядра там, где он ещё нужен, dylib-плагин из установленного/default pack или
+personal overlay и поддержанный конкретным slot adapter-ом внешний процесс.
+Process-модули сейчас реализованы для `SearchBackend` и `HistoryCompactor`.
 Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
 `crates/proteus-core/src/core/module_catalog.rs`, а
 `crates/proteus-core/src/core/registry.rs` использует catalog для сборки
@@ -22,8 +22,9 @@ adapter для plugin `MemoryStore`. `jsonl` вынесен в
 
 `crates/proteus-core/src/process_adapters/<slot>` содержит другой glue layer:
 он переводит generic stdio process protocol в конкретный contract. Сейчас там
-есть только search adapter; protocol framing и lifecycle принадлежат
-`proteus-process-host`, а алгоритм поиска остаётся во внешнем child-е.
+есть search и compactor adapters; protocol framing и lifecycle принадлежат
+`proteus-process-host`, а алгоритм поиска или compaction strategy остаётся во
+внешнем child-е.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
@@ -49,8 +50,9 @@ proteus modules list
 Эта команда читает `BuiltinModuleCatalog`; она не устанавливает модули и не является package manager.
 
 Config-defined tools поддерживают process и stdio MCP executors, а
-`SearchBackend` дополнительно может быть внешним process module. Для остальных
-slots external process adapters и package manager ещё не реализованы.
+`SearchBackend` и `HistoryCompactor` дополнительно могут быть внешними process
+modules. Для остальных slots external process adapters и package manager ещё
+не реализованы.
 Для config-defined tools и MCP discovery есть app-server reload:
 `StdioRequest::ReloadTools` / HTTP `POST /reload-tools` перечитывает `tools.*`
 из config, пересобирает catalog/registry и публикует новый `RuntimeSnapshot`.
@@ -90,7 +92,7 @@ pseudo-slot из topology.
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
 | Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
-| Compactor | `HistoryCompactor` | `modules.compactor` | `none`, plugin-provided (`codex` из `codex-compactor`) |
+| Compactor | `HistoryCompactor` | `modules.compactor` | `none`, `process`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
 | Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, `process`, plugin-provided через `PluginSubagent` |
 | Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
@@ -551,6 +553,43 @@ max_input_tokens` активной модели; стандартные проф
 `is_cancelled` и `complete_model_json`. Это оставляет стиль workflow в плагине,
 а compactor не получает capabilities для tools, policy, memory или мутации
 session history.
+
+`modules.compactor = "process"` строит persistent stdio-модуль из
+`module_config.compactor.process`. Это намеренно другой capability profile:
+внешний процесс получает только `CompactionInput` и возвращает
+`CompactionOutput`, но не получает `CompactionHost`. Поэтому он является pure
+transform и не может делать скрытые model calls. Module-owned параметры
+алгоритма передаются в `strategy` и становятся полем `config` входного DTO;
+команда, cwd и окружение через границу не протекают.
+
+При сборке snapshot core запускает child и делает строгий `initialize`
+handshake для slot `compactor`, ожидаемого `module_id` и contract `v0`.
+Метод `compact` возвращает envelope `{ "output": CompactionOutput }`: bare
+output, неизвестные поля, JSON-RPC error, смерть child или timeout являются
+ошибкой выбранного slot-а без fallback на `none`. После process/protocol/DTO
+ошибки session сбрасывается; следующий вызов лениво запускает новый child и
+повторяет handshake. Read-only `modules list`, `inspect topology` и `doctor`
+валидируют config/command, но не запускают процесс.
+
+Dependency-free reference находится в
+`examples/modules/compactor-process/compact.py`. Он сохраняет canonical
+context и suffix последних user-turns и нужен для проверки wire boundary, а
+не как замена model-aware `codex-compactor`. Пример config:
+
+```toml
+[modules]
+compactor = "process"
+
+[module_config.compactor.process]
+module_id = "python_suffix"
+command = "python3"
+args = ["examples/modules/compactor-process/compact.py"]
+timeout_ms = 30000
+
+[module_config.compactor.process.strategy]
+trigger_messages = 12
+retain_user_turns = 2
+```
 
 ## Tool Exposure
 

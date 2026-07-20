@@ -19,9 +19,10 @@ model + context + workflow + tools + policy
 
 Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
 2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
-из внешних процессов на любом языке и steering корневого цикла. Первые три
-недели плана закрыты 2026-07-20: lifecycle interactive exec, внешний process
-`SearchBackend` и root-session steering/follow-up. Общий safety path,
+из внешних процессов на любом языке и steering корневого цикла. Все четыре
+технических недели плана закрыты досрочно 2026-07-20: lifecycle interactive
+exec, внешние process `SearchBackend`/`HistoryCompactor`, root-session
+steering/follow-up и совместимый atomic install bundle. Общий safety path,
 fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
 закрыты regression-тестами.
 
@@ -29,7 +30,8 @@ fail-closed shell isolation и обязательный auth для non-loopback
 
 - OpenAI, Anthropic и OpenAI-compatible model adapters;
 - configurable workflows, context builders, compaction и tool exposure;
-- внешний process `SearchBackend` с языконезависимым JSON-RPC протоколом;
+- внешние process `SearchBackend` и pure-transform `HistoryCompactor` с
+  языконезависимым JSON-RPC протоколом;
 - file/git/shell/plan tools через default plugins;
 - mode-aware policy, approvals и session-scoped control plane;
 - JSONL sessions, request/config snapshots и pre-compaction archives;
@@ -41,6 +43,8 @@ fail-closed shell isolation и обязательный auth для non-loopback
   background UI lifecycle;
 - bounded root-session steering queue с model-boundary delivery,
   settlement follow-up, HTTP/stdio receipts и web reconnect;
+- versioned binary/default-plugin releases с atomic `~/.proteus/current` и
+  отдельным personal plugin overlay;
 - `doctor`, `inspect topology`, `modules list` и `eval report`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
@@ -49,12 +53,18 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Недели 1–3
-закрыты: raw seam и lifecycle interactive exec; внешний языконезависимый
-`SearchBackend` с Python + `rg` reference; root-session steering/follow-up с
-server-owned web queue. Текущий следующий шаг — выбрать трек недели 4:
-`Compactor` как второй process-слот или `pi_rpc_reasoner`, затем закрыть
-`install.sh`/dogfood хвосты и написать design doc canonical turn data.
+Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Недели 1–4
+закрыты: raw seam и lifecycle interactive exec; внешние языконезависимые
+`SearchBackend` и pure-transform `HistoryCompactor` с runnable Python
+references; root-session steering/follow-up с server-owned web queue;
+versioned atomic install bundle и design
+[canonical turn data](canonical-turn-data.md). Владелец выбрал compactor-трек;
+`pi_rpc_reasoner` оставлен дальней теорией для отдельного обсуждения.
+
+Следующий практический шаг — не новая platform feature, а readiness dogfood:
+несколько небольших web/app-server задач и проверка, что trace локализует
+failure. Реализация canonical journal обсуждается после этого как один кластер
+parts + storage + replay + eval; текущий документ пока только design.
 
 Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
 readiness-checkpoint ниже остаётся обязательным: он дополнительно включает
@@ -111,7 +121,8 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 
 1. safety cases выше покрыты regression-тестами;
 2. полный root gate и оба Trunk build зелёные;
-3. `./install.sh` даёт совместимый binary/plugin set;
+3. ✅ `./install.sh` даёт совместимый versioned binary/plugin set и атомарно
+   переключает `current`;
 4. несколько небольших coding-задач проходят через web/app-server без потери
    контроля, worktree или процесса;
 5. trace позволяет объяснить failure без ручного чтения исходников runtime.
@@ -133,7 +144,9 @@ session format несколько раз.
 - полноценный RAG/index daemon;
 - MCP resources/prompts/subscriptions и новые transports;
 - LSP integration;
-- внешний onboarding и distribution для незнакомого пользователя.
+- внешний onboarding и distribution для незнакомого пользователя;
+- `pi_rpc_reasoner` и Pi-specific runtime integration до отдельного решения
+  владельца.
 
 ## Research / Quarantine
 

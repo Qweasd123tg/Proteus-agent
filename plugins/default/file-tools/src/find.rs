@@ -46,6 +46,7 @@ impl PluginTool for FindFilesTool {
                 },
                 "required": ["pattern"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": FIND_TIMEOUT.as_millis() as u64,
             "metadata": {

@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use proteus_core::{
     core::{AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig, expand_user_path},
     domain::ModuleKind,
-    process_adapters::ProcessSearchConfig,
+    process_adapters::{ProcessCompactorConfig, ProcessSearchConfig},
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -56,6 +56,12 @@ pub(crate) async fn run_doctor(
         }
     };
 
+    match proteus_core::core::default_packaged_plugins_dir() {
+        Some(plugins_dir) => {
+            findings.ok(format!("packaged plugins dir: {}", plugins_dir.display()))
+        }
+        None => findings.warn("packaged plugins dir unavailable"),
+    }
     match proteus_core::core::default_plugins_dir() {
         Some(plugins_dir) => findings.ok(format!("plugins dir: {}", plugins_dir.display())),
         None => findings.warn("plugins dir could not be resolved"),
@@ -392,6 +398,25 @@ pub(crate) fn check_external_commands(
                 "search backend process",
             ),
             Err(error) => findings.error(format!("search backend process config: {error:#}")),
+        }
+    }
+    if config.modules.compactor == "process" {
+        let process = ProcessCompactorConfig::from_value(
+            config.module_config_value(ModuleKind::Compactor, "process"),
+        )
+        .and_then(|config| {
+            let spec = config.process_spec(cwd)?;
+            spec.resolved_environment()?;
+            Ok(spec)
+        });
+        match process {
+            Ok(spec) => check_command(
+                findings,
+                &spec.command,
+                spec.cwd.as_deref().unwrap_or(cwd),
+                "compactor process",
+            ),
+            Err(error) => findings.error(format!("compactor process config: {error:#}")),
         }
     }
 

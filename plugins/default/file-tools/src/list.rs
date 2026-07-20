@@ -27,6 +27,7 @@ impl PluginTool for ListDirTool {
                 },
                 "required": []
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": 60000,
             "metadata": {

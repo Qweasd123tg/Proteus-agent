@@ -268,10 +268,52 @@ pub fn load_plugins_from_dir(
 /// use [`BuiltinModuleCatalog::new`] directly.
 pub fn load_default_module_catalog() -> (BuiltinModuleCatalog, Vec<PluginLoadReport>) {
     let mut catalog = BuiltinModuleCatalog::new();
-    let reports = default_plugins_dir()
-        .map(|plugins_dir| load_plugins_from_dir(&plugins_dir, &mut catalog))
-        .unwrap_or_default();
+    let mut reports = Vec::new();
+    for plugins_dir in default_plugin_dirs() {
+        reports.extend(load_plugins_from_dir(&plugins_dir, &mut catalog));
+    }
     (catalog, reports)
+}
+
+fn default_plugin_dirs() -> Vec<PathBuf> {
+    plugin_dirs(
+        std::env::var_os("PROTEUS_PLUGINS_DIR").map(PathBuf::from),
+        default_packaged_plugins_dir(),
+        default_personal_plugins_dir(),
+    )
+}
+
+fn plugin_dirs(
+    explicit: Option<PathBuf>,
+    packaged: Option<PathBuf>,
+    personal: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    // Preserve the pre-bundle escape hatch exactly: an explicit plugins dir is
+    // a full override, not an overlay on top of the installed default pack.
+    if let Some(explicit) = explicit {
+        return vec![explicit];
+    }
+
+    let mut dirs = Vec::new();
+    if let Some(packaged) = packaged {
+        dirs.push(packaged);
+    }
+    if let Some(personal) = personal
+        && !same_directory(dirs.first().map(PathBuf::as_path), &personal)
+    {
+        dirs.push(personal);
+    }
+    dirs
+}
+
+fn same_directory(left: Option<&Path>, right: &Path) -> bool {
+    let Some(left) = left else {
+        return false;
+    };
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 
 /// Внутренний вариант `load_plugins_from_dir`, не смотрящий на env.
@@ -562,8 +604,29 @@ pub fn default_plugins_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("PROTEUS_PLUGINS_DIR") {
         return Some(PathBuf::from(dir));
     }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".proteus").join("plugins"))
+    default_personal_plugins_dir()
+}
+
+fn default_personal_plugins_dir() -> Option<PathBuf> {
+    Some(default_proteus_home()?.join("plugins"))
+}
+
+/// Packaged default plugin set built by `install.sh` together with the active
+/// binary. The installed wrapper sets the explicit path; the default current
+/// symlink also keeps direct binary invocations on the compatible bundle.
+pub fn default_packaged_plugins_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("PROTEUS_PACKAGED_PLUGINS_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    let dir = default_proteus_home()?.join("current").join("plugins");
+    dir.exists().then_some(dir)
+}
+
+fn default_proteus_home() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("PROTEUS_HOME") {
+        return Some(PathBuf::from(home));
+    }
+    Some(PathBuf::from(std::env::var_os("HOME")?).join(".proteus"))
 }
 
 #[cfg(test)]
@@ -762,5 +825,46 @@ requires_proteus_contracts = "^0.1"
         let mut catalog = BuiltinModuleCatalog::new();
         let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
         assert!(reports.is_empty());
+    }
+
+    #[test]
+    fn packaged_and_personal_plugin_dirs_are_ordered_and_deduplicated() {
+        let root = tempdir().unwrap();
+        let packaged = root.path().join("packaged");
+        let personal = root.path().join("personal");
+        std::fs::create_dir_all(&packaged).unwrap();
+        std::fs::create_dir_all(&personal).unwrap();
+
+        assert_eq!(
+            plugin_dirs(None, Some(packaged.clone()), Some(personal.clone())),
+            vec![packaged.clone(), personal]
+        );
+        assert_eq!(
+            plugin_dirs(None, Some(packaged.clone()), Some(packaged.clone())),
+            vec![packaged.clone()]
+        );
+        assert_eq!(
+            plugin_dirs(
+                Some(root.path().join("explicit")),
+                Some(packaged),
+                Some(root.path().join("ignored-personal")),
+            ),
+            vec![root.path().join("explicit")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_and_personal_plugin_dirs_deduplicate_symlink_aliases() {
+        let root = tempdir().unwrap();
+        let packaged = root.path().join("packaged");
+        let alias = root.path().join("alias");
+        std::fs::create_dir_all(&packaged).unwrap();
+        std::os::unix::fs::symlink(&packaged, &alias).unwrap();
+
+        assert_eq!(
+            plugin_dirs(None, Some(packaged.clone()), Some(alias)),
+            vec![packaged]
+        );
     }
 }

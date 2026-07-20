@@ -315,6 +315,21 @@ fn build_cli_topology(
             )));
         }
     }
+    if config.modules.compactor == "process" {
+        let process_config = proteus_core::process_adapters::ProcessCompactorConfig::from_value(
+            config.module_config_value(proteus_core::domain::ModuleKind::Compactor, "process"),
+        )
+        .and_then(|config| {
+            let spec = config.process_spec(cwd)?;
+            spec.resolved_environment()?;
+            Ok(())
+        });
+        if let Err(error) = process_config {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect found invalid process compactor config: {error:#}"
+            )));
+        }
+    }
     let subagent = match catalog.build_subagent(&config.modules.subagent, &build_ctx) {
         Ok(subagent) => subagent,
         Err(error) => {

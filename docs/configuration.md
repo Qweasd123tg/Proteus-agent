@@ -571,6 +571,35 @@ compactor использует default `160000`.
 (default `20000`) и `PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS`
 (default `4000`).
 
+`modules.compactor = "process"` включает внешний pure-transform compactor:
+
+```toml
+[modules]
+compactor = "process"
+
+[module_config.compactor.process]
+module_id = "python_suffix" # ожидаемая identity из initialize manifest
+command = "python3"
+args = ["examples/modules/compactor-process/compact.py"]
+# cwd = "."               # optional; relative к workspace, default = workspace
+# env_allowlist = ["TOKEN"]
+# env = { MODE = "local" }
+timeout_ms = 30000          # initialize и каждый compact; default 30000, > 0
+
+[module_config.compactor.process.strategy]
+trigger_messages = 12
+retain_user_turns = 2
+```
+
+`module_id`/`command` обязательны; неизвестные поля, нулевой timeout и
+несуществующий cwd завершают сборку registry ошибкой. Parent environment
+очищается по тем же правилам `ProcessSpec`, что у process search: кроме
+минимального platform allowlist передаются только `env_allowlist` и literal
+`env`. В `CompactionInput.config` попадает только значение `strategy`.
+Процесс не получает `CompactionHost`, model/tools/session capabilities и не
+может сам менять durable history. Строгий wire contract и runnable reference
+описаны в `examples/modules/compactor-process/README.md`.
+
 ## Tool Exposure
 
 `modules.tool_exposure = "all_visible"` — безопасный default без plugin pack.

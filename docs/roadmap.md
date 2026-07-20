@@ -31,13 +31,16 @@ Roadmap хранит порядок работ и журнал уже приня
 5. ✅ Неделя 3 закрыта 2026-07-20: root-session steering/follow-up работает
    через bounded runtime-очередь на границе tool-батчей, включая HTTP/stdio,
    web reconnect и failure persistence.
-6. Неделя 4: `Compactor` как второй process-слот или `pi_rpc_reasoner`;
-   хвосты, `install.sh`, design doc canonical turn data.
+6. ✅ Неделя 4 закрыта 2026-07-20: выбран `Compactor` как второй process-слот;
+   `install.sh` публикует atomic binary/plugin bundle, design canonical turn
+   data зафиксирован отдельно. `pi_rpc_reasoner` отложен владельцем как дальняя
+   теория.
 7. После месяца: canonical turn data как один кластер (parts + storage +
    replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
 
-Пункты 4 и 5 закрыты; текущий следующий шаг — выбор трека недели 4. Новые
-platform features вне плана месяца не являются приоритетом.
+Пункты 4–6 закрыты; текущий следующий шаг — readiness dogfood и разбор trace,
+а не новая platform feature. Затем canonical turn data рассматривается одним
+кластером parts + storage + replay + eval.
 
 ## Цель
 
@@ -295,20 +298,24 @@ regressions и Trunk build.
 
 ### Неделя 4 (до 2026-08-14): Выбор + Хвосты
 
-Один из двух треков, выбор по состоянию на конец недели 3:
+Владелец выбрал трек A; трек B оставлен дальней теорией для отдельного
+обсуждения:
 
-- **A. `Compactor` как второй process-слот** — доказывает генеричность
+- ✅ **A. `Compactor` как второй process-слот** (2026-07-20) — доказывает генеричность
   протокола по правилу двух реализаций из `slot-governance.md`; стратегии
   суммаризации на TS/Python дешевле для экспериментов.
-- **B. `pi_rpc_reasoner`** — реализация существующего `SubagentRunner`
+- **B. `pi_rpc_reasoner` — отложен владельцем** — возможная реализация существующего `SubagentRunner`
   поверх raw seam недели 1: pinned Pi executable (commit `8479bd8`,
   no-tools флаговый набор сверен с README 2026-07-16), пустые per-run
   cwd/agent dir, fresh process на child, completion по `agent_settled`,
   `parallel_safe = false`. Технический план — этап 2
   `docs/research/pi-vs-proteus.md`, без experiment-обвязки.
 
-Хвосты недели: доки, совместимый набор `./install.sh`, короткий design doc
-canonical turn data (только бумага — вход для Кластера 1 аудита 2026-07-06).
+✅ Хвосты закрыты 2026-07-20: docs описывают оба process slots; `install.sh`
+staging-ит binary и 14 default plugins в versioned release и атомарно
+переключает `current`, сохраняя personal overlay; короткий
+[design canonical turn data](canonical-turn-data.md) остаётся только бумагой —
+входом для Кластера 1 аудита 2026-07-06, а не уже реализованным storage.
 
 ### Не В Этом Месяце
 
@@ -823,9 +830,10 @@ Scope:
   `renderer = "text"`. Дублирующие `dynamic` и plugin renderer `plain`
   удалены 2026-07-17; обычный текст теперь всегда даёт builtin `text`, а
   bounded/deferred selection — plugin `codex_dynamic`.
-  `install.sh` собирает и копирует runtime-плагины в `~/.proteus/plugins/`,
-  а packaged named configs — в `~/.config/Proteus-agent/configs/`,
-  автоматически.
+  `install.sh` собирает binary и runtime-плагины в один versioned release под
+  `~/.proteus/releases/`, атомарно переключает `~/.proteus/current`, оставляет
+  `~/.proteus/plugins/` personal overlay-ем, а packaged named configs ставит в
+  `~/.config/Proteus-agent/configs/` автоматически.
 
 Следующий scope:
 

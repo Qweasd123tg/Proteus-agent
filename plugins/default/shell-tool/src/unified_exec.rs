@@ -88,6 +88,7 @@ impl PluginTool for ExecCommandTool {
                 },
                 "required": ["cmd"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
             "timeout_ms": SPEC_TIMEOUT_MS,
             "metadata": {
@@ -141,6 +142,7 @@ impl PluginTool for WriteStdinTool {
                 },
                 "required": ["session_id"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
             "timeout_ms": SPEC_TIMEOUT_MS,
             "metadata": {

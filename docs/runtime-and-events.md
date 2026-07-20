@@ -164,6 +164,12 @@ mode. Изменения
 посреди session (например смена model из UI) остаются событиями runtime и не
 дублируются в этом файле.
 
+Планируемый единый source of truth для conversation, model/tool exchanges,
+replay и eval описан в
+[canonical-turn-data.md](canonical-turn-data.md). Это design будущего cutover,
+не описание уже существующего journal: текущие файлы выше остаются active
+format.
+
 Ключевые события текущего workflow:
 
 - `SessionStarted`;

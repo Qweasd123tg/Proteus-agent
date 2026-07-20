@@ -58,7 +58,7 @@ fn builtin_module_catalog_lists_builtin_slots() {
     assert_eq!(context_ids, ["none"]);
     assert_eq!(policy_ids, ["deny_all"]);
     assert_eq!(workflow_ids, ["none"]);
-    assert_eq!(compactor_ids, ["none"]);
+    assert_eq!(compactor_ids, ["none", "process"]);
     assert_eq!(tool_exposure_ids, ["all_visible"]);
     assert_eq!(subagent_ids, ["none", "process", "sequential"]);
     assert_eq!(renderer_ids, ["text"]);

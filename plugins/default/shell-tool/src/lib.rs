@@ -94,6 +94,7 @@ impl PluginTool for ShellTool {
                 },
                 "required": ["command"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
@@ -673,6 +674,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 
 #[cfg(test)]
 mod tests {
+    use proteus_contracts::domain::ToolSpec;
     use serde_json::{Value, json};
 
     use super::*;
@@ -693,6 +695,12 @@ mod tests {
 
     #[test]
     fn shell_spec_allows_long_running_commands() {
+        serde_json::from_str::<ToolSpec>(ShellTool.spec_json().as_str())
+            .expect("shell spec must match strict ToolSpec");
+        serde_json::from_str::<ToolSpec>(unified_exec::ExecCommandTool.spec_json().as_str())
+            .expect("exec_command spec must match strict ToolSpec");
+        serde_json::from_str::<ToolSpec>(unified_exec::WriteStdinTool.spec_json().as_str())
+            .expect("write_stdin spec must match strict ToolSpec");
         let spec: Value =
             serde_json::from_str(ShellTool.spec_json().as_str()).expect("tool spec json");
 

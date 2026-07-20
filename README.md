@@ -32,6 +32,11 @@ export ANTHROPIC_API_KEY="..."
 proteus doctor
 ```
 
+Installer собирает binary и стандартные dylib как один versioned release и
+атомарно переключает `~/.proteus/current`; личные/out-of-tree плагины остаются
+в `~/.proteus/plugins`. Поэтому повторная установка не смешивает новый binary
+с частично обновлённым plugin pack.
+
 `proteus init coding` создаёт или перезаписывает
 `~/.config/Proteus-agent/configs/config.toml`. Если рабочий config уже есть,
 этот шаг нужно пропустить. Профиль `coding` по умолчанию использует Anthropic;

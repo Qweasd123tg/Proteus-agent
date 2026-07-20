@@ -214,7 +214,9 @@ usage, пришёл tool lifecycle — появляется tool card. UI не �
 Dylib-плагины — доверенный код в процессе Proteus, не sandbox. Они загружаются
 через `abi_stable`, но ABI пока не обещает внешнюю долгосрочную совместимость.
 После изменения `proteus-contracts::plugin` нужно пересобрать и переустановить
-весь набор через `./install.sh`.
+весь набор через `./install.sh`. Installer staging-ит binary и default dylib
+как один versioned release и атомарно переключает `~/.proteus/current`;
+`~/.proteus/plugins` остаётся personal overlay.
 
 ## Состояние И Хранение
 
@@ -229,8 +231,10 @@ messages.pre-compaction.N.jsonl    архив перед compaction
 
 Глобальный event log нужен для telemetry/debug/eval report. Он не является
 полным replay log: streaming deltas обычно не персистятся, а большие tool
-outputs могут быть ограничены. Решение по canonical turn parts, replay и
-storage engine остаётся отдельной архитектурной задачей.
+outputs могут быть ограничены. Предлагаемый единый journal для будущих
+storage/replay/eval изменений описан в
+[canonical-turn-data.md](canonical-turn-data.md); это planned design, текущий
+session layout пока остаётся указанным выше.
 
 ## Как Решить, Куда Положить Код
 

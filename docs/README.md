@@ -43,6 +43,8 @@
 
 Для более узких boundary-вопросов:
 
+- [canonical-turn-data.md](canonical-turn-data.md) — planned единая запись
+  turn-а для storage, replay, compaction и eval; это design, не текущий format;
 - [hot-swap.md](hot-swap.md) — что можно reload-ить сейчас и где проходит
   граница snapshot-а;
 - [pack-contracts.md](pack-contracts.md) — неявные межпаковые ключи и строковые

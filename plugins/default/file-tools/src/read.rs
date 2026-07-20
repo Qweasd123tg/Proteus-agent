@@ -45,6 +45,7 @@ impl PluginTool for ReadFileTool {
                 },
                 "required": ["path"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": 60000,
             "metadata": {

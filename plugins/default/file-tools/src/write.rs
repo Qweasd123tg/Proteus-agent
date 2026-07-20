@@ -26,6 +26,7 @@ impl PluginTool for WriteFileTool {
                 },
                 "required": ["path", "content"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "WritesFiles",
             "timeout_ms": 60000,
             "metadata": {

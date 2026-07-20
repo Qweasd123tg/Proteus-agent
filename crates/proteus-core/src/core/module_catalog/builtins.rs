@@ -11,7 +11,7 @@ use crate::{
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
-    process_adapters::ProcessSearchBackend,
+    process_adapters::{ProcessHistoryCompactor, ProcessSearchBackend},
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
         NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
@@ -145,6 +145,17 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "Без компакции: история уходит в модель как есть.",
         ),
         build_no_compactor,
+    );
+    catalog.register_module::<dyn HistoryCompactor>(
+        slot::COMPACTOR,
+        "process",
+        manifest(
+            "process",
+            ModuleKind::Compactor,
+            &["config_defined", "process", "stdio", "newline_json"],
+            "HistoryCompactor из persistent stdio-процесса; pure-transform стратегия и handshake identity задаются в module_config.compactor.process.",
+        ),
+        build_process_compactor,
     );
 
     // Tool exposure/selectors
@@ -302,6 +313,15 @@ fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplie
 
 fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
     Ok(Arc::new(NoCompactor))
+}
+
+fn build_process_compactor(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
+    let config = ctx
+        .config
+        .module_config_value(ModuleKind::Compactor, "process");
+    Ok(Arc::new(ProcessHistoryCompactor::from_config(
+        config, ctx.cwd,
+    )?))
 }
 
 fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {

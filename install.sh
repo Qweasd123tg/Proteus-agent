@@ -4,9 +4,13 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/proteus"
-plugins_dir="${HOME}/.proteus/plugins"
+proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
+plugins_dir="${proteus_home}/plugins"
+releases_dir="${proteus_home}/releases"
+current_release="${proteus_home}/current"
 config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
+managed_plugins="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
@@ -28,14 +32,59 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
-rm -f "${bin_tmp}"
-trap 'rm -f "${bin_tmp}"' EXIT HUP INT TERM
+release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
+release_tmp="${releases_dir}/.${release_id}.tmp"
+release_dir="${releases_dir}/${release_id}"
+current_tmp="${proteus_home}/.current.$$"
+legacy_stage="${proteus_home}/.legacy-default-plugins.${release_id}.tmp"
+legacy_dir="${proteus_home}/legacy-default-plugins/${release_id}"
+release_published=0
+rm -f "${bin_tmp}" "${current_tmp}"
+rm -rf "${release_tmp}" "${legacy_stage}"
+
+cleanup_install() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  set +e
+  rm -f "${bin_tmp}" "${current_tmp}"
+  rm -rf "${release_tmp}"
+  if [ -d "${legacy_stage}" ]; then
+    if [ "${release_published}" -eq 1 ]; then
+      mkdir -p "$(dirname -- "${legacy_dir}")"
+      if [ ! -e "${legacy_dir}" ]; then
+        mv "${legacy_stage}" "${legacy_dir}"
+      fi
+    else
+      mkdir -p "${plugins_dir}"
+      for plugin in ${managed_plugins}; do
+        if [ -e "${legacy_stage}/${plugin}" ] || [ -L "${legacy_stage}/${plugin}" ]; then
+          if [ ! -e "${plugins_dir}/${plugin}" ] && [ ! -L "${plugins_dir}/${plugin}" ]; then
+            mv "${legacy_stage}/${plugin}" "${plugins_dir}/"
+          fi
+        fi
+      done
+      rmdir "${legacy_stage}" 2>/dev/null || true
+    fi
+  fi
+  if [ "${release_published}" -eq 0 ]; then
+    rm -rf "${release_dir}"
+  fi
+  exit "${status}"
+}
+
+trap cleanup_install EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cat > "${bin_tmp}" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 
 project_dir="__PROTEUS_PROJECT_DIR__"
-proteus_bin="${project_dir}/target/release/proteus"
+proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
+current_release="${proteus_home}/current"
+proteus_bin="${current_release}/proteus"
+export PROTEUS_PACKAGED_PLUGINS_DIR="${current_release}/plugins"
 web_dir="${project_dir}/clients/web"
 inspector_dir="${project_dir}/clients/inspector"
 app_port="${PROTEUS_APP_PORT:-8787}"
@@ -311,20 +360,22 @@ WRAPPER
 escaped_project_dir=$(printf '%s' "${project_dir}" | sed 's/[&|]/\\&/g')
 sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
 chmod 755 "${bin_tmp}"
-mv "${bin_tmp}" "${bin_path}"
-trap - EXIT HUP INT TERM
 
-# Install plugins. File I/O, git helpers, and shell are required for a typical
-# coding workflow; other sample plugins are optional proofs.
-mkdir -p "${plugins_dir}"
+# Stage one binary/plugin bundle completely before the `current` symlink makes
+# it visible. A killed/failed install leaves the previous compatible release
+# active instead of mixing a new binary with partially copied dylibs.
+mkdir -p "${release_tmp}/plugins"
+cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
+chmod 755 "${release_tmp}/proteus"
 install_plugin() {
   plugin="$1"
   source_dir="$2"
   src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
   if [ ! -f "${src_so}" ]; then
-    return
+    echo "Built plugin library is missing: ${src_so}" >&2
+    exit 1
   fi
-  dest_dir="${plugins_dir}/${plugin}"
+  dest_dir="${release_tmp}/plugins/${plugin}"
   mkdir -p "${dest_dir}"
   cp "${src_so}" "${dest_dir}/"
   if [ -f "${project_dir}/${source_dir}/plugin.toml" ]; then
@@ -332,9 +383,57 @@ install_plugin() {
   fi
 }
 
-for plugin in file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory; do
+for plugin in ${managed_plugins}; do
   install_plugin "${plugin}" "plugins/default/${plugin}"
 done
+
+# Move default plugins from the old mutable layout out of the overlay before
+# publishing the bundle. Until `current` switches, the EXIT trap restores them;
+# afterwards it preserves them as a timestamped backup.
+for plugin in ${managed_plugins}; do
+  if [ -e "${plugins_dir}/${plugin}" ] || [ -L "${plugins_dir}/${plugin}" ]; then
+    mkdir -p "${legacy_stage}"
+    mv "${plugins_dir}/${plugin}" "${legacy_stage}/"
+  fi
+done
+
+mkdir -p "${releases_dir}"
+mv "${release_tmp}" "${release_dir}"
+ln -s "releases/${release_id}" "${current_tmp}"
+
+# GNU `mv -T` and BSD `mv -h` spell the same atomic symlink replacement
+# differently. Refuse a non-atomic unlink/link fallback on unknown platforms.
+replace_current_link() {
+  if [ ! -e "${current_release}" ] && [ ! -L "${current_release}" ]; then
+    mv "${current_tmp}" "${current_release}"
+    return
+  fi
+  if mv -Tf "${current_tmp}" "${current_release}" 2>/dev/null; then
+    return
+  fi
+  if mv -h -f "${current_tmp}" "${current_release}" 2>/dev/null; then
+    return
+  fi
+  echo "Cannot atomically replace ${current_release}: mv supports neither GNU -T nor BSD -h" >&2
+  return 1
+}
+
+# Do not run a signal trap in the single command/builtin window between the
+# atomic rename and the state bit used by cleanup_install.
+trap '' HUP INT TERM
+replace_current_link
+release_published=1
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -d "${legacy_stage}" ]; then
+  mkdir -p "$(dirname -- "${legacy_dir}")"
+  mv "${legacy_stage}" "${legacy_dir}"
+fi
+mv "${bin_tmp}" "${bin_path}"
+
+trap - EXIT HUP INT TERM
 
 mkdir -p "${configs_dir}"
 install_config() {
@@ -368,7 +467,9 @@ install_prompt "codex-default.md"
 install_prompt "opencode-default.md"
 
 echo "Installed: ${bin_path}"
-echo "Plugins:   ${plugins_dir}"
+echo "Release:   ${release_dir}"
+echo "Plugins:   ${current_release}/plugins"
+echo "Personal:  ${plugins_dir}"
 echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":${PATH}:" in

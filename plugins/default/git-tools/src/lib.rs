@@ -54,6 +54,7 @@ impl PluginTool for GitStatusTool {
                     }
                 }
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
@@ -112,6 +113,7 @@ impl PluginTool for GitDiffTool {
                     }
                 }
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
@@ -446,6 +448,8 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
 
 #[cfg(test)]
 mod tests {
+    use proteus_contracts::domain::ToolSpec;
+
     use super::*;
 
     const _: () = assert!(TIMEOUT_MS >= 60_000);
@@ -488,6 +492,10 @@ mod tests {
 
     #[test]
     fn git_tool_specs_allow_large_repositories() {
+        serde_json::from_str::<ToolSpec>(GitStatusTool.spec_json().as_str())
+            .expect("git_status spec must match strict ToolSpec");
+        serde_json::from_str::<ToolSpec>(GitDiffTool.spec_json().as_str())
+            .expect("git_diff spec must match strict ToolSpec");
         let status_spec: Value =
             serde_json::from_str(GitStatusTool.spec_json().as_str()).expect("status spec json");
         let diff_spec: Value =

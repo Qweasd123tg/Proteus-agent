@@ -43,6 +43,7 @@ impl PluginTool for GrepTool {
                 },
                 "required": ["pattern"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
             "timeout_ms": RG_TIMEOUT.as_millis() as u64,
             "metadata": {

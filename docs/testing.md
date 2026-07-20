@@ -266,8 +266,13 @@ canonical DTO не ломаются.
   multiple config files остаются видимыми как warnings/diagnostic nodes;
 - CLI inspect строит best-effort snapshot при сломанном backend/tool registry и
   добавляет ошибку в warnings вместо abort до renderer-а;
-- `tools list`, CLI inspect и doctor при `modules.search = "process"` валидируют
-  metadata/config/command, но не запускают внешний search child.
+- `tools list`, CLI inspect и doctor при `modules.search = "process"` или
+  `modules.compactor = "process"` валидируют metadata/config/command, но не
+  запускают внешний child;
+- process compactor проходит тот же swap-gate, что `none`/plugin реализации:
+  strict handshake и response envelope, fail-closed process/JSON-RPC/DTO
+  errors, lazy restart после crash и настоящий Python reference без доступа к
+  `CompactionHost`.
 
 ## Eval Harness
 

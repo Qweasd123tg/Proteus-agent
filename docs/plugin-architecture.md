@@ -73,19 +73,37 @@
   пересобираются вместе с `proteus-contracts`.
 - `crates/proteus-core/src/core/plugin_loader.rs` — loader через `libloading` + `lib_header_from_raw_library` + `init_root_module` (не `RootModule::load_from_file`, у того type-keyed cache).
 
-### Layout папки плагинов
+### Layout установленного pack и personal plugins
 
 ```
-~/.proteus/plugins/
-    libfoo_tool.so                        # просто .so, минимальный вариант
-    renderer-pack/
-        librenderer_pack.so
-        plugin.toml           # manifest: name, version, description
+~/.proteus/
+    current -> releases/<release-id>
+    releases/<release-id>/
+        proteus
+        plugins/                          # совместимый default pack
+            renderer-pack/
+                librenderer_pack.so
+                plugin.toml
+    plugins/                              # personal/out-of-tree overlay
+        libfoo_tool.so                    # плоский минимальный вариант
+        my-pack/
+            libmy_pack.so
+            plugin.toml
 ```
 
-Папка по умолчанию — `~/.proteus/plugins/`. Env var `PROTEUS_PLUGINS_DIR` полностью
-переопределяет этот путь. Если задан `PROTEUS_PLUGINS_DISABLE`, сканирование
-плагинов отключается.
+`install.sh` сначала полностью staging-ит binary и все default dylib в новую
+versioned release directory, затем одним atomic symlink rename переключает
+`current`. Поэтому loader не видит смесь binary и плагинов разных сборок.
+Старые managed directories из прежнего mutable layout переносятся в
+`legacy-default-plugins/<release-id>/`; personal plugins не удаляются.
+
+Без override loader сначала читает `${PROTEUS_HOME:-$HOME/.proteus}/current/plugins`,
+затем personal overlay `${PROTEUS_HOME:-$HOME/.proteus}/plugins`. Env var
+`PROTEUS_PLUGINS_DIR` сохраняет прежнюю семантику полного override: если он
+задан, ни packaged set, ни default overlay автоматически не добавляются.
+`PROTEUS_PACKAGED_PLUGINS_DIR` — внутренний explicit path установленного
+wrapper-а. Если задан `PROTEUS_PLUGINS_DISABLE`, всё сканирование плагинов
+отключается.
 
 **Два варианта на выбор автора плагина:**
 - **Плоский:** `libfoo.so` прямо в корне. Описание берётся из `PluginRoot::name`/`description` внутри .so (читается после загрузки).
@@ -263,16 +281,22 @@ allowlisted только минимальные runtime variables (`PATH`; на 
 adapter обязан перечислить через `env_allowlist` либо задать scoped literal
 через `env`. Полное наследование parent environment API не предоставляет.
 
-Первый production process-module adapter реализован для `SearchBackend` в
-`crates/proteus-core/src/process_adapters/search.rs`. Он использует generic
-JSON-RPC request/response API `ProcessHost<NewlineJsonFraming>`, но mapping
-`initialize`/`search`, contract version и строгий response DTO принадлежат
-search slot-у. Snapshot build сразу выполняет handshake, а mismatch не
-подменяется builtin/dylib backend-ом. После process/JSON-RPC/DTO error host
-сбрасывает session; следующий вызов делает lazy restart с новым handshake.
-Выбор `modules.search = "process"` виден catalog-у как обычная реализация
-слота, конфигурация executable живёт только в
-`module_config.search.process`.
+Production process-module adapters реализованы для `SearchBackend` и
+`HistoryCompactor` в `crates/proteus-core/src/process_adapters/search.rs` и
+`compactor.rs`. Оба используют generic JSON-RPC request/response API
+`ProcessHost<NewlineJsonFraming>`, но mapping методов, contract version и
+строгий response DTO принадлежат конкретному slot adapter-у. Snapshot build
+сразу выполняет handshake, а mismatch не подменяется builtin/dylib backend-ом.
+После process/JSON-RPC/DTO error host сбрасывает session; следующий вызов
+делает lazy restart с новым handshake.
+
+Выбор `modules.search = "process"` и `modules.compactor = "process"` виден
+catalog-у как обычная реализация соответствующего слота; executable config
+живёт только в `module_config.<slot>.process`. Search получает `SearchQuery`.
+Compactor получает `CompactionInput`, но намеренно не получает
+`CompactionHost`: внешний модуль остаётся pure transform без скрытых model
+calls. Это второй независимый slot поверх общего process protocol и проверка,
+что framing/host не содержат search-specific знания.
 
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
@@ -298,10 +322,10 @@ Loader регистрирует плагинные модули в те же `ca
 
 ---
 
-## Папки плагинов
+## Папки personal plugins
 
-В первой версии - одна глобальная папка по умолчанию, с override через
-`PROTEUS_PLUGINS_DIR`:
+В personal overlay поддержаны обе прежние формы, а
+`PROTEUS_PLUGINS_DIR` полностью переопределяет весь default search path:
 
 ```
 ~/.proteus/plugins/
@@ -333,7 +357,8 @@ YAML declarative tools и MCP wrappers не являются содержимы�
 Для них используются `tools.configured`, `tools.path` и `tools.mcp_servers` в
 основном config'е.
 
-Локальные per-project плагины (`./plugins/` в cwd) добавятся позже. Сейчас только глобальная папка.
+Локальные per-project плагины (`./plugins/` в cwd) добавятся позже. Сейчас есть
+только versioned installed pack и глобальный personal overlay.
 
 ---
 
@@ -556,7 +581,8 @@ Stdio MCP server процессы изолированы через границ
 - Hot-reload плагинов (перезапуск ядра — ок).
 - WASM формат (Rust dylib достаточно на этапе when plugins controlled by user).
 - Sandbox для dylib плагинов (плагины доверенные).
-- Локальные per-project плагины (только `~/.proteus/plugins/`).
+- Локальные per-project плагины (сейчас только installed pack и глобальный
+  personal overlay `~/.proteus/plugins/`).
 - Signed plugins, marketplace (далёкое будущее).
 - Async Model plugins — отложено до Волны 4. Workflow уже вынесен
   через sync plugin ABI + host callbacks.

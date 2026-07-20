@@ -31,6 +31,7 @@ impl PluginTool for EditFileTool {
                 },
                 "required": ["path", "old_string", "new_string"]
             },
+            "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "WritesFiles",
             "timeout_ms": 60000,
             "metadata": {
