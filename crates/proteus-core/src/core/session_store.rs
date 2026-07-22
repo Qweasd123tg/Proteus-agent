@@ -5,7 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use proteus_contracts::app_protocol::AppSessionSummary;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 use uuid::Uuid;
@@ -15,8 +15,15 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
+mod history_codec;
+mod identity;
 mod workspace_dir;
 
+use history_codec::decode_persisted_message;
+use identity::{
+    SessionDirectoryKind, ensure_writable_identity, resolve_session_identity,
+    short_session_directory_name, validate_new_session_target,
+};
 use workspace_dir::workspace_path_from_session_dir;
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 
@@ -27,6 +34,8 @@ const PRE_COMPACTION_SUFFIX: &str = ".jsonl";
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     session_dir: PathBuf,
+    session_id: SessionId,
+    directory_kind: SessionDirectoryKind,
     lock: Arc<Mutex<()>>,
 }
 
@@ -36,16 +45,27 @@ impl SessionStore {
         let session_dir = config_dir
             .join("sessions")
             .join(workspace)
-            .join(session_id.to_string());
+            .join(short_session_directory_name(session_id));
+        validate_new_session_target(&session_dir, session_id)?;
         let lock = lock_for_session_dir(&session_dir);
-        Ok(Self { session_dir, lock })
+        Ok(Self {
+            session_dir,
+            session_id,
+            directory_kind: SessionDirectoryKind::ShortNumeric,
+            lock,
+        })
     }
 
     pub fn open(session_dir: PathBuf) -> Result<Self> {
-        require_session_dir(&session_dir)?;
+        let identity = resolve_session_identity(&session_dir)?;
         workspace_path_from_session_dir(&session_dir)?;
         let lock = lock_for_session_dir(&session_dir);
-        Ok(Self { session_dir, lock })
+        Ok(Self {
+            session_dir,
+            session_id: identity.session_id,
+            directory_kind: identity.directory_kind,
+            lock,
+        })
     }
 
     pub fn session_dir(&self) -> &Path {
@@ -53,8 +73,7 @@ impl SessionStore {
     }
 
     pub fn session_id(&self) -> SessionId {
-        session_id_from_dir(&self.session_dir)
-            .expect("SessionStore session directory was validated at construction")
+        self.session_id
     }
 
     pub fn workspace_path(&self) -> Result<PathBuf> {
@@ -63,6 +82,39 @@ impl SessionStore {
 
     fn messages_path(&self) -> PathBuf {
         self.session_dir.join(MESSAGES_FILE)
+    }
+
+    async fn materialize_for_write(&self) -> Result<()> {
+        let parent = self.session_dir.parent().ok_or_else(|| {
+            anyhow!(
+                "session directory has no parent: {}",
+                self.session_dir.display()
+            )
+        })?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("failed to create session parent {}", parent.display()))?;
+        let created = match tokio::fs::create_dir(&self.session_dir).await {
+            Ok(()) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to create session dir {}",
+                        self.session_dir.display()
+                    )
+                });
+            }
+        };
+        let workspace_path = self.workspace_path()?;
+        ensure_writable_identity(
+            &self.session_dir,
+            self.session_id,
+            self.directory_kind,
+            &workspace_path,
+            created,
+        )
+        .await
     }
 
     pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
@@ -81,7 +133,7 @@ impl SessionStore {
             .enumerate()
             .filter(|(_, line)| !line.trim().is_empty())
             .map(|(index, line)| {
-                serde_json::from_str::<CanonicalMessage>(line).with_context(|| {
+                decode_persisted_message(line).with_context(|| {
                     format!(
                         "failed to parse {} line {}",
                         messages_path.display(),
@@ -98,14 +150,7 @@ impl SessionStore {
         }
 
         let _guard = self.lock.lock().await;
-        tokio::fs::create_dir_all(&self.session_dir)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to create session dir {}",
-                    self.session_dir.display()
-                )
-            })?;
+        self.materialize_for_write().await?;
         let messages_path = self.messages_path();
         let mut file = OpenOptions::new()
             .create(true)
@@ -125,14 +170,7 @@ impl SessionStore {
 
     pub async fn replace_messages(&self, messages: &[CanonicalMessage]) -> Result<()> {
         let _guard = self.lock.lock().await;
-        tokio::fs::create_dir_all(&self.session_dir)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to create session dir {}",
-                    self.session_dir.display()
-                )
-            })?;
+        self.materialize_for_write().await?;
         let messages_path = self.messages_path();
         let tmp_path = messages_path.with_extension(format!("jsonl.tmp.{}", Uuid::new_v4()));
         let mut content = Vec::new();
@@ -307,7 +345,7 @@ pub async fn delete_workspace_session(
             session_dir.display()
         ));
     }
-    require_session_dir(&target)?;
+    resolve_session_identity(&target)?;
 
     tokio::fs::remove_dir_all(&target)
         .await
@@ -339,7 +377,7 @@ pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
 }
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
-    let session_id = require_session_dir(&session_dir)?;
+    let session_id = resolve_session_identity(&session_dir)?.session_id;
     let workspace_path = workspace_path_from_session_dir(&session_dir)?;
     let (message_count, preview) = messages_summary(&session_dir.join(MESSAGES_FILE))?;
     let updated_at_ms = session_updated_at_ms(&session_dir.join(MESSAGES_FILE));
@@ -444,45 +482,6 @@ fn pre_compaction_archive_seq(file_name: &str) -> Option<u64> {
         .ok()
 }
 
-fn require_session_dir(session_dir: &Path) -> Result<SessionId> {
-    let metadata = std::fs::metadata(session_dir).with_context(|| {
-        format!(
-            "failed to inspect session directory {}",
-            session_dir.display()
-        )
-    })?;
-    if !metadata.is_dir() {
-        bail!("session path is not a directory: {}", session_dir.display());
-    }
-    session_id_from_dir(session_dir)
-}
-
-fn session_id_from_dir(session_dir: &Path) -> Result<SessionId> {
-    let actual_name = session_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            anyhow!(
-                "session directory must have a UTF-8 UUID basename: {}",
-                session_dir.display()
-            )
-        })?;
-    let session_id = actual_name.parse::<SessionId>().with_context(|| {
-        format!(
-            "incompatible session directory {}; basename must be a canonical UUID. Pre-release session formats are not migrated automatically; move this directory outside the sessions tree or remove it before retrying",
-            session_dir.display()
-        )
-    })?;
-    let canonical_name = session_id.to_string();
-    if actual_name != canonical_name {
-        bail!(
-            "session directory basename {actual_name:?} is not canonical; expected {canonical_name:?}: {}",
-            session_dir.display()
-        );
-    }
-    Ok(session_id)
-}
-
 fn lock_for_session_dir(session_dir: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
     let key = canonicalize_message_lock_path(&session_dir.join(MESSAGES_FILE));
@@ -514,11 +513,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn open_reads_session_identity_from_directory() {
+    fn open_reads_full_uuid_identity_without_metadata() {
         let session_id = new_session_id();
         let config_dir = tempfile::tempdir().expect("config dir");
         let workspace = tempfile::tempdir().expect("workspace");
-        let session_dir = test_session_dir(config_dir.path(), workspace.path(), session_id);
+        let session_dir = full_uuid_session_dir(config_dir.path(), workspace.path(), session_id);
         std::fs::create_dir_all(&session_dir).expect("session dir");
 
         let store = SessionStore::open(session_dir).expect("open session");
@@ -528,24 +527,25 @@ mod tests {
     }
 
     #[test]
-    fn open_rejects_noncanonical_basename() {
+    fn open_short_directory_requires_metadata() {
         let session_id = new_session_id();
         let config_dir = tempfile::tempdir().expect("config dir");
         let workspace = tempfile::tempdir().expect("workspace");
-        let session_dir = test_session_dir(config_dir.path(), workspace.path(), session_id)
+        let session_dir = full_uuid_session_dir(config_dir.path(), workspace.path(), session_id)
             .with_file_name("1234567890");
         std::fs::create_dir_all(&session_dir).expect("session dir");
 
-        let error = SessionStore::open(session_dir).expect_err("non-UUID basename must fail");
+        let error = SessionStore::open(session_dir).expect_err("short id needs metadata");
 
-        assert!(error.to_string().contains("canonical UUID"));
+        assert!(error.to_string().contains("requires metadata"));
     }
 
     #[test]
     fn open_requires_existing_session_directory() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let workspace = tempfile::tempdir().expect("workspace");
-        let session_dir = test_session_dir(config_dir.path(), workspace.path(), new_session_id());
+        let session_dir =
+            full_uuid_session_dir(config_dir.path(), workspace.path(), new_session_id());
         let error = SessionStore::open(session_dir).expect_err("session dir must exist");
 
         assert!(
@@ -566,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn session_dir_uses_full_session_id() {
+    fn new_session_dir_uses_ten_numeric_digits() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
@@ -578,16 +578,19 @@ mod tests {
             .and_then(|name| name.to_str())
             .expect("session dir name");
 
-        assert_eq!(name, session_id.to_string());
+        assert_eq!(name.len(), 10);
+        assert!(name.bytes().all(|byte| byte.is_ascii_digit()));
+        assert_eq!(name, short_session_directory_name(session_id));
     }
 
     #[test]
     fn opened_session_without_messages_loads_empty_history() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
-        let store = test_store(config_dir.path(), cwd.path(), new_session_id());
-        std::fs::create_dir_all(store.session_dir()).expect("session dir");
-        let store = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
+        let session_id = new_session_id();
+        let session_dir = full_uuid_session_dir(config_dir.path(), cwd.path(), session_id);
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        let store = SessionStore::open(session_dir).expect("open session");
 
         let messages = store.load_messages().expect("load messages");
 
@@ -650,7 +653,10 @@ mod tests {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let store = test_store(config_dir.path(), cwd.path(), new_session_id());
-        std::fs::create_dir_all(store.session_dir()).expect("session dir");
+        store
+            .materialize_for_write()
+            .await
+            .expect("materialize session");
         let session_dir = store.session_dir();
         let archived = CanonicalMessage::text(MessageRole::User, "archived only");
         let mut line = serde_json::to_vec(&archived).expect("archive json");
@@ -665,7 +671,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn append_creates_only_messages_file() {
+    async fn append_creates_metadata_and_messages_files() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
@@ -676,7 +682,7 @@ mod tests {
             .await
             .expect("append messages");
         let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
-        let entries = std::fs::read_dir(store.session_dir())
+        let mut entries = std::fs::read_dir(store.session_dir())
             .expect("session directory")
             .map(|entry| {
                 entry
@@ -686,10 +692,29 @@ mod tests {
                     .into_owned()
             })
             .collect::<Vec<_>>();
+        entries.sort();
 
         assert_eq!(reopened.session_id(), session_id);
         assert_eq!(reopened.workspace_path().expect("workspace"), cwd.path());
-        assert_eq!(entries, [MESSAGES_FILE.to_owned()]);
+        assert_eq!(
+            entries,
+            [MESSAGES_FILE.to_owned(), "session.json".to_owned()]
+        );
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(store.session_dir().join("session.json")).expect("session metadata"),
+        )
+        .expect("metadata json");
+        let expected_session_id = session_id.to_string();
+        let expected_workspace_path = cwd.path().display().to_string();
+        assert_eq!(metadata["schema_version"].as_u64(), Some(2));
+        assert_eq!(
+            metadata["session_id"].as_str(),
+            Some(expected_session_id.as_str())
+        );
+        assert_eq!(
+            metadata["workspace_path"].as_str(),
+            Some(expected_workspace_path.as_str())
+        );
     }
 
     #[tokio::test]
@@ -715,7 +740,12 @@ mod tests {
             .join(encode_workspace_path(moved_workspace.path()).expect("encoded workspace"));
         std::fs::rename(&original_workspace_dir, &moved_workspace_dir)
             .expect("rename workspace session dir");
-        let moved_session_dir = moved_workspace_dir.join(session_id.to_string());
+        let moved_session_dir = moved_workspace_dir.join(
+            store
+                .session_dir()
+                .file_name()
+                .expect("short session directory name"),
+        );
 
         let reopened = SessionStore::open(moved_session_dir).expect("open moved session");
         let old_summaries =
@@ -735,17 +765,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_session_directory_is_not_listed() {
+    fn unmaterialized_short_session_is_not_listed() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let cwd = tempfile::tempdir().expect("cwd");
         let session_id = new_session_id();
         let store = test_store(config_dir.path(), cwd.path(), session_id);
 
-        std::fs::create_dir_all(store.session_dir()).expect("session dir");
-
         assert!(!store.messages_path().exists());
-        let reopened = SessionStore::open(store.session_dir().to_path_buf()).expect("open session");
-        assert_eq!(reopened.session_id(), session_id);
+        assert!(!store.session_dir().exists());
 
         let summaries = list_workspace_session_summaries(config_dir.path(), cwd.path())
             .expect("workspace sessions");
@@ -761,8 +788,14 @@ mod tests {
         let other_session_id = new_session_id();
         let store = test_store(config_dir.path(), cwd.path(), session_id);
         let other_store = test_store(config_dir.path(), other_cwd.path(), other_session_id);
-        std::fs::create_dir_all(store.session_dir()).expect("session dir");
-        std::fs::create_dir_all(other_store.session_dir()).expect("other session dir");
+        store
+            .append_messages(&[CanonicalMessage::text(MessageRole::User, "first")])
+            .await
+            .expect("materialize session");
+        other_store
+            .append_messages(&[CanonicalMessage::text(MessageRole::User, "other")])
+            .await
+            .expect("materialize other session");
 
         let deleted = delete_workspace_session(
             config_dir.path(),
@@ -847,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn list_session_summaries_rejects_non_uuid_session_directory() {
+    fn list_session_summaries_rejects_unknown_session_directory_name() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let workspace = tempfile::tempdir().expect("workspace");
         let session_dir = config_dir
@@ -866,7 +899,34 @@ mod tests {
         let error =
             list_session_summaries(config_dir.path()).expect_err("invalid session id must fail");
 
-        assert!(error.to_string().contains("canonical UUID"));
+        assert!(error.to_string().contains("10-digit id or UUID"));
+    }
+
+    #[tokio::test]
+    async fn short_directory_collision_is_rejected_without_mixing_histories() {
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let first_id = uuid::Uuid::from_u128(1);
+        let colliding_id = uuid::Uuid::from_u128(10_000_000_001);
+        assert_eq!(
+            short_session_directory_name(first_id),
+            short_session_directory_name(colliding_id)
+        );
+        let first = test_store(config_dir.path(), workspace.path(), first_id);
+        let first_message = CanonicalMessage::text(MessageRole::User, "first");
+        first
+            .append_messages(std::slice::from_ref(&first_message))
+            .await
+            .expect("write first session");
+
+        let error = SessionStore::new(config_dir.path(), workspace.path(), colliding_id)
+            .expect_err("collision must fail");
+
+        assert!(error.to_string().contains("collision"));
+        assert_eq!(
+            first.load_messages().expect("first history"),
+            [first_message]
+        );
     }
 
     fn read_messages_file(path: &Path) -> Vec<CanonicalMessage> {
@@ -881,7 +941,7 @@ mod tests {
         SessionStore::new(config_dir, workspace_path, session_id).expect("session store")
     }
 
-    fn test_session_dir(
+    fn full_uuid_session_dir(
         config_dir: &Path,
         workspace_path: &Path,
         session_id: SessionId,

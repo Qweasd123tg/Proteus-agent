@@ -33,10 +33,12 @@ cargo test -p proteus-core --test module_swap
 cargo run --bin proteus -- doctor
 ```
 
-`doctor` также валидирует persisted session directories. Legacy numeric
-directories старого pre-release формата не мигрируются автоматически: при
-ошибке их нужно перенести из `sessions/` в отдельный архив либо удалить, после
-чего повторить startup.
+`doctor` также валидирует persisted session directories и полностью читает их
+`messages.jsonl`. Актуальный write-format использует 10-значное имя каталога с
+полным UUID в `session.json`; reader также принимает ранее созданные каталоги
+с полным UUID в basename. Storage decoder отдельно принимает точный набор
+отсутствовавших полей старых persisted `ToolCall`/`ToolResult`, не ослабляя
+canonical DTO на остальных границах.
 
 Если есть event log после manual run:
 

@@ -886,9 +886,12 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         .await
         .expect("append saved messages");
 
-    let empty_store =
-        SessionStore::new(config_dir.path(), cwd.path(), new_session_id()).expect("session store");
-    std::fs::create_dir_all(empty_store.session_dir()).expect("empty session dir");
+    let empty_uuid_dir = saved_store
+        .session_dir()
+        .parent()
+        .expect("workspace session directory")
+        .join(new_session_id().to_string());
+    std::fs::create_dir_all(empty_uuid_dir).expect("empty UUID session dir");
 
     let handle = AgentAppServer::launch_or_resume_latest(
         AppConfig::default(),

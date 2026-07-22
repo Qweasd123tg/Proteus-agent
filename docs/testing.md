@@ -61,7 +61,12 @@ Leptos-клиенты исключены из root workspace и проверяю
 - terminal finalization gate не разрешает следующему root reservation обогнать
   старый `TurnOutput`/`Error`; drop guard освобождает session даже после
   принудительного abort transport task;
-- builder может принять существующие `SessionId`/`ThreadId` и восстановить history из existing session directory;
+- builder может принять существующие `SessionId`/`ThreadId` и восстановить
+  history из existing session directory; session-store regressions покрывают
+  UUID basename, 10-digit basename + `session.json`, metadata mismatch и
+  short-id collision без смешивания histories; storage codec принимает точный
+  исторический набор отсутствовавших полей `ToolCall`/`ToolResult`, но
+  отклоняет другие неполные payloads;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;

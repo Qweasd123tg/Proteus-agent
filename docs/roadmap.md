@@ -360,8 +360,9 @@ harness и недеструктивная компакция — потреби�
   в durable log по умолчанию не пишутся;
   **реализовано частично:** полный shaped `CanonicalModelRequest` пишется в
   session-local `requests.jsonl` вне event enum;
-- отдельного session metadata-файла нет: id задаётся UUID basename, workspace —
-  encoded parent directory; config/profile снапшота нет —
+- для нового 10-digit session basename полный id хранится в `session.json`;
+  ранее созданный UUID basename также читается; workspace задаётся encoded
+  parent directory; config/profile снапшота нет —
   **реализовано:** session-local `config_snapshot.json` фиксирует последний
   resolved startup/persist snapshot.
 
@@ -461,8 +462,9 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 
 - межпаковые строковые контракты без producer-проверки — инвентарь в
   `docs/pack-contracts.md`;
-- ✅ Закрыто 2026-07-18: session directory использует полный canonical
-  `SessionId` как basename и единственный storage-источник identity;
+- ✅ Исправлено 2026-07-22 после readiness dogfood: writer снова использует
+  короткий 10-digit basename + полный `SessionId` в `session.json`; reader
+  принимает также UUID basename, а collision/mismatch fail-closed;
 - ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
   перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
   `Response` теперь является обязанностью каждого provider adapter-а;
@@ -1073,14 +1075,16 @@ Scope:
   обязательный `active_provider` ссылается на `providers.<id>`. Прямая секция
   `[model]`, implicit-выбор `providers.default` и optional provider state в
   config builder/snapshot удалены; tracked configs используют одну форму.
-- ✅ Закрыто 2026-07-18: storage name session directory заменён с numeric
-  10-digit basename на полный canonical `SessionId`. Один identity теперь
-  используется в runtime, DTO и пути. Metadata sidecar удалён: basename
-  является единственным storage-источником identity. Reversible encoded parent
-  directory является источником workspace,
-  поэтому её rename или перенос UUID-папки меняет cwd при следующем resume.
-  `SessionStore` хранит только root directory и lock, а identity, file paths и
-  workspace выводит из root без дублированного состояния.
+- ✅ Скорректировано 2026-07-22 после readiness dogfood: попытка сделать полный
+  UUID basename единственным storage-источником identity откачена как
+  неоправданное ужесточение. Writer создаёт 10-digit basename и `session.json`
+  schema v2 с полным `SessionId`; reader принимает short+metadata и UUID
+  basename (с обязательным совпадением optional metadata). Reversible encoded
+  parent directory остаётся источником workspace, поэтому её rename или
+  перенос session directory меняет cwd при следующем resume. Storage-only
+  history decoder также читает точный набор отсутствовавших полей прежних
+  persisted `ToolCall`/`ToolResult`; strict canonical DTO остаются без legacy
+  defaults.
 
 ## Не Делать Сейчас
 

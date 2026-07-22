@@ -500,13 +500,14 @@ directory: `messages.jsonl` и сама directory появляются толь�
 sessions.
 
 ```text
-<config-dir>/sessions/<encoded-workspace>/<session-id>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/session.json
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/messages.jsonl
 ```
 
 Пример:
 
 ```text
-/home/alice/.config/Proteus-agent/sessions/home|alice|game/550e8400-e29b-41d4-a716-446655440000/messages.jsonl
+/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/messages.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:
@@ -519,21 +520,38 @@ sessions.
 
 Имя самой session directory не дублирует имя workspace и дату: workspace уже
 находится в parent directory, а время создания/изменения берётся из metadata
-файловой системы. Basename является полным canonical UUID `SessionId` и обязан
-сам является источником identity; отдельного metadata-файла с копией
-`session_id` нет. Любой не-canonical UUID basename является ошибкой.
-Numeric directories старого pre-release формата не мигрируются и не
-игнорируются: `doctor`, startup/resume и session listing возвращают явную
-ошибку с путём. Для продолжения такой каталог нужно вручную перенести за
-пределы `sessions/` (сохранив как архив) либо удалить.
+файловой системы. Новая session получает 10-значный numeric basename,
+детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
+`session.json` schema v2. Перед записью runtime проверяет существующий metadata,
+поэтому коллизия коротких имён завершается ошибкой и не смешивает histories.
+
+Reader принимает два явных формата без переименования каталога:
+
+- 10 ASCII-цифр — `session.json` обязателен и является источником полного
+  `SessionId`;
+- UUID basename (hyphenated или simple) — identity читается из имени; если
+  `session.json` присутствует, его `session_id` обязан совпасть.
+
+Произвольные имена каталогов не распознаются. Новые UUID-basename directories
+не генерируются: UUID остаётся внутренним ключом runtime/events, а короткое имя
+— filesystem locator.
+
+Persisted history имеет узкую storage-only границу совместимости с ранее
+записанными draft-сессиями: decoder дополняет отсутствовавшие тогда поля
+`ToolCall.surface`, `ToolCall.raw_arguments` и `ToolResult.content` их
+каноническими пустыми/default значениями. Публичные canonical DTO от этого не
+становятся permissive, файл не переписывается, а любые другие неполные или
+неизвестные формы по-прежнему завершаются явной ошибкой.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
 декодирует этот parent до создания runtime services, event log sink и tool
-registry. Поэтому перенос UUID-папки под другой encoded workspace или
+registry. Поэтому перенос session directory под другой encoded workspace или
 переименование внешней папки меняет cwd при следующем cold resume; активную
 session во время записи перемещать нельзя. Target workspace обязан
 существовать, а имя — быть canonical encoding его пути. Runtime builder
-получает identity и workspace из уже проверенного `SessionStore`; caller
+получает identity и workspace из уже проверенного `SessionStore`; поле
+`workspace_path` в существующем `session.json` schema v2 сохраняется как часть
+формата, но authoritative workspace остаётся encoded parent directory. Caller
 передаёт только session directory и новый `ThreadId`.
 
 ## History
