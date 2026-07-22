@@ -117,8 +117,9 @@ docs/                     документация
 4. `ContextBuilder` собирает ephemeral context. Он попадёт в model request, но
    не смешается с пользовательской conversation history.
 5. Выбранный `Workflow` управляет model/tool loop.
-6. `ModelService` формирует canonical request, применяет provider capabilities и
-   вызывает `Model`.
+6. `ModelService` формирует canonical request, применяет provider capabilities,
+   вызывает `Model` и до передачи ответа workflow проверяет structural contract
+   и совпадение объявленной/возвращённой tool surface.
 7. Обычный model tool call проходит через `ToolRegistry` и
    `ToolOrchestrator`: validation → visibility/policy → approval → timeout →
    execution → bounded result.

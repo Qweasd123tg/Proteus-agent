@@ -135,14 +135,18 @@ provider-а, а canonical shaping остаётся единым для всех 
 Успешный stream adapter-а обязан вернуть terminal `Response` с уже полными
 canonical message/tool calls. `ModelService` эмитит live deltas, но не
 синтезирует из них финальный ответ и не исправляет пустой provider payload.
+Перед тем как terminal response попадёт workflow, `ModelService` проверяет его
+структуру и round-trip surface всех известных tools: вызов function tool не
+может вернуться как freeform и наоборот.
 OpenAI-specific recovery пустого `response.completed` выполняется внутри
 OpenAI adapter-а из завершённых output items или накопленных text deltas;
 обрыв stream без terminal event возвращается как provider error.
 
 OpenAI Responses не объявляет один набор capabilities для всех model ids:
 конкретный provider profile задаёт `capabilities.supports_parallel_tool_calls`,
-`supports_json_schema` и `supports_reasoning_config`, неизвестная модель получает
-conservative fallback. Strict structured output живёт в canonical
+`supports_freeform_tools`, `supports_json_schema` и
+`supports_reasoning_config`, неизвестная модель получает conservative fallback.
+Strict structured output живёт в canonical
 `ResponseFormat::JsonSchema`, а OpenAI-only `service_tier`/verbosity/store rules
 остаются в adapter/model shaping слое.
 
@@ -397,8 +401,11 @@ executor как обычный `Tool`. Для inline `mcp` host стартует
 модели `input_schema` как JSON Schema аргументов. Для Codex-like tools
 доступен явный `freeform` surface с grammar format; adapters, которые не
 поддерживают такую форму, должны вернуть ошибку, а не превращать её в function
-fallback. `ToolSurface` не решает безопасность и не выбирает executor: эти
-решения остаются в `ToolSafety`, `ApprovalPolicy` и `ToolOrchestrator`.
+fallback. `RequestShaper` требует для неё явный
+`ModelCapabilities.supports_freeform_tools`; `ModelService` затем требует от
+provider-а вернуть ту же surface. `ToolSurface` не решает безопасность и не
+выбирает executor: эти решения остаются в `ToolSafety`, `ApprovalPolicy` и
+`ToolOrchestrator`.
 `ToolRegistry` хранит source каждого tool и показывает labels вида
 `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или
 `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в
@@ -480,10 +487,11 @@ workspace-scoped реализация `PatchApplier`, которую испол�
 Это не unified diff: `diff --git`, `---`/`+++` file headers, range hunks
 `@@ -1,4 +1,5 @@` и `replace file:2-3` не поддерживаются.
 
-В обычных профилях `apply_patch` остаётся function tool с JSON аргументом
-`patch`. Named config `codex` регистрирует тот же native handler через
-`tools.configured` с `ToolSurface::Freeform`, поэтому OpenAI Responses видит
-его как custom/freeform tool и передаёт patch text raw `input`, ближе к Codex.
+В packaged proxy-профилях `codex` и `glm`, как и в baseline-профилях,
+`apply_patch` остаётся builtin function tool с JSON аргументом `patch`.
+OpenAI Responses custom/freeform форма остаётся доступна через явный
+`tools.configured.surface.kind = "freeform"`, но только для model profile с
+`supports_freeform_tools = true`; автоматического fallback между формами нет.
 
 Текущие coding workflows не испускают отдельный `PatchApplied` event и не генерируют patch action сами по себе. Patch slot сейчас доступен модели только через зарегистрированный tool `apply_patch`.
 
@@ -884,7 +892,8 @@ turn завершается ошибкой. Workflow не добавляет л�
 protocol вместо попытки угадать намерение модели: `finish_reason = ToolCalls`
 без tool calls, `finish_reason = Length`, non-success finish reasons,
 несовпадение `response.tool_calls` с `ContentPart::ToolCall` в assistant
-message или duplicate call id считаются ошибкой workflow. Для baseline
+message, duplicate call id или смена объявленной function/freeform surface
+считаются ошибкой model protocol. Для baseline
 `coding.single_loop` и `coding.plan_execute_review` прямой вызов tool-а,
 которого не было в текущем model request, также остаётся ошибкой. Strict
 `coding.codex_loop` повторяет upstream failure path: такой

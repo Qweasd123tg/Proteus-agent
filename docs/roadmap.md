@@ -172,6 +172,16 @@ Dogfood-evidence «запусти чужой repo» (2026-07-06, codex-shaped п
   success, а exit code — данные в тексте; `exec_command`/`write_stdin`
   приведены к parity: `ok: true` всегда, «Process exited with code N» /
   «Process running with session ID N».
+- (закрыто 2026-07-22) первый readiness dogfood обнаружил несовместимый
+  custom-tool round-trip: request объявлял freeform `apply_patch`, proxy вернул
+  пустой function call, а unbounded Codex loop повторял recoverable tool error.
+  Добавлены явная capability, fail-closed surface validation и function-style
+  proxy profiles; подробности — в
+  [postmortem](research/dogfood-freeform-tool-loop-2026-07-22.md).
+- (отложено) отдельный turn spend/request budget для unbounded
+  `coding.codex_loop`: он полезен как общий предохранитель, но не заменяет
+  исправленный protocol contract и требует отдельного решения о divergence от
+  upstream stop conditions.
 - (отложено) sandbox/permission инфа в `<environment_context>`: изначальная
   гипотеза «parity gap: Codex кладёт sandbox_mode/network_access» устарела —
   upstream main убрал эти поля и теперь рендерит `<filesystem>` permission

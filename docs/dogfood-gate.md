@@ -159,6 +159,8 @@ postmortem, а не как блокер web/app-server boundary.
 - session/transcript/event log не сохраняется или не читается;
 - `eval report` не может разобрать event log после run-а;
 - UI зависает так, что непонятно, turn ещё идёт или уже умер.
+- provider меняет объявленную function/freeform surface tool-вызова, а runtime
+  продолжает исполнять или повторять такой ответ вместо protocol error;
 - HTTP app-server принимает non-loopback bind без token или оставляет wildcard
   CORS на защищённых endpoints.
 - model-callable action обходит `ToolRegistry`, mode-aware policy или approval;

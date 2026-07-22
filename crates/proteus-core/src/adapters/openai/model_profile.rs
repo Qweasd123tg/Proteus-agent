@@ -8,6 +8,7 @@ use crate::model_standard::ModelCapabilities;
 #[derive(Debug, Clone)]
 pub(super) struct OpenAiModelProfile {
     pub supports_parallel_tool_calls: bool,
+    pub supports_freeform_tools: bool,
     pub supports_json_schema: bool,
     pub supports_reasoning_config: bool,
     pub support_verbosity: bool,
@@ -48,6 +49,12 @@ impl OpenAiModelProfile {
                 "supports_parallel_tool_calls",
                 false,
             )?,
+            supports_freeform_tools: bool_setting(
+                config,
+                capabilities,
+                "supports_freeform_tools",
+                false,
+            )?,
             supports_json_schema: bool_setting(
                 config,
                 capabilities,
@@ -73,6 +80,7 @@ impl OpenAiModelProfile {
         ModelCapabilities::empty()
             .with_tools(true)
             .with_parallel_tool_calls(self.supports_parallel_tool_calls)
+            .with_freeform_tools(self.supports_freeform_tools)
             .with_json_schema(self.supports_json_schema)
             .with_system_role(true)
             .with_developer_role(true)
@@ -168,6 +176,7 @@ mod tests {
         let profile = OpenAiModelProfile::from_provider_config(&json!({})).unwrap();
 
         assert!(!profile.supports_parallel_tool_calls);
+        assert!(!profile.supports_freeform_tools);
         assert!(!profile.supports_json_schema);
         assert!(!profile.supports_reasoning_config);
         assert_eq!(profile.effective_verbosity(), None);
@@ -179,6 +188,7 @@ mod tests {
         let profile = OpenAiModelProfile::from_provider_config(&json!({
             "capabilities": {
                 "supports_parallel_tool_calls": true,
+                "supports_freeform_tools": true,
                 "supports_json_schema": true,
                 "supports_reasoning_config": true
             },
@@ -190,6 +200,7 @@ mod tests {
         .unwrap();
 
         assert!(profile.supports_parallel_tool_calls);
+        assert!(profile.supports_freeform_tools);
         assert!(profile.supports_json_schema);
         assert!(profile.supports_reasoning_config);
         assert_eq!(profile.effective_verbosity(), Some("low"));

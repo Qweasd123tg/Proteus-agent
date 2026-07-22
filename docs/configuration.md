@@ -154,8 +154,8 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
-`configs/codex.config.toml` - packaged strict Codex-shaped profile для чистой
-проверки Codex-подобной сборки модулей. Он использует
+`configs/codex.config.toml` - packaged proxy-backed Codex-shaped profile
+`codex-proxy`. Он использует
 `coding.codex_loop`, `codex_context`, `rg`,
 `direct`, `codex_policy`, `modules.compactor = "codex"` и
 cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
@@ -171,15 +171,14 @@ instructions и environment chunk уходят модели verbatim в upstream
 envelope (`# AGENTS.md instructions ... <INSTRUCTIONS>` и
 `<environment_context>`), без внутреннего префикса `Context from ...`.
 Удалённый id `coding.codex_loop_diagnostic` не распознаётся: профиль должен
-указывать `coding.codex_loop`. В `codex` profile `apply_patch` регистрируется через
-`tools.configured` как native handler с `surface.kind = "freeform"` и OpenAI
-custom-tool grammar.
+указывать `coding.codex_loop`. В `codex` profile `apply_patch` — builtin
+function tool с JSON-аргументом `patch`: используемый личный proxy не заявляет
+совместимость с OpenAI custom tools.
 Playwright MCP в текущем профиле закомментирован; browser tools не
 регистрируются, пока operator не включит server явно. При ручном включении для
 первого запуска может потребоваться browser install:
 `npx -y @playwright/mcp@latest install-browser firefox`. Baseline profiles
-оставляют builtin `apply_patch`
-function tool с JSON-аргументом `patch` и от Codex profile не зависят. Сам
+также используют builtin `apply_patch` и от Codex profile не зависят. Сам
 profile запускается явно через `--config codex` из любой рабочей директории.
 
 `examples/configs/proteus.example.toml` - safe dev-basic пример с fake model,
@@ -311,8 +310,8 @@ thinking несовместим с кастомным sampling. Если сов�
 
 OpenAI Responses adapter берёт model-specific возможности из provider profile;
 неизвестный model id получает conservative fallback без parallel tools,
-reasoning config, verbosity и strict JSON schema. Для custom proxy capability
-задаётся явно:
+freeform tools, reasoning config, verbosity и strict JSON schema. Для custom
+proxy capability задаётся явно:
 
 ```toml
 [providers.openai]
@@ -325,11 +324,16 @@ default_verbosity = "low" # либо verbosity = "low|medium|high"
 
 [providers.openai.provider_config.capabilities]
 supports_parallel_tool_calls = true
+supports_freeform_tools = false
 supports_json_schema = true
 supports_reasoning_config = true
 ```
 
-Resolved capability управляет `parallel_tool_calls` и `RequestShaper`.
+`supports_freeform_tools = true` разрешает отправлять canonical
+`ToolSurface::Freeform` как OpenAI Responses `type = "custom"`; выставляйте его
+только для проверенной пары endpoint/model. При `false` `RequestShaper`
+завершает request явной ошибкой до сети. Resolved capabilities также управляют
+`parallel_tool_calls` и остальным `RequestShaper`.
 `ResponseFormat::JsonSchema { name, schema, strict }` сериализуется как
 `text.format`; `service_tier`, verbosity и строковый `client_metadata` остаются
 в OpenAI shaping слое. `ModelService` добавляет provider-neutral
@@ -912,7 +916,7 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 | `name` | уникальное имя tool для модели и policy |
 | `description` | описание tool в `ToolSpec` |
 | `input_schema` | JSON Schema для аргументов модели; default `{ "type": "object", "additionalProperties": true }` |
-| `surface` | optional model-facing форма tool; default `{ kind = "function", strict = false }`; `freeform` требует adapter support |
+| `surface` | optional model-facing форма tool; default `{ kind = "function", strict = false }`; `freeform` требует `supports_freeform_tools = true` у model profile |
 | `safety` | `ReadOnly`, `WritesFiles`, `RunsCommands`, `Network` или `Dangerous` |
 | `timeout_ms` | optional timeout на исполнение |
 | `metadata` | arbitrary JSON metadata в `ToolSpec` |
@@ -1194,9 +1198,11 @@ deny = ["playwright__browser_run_code_unsafe"]
 внутреннюю схему.
 
 Builtin `apply_patch` принимает JSON строку `patch` и передаёт её выбранному
-`PatchApplier`. В named config `codex` тот же native handler объявлен через
-`tools.configured` как freeform tool и получает patch text из raw custom-tool
-`input`. Для `modules.patch = "direct"` обработчик приходит из плагина
+`PatchApplier`. Named configs `codex` и `glm` используют именно эту function
+surface. Freeform-вариант можно объявить через `tools.configured`; тогда
+OpenAI adapter отправит `type = "custom"` и примет raw `input`, но model profile
+обязан явно включить `supports_freeform_tools = true`. Для
+`modules.patch = "direct"` обработчик приходит из плагина
 `direct-patch` и понимает внутренний формат:
 
 ```text

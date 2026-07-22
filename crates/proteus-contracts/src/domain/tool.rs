@@ -46,6 +46,15 @@ pub enum ToolCallSurface {
     Freeform,
 }
 
+impl ToolCallSurface {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Function => "function",
+            Self::Freeform => "freeform",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -297,6 +306,13 @@ impl ToolSurface {
     pub fn freeform_lark(definition: impl Into<String>) -> Self {
         Self::Freeform {
             format: FreeformToolFormat::lark(definition),
+        }
+    }
+
+    pub const fn call_surface(&self) -> ToolCallSurface {
+        match self {
+            Self::Function { .. } => ToolCallSurface::Function,
+            Self::Freeform { .. } => ToolCallSurface::Freeform,
         }
     }
 }

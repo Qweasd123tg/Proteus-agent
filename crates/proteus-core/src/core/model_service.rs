@@ -10,7 +10,7 @@ use crate::{
     domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
-        RequestShaper,
+        RequestShaper, validate_model_response_against_request,
     },
 };
 
@@ -107,7 +107,16 @@ impl Model for ModelService {
         {
             eprintln!("warning: failed to persist model request snapshot: {error:#}");
         }
-        self.adapter.stream(request).await
+        let validation_request = request.clone();
+        let stream = self.adapter.stream(request).await?;
+        Ok(Box::pin(stream.map(move |event| {
+            let event = event?;
+            if let ModelStreamEvent::Response { response } = &event {
+                validate_model_response_against_request(&validation_request, response)
+                    .map_err(|error| anyhow!("model protocol error: {error}"))?;
+            }
+            Ok(event)
+        })))
     }
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
@@ -187,9 +196,13 @@ mod tests {
     use super::*;
     use crate::{
         contracts::{EventSink, Model},
-        domain::{EventEnvelope, ModelRef, new_session_id, new_thread_id, new_turn_id},
+        domain::{
+            EventEnvelope, ModelRef, ToolCall, ToolCallSurface, ToolSafety, ToolSpec, ToolSurface,
+            new_call_id, new_session_id, new_thread_id, new_turn_id,
+        },
         model_standard::{
-            CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole, ModelStreamEvent,
+            CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
+            ModelStreamEvent,
         },
     };
     use futures_util::stream;
@@ -199,6 +212,7 @@ mod tests {
     struct ScriptedAdapter {
         events: std::sync::Mutex<Option<Vec<ModelStreamEvent>>>,
         requests: std::sync::Mutex<Vec<CanonicalModelRequest>>,
+        capabilities: ModelCapabilities,
     }
 
     impl ScriptedAdapter {
@@ -206,7 +220,13 @@ mod tests {
             Self {
                 events: std::sync::Mutex::new(Some(events)),
                 requests: std::sync::Mutex::new(Vec::new()),
+                capabilities: ModelCapabilities::empty(),
             }
+        }
+
+        fn with_capabilities(mut self, capabilities: ModelCapabilities) -> Self {
+            self.capabilities = capabilities;
+            self
         }
     }
 
@@ -216,7 +236,7 @@ mod tests {
             "scripted".into()
         }
         fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-            ModelCapabilities::empty()
+            self.capabilities.clone()
         }
         async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
             self.requests.lock().unwrap().push(request);
@@ -259,6 +279,53 @@ mod tests {
             ModelRef::new("scripted", "x"),
             vec![CanonicalMessage::text(MessageRole::User, "hi")],
         )
+    }
+
+    #[tokio::test]
+    async fn response_tool_surface_must_match_the_shaped_request() {
+        let call = ToolCall::new(new_call_id(), "apply_patch", serde_json::json!(""))
+            .with_surface(ToolCallSurface::Function)
+            .with_raw_arguments("");
+        let response = CanonicalModelResponse::new(
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            ),
+            vec![call],
+            FinishReason::ToolCalls,
+        );
+        let adapter = Arc::new(
+            ScriptedAdapter::new(vec![ModelStreamEvent::Response { response }]).with_capabilities(
+                ModelCapabilities::empty()
+                    .with_tools(true)
+                    .with_freeform_tools(true),
+            ),
+        );
+        let service = ModelService::new(adapter);
+        let request = sample_request().with_tools(vec![
+            ToolSpec::new(
+                "apply_patch",
+                "Apply a patch",
+                serde_json::json!({}),
+                ToolSafety::WritesFiles,
+            )
+            .with_surface(ToolSurface::freeform_lark("start: \"*** Begin Patch\"")),
+        ]);
+
+        let error = service
+            .complete(request)
+            .await
+            .expect_err("surface mismatch must fail before tool execution");
+        assert!(
+            error.to_string().contains("model protocol error"),
+            "{error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("used function surface, but request declared freeform surface"),
+            "{error}"
+        );
     }
 
     #[tokio::test]

@@ -249,6 +249,7 @@ fn capabilities_are_model_profile_driven() {
     let explicit = OpenAiResponsesClient::from_provider_config(json!({
         "capabilities": {
             "supports_parallel_tool_calls": true,
+            "supports_freeform_tools": true,
             "supports_json_schema": true,
             "supports_reasoning_config": true
         }
@@ -258,11 +259,13 @@ fn capabilities_are_model_profile_driven() {
     let model = ModelRef::new("openai", "custom-proxy-model");
     let conservative = conservative.capabilities(&model);
     assert!(!conservative.supports_parallel_tool_calls);
+    assert!(!conservative.supports_freeform_tools);
     assert!(!conservative.supports_json_schema);
     assert!(!conservative.supports_reasoning_config);
 
     let explicit = explicit.capabilities(&model);
     assert!(explicit.supports_parallel_tool_calls);
+    assert!(explicit.supports_freeform_tools);
     assert!(explicit.supports_json_schema);
     assert!(explicit.supports_reasoning_config);
 }

@@ -160,18 +160,22 @@ async fn dev_slim_toml_config_uses_small_toolset_and_context() {
 }
 
 #[tokio::test]
-async fn codex_toml_config_enables_codex_experimental_profile() {
+async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
         "configs/codex.config.toml",
     )))
     .await
     .unwrap();
 
-    assert_eq!(config.profile.name, "codex-experimental");
+    assert_eq!(config.profile.name, "codex-proxy");
     let model_config = config.active_model_config().unwrap();
     assert_eq!(
         model_config.provider_config["capabilities"]["supports_parallel_tool_calls"],
         true
+    );
+    assert_eq!(
+        model_config.provider_config["capabilities"]["supports_freeform_tools"],
+        false
     );
     assert_eq!(
         model_config.provider_config["capabilities"]["supports_json_schema"],
@@ -188,7 +192,7 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .provider_config
             .get("stream_error_fallback")
             .is_none(),
-        "strict codex profile must not replay failed SSE requests"
+        "codex proxy profile must not replay failed SSE requests"
     );
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
@@ -211,14 +215,14 @@ async fn codex_toml_config_enables_codex_experimental_profile() {
             .iter()
             .any(|server| server.name == "playwright")
     );
-    assert_eq!(configured_tool_names(&config), vec!["apply_patch"]);
-    let apply_patch = config
-        .tools
-        .configured
-        .iter()
-        .find(|tool| tool.name == "apply_patch")
-        .expect("configured apply_patch");
-    assert!(matches!(apply_patch.surface, ToolSurface::Freeform { .. }));
+    assert!(configured_tool_names(&config).is_empty());
+    assert!(
+        config
+            .tools
+            .enabled
+            .iter()
+            .any(|tool| tool == "apply_patch")
+    );
 
     // Stable hot-set config активен в packaged Codex profile.
     let codex_dynamic = config.module_config_value(ModuleKind::ToolExposure, "codex_dynamic");
@@ -333,7 +337,7 @@ async fn glm_toml_config_loads_strict_workflow_profile() {
             .await
             .unwrap();
 
-    assert_eq!(config.profile.name, "codex-experimental");
+    assert_eq!(config.profile.name, "glm-proxy");
     assert_eq!(config.active_provider, "openai");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");

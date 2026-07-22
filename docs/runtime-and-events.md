@@ -683,7 +683,7 @@ Baseline `coding.single_loop` поставляется плагином `coding-
 7. пишет `ContextBuilt`;
 8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
 9. вызывает `Model::complete`, реализованный `ModelService`;
-10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper` и вызывает provider `Model`;
+10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper`, вызывает provider `Model` и fail-closed проверяет terminal response против фактически отправленного request;
 11. пишет `TokenUsageUpdated` с source, оценкой request categories и provider usage, если он доступен;
 12. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
 13. добавляет `ToolResult` в canonical messages;

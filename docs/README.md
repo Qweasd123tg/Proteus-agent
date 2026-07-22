@@ -104,6 +104,9 @@
   ценовые категории добавления будущих возможностей в Proteus и Pi:
   slot/pack/process-модуль против hook surface, наследование безопасности и
   чей потолок у сквозных фич;
+- [research/dogfood-freeform-tool-loop-2026-07-22.md](research/dogfood-freeform-tool-loop-2026-07-22.md) —
+  postmortem первого readiness dogfood: несовпадение OpenAI custom/function
+  surface, повторяющийся `apply_patch` и принятый fail-closed контракт;
 - [research/memory-research.md](research/memory-research.md) — blueprint
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —

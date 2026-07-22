@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    domain::{CacheHints, ReasoningConfig, ResponseFormat, ToolChoice},
+    domain::{CacheHints, ReasoningConfig, ResponseFormat, ToolChoice, ToolSurface},
     model_standard::{CanonicalModelRequest, ModelCapabilities},
 };
 
@@ -17,6 +17,20 @@ impl RequestShaper {
         if !capabilities.supports_tools {
             request.tools.clear();
             request.tool_choice = ToolChoice::None;
+        } else if !capabilities.supports_freeform_tools {
+            let unsupported = request
+                .tools
+                .iter()
+                .filter(|tool| matches!(tool.surface, ToolSurface::Freeform { .. }))
+                .map(|tool| format!("'{}'", tool.name))
+                .collect::<Vec<_>>();
+            if !unsupported.is_empty() {
+                bail!(
+                    "model '{}' does not support freeform tools: {}",
+                    request.model.model,
+                    unsupported.join(", ")
+                );
+            }
         }
 
         if !capabilities.supports_cache_hints {
@@ -63,9 +77,52 @@ mod tests {
 
     use super::*;
     use crate::{
-        domain::ModelRef,
+        domain::{ModelRef, ToolSafety, ToolSpec, ToolSurface},
         model_standard::{CanonicalMessage, MessageRole},
     };
+
+    #[test]
+    fn freeform_tools_require_explicit_model_capability() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "custom-proxy-model"),
+            vec![CanonicalMessage::text(MessageRole::User, "edit")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "apply_patch",
+                "Apply a patch",
+                json!({}),
+                ToolSafety::WritesFiles,
+            )
+            .with_surface(ToolSurface::freeform_lark("start: \"*** Begin Patch\"")),
+        ]);
+
+        let error = RequestShaper
+            .shape(
+                request.clone(),
+                &ModelCapabilities::empty().with_tools(true),
+            )
+            .expect_err("freeform must be opt-in");
+        assert!(
+            error
+                .to_string()
+                .contains("does not support freeform tools")
+        );
+        assert!(error.to_string().contains("apply_patch"));
+
+        let shaped = RequestShaper
+            .shape(
+                request,
+                &ModelCapabilities::empty()
+                    .with_tools(true)
+                    .with_freeform_tools(true),
+            )
+            .expect("explicit freeform capability");
+        assert!(matches!(
+            shaped.tools[0].surface,
+            ToolSurface::Freeform { .. }
+        ));
+    }
 
     #[test]
     fn strict_json_schema_requires_model_capability() {

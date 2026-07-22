@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct ModelCapabilities {
     pub supports_tools: bool,
     pub supports_parallel_tool_calls: bool,
+    pub supports_freeform_tools: bool,
     pub supports_streaming: bool,
     pub supports_json_schema: bool,
     pub supports_system_role: bool,
@@ -23,6 +24,7 @@ impl ModelCapabilities {
         Self {
             supports_tools: true,
             supports_parallel_tool_calls: false,
+            supports_freeform_tools: false,
             supports_streaming: false,
             supports_json_schema: false,
             supports_system_role: true,
@@ -41,6 +43,7 @@ impl ModelCapabilities {
         Self {
             supports_tools: false,
             supports_parallel_tool_calls: false,
+            supports_freeform_tools: false,
             supports_streaming: false,
             supports_json_schema: false,
             supports_system_role: false,
@@ -60,6 +63,10 @@ impl ModelCapabilities {
     }
     pub fn with_parallel_tool_calls(mut self, value: bool) -> Self {
         self.supports_parallel_tool_calls = value;
+        self
+    }
+    pub fn with_freeform_tools(mut self, value: bool) -> Self {
+        self.supports_freeform_tools = value;
         self
     }
     pub fn with_streaming(mut self, value: bool) -> Self {

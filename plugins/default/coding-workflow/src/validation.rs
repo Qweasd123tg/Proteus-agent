@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use proteus_contracts::{
     domain::{ToolCall, ToolSpec},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, validate_model_response_structure,
+        CanonicalModelRequest, CanonicalModelResponse, validate_model_response_against_request,
     },
     plugin::PluginWorkflowError,
 };
@@ -34,7 +34,7 @@ fn validate_model_response_impl(
     response: &CanonicalModelResponse,
     require_request_visible_tools: bool,
 ) -> Result<(), PluginWorkflowError> {
-    validate_model_response_structure(response)
+    validate_model_response_against_request(request, response)
         .map_err(|error| PluginWorkflowError::new(format!("{workflow} {error}")))?;
     if require_request_visible_tools {
         validate_tool_calls_are_request_visible(workflow, &request.tools, &response.tool_calls)?;

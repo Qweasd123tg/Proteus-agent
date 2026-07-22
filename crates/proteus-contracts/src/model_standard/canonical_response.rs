@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     domain::ToolCall,
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+    model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -122,6 +122,34 @@ pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> R
     Ok(())
 }
 
+/// Проверяет структурный контракт response и provider-neutral round-trip
+/// surface для tools, которые были объявлены в конкретном request. Неизвестный
+/// tool здесь не запрещается: visibility/failure path остаётся ответственностью
+/// workflow, а совпавшее имя обязано сохранить function/freeform форму.
+pub fn validate_model_response_against_request(
+    request: &CanonicalModelRequest,
+    response: &CanonicalModelResponse,
+) -> Result<(), String> {
+    validate_model_response_structure(response)?;
+
+    for call in &response.tool_calls {
+        let Some(tool) = request.tools.iter().find(|tool| tool.name == call.name) else {
+            continue;
+        };
+        let expected = tool.surface.call_surface();
+        if call.surface != expected {
+            return Err(format!(
+                "model response tool '{}' used {} surface, but request declared {} surface",
+                call.name,
+                call.surface.as_str(),
+                expected.as_str()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FinishReason {
@@ -206,7 +234,75 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{domain::new_call_id, model_standard::ContentPart};
+    use crate::{
+        domain::{ModelRef, ToolCallSurface, ToolSafety, ToolSpec, ToolSurface, new_call_id},
+        model_standard::ContentPart,
+    };
+
+    fn response_with_call(call: ToolCall) -> CanonicalModelResponse {
+        CanonicalModelResponse::new(
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            ),
+            vec![call],
+            FinishReason::ToolCalls,
+        )
+    }
+
+    fn freeform_request() -> CanonicalModelRequest {
+        CanonicalModelRequest::new(
+            ModelRef::new("openai", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "edit")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "apply_patch",
+                "Apply a patch",
+                json!({}),
+                ToolSafety::WritesFiles,
+            )
+            .with_surface(ToolSurface::freeform_lark("start: \"*** Begin Patch\"")),
+        ])
+    }
+
+    #[test]
+    fn response_surface_must_match_the_requested_tool_surface() {
+        let request = freeform_request();
+        let call = ToolCall::new(new_call_id(), "apply_patch", json!(""))
+            .with_surface(ToolCallSurface::Function)
+            .with_raw_arguments("");
+
+        let error = validate_model_response_against_request(&request, &response_with_call(call))
+            .expect_err("function/freeform mismatch must fail");
+        assert!(error.contains("used function surface"));
+        assert!(error.contains("declared freeform surface"));
+    }
+
+    #[test]
+    fn matching_freeform_surface_preserves_custom_tool_compatibility() {
+        let call = ToolCall::new(
+            new_call_id(),
+            "apply_patch",
+            json!({ "input": "*** Begin Patch\n*** End Patch" }),
+        )
+        .with_surface(ToolCallSurface::Freeform);
+
+        validate_model_response_against_request(&freeform_request(), &response_with_call(call))
+            .expect("matching custom tool surface must remain supported");
+    }
+
+    #[test]
+    fn request_validation_leaves_unknown_tool_policy_to_the_workflow() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "answer")],
+        );
+        let call = ToolCall::new(new_call_id(), "unknown_tool", json!({}));
+
+        validate_model_response_against_request(&request, &response_with_call(call))
+            .expect("surface validation must not replace workflow visibility policy");
+    }
 
     #[test]
     fn token_usage_rejects_incomplete_json() {

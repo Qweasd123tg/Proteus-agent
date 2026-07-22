@@ -197,9 +197,9 @@ symlink-escape; конечный symlink запрещён для Add/Update/Dele
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
 делает workspace-санитизации за `PatchApplier` — это обязанность выбранной
 реализации.
-В named config `codex` model-facing форма `apply_patch` меняется на freeform
-custom tool, но execution всё равно проходит через тот же `ToolOrchestrator`,
-`ApprovalPolicy` и `PatchApplier`.
+В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
+обычный function tool. Явно настроенный freeform custom tool всё равно проходит
+через тот же `ToolOrchestrator`, `ApprovalPolicy` и `PatchApplier`.
 
 Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` /
 `grep` / `find_files` / `read_many_files`), `git-tools` (`git_status` /
@@ -359,7 +359,9 @@ blocks; новые tools могут возвращать structured output бе�
 конкретным provider adapter-ом (`function`, `freeform` и т.п.). Он не
 понижает `ToolSafety`, не обходит visibility/execution policy и не меняет
 executor. Если adapter не поддерживает surface, он должен вернуть ошибку
-model request, а не делать эвристический fallback к другой форме.
+model request, а не делать эвристический fallback к другой форме. Для
+freeform это выражено capability `supports_freeform_tools`; ответ provider-а с
+другой surface отклоняется до history mutation и исполнения tool-а.
 
 Core не валидирует внутреннюю схему `ask_write`: значение
 `module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Имена в

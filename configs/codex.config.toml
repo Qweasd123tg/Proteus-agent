@@ -21,6 +21,7 @@ default_verbosity = "low"
 
 [providers.openai.provider_config.capabilities]
 supports_parallel_tool_calls = true
+supports_freeform_tools = false
 supports_json_schema = true
 supports_reasoning_config = true
 
@@ -31,19 +32,20 @@ summary = true
 # Base prompt: адаптированный upstream Codex base prompt из
 # codex-rs/protocol/src/prompts/base_instructions/default.md на commit
 # 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d. Harness-dependent divergence:
-# identity/renderer говорят Proteus/client вместо Codex CLI; apply_patch описан
-# как freeform; permission-режимы названы auto/normal; добавлены фактическая
-# per-command sandbox/netns семантика и предпочтение structured read/search tools.
+# identity/renderer говорят Proteus/client вместо Codex CLI; proxy-safe
+# apply_patch остаётся function tool; permission-режимы названы auto/normal;
+# добавлены фактическая per-command sandbox/netns семантика и предпочтение
+# structured read/search tools.
 [[instructions]]
 kind = "System"
 file = "prompts/codex-default.md"
 priority = 100
 
 [profile]
-name = "codex-experimental"
+name = "codex-proxy"
 
 [modules]
-# Experimental strict Codex-shaped profile. Keep this profile explicit so
+# Proxy-backed Codex-shaped profile. Keep this profile explicit so
 # baseline coding profiles do not inherit Codex parity experiments by accident.
 workflow = "coding.codex_loop"
 search = "rg"
@@ -66,7 +68,7 @@ renderer = "text"
 surface = "collaboration"
 
 [tools]
-enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
+enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
 # playwright остаётся opt-in: dynamic exposure не отправит все его схемы в
 # каждый запрос, но dogfood показал непрошеную браузерную верификацию. Включать
@@ -78,45 +80,6 @@ enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "
 # safety = "Network"
 # timeout_ms = 60000
 # metadata = { scope = "browser-automation", category = "mcp", tags = ["mcp", "browser", "playwright", "desktop-app"] }
-
-[[tools.configured]]
-name = "apply_patch"
-description = "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON."
-safety = "WritesFiles"
-timeout_ms = 10000
-metadata = { hot = true, category = "patch", tags = ["workspace", "edit", "patch", "write"], aliases = ["apply changes", "edit files", "modify workspace"], format = "codex_apply_patch", approval = { cache_scopes = ["workspace_write"] } }
-
-[tools.configured.surface]
-kind = "freeform"
-
-[tools.configured.surface.format]
-type = "grammar"
-syntax = "lark"
-definition = '''
-start: begin_patch hunk+ end_patch
-begin_patch: "*** Begin Patch" LF
-end_patch: "*** End Patch" LF?
-
-hunk: add_hunk | delete_hunk | update_hunk
-add_hunk: "*** Add File: " filename LF add_line+
-delete_hunk: "*** Delete File: " filename LF
-update_hunk: "*** Update File: " filename LF change_move? change?
-
-filename: /(.+)/
-add_line: "+" /(.*)/ LF -> line
-
-change_move: "*** Move to: " filename LF
-change: (change_context | change_line)+ eof_line?
-change_context: ("@@" | "@@ " /(.+)/) LF
-change_line: ("+" | "-" | " ") /(.*)/ LF
-eof_line: "*** End of File" LF
-
-%import common.LF
-'''
-
-[tools.configured.executor]
-kind = "native"
-handler = "apply_patch"
 
 [permissions]
 mode = "normal"

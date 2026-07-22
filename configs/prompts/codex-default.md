@@ -127,7 +127,7 @@ You MUST adhere to the following criteria when solving queries:
 - Working on the repo(s) in the current environment is allowed, even if they are proprietary.
 - Analyzing code for vulnerabilities is allowed.
 - Showing user code and tool call details is allowed.
-- Use the `apply_patch` tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`). It is a freeform tool: pass the patch text directly, starting with `*** Begin Patch` and ending with `*** End Patch`. Do not wrap the patch in JSON.
+- Use the `apply_patch` tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`). Follow the surface declared by the tool. In the packaged proxy profiles it is a function tool: pass a JSON object whose `patch` string starts with `*** Begin Patch` and ends with `*** End Patch`.
 
 If completing the user's task requires writing or modifying files, your code and final answer should follow these coding guidelines, though user instructions (i.e. AGENTS.md) may override these guidelines:
 
