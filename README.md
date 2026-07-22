@@ -59,7 +59,8 @@ Wrapper использует текущую директорию как workspac
 Порты меняются через `PROTEUS_APP_PORT`, `PROTEUS_WEB_PORT` и
 `PROTEUS_INSPECTOR_PORT`; Inspector отключается через
 `PROTEUS_INSPECTOR=0`. Wrapper создаёт ephemeral session token и сам открывает
-chat в браузере. App-server рассчитан на локальный loopback dogfood — не
+chat в браузере с query-параметром `token`, который клиент сохраняет в
+`sessionStorage`. App-server рассчитан на локальный loopback dogfood — не
 публикуйте его наружу.
 
 Быстрый smoke без внешнего API и секретов:

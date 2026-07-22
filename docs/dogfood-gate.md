@@ -67,7 +67,9 @@ approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
 требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
 для SSE допустим query token; для `fetch` предпочтителен header
 `X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token не
-логировать и не хранить в `localStorage`.
+логировать и не хранить в `localStorage`. Launcher и оба browser-клиента
+используют единый query key `token`; значение сохраняется только в
+`sessionStorage`.
 
 Минимальный сценарий:
 

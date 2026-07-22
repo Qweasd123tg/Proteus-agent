@@ -92,6 +92,7 @@ web_port="${PROTEUS_WEB_PORT:-1420}"
 inspector_port="${PROTEUS_INSPECTOR_PORT:-1421}"
 inspector_enabled="${PROTEUS_INSPECTOR:-1}"
 session_token="${PROTEUS_SESSION_TOKEN:-}"
+session_query_key="token"
 
 generate_session_token() {
   if command -v uuidgen >/dev/null 2>&1; then
@@ -278,12 +279,12 @@ encoded_web_origin="http%3A%2F%2F127.0.0.1%3A${web_port}"
 common_query="server=${encoded_app_origin}&inspector=${encoded_inspector_origin}"
 inspector_query="server=${encoded_app_origin}&chat=${encoded_web_origin}"
 if [ -n "${session_token}" ]; then
-  echo "Web client:        http://127.0.0.1:${web_port}/?session=<redacted>&${common_query}"
+  echo "Web client:        http://127.0.0.1:${web_port}/?${session_query_key}=<redacted>&${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
-    echo "Inspector:         http://127.0.0.1:${inspector_port}/?session=<redacted>&${inspector_query}"
+    echo "Inspector:         http://127.0.0.1:${inspector_port}/?${session_query_key}=<redacted>&${inspector_query}"
   fi
   server_auth_args=(--token "${session_token}")
-  open_web_url="http://127.0.0.1:${web_port}/?session=${session_token}&${common_query}"
+  open_web_url="http://127.0.0.1:${web_port}/?${session_query_key}=${session_token}&${common_query}"
 else
   echo "Web client:        http://127.0.0.1:${web_port}/?${common_query}"
   if [ "${inspector_enabled}" != "0" ]; then
