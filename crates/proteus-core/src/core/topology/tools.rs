@@ -79,7 +79,10 @@ pub(super) fn build_tools(
 fn tool_enabled(config: &AppConfig, source: &ToolSource, name: &str) -> bool {
     config.tools.enabled.iter().any(|enabled| enabled == name)
         || name == TASK_TOOL
-        || matches!(source, ToolSource::Config { .. } | ToolSource::Mcp { .. })
+        || matches!(
+            source,
+            ToolSource::ProviderHosted { .. } | ToolSource::Config { .. } | ToolSource::Mcp { .. }
+        )
 }
 
 fn tool_safety_label(safety: &ToolSafety) -> &'static str {
@@ -90,5 +93,20 @@ fn tool_safety_label(safety: &ToolSafety) -> &'static str {
         ToolSafety::Network => "Network",
         ToolSafety::Dangerous => "Dangerous",
         _ => "Unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_hosted_tool_is_enabled_without_tools_enabled_entry() {
+        let config = AppConfig::default();
+        let source = ToolSource::ProviderHosted {
+            provider: "openai.responses".to_owned(),
+        };
+
+        assert!(tool_enabled(&config, &source, "web_search"));
     }
 }

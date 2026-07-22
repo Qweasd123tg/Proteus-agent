@@ -267,6 +267,16 @@ fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistory
                 ContentPart::Patch { patch } => {
                     bytes += patch.content.len();
                 }
+                ContentPart::HostedToolActivity { activity } => {
+                    bytes += serde_json::to_string(activity)
+                        .map(|value| value.len())
+                        .unwrap_or_default();
+                }
+                ContentPart::Citation { citation } => {
+                    bytes += serde_json::to_string(citation)
+                        .map(|value| value.len())
+                        .unwrap_or_default();
+                }
                 _ => {}
             }
         }

@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{CallId, ContextChunk, MessageId, Patch, ToolCall, ToolResult};
+use crate::domain::{
+    CallId, Citation, ContextChunk, HostedToolActivity, MessageId, Patch, ToolCall, ToolResult,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -53,6 +55,12 @@ pub enum ContentPart {
     Reasoning {
         text: String,
         signature: Option<String>,
+    },
+    HostedToolActivity {
+        activity: HostedToolActivity,
+    },
+    Citation {
+        citation: Citation,
     },
 }
 

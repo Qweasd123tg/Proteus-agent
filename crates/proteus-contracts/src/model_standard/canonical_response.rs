@@ -136,14 +136,23 @@ pub fn validate_model_response_against_request(
         let Some(tool) = request.tools.iter().find(|tool| tool.name == call.name) else {
             continue;
         };
-        let expected = tool.surface.call_surface();
-        if call.surface != expected {
-            return Err(format!(
-                "model response tool '{}' used {} surface, but request declared {} surface",
-                call.name,
-                call.surface.as_str(),
-                expected.as_str()
-            ));
+        match tool.surface.call_surface() {
+            Some(expected) if call.surface != expected => {
+                return Err(format!(
+                    "model response tool '{}' used {} surface, but request declared {} surface",
+                    call.name,
+                    call.surface.as_str(),
+                    expected.as_str()
+                ));
+            }
+            Some(_) => {}
+            None => {
+                return Err(format!(
+                    "model response returned provider-hosted tool '{}' as a client-executed {} call",
+                    call.name,
+                    call.surface.as_str()
+                ));
+            }
         }
     }
 
@@ -235,7 +244,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        domain::{ModelRef, ToolCallSurface, ToolSafety, ToolSpec, ToolSurface, new_call_id},
+        domain::{
+            HostedToolConfig, ModelRef, ToolCallSurface, ToolSafety, ToolSpec, ToolSurface,
+            WebSearchHostedToolConfig, new_call_id,
+        },
         model_standard::ContentPart,
     };
 
@@ -290,6 +302,31 @@ mod tests {
 
         validate_model_response_against_request(&freeform_request(), &response_with_call(call))
             .expect("matching custom tool surface must remain supported");
+    }
+
+    #[test]
+    fn provider_hosted_tool_cannot_return_as_client_executed_call() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("openai", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "search")],
+        )
+        .with_tools(vec![
+            ToolSpec::new(
+                "web_search",
+                "Search the web",
+                json!({ "type": "object" }),
+                ToolSafety::Network,
+            )
+            .with_surface(ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
+                config: WebSearchHostedToolConfig::default(),
+            })),
+        ]);
+        let call = ToolCall::new(new_call_id(), "web_search", json!({}));
+
+        let error = validate_model_response_against_request(&request, &response_with_call(call))
+            .expect_err("hosted activity must not become a local function call");
+        assert!(error.contains("provider-hosted tool 'web_search'"));
+        assert!(error.contains("client-executed function call"));
     }
 
     #[test]

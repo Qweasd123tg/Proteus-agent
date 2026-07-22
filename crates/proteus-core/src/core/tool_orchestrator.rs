@@ -14,7 +14,7 @@ use crate::{
         ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
         SubagentRequest, SubagentResult, SubagentToolHost, ToolContext,
     },
-    domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec},
+    domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec, ToolSurface},
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
@@ -47,17 +47,15 @@ impl ToolOrchestrator {
             .specs()
             .into_iter()
             .filter(|spec| {
-                match ctx
-                    .policy
-                    .evaluate_visibility(&PolicyVisibilityContext::new(
-                        cwd.to_path_buf(),
-                        spec.clone(),
-                    )) {
-                    PolicyDecision::Allow => true,
-                    PolicyDecision::Ask { .. } => ctx.approval.can_request_approval(),
-                    PolicyDecision::Deny { .. } => false,
-                    _ => false,
-                }
+                visibility_decision_allows(
+                    spec,
+                    ctx.policy
+                        .evaluate_visibility(&PolicyVisibilityContext::new(
+                            cwd.to_path_buf(),
+                            spec.clone(),
+                        )),
+                    ctx.approval.can_request_approval(),
+                )
             })
             .collect()
     }
@@ -311,6 +309,27 @@ impl ToolOrchestrator {
         }
 
         result
+    }
+}
+
+fn visibility_decision_allows(
+    spec: &ToolSpec,
+    decision: PolicyDecision,
+    can_request_approval: bool,
+) -> bool {
+    match decision {
+        PolicyDecision::Allow => true,
+        // Hosted execution happens inside the provider request, before a
+        // per-call approval can be requested. Only an explicit visibility
+        // Allow is valid pre-authorization.
+        PolicyDecision::Ask { .. }
+            if matches!(spec.surface, ToolSurface::ProviderHosted { .. }) =>
+        {
+            false
+        }
+        PolicyDecision::Ask { .. } => can_request_approval,
+        PolicyDecision::Deny { .. } => false,
+        _ => false,
     }
 }
 
@@ -569,6 +588,7 @@ fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{HostedToolConfig, ToolSafety, WebSearchHostedToolConfig};
 
     #[test]
     fn extract_apply_patch_body_supports_heredoc_quotes_and_bare() {
@@ -629,5 +649,35 @@ mod tests {
         assert!(output.len() <= 96);
         assert!(output.is_char_boundary(output.len()));
         assert!(output.contains("[tool error truncated:"));
+    }
+
+    #[test]
+    fn interactive_ask_keeps_local_tool_visible_but_hides_provider_hosted_tool() {
+        let local = ToolSpec::new(
+            "shell",
+            "Run a command",
+            json!({ "type": "object" }),
+            ToolSafety::RunsCommands,
+        );
+        let hosted = ToolSpec::new(
+            "web_search",
+            "Search the web",
+            json!({ "type": "object" }),
+            ToolSafety::Network,
+        )
+        .with_surface(ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
+            config: WebSearchHostedToolConfig::default(),
+        }));
+        let ask = || PolicyDecision::Ask {
+            reason: "approval required".to_owned(),
+        };
+
+        assert!(visibility_decision_allows(&local, ask(), true));
+        assert!(!visibility_decision_allows(&hosted, ask(), true));
+        assert!(visibility_decision_allows(
+            &hosted,
+            PolicyDecision::Allow,
+            false
+        ));
     }
 }

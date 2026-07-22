@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 
 use crate::{
-    domain::ModelRef,
+    domain::{ModelRef, ToolSpec},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
     },
@@ -18,6 +18,12 @@ pub type ModelEventStream =
 pub trait Model: Send + Sync {
     fn id(&self) -> Cow<'static, str>;
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
+
+    /// Configured provider-hosted tool instances for this model. The default
+    /// keeps providers without hosted execution unchanged.
+    fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<ToolSpec> {
+        Vec::new()
+    }
 
     /// Returns provider events normalized to the canonical stream contract.
     ///

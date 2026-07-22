@@ -188,6 +188,29 @@ allowlisted parent value. `HOME`, cloud/API tokens, proxy variables и agent
 sockets автоматически не передаются. Для credentials предпочтителен allowlist,
 чтобы secret value не попадал в config-файл.
 
+### Provider-hosted tools
+
+`web_search` и `file_search` OpenAI Responses регистрируются как виртуальные
+registry tools с source `provider_hosted:openai.responses`, surface
+`ProviderHosted` и обязательным `ToolSafety::Network`. Они проходят те же
+duplicate-name и visibility checks, но выполняются OpenAI внутри model request,
+а не локальным `Tool::invoke`.
+
+Из-за этой временной границы per-call approval после выбора модели невозможен:
+
+- `PolicyDecision::Allow` добавляет hosted tool в model request;
+- `Ask` и `Deny` скрывают его, даже если UI умеет показывать approvals;
+- `plan`/`auto` скрывают его по network safety;
+- случайный local/deferred вызов возвращает ошибку без side effect;
+- provider response с function/custom call под именем hosted tool отклоняется
+  protocol validator-ом: допустим только canonical `HostedToolActivity`.
+
+Таким образом, policy pre-authorizes саму возможность provider-side доступа к
+сети или vector store. Локальная shell sandbox и approval после получения
+`web_search_call` эту операцию защитить уже не могут. Hosted tools не нужно
+указывать в `tools.enabled`; operator включает их в provider config и отдельно
+разрешает canonical имена в выбранной policy.
+
 ## Workspace Boundary
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в

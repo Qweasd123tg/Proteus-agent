@@ -72,6 +72,17 @@ module implementations без переписывания core или форка 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
 
+Обновление на 2026-07-22: добавлен первый provider-hosted срез OpenAI
+Responses — opt-in `web_search`/`file_search`, capability + config + policy
+gates, canonical activity/citations и transcript projection. Он использует
+существующую `Model`/`ToolSpec` поверхность и не создаёт OpenAI-specific slot в
+core. Structured Outputs уже остаётся canonical `ResponseFormat::JsonSchema`.
+Следующие Responses возможности (`computer`, hosted shell/code interpreter,
+image generation, remote MCP, programmatic tool calling, file metadata
+filters, live hosted SSE progress) остаются отдельными задачами: перед каждой
+нужно определить execution ownership, approval timing, artifacts и replay,
+чтобы не выдать provider-side side effect за обычный локальный tool call.
+
 Обновление на 2026-07-16: после архитектурного review удалены недоказанные
 compatibility поверхности. Public `MemoryPolicy` slot и heuristic
 `carry_forward` retired; manual memory через `remember_fact`/`/remember` и

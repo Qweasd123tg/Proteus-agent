@@ -154,6 +154,11 @@ toolset (`search`, `read_file`, `list_dir`, `grep`, `git_status`,
 tools — из `file-tools`, git helpers — из `git-tools`, а `shell` — из
 `shell-tool`, поэтому для этого profile нужен `./install.sh`.
 
+`examples/configs/proteus.openai-hosted-tools.example.toml` расширяет этот
+baseline opt-in профилем OpenAI Responses с `web_search` и `file_search`.
+Перед запуском замените `vs_replace_me` на существующий OpenAI vector store и
+задайте `OPENAI_API_KEY`.
+
 `configs/codex.config.toml` - packaged proxy-backed Codex-shaped profile
 `codex-proxy`. Он использует
 `coding.codex_loop`, `codex_context`, `rg`,
@@ -339,6 +344,59 @@ supports_reasoning_config = true
 в OpenAI shaping слое. `ModelService` добавляет provider-neutral
 `session_id`/`thread_id`/`turn_id` в `CanonicalModelRequest.client_metadata`.
 Request-level значения имеют приоритет над статическими значениями profile-а.
+
+OpenAI Responses hosted tools включаются двумя независимыми gates. Список
+`capabilities.hosted_tools` заявляет проверенную поддержку конкретной
+model/endpoint pair, а таблицы `hosted_tools.web_search` и
+`hosted_tools.file_search` создают фактически доступные tool instances:
+
+```toml
+[providers.openai.provider_config.capabilities]
+supports_parallel_tool_calls = true
+supports_json_schema = true
+supports_reasoning_config = true
+hosted_tools = ["web_search", "file_search"]
+
+[providers.openai.provider_config.hosted_tools]
+# Общий предел built-in calls за один Responses request, не per-tool limit.
+max_tool_calls = 2
+
+[providers.openai.provider_config.hosted_tools.web_search]
+search_context_size = "low" # low | medium | high
+include_sources = true
+allowed_domains = []
+blocked_domains = []
+external_web_access = true
+
+[providers.openai.provider_config.hosted_tools.file_search]
+vector_store_ids = ["vs_replace_me"]
+max_num_results = 5
+include_results = false
+```
+
+`include_sources = true` добавляет
+`web_search_call.action.sources` в общий Responses `include`, а
+`include_results = true` — `file_search_call.results`; reasoning include при
+этом не затирается. `allowed_domains` и `blocked_domains` принимают до 100
+bare domains без scheme/path. `vector_store_ids` не может быть пустым, а
+`max_tool_calls`/`max_num_results`, если заданы, должны быть больше нуля.
+Неизвестные hosted kinds и поля nested config завершают загрузку явной
+ошибкой.
+
+Эти имена не добавляются в `tools.enabled`: их регистрирует выбранный model
+adapter. Но policy должна дать им явный `Allow`, например добавить
+`web_search` и `file_search` в
+`module_config.policy.ask_write.allow`/`codex_policy.allow`. Решение `Ask` не
+показывает hosted tool модели даже при interactive approval transport, потому
+что provider исполняет поиск до возврата ответа и локальный runtime уже не
+может запросить per-call approval. `plan` и `auto` также скрывают их как
+`ToolSafety::Network`.
+
+Текущий срез намеренно не мапит file metadata filters и новый
+`web_search.return_token_budget`. Поддерживаемая wire-форма сверена с
+[Using tools](https://developers.openai.com/api/docs/guides/tools),
+[Web search](https://developers.openai.com/api/docs/guides/tools-web-search) и
+[File search](https://developers.openai.com/api/docs/guides/tools-file-search).
 
 `store = false` остаётся обязательным: `store = true` и
 `item_ids_enabled = true` отклоняются при загрузке adapter-а, пока canonical

@@ -127,10 +127,11 @@ Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зав�
 от canonical model contract и выбранного adapter-а.
 
 Runtime зависит от единственного model contract `Model`: `id`, `capabilities`,
-`stream` и default `complete`. `BuiltinRegistry` использует `ModelService` как
-shaping wrapper: перед provider call он вызывает `RequestShaper` с
-`ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping остаётся внутри
-provider-а, а canonical shaping остаётся единым для всех providers.
+`provider_hosted_tools`, `stream` и default `complete`. `BuiltinRegistry`
+использует `ModelService` как shaping wrapper: перед provider call он вызывает
+`RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping
+остаётся внутри provider-а, а canonical shaping остаётся единым для всех
+providers.
 
 Успешный stream adapter-а обязан вернуть terminal `Response` с уже полными
 canonical message/tool calls. `ModelService` эмитит live deltas, но не
@@ -145,7 +146,8 @@ OpenAI adapter-а из завершённых output items или накопле
 OpenAI Responses не объявляет один набор capabilities для всех model ids:
 конкретный provider profile задаёт `capabilities.supports_parallel_tool_calls`,
 `supports_freeform_tools`, `supports_json_schema` и
-`supports_reasoning_config`, неизвестная модель получает conservative fallback.
+`supports_reasoning_config`, а также список `capabilities.hosted_tools`;
+неизвестная модель получает conservative fallback.
 Strict structured output живёт в canonical
 `ResponseFormat::JsonSchema`, а OpenAI-only `service_tier`/verbosity/store rules
 остаются в adapter/model shaping слое.
@@ -156,6 +158,29 @@ provider-ов, где adapter не может достоверно вывест�
 compactor использует свой fallback threshold.
 
 `BuiltinModuleCatalog` описывает model providers как `ModuleKind::Model`, хотя в config они выбираются через `active_provider`/`providers`, а не через `modules.model`.
+
+### Provider-hosted tools
+
+Первый Responses-срез поддерживает OpenAI `web_search` и `file_search`. Это не
+новый slot и не локальные реализации поиска: выбранный `Model` возвращает
+настроенные `ToolSpec` с `ToolSurface::ProviderHosted`, registry регистрирует их
+рядом с обычными tools для duplicate checks, policy visibility, topology и
+tool exposure, а OpenAI adapter сериализует разрешённый subset в `tools`
+Responses-запроса.
+
+Core знает только canonical `HostedToolKind`, typed semantic config,
+`HostedToolActivity` и `Citation`. OpenAI wire (`web_search_call`,
+`file_search_call`, `url_citation`, `file_citation`, `include`,
+`max_tool_calls`) остаётся в `adapters/openai`. Hosted activity входит в
+canonical response и transcript, но не становится `ToolCall` и никогда не
+исполняется через локальный `ToolOrchestrator`.
+
+Structured Outputs остаётся отдельной уже существующей response capability:
+`ResponseFormat::JsonSchema` не зависит от hosted tools и может использоваться
+в том же Responses request. `computer`, hosted shell/code interpreter, image
+generation, remote MCP и programmatic tool calling в этот срез не входят:
+для них нужны отдельные execution, approval, artifact и replay semantics, а не
+расширение списка строк в OpenAI adapter-е.
 
 ## Search
 

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::domain::HostedToolKind;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ModelCapabilities {
@@ -14,6 +16,9 @@ pub struct ModelCapabilities {
     pub supports_reasoning_config: bool,
     pub supports_image_input: bool,
     pub supports_file_input: bool,
+    /// Provider-hosted tool kinds accepted by this concrete endpoint/model.
+    /// Enabled tool instances are supplied separately by `Model`.
+    pub provider_hosted_tools: Vec<HostedToolKind>,
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
 }
@@ -33,6 +38,7 @@ impl ModelCapabilities {
             supports_reasoning_config: false,
             supports_image_input: false,
             supports_file_input: false,
+            provider_hosted_tools: Vec::new(),
             max_input_tokens: Some(16_000),
             max_output_tokens: Some(2_048),
         }
@@ -52,6 +58,7 @@ impl ModelCapabilities {
             supports_reasoning_config: false,
             supports_image_input: false,
             supports_file_input: false,
+            provider_hosted_tools: Vec::new(),
             max_input_tokens: None,
             max_output_tokens: None,
         }
@@ -99,6 +106,10 @@ impl ModelCapabilities {
     }
     pub fn with_file_input(mut self, value: bool) -> Self {
         self.supports_file_input = value;
+        self
+    }
+    pub fn with_provider_hosted_tools(mut self, value: Vec<HostedToolKind>) -> Self {
+        self.provider_hosted_tools = value;
         self
     }
     pub fn with_max_input_tokens(mut self, value: Option<u32>) -> Self {

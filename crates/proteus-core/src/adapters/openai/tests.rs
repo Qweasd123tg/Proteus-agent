@@ -2,8 +2,9 @@ use super::*;
 use std::collections::BTreeMap;
 
 use crate::domain::{
-    CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, CacheHints, ContextChunk, ModelLimits,
-    ReasoningConfig, ResponseFormat, SamplingConfig, ToolResult, ToolSafety,
+    CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, CacheHints, Citation, ContextChunk,
+    FileSearchResult, HostedToolActivity, HostedToolStatus, ModelLimits, ReasoningConfig,
+    ResponseFormat, SamplingConfig, ToolResult, ToolSafety, WebSearchAction,
 };
 
 #[test]
@@ -702,6 +703,172 @@ fn request_rejects_unknown_named_tool_choice() {
             .to_string()
             .contains("tool_choice references unknown tool")
     );
+}
+
+#[test]
+fn request_serializes_hosted_tools_includes_limit_and_named_choice() {
+    let profile = OpenAiModelProfile::from_provider_config(&json!({
+        "capabilities": {
+            "supports_parallel_tool_calls": true,
+            "supports_reasoning_config": true,
+            "hosted_tools": ["web_search", "file_search"]
+        },
+        "hosted_tools": {
+            "max_tool_calls": 2,
+            "web_search": {
+                "search_context_size": "low",
+                "allowed_domains": ["openai.com"],
+                "blocked_domains": ["example.com"],
+                "external_web_access": false,
+                "include_sources": true
+            },
+            "file_search": {
+                "vector_store_ids": ["vs_1"],
+                "max_num_results": 3,
+                "include_results": true
+            }
+        }
+    }))
+    .unwrap();
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("openai", "gpt-test"),
+        vec![CanonicalMessage::text(MessageRole::User, "research")],
+    )
+    .with_tools(profile.hosted_tools.specs())
+    .with_tool_choice(ToolChoice::Tool("file_search".to_owned()))
+    .with_reasoning(ReasoningConfig::new(Some("medium".to_owned()), true));
+
+    let body =
+        to_openai_request_with_cache(&request, &OpenAiPromptCacheConfig::default(), &profile)
+            .unwrap();
+
+    assert_eq!(body["tools"][0]["type"], "web_search");
+    assert_eq!(body["tools"][0]["search_context_size"], "low");
+    assert_eq!(
+        body["tools"][0]["filters"],
+        json!({
+            "allowed_domains": ["openai.com"],
+            "blocked_domains": ["example.com"]
+        })
+    );
+    assert_eq!(body["tools"][0]["external_web_access"], false);
+    assert_eq!(body["tools"][1]["type"], "file_search");
+    assert_eq!(body["tools"][1]["vector_store_ids"], json!(["vs_1"]));
+    assert_eq!(body["tools"][1]["max_num_results"], 3);
+    assert_eq!(body["max_tool_calls"], 2);
+    assert_eq!(body["tool_choice"], json!({ "type": "file_search" }));
+    assert_eq!(
+        body["include"],
+        json!([
+            "file_search_call.results",
+            "reasoning.encrypted_content",
+            "web_search_call.action.sources"
+        ])
+    );
+}
+
+#[test]
+fn response_preserves_hosted_activity_results_and_citations() {
+    let canonical = from_openai_response(json!({
+        "status": "completed",
+        "output": [
+            {
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "queries": ["OpenAI Responses tools"],
+                    "sources": [{
+                        "type": "url",
+                        "url": "https://developers.openai.com/api/docs/guides/tools",
+                        "title": "Using tools"
+                    }]
+                }
+            },
+            {
+                "type": "file_search_call",
+                "id": "fs_1",
+                "status": "completed",
+                "queries": ["architecture"],
+                "results": [{
+                    "file_id": "file_1",
+                    "filename": "architecture.pdf",
+                    "score": 0.91,
+                    "text": "Core -> Contract -> Module Implementation",
+                    "attributes": { "kind": "design" }
+                }]
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "Sourced answer",
+                    "annotations": [
+                        {
+                            "type": "url_citation",
+                            "start_index": 0,
+                            "end_index": 7,
+                            "title": "Using tools",
+                            "url": "https://developers.openai.com/api/docs/guides/tools"
+                        },
+                        {
+                            "type": "file_citation",
+                            "index": 8,
+                            "file_id": "file_1",
+                            "filename": "architecture.pdf"
+                        }
+                    ]
+                }]
+            }
+        ]
+    }))
+    .unwrap();
+
+    assert_eq!(canonical.finish_reason, FinishReason::Stop);
+    assert!(canonical.tool_calls.is_empty());
+    assert!(matches!(
+        &canonical.message.parts[0],
+        ContentPart::HostedToolActivity {
+            activity: HostedToolActivity::WebSearch {
+                id,
+                status: HostedToolStatus::Completed,
+                action: WebSearchAction::Search { queries, sources },
+            }
+        } if id == "ws_1"
+            && queries == &["OpenAI Responses tools"]
+            && sources[0].title.as_deref() == Some("Using tools")
+    ));
+    assert!(matches!(
+        &canonical.message.parts[1],
+        ContentPart::HostedToolActivity {
+            activity: HostedToolActivity::FileSearch {
+                id,
+                status: HostedToolStatus::Completed,
+                queries,
+                results,
+            }
+        } if id == "fs_1"
+            && queries == &["architecture"]
+            && matches!(
+                results.as_slice(),
+                [FileSearchResult { file_id, score: Some(score), .. }]
+                    if file_id == "file_1" && (*score - 0.91).abs() < f64::EPSILON
+            )
+    ));
+    assert!(matches!(
+        &canonical.message.parts[3],
+        ContentPart::Citation {
+            citation: Citation::Url { title, .. }
+        } if title == "Using tools"
+    ));
+    assert!(matches!(
+        &canonical.message.parts[4],
+        ContentPart::Citation {
+            citation: Citation::File { file_id, .. }
+        } if file_id == "file_1"
+    ));
 }
 
 #[test]

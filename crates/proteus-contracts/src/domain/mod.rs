@@ -7,6 +7,7 @@
 
 pub mod context;
 pub mod events;
+pub mod hosted_tool;
 pub mod ids;
 pub mod markers;
 pub mod memory;
@@ -19,6 +20,7 @@ pub mod tool;
 
 pub use context::*;
 pub use events::*;
+pub use hosted_tool::*;
 pub use ids::*;
 pub use markers::*;
 pub use memory::*;

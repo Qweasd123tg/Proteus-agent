@@ -62,7 +62,8 @@ DTO, а core фиксирует факт только в своей lifecycle bo
 - `provenance`: user, model, tool, context builder, compactor или runtime;
 - `scope`: `conversation`, `request` или `trace`;
 - typed payload: текущие `Text`, `Context`, `FileRef`, `ToolCall`,
-  `ToolResult`, `Patch`, `ReasoningSummary`, `Reasoning`.
+  `ToolResult`, `Patch`, `ReasoningSummary`, `Reasoning`,
+  `HostedToolActivity`, `Citation`.
 
 `conversation` участвует в durable history. `request` живёт в конкретном
 model request (например свежий `ContentPart::Context`) и не попадает в resume
@@ -72,6 +73,13 @@ history. `trace` нужен для диагностики, но не отпра�
 Reasoning signatures, tool call ids и исходные provider arguments, уже
 представленные canonical DTO, сохраняются без текстового flattening. Raw
 chain-of-thought не становится обязательной частью journal.
+
+`HostedToolActivity` и `Citation` уже являются текущими canonical response
+parts для provider-side execution. Они обязаны пережить будущий journal и его
+transcript/eval projections, но не превращаются в локальную пару
+`ToolCall`/`ToolResult` и не дают replay права повторить hosted side effect.
+Будущий part record должен явно закрепить их provenance/scope; угадывать hosted
+execution по provider metadata или тексту ответа нельзя.
 
 ## Journal v1
 

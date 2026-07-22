@@ -156,6 +156,14 @@ fn part_text(part: &ContentPart) -> Option<String> {
         ContentPart::Patch { patch } => Some(patch.content.clone()),
         ContentPart::ReasoningSummary { text } => Some(text.clone()),
         ContentPart::Reasoning { .. } => None,
+        ContentPart::HostedToolActivity { activity } => Some(format!(
+            "provider-hosted tool {}: {}",
+            activity.kind().as_str(),
+            serde_json::to_string(activity).unwrap_or_else(|_| "<unavailable>".to_owned())
+        )),
+        // The cited assistant text is already present in the adjacent Text
+        // part; annotations do not add model-visible prose to summarize.
+        ContentPart::Citation { .. } => None,
         _ => None,
     }
 }

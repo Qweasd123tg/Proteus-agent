@@ -8,8 +8,8 @@ use serde_json::Value;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
     domain::{
-        AgentTask, ContextChunk, ModelRef, ReasoningConfig, new_call_id, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentTask, ContextChunk, HostedToolConfig, ModelRef, ReasoningConfig, ToolSurface,
+        WebSearchHostedToolConfig, new_call_id, new_session_id, new_thread_id, new_turn_id,
     },
     plugin::{
         PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
@@ -1261,6 +1261,44 @@ fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
             .as_deref()
             .unwrap_or_default()
             .contains("cannot call Proteus meta-tools")
+    );
+    assert!(
+        host.executed_calls
+            .lock()
+            .expect("executed calls")
+            .is_empty()
+    );
+}
+
+#[test]
+fn proteus_tool_call_rejects_provider_hosted_tool_without_execution() {
+    let input = workflow_input("bad hosted call");
+    let web_search = test_tool("web_search", "Search the web", ToolSafety::Network).with_surface(
+        ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
+            config: WebSearchHostedToolConfig::default(),
+        }),
+    );
+    let mut host = FakeHost::default().with_tools(vec![web_search], Vec::new());
+    let mut host_to: PluginWorkflowHostMut<'_> =
+        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let call = ToolCall::new(
+        new_call_id(),
+        dynamic_tools::TOOL_CALL,
+        json!({ "name": "web_search", "args": {} }),
+    );
+
+    let result =
+        dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
+    drop(host_to);
+
+    assert!(!result.ok);
+    assert_eq!(result.call_id, call.id);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("provider-hosted tool 'web_search' cannot be invoked")
     );
     assert!(
         host.executed_calls

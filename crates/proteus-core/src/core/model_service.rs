@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use crate::{
     contracts::{EventEmitter, Model, ModelEventStream},
     core::RequestSnapshotWriter,
-    domain::{Event, EventContext, ModelRef, SessionId, ThreadId, TurnId},
+    domain::{Event, EventContext, ModelRef, SessionId, ThreadId, ToolSpec, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
         RequestShaper, validate_model_response_against_request,
@@ -78,6 +78,10 @@ impl Model for ModelService {
 
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
         self.adapter.capabilities(model)
+    }
+
+    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<ToolSpec> {
+        self.adapter.provider_hosted_tools(model)
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

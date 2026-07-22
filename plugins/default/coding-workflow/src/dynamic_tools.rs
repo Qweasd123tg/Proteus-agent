@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
-    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec, new_call_id},
+    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id},
     plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
 };
 use serde_json::{Value, json};
@@ -253,6 +253,11 @@ fn handle_describe(
             format!("tool '{name}' is not available or is denied by policy"),
         ));
     };
+    let usage_hint = if matches!(tool.surface, ToolSurface::ProviderHosted { .. }) {
+        "This provider-hosted tool must be exposed directly on a model request.".to_owned()
+    } else {
+        format!("Call through {TOOL_CALL} with name='{name}'.")
+    };
     json_result(
         call,
         json!({
@@ -261,7 +266,7 @@ fn handle_describe(
             "safety": safety_label(&tool.safety),
             "input_schema": tool.input_schema,
             "metadata": tool.metadata,
-            "usage_hint": format!("Call through {TOOL_CALL} with name='{name}'."),
+            "usage_hint": usage_hint,
         }),
     )
 }
@@ -298,6 +303,14 @@ fn handle_deferred_call(
             format!("tool '{name}' is not available or is denied by policy"),
         ));
     };
+    if matches!(spec.surface, ToolSurface::ProviderHosted { .. }) {
+        return Ok(ToolResult::error(
+            outer_call.id.clone(),
+            format!(
+                "provider-hosted tool '{name}' cannot be invoked through {TOOL_CALL}; it must be exposed directly on the model request"
+            ),
+        ));
+    }
     if phase == "plan" && !matches!(spec.safety, ToolSafety::ReadOnly) {
         return Ok(ToolResult::error(
             outer_call.id.clone(),

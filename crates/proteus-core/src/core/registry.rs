@@ -73,12 +73,17 @@ impl BuiltinRegistry {
         let tool_exposure =
             catalog.build_tool_exposure(&config.modules.tool_exposure, &build_ctx)?;
         let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
-        let tools = catalog.build_tools(
+        let mut tools = catalog.build_tools(
             &build_ctx,
             search.clone(),
             patch.clone(),
             memory.clone(),
             subagent.clone(),
+        )?;
+        crate::core::register_provider_hosted_tools(
+            &mut tools,
+            model.id().as_ref(),
+            model.provider_hosted_tools(&model_config.model_ref()),
         )?;
         let policy_ctx = PolicyBuildContext {
             config,

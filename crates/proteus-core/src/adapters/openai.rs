@@ -25,6 +25,7 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+mod hosted_tools;
 mod model_profile;
 mod request;
 mod response;
@@ -147,6 +148,10 @@ impl Model for OpenAiResponsesClient {
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
         self.model_profile.capabilities(self.max_input_tokens)
+    }
+
+    fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<crate::domain::ToolSpec> {
+        self.model_profile.hosted_tools.specs()
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

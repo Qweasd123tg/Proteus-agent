@@ -400,6 +400,10 @@ impl Model for SteeringModel {
         self.inner.capabilities(model)
     }
 
+    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<crate::domain::ToolSpec> {
+        self.inner.provider_hosted_tools(model)
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         if root_steering_is_suppressed() {
             return self.inner.stream(request).await;

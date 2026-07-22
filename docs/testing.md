@@ -69,6 +69,10 @@ Leptos-клиенты исключены из root workspace и проверяю
   отклоняет другие неполные payloads;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
+- provider-hosted tools требуют явной model capability и `Network` safety,
+  скрываются при visibility `Ask`, не исполняются локально/deferred и не
+  вытесняются `codex_dynamic` hot-tool budget; OpenAI adapter fixtures отдельно
+  проверяют request JSON, hosted activities, results и URL/file citations;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
 - configured process tool очищает parent environment, сохраняет минимальный
   runtime allowlist и получает только явно разрешённые/literal значения;
@@ -229,6 +233,8 @@ canonical DTO не ломаются.
 
 - provider-specific типы не выходят за adapter;
 - tool calls мапятся в canonical `ToolCall`;
+- provider-hosted execution мапится в `HostedToolActivity`/`Citation`, а не в
+  client-executed `ToolCall`;
 - tool results возвращаются в provider format только внутри adapter;
 - usage и finish reason приводятся к canonical типам;
 - errors возвращаются как `anyhow::Result`, а не через provider DTO наружу.

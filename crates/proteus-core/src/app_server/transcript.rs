@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::{
-    domain::ToolResult,
+    domain::{Citation, HostedToolActivity, HostedToolStatus, ToolResult},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -97,10 +97,119 @@ fn append_transcript_message(
                 flush_transcript_text(transcript, &role, &mut text_parts);
                 append_transcript_tool_result(transcript, result);
             }
+            ContentPart::HostedToolActivity { activity } => {
+                flush_transcript_text(transcript, &role, &mut text_parts);
+                append_hosted_tool_activity(transcript, activity);
+            }
+            ContentPart::Citation { citation } => {
+                append_citation_metadata(transcript, citation);
+            }
             _ => {}
         }
     }
     flush_transcript_text(transcript, &role, &mut text_parts);
+}
+
+fn append_hosted_tool_activity(
+    transcript: &mut Vec<AppTranscriptMessage>,
+    activity: &HostedToolActivity,
+) {
+    let status = match activity.status() {
+        HostedToolStatus::Completed => "done",
+        HostedToolStatus::Failed => "failed",
+        HostedToolStatus::InProgress | HostedToolStatus::Searching => "running",
+        HostedToolStatus::Unknown(_) => activity.status().as_str(),
+        _ => "unknown",
+    };
+    let args = match activity {
+        HostedToolActivity::WebSearch { action, .. } => {
+            serde_json::to_value(action).unwrap_or(Value::Null)
+        }
+        HostedToolActivity::FileSearch {
+            queries, results, ..
+        } => serde_json::json!({
+            "queries": queries,
+            "result_count": results.len(),
+        }),
+        _ => Value::Null,
+    };
+    let result = match activity {
+        HostedToolActivity::WebSearch { action, .. } => match action {
+            crate::domain::WebSearchAction::Search { queries, sources } => Some(format!(
+                "{} search quer{}; {} source{}",
+                queries.len(),
+                if queries.len() == 1 { "y" } else { "ies" },
+                sources.len(),
+                if sources.len() == 1 { "" } else { "s" }
+            )),
+            crate::domain::WebSearchAction::OpenPage { url } => Some(format!("opened {url}")),
+            crate::domain::WebSearchAction::FindInPage { url, pattern } => {
+                Some(format!("searched {url} for {pattern}"))
+            }
+            crate::domain::WebSearchAction::Unknown { name, .. } => {
+                Some(format!("provider action: {name}"))
+            }
+            _ => None,
+        },
+        HostedToolActivity::FileSearch {
+            queries, results, ..
+        } => Some(format!(
+            "{} quer{}; {} result{}",
+            queries.len(),
+            if queries.len() == 1 { "y" } else { "ies" },
+            results.len(),
+            if results.len() == 1 { "" } else { "s" }
+        )),
+        _ => None,
+    };
+    transcript.push(AppTranscriptMessage {
+        role: "system".to_owned(),
+        text: String::new(),
+        tool: Some(AppTranscriptTool {
+            call_id: activity.id().to_owned(),
+            name: activity.kind().as_str().to_owned(),
+            args,
+            status: status.to_owned(),
+            result,
+            metadata: serde_json::json!({
+                "provider_hosted": true,
+                "activity": activity,
+                "citations": [],
+            }),
+        }),
+        subagent: None,
+        streaming: false,
+    });
+}
+
+fn append_citation_metadata(transcript: &mut [AppTranscriptMessage], citation: &Citation) {
+    let tool_name = match citation {
+        Citation::Url { .. } => "web_search",
+        Citation::File { .. } => "file_search",
+        _ => return,
+    };
+    let Some(tool) = transcript.iter_mut().rev().find_map(|message| {
+        message.tool.as_mut().filter(|tool| {
+            tool.name == tool_name
+                && tool
+                    .metadata
+                    .get("provider_hosted")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+        })
+    }) else {
+        return;
+    };
+    let Some(citations) = tool
+        .metadata
+        .get_mut("citations")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    if let Ok(citation) = serde_json::to_value(citation) {
+        citations.push(citation);
+    }
 }
 
 fn flush_transcript_text(
@@ -167,7 +276,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::ToolCall;
+    use crate::domain::{FileSearchResult, ToolCall, WebSearchAction, WebSearchSource};
 
     #[test]
     fn committed_tool_call_without_result_becomes_interrupted() {
@@ -214,5 +323,82 @@ mod tests {
         // по ней карточку субагента, core имён tools не знает.
         assert_eq!(tool.metadata["child_thread_id"], "child-thread");
         assert_eq!(tool.metadata["status"], "completed");
+    }
+
+    #[test]
+    fn hosted_activity_and_citations_project_to_matching_tool_cards() {
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                ContentPart::HostedToolActivity {
+                    activity: HostedToolActivity::WebSearch {
+                        id: "ws-1".to_owned(),
+                        status: HostedToolStatus::Completed,
+                        action: WebSearchAction::Search {
+                            queries: vec!["current docs".to_owned()],
+                            sources: vec![WebSearchSource::new(
+                                "https://developers.openai.com",
+                                Some("OpenAI docs".to_owned()),
+                                Some("url".to_owned()),
+                            )],
+                        },
+                    },
+                },
+                ContentPart::HostedToolActivity {
+                    activity: HostedToolActivity::FileSearch {
+                        id: "fs-1".to_owned(),
+                        status: HostedToolStatus::Completed,
+                        queries: vec!["architecture".to_owned()],
+                        results: vec![FileSearchResult::new(
+                            "file-1",
+                            Some("architecture.pdf".to_owned()),
+                            Some(0.9),
+                            None,
+                            Value::Null,
+                        )],
+                    },
+                },
+                ContentPart::Text {
+                    text: "answer".to_owned(),
+                },
+                ContentPart::Citation {
+                    citation: Citation::Url {
+                        start_index: 0,
+                        end_index: 3,
+                        title: "OpenAI docs".to_owned(),
+                        url: "https://developers.openai.com".to_owned(),
+                    },
+                },
+                ContentPart::Citation {
+                    citation: Citation::File {
+                        index: 4,
+                        file_id: "file-1".to_owned(),
+                        filename: "architecture.pdf".to_owned(),
+                    },
+                },
+            ],
+        );
+
+        let transcript = transcript_messages(&[message]);
+        let web = transcript
+            .iter()
+            .filter_map(|message| message.tool.as_ref())
+            .find(|tool| tool.name == "web_search")
+            .expect("web search card");
+        let file = transcript
+            .iter()
+            .filter_map(|message| message.tool.as_ref())
+            .find(|tool| tool.name == "file_search")
+            .expect("file search card");
+
+        assert_eq!(web.status, "done");
+        assert_eq!(web.metadata["citations"][0]["type"], "url");
+        assert_eq!(file.status, "done");
+        assert_eq!(file.metadata["citations"][0]["type"], "file");
+        assert!(
+            transcript
+                .iter()
+                .any(|message| message.role == "assistant" && message.text == "answer")
+        );
     }
 }

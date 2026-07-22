@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -6,8 +6,9 @@ use serde_json::{Value, json};
 use super::{OpenAiPromptCacheConfig, model_profile::OpenAiModelProfile};
 use crate::{
     domain::{
-        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextChunk, ResponseFormat,
-        ToolCall, ToolCallSurface, ToolChoice, ToolSpec, ToolSurface,
+        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextChunk,
+        FileSearchHostedToolConfig, HostedToolConfig, ResponseFormat, ToolCall, ToolCallSurface,
+        ToolChoice, ToolSpec, ToolSurface, WebSearchHostedToolConfig,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
@@ -62,6 +63,14 @@ pub(super) fn to_openai_request_with_cache(
             ToolChoice::Tool(name) => openai_named_tool_choice(request, name)?,
             _ => Value::String("auto".to_owned()),
         };
+        if request
+            .tools
+            .iter()
+            .any(|tool| matches!(tool.surface, ToolSurface::ProviderHosted { .. }))
+            && let Some(max_tool_calls) = profile.hosted_tools.max_tool_calls()
+        {
+            body["max_tool_calls"] = json!(max_tool_calls);
+        }
     }
 
     if let Some(max_output_tokens) = request.limits.max_output_tokens {
@@ -72,6 +81,7 @@ pub(super) fn to_openai_request_with_cache(
         body["text"] = text;
     }
 
+    let mut include = BTreeSet::new();
     if request.reasoning.effort.is_some() || request.reasoning.summary {
         let mut reasoning = serde_json::Map::new();
         if let Some(effort) = &request.reasoning.effort {
@@ -81,10 +91,15 @@ pub(super) fn to_openai_request_with_cache(
             reasoning.insert("summary".to_owned(), Value::String("auto".to_owned()));
         }
         body["reasoning"] = Value::Object(reasoning);
-        body["include"] = json!(["reasoning.encrypted_content"]);
-    } else {
-        body["include"] = json!([]);
+        include.insert("reasoning.encrypted_content");
     }
+    collect_hosted_tool_includes(&request.tools, &mut include);
+    body["include"] = Value::Array(
+        include
+            .into_iter()
+            .map(|value| Value::String(value.to_owned()))
+            .collect(),
+    );
 
     apply_openai_prompt_cache(request, prompt_cache, &mut body);
     if let Some(service_tier) = profile.service_tier.as_deref() {
@@ -204,6 +219,7 @@ fn to_openai_tool(tool: &ToolSpec) -> Result<Value> {
             "description": tool.description,
             "format": format,
         })),
+        ToolSurface::ProviderHosted { config } => to_openai_hosted_tool(config),
         _ => Err(anyhow!(
             "tool '{}' uses unsupported surface for openai.responses",
             tool.name
@@ -220,10 +236,85 @@ fn openai_named_tool_choice(request: &CanonicalModelRequest, name: &str) -> Resu
     match &tool.surface {
         ToolSurface::Function { .. } => Ok(json!({ "type": "function", "name": name })),
         ToolSurface::Freeform { .. } => Ok(json!({ "type": "custom", "name": name })),
+        ToolSurface::ProviderHosted { config } => Ok(json!({ "type": config.kind().as_str() })),
         _ => Err(anyhow!(
             "tool '{}' uses unsupported surface for openai.responses",
             tool.name
         )),
+    }
+}
+
+fn to_openai_hosted_tool(config: &HostedToolConfig) -> Result<Value> {
+    match config {
+        HostedToolConfig::WebSearch { config } => Ok(to_openai_web_search_tool(config)),
+        HostedToolConfig::FileSearch { config } => Ok(to_openai_file_search_tool(config)),
+        _ => Err(anyhow!(
+            "unsupported provider-hosted tool for openai.responses"
+        )),
+    }
+}
+
+fn to_openai_web_search_tool(config: &WebSearchHostedToolConfig) -> Value {
+    let mut value = json!({ "type": "web_search" });
+    if let Some(size) = config.search_context_size {
+        value["search_context_size"] = Value::String(size.as_str().to_owned());
+    }
+    if !config.allowed_domains.is_empty() || !config.blocked_domains.is_empty() {
+        let mut filters = serde_json::Map::new();
+        if !config.allowed_domains.is_empty() {
+            filters.insert("allowed_domains".to_owned(), json!(config.allowed_domains));
+        }
+        if !config.blocked_domains.is_empty() {
+            filters.insert("blocked_domains".to_owned(), json!(config.blocked_domains));
+        }
+        value["filters"] = Value::Object(filters);
+    }
+    if let Some(external_web_access) = config.external_web_access {
+        value["external_web_access"] = Value::Bool(external_web_access);
+    }
+    value
+}
+
+fn to_openai_file_search_tool(config: &FileSearchHostedToolConfig) -> Value {
+    let mut value = json!({
+        "type": "file_search",
+        "vector_store_ids": config.vector_store_ids,
+    });
+    if let Some(max_num_results) = config.max_num_results {
+        value["max_num_results"] = json!(max_num_results);
+    }
+    value
+}
+
+fn collect_hosted_tool_includes<'a>(tools: &'a [ToolSpec], include: &mut BTreeSet<&'a str>) {
+    for tool in tools {
+        match &tool.surface {
+            ToolSurface::ProviderHosted {
+                config:
+                    HostedToolConfig::WebSearch {
+                        config:
+                            WebSearchHostedToolConfig {
+                                include_sources: true,
+                                ..
+                            },
+                    },
+            } => {
+                include.insert("web_search_call.action.sources");
+            }
+            ToolSurface::ProviderHosted {
+                config:
+                    HostedToolConfig::FileSearch {
+                        config:
+                            FileSearchHostedToolConfig {
+                                include_results: true,
+                                ..
+                            },
+                    },
+            } => {
+                include.insert("file_search_call.results");
+            }
+            _ => {}
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::ids::CallId;
+use crate::domain::{HostedToolConfig, HostedToolKind, ids::CallId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -289,6 +289,12 @@ pub enum ToolSurface {
     Freeform {
         format: FreeformToolFormat,
     },
+    /// Tool executed by the selected model provider inside the model request.
+    /// It remains a normal `ToolSpec` for registry/policy/exposure purposes,
+    /// but never becomes a client-executed `ToolCall`.
+    ProviderHosted {
+        config: HostedToolConfig,
+    },
 }
 
 impl ToolSurface {
@@ -309,10 +315,24 @@ impl ToolSurface {
         }
     }
 
-    pub const fn call_surface(&self) -> ToolCallSurface {
+    pub const fn provider_hosted(config: HostedToolConfig) -> Self {
+        Self::ProviderHosted { config }
+    }
+
+    pub const fn hosted_kind(&self) -> Option<HostedToolKind> {
         match self {
-            Self::Function { .. } => ToolCallSurface::Function,
-            Self::Freeform { .. } => ToolCallSurface::Freeform,
+            Self::ProviderHosted { config } => Some(config.kind()),
+            _ => None,
+        }
+    }
+
+    /// Local call surface expected back from the model. Provider-hosted tools
+    /// return activity items instead, so they deliberately have no value here.
+    pub const fn call_surface(&self) -> Option<ToolCallSurface> {
+        match self {
+            Self::Function { .. } => Some(ToolCallSurface::Function),
+            Self::Freeform { .. } => Some(ToolCallSurface::Freeform),
+            Self::ProviderHosted { .. } => None,
         }
     }
 }

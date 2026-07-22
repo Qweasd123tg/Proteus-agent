@@ -277,13 +277,21 @@ fn build_tool_registry_for_listing(
         context_providers: catalog.context_providers(),
     };
     let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
-    catalog.build_tools(
+    let model_config = config.active_model_config()?;
+    let model = catalog.build_model_adapter(&model_config)?;
+    let mut tools = catalog.build_tools(
         &build_ctx,
         Arc::new(proteus_core::stubs::NullSearch),
         Arc::new(proteus_core::stubs::NullPatchApplier),
         Arc::new(proteus_core::stubs::NoMemory),
         subagent,
-    )
+    )?;
+    proteus_core::core::register_provider_hosted_tools(
+        &mut tools,
+        model.id().as_ref(),
+        model.provider_hosted_tools(&model_config.model_ref()),
+    )?;
+    Ok(tools)
 }
 
 fn build_cli_topology(
@@ -340,6 +348,22 @@ fn build_cli_topology(
             Arc::new(proteus_core::stubs::NoSubagent)
         }
     };
+    let hosted_tools = config.active_model_config().and_then(|model_config| {
+        let model = catalog.build_model_adapter(&model_config)?;
+        Ok((
+            model.id().into_owned(),
+            model.provider_hosted_tools(&model_config.model_ref()),
+        ))
+    });
+    let (hosted_source, hosted_specs) = match hosted_tools {
+        Ok(hosted) => hosted,
+        Err(error) => {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect could not build model-hosted tools: {error:#}"
+            )));
+            ("unavailable-model".to_owned(), Vec::new())
+        }
+    };
     let tool_entries = match catalog.build_tools(
         &build_ctx,
         Arc::new(proteus_core::stubs::NullSearch),
@@ -347,7 +371,19 @@ fn build_cli_topology(
         Arc::new(proteus_core::stubs::NoMemory),
         subagent,
     ) {
-        Ok(tools) => tools.entries(),
+        Ok(mut tools) => match proteus_core::core::register_provider_hosted_tools(
+            &mut tools,
+            &hosted_source,
+            hosted_specs,
+        ) {
+            Ok(()) => tools.entries(),
+            Err(error) => {
+                extra_warnings.push(TopologyWarning::error(format!(
+                    "inspect could not register model-hosted tools: {error:#}"
+                )));
+                tools.entries()
+            }
+        },
         Err(error) => {
             extra_warnings.push(TopologyWarning::error(format!(
                 "inspect could not build ToolRegistry: {error:#}"

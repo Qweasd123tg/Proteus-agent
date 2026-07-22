@@ -130,6 +130,55 @@ async fn coding_toml_config_enables_repo_aware_rg_profile() {
 }
 
 #[tokio::test]
+async fn openai_hosted_tools_example_is_opt_in_and_provider_scoped() {
+    let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
+        "examples/configs/proteus.openai-hosted-tools.example.toml",
+    )))
+    .await
+    .unwrap();
+    let model_config = config.active_model_config().unwrap();
+    let catalog = test_catalog();
+    let openai = catalog.build_model_adapter(&model_config).unwrap();
+    let hosted = openai.provider_hosted_tools(&model_config.model_ref());
+    let names = hosted
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(config.profile.name, "openai-hosted-tools");
+    assert_eq!(config.active_provider, "openai");
+    assert_eq!(names, ["web_search", "file_search"]);
+    assert!(hosted.iter().all(|tool| {
+        matches!(tool.safety, ToolSafety::Network)
+            && matches!(tool.surface, ToolSurface::ProviderHosted { .. })
+    }));
+    assert_eq!(
+        openai
+            .capabilities(&model_config.model_ref())
+            .provider_hosted_tools,
+        vec![
+            proteus_core::domain::HostedToolKind::WebSearch,
+            proteus_core::domain::HostedToolKind::FileSearch,
+        ]
+    );
+    let allow = config.module_config_value(ModuleKind::Policy, "ask_write")["allow"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(allow.iter().any(|name| name == "web_search"));
+    assert!(allow.iter().any(|name| name == "file_search"));
+
+    let anthropic_config = config.providers["anthropic"].to_model_config().unwrap();
+    let anthropic = catalog.build_model_adapter(&anthropic_config).unwrap();
+    assert!(
+        anthropic
+            .provider_hosted_tools(&anthropic_config.model_ref())
+            .is_empty(),
+        "switching providers must not leave OpenAI hosted specs behind"
+    );
+}
+
+#[tokio::test]
 async fn dev_slim_toml_config_uses_small_toolset_and_context() {
     let config = proteus_core::core::AppConfig::load(Some(&workspace_root_file(
         "examples/configs/proteus.dev-slim.example.toml",

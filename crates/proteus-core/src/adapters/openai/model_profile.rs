@@ -5,6 +5,8 @@ use serde_json::Value;
 
 use crate::model_standard::ModelCapabilities;
 
+use super::hosted_tools::OpenAiHostedToolsProfile;
+
 #[derive(Debug, Clone)]
 pub(super) struct OpenAiModelProfile {
     pub supports_parallel_tool_calls: bool,
@@ -17,6 +19,7 @@ pub(super) struct OpenAiModelProfile {
     pub service_tier: Option<String>,
     pub store: bool,
     pub client_metadata: BTreeMap<String, String>,
+    pub hosted_tools: OpenAiHostedToolsProfile,
 }
 
 impl OpenAiModelProfile {
@@ -41,6 +44,8 @@ impl OpenAiModelProfile {
                 "openai store/item_ids_enabled require provider item ids in canonical history, which Proteus does not support yet"
             );
         }
+
+        let hosted_tools = OpenAiHostedToolsProfile::from_provider_config(config, capabilities)?;
 
         Ok(Self {
             supports_parallel_tool_calls: bool_setting(
@@ -73,6 +78,7 @@ impl OpenAiModelProfile {
             service_tier: optional_non_empty_string(config, "service_tier")?,
             store: false,
             client_metadata: string_map(config, "client_metadata")?,
+            hosted_tools,
         })
     }
 
@@ -87,6 +93,7 @@ impl OpenAiModelProfile {
             .with_cache_hints(true)
             .with_reasoning_config(self.supports_reasoning_config)
             .with_streaming(true)
+            .with_provider_hosted_tools(self.hosted_tools.supported_kinds().to_vec())
             .with_max_input_tokens(max_input_tokens)
     }
 

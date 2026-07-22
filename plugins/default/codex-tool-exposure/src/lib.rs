@@ -22,7 +22,7 @@ use proteus_contracts::{
 use proteus_contracts::{
     abi_stable::std_types::{RResult, RString},
     contracts::{ToolExposureInput, ToolExposureOutput},
-    domain::{ToolSafety, ToolSpec},
+    domain::{ToolSafety, ToolSpec, ToolSurface},
     plugin::{PluginToolExposure, PluginToolExposureError},
 };
 use serde_json::{Map, Value, json};
@@ -105,12 +105,20 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))
         .map(|tool| tool.name.as_str())
         .collect::<HashSet<_>>();
+    // Provider-hosted tools cannot be invoked through the workflow's deferred
+    // meta-call. If policy allowed one, it must stay on the direct surface.
+    let hosted_names = candidates
+        .iter()
+        .filter(|tool| matches!(tool.surface, ToolSurface::ProviderHosted { .. }))
+        .map(|tool| tool.name.as_str())
+        .collect::<HashSet<_>>();
     let required_names = config
         .always_include
         .iter()
         .filter(|name| candidates.iter().any(|tool| tool.name == name.as_str()))
         .map(String::as_str)
         .chain(control_names.iter().copied())
+        .chain(hosted_names.iter().copied())
         .collect::<HashSet<_>>();
     // Collaboration controls are an auxiliary protocol surface, not part of
     // the model's ordinary hot-tool budget. Adding the group must therefore
@@ -118,6 +126,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     // profile selected before collaboration was enabled.
     let max_tools = configured_max_tools
         .saturating_add(control_names.len())
+        .saturating_add(hosted_names.len())
         .max(required_names.len());
 
     if candidates.len() <= max_tools {
@@ -149,6 +158,16 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
             && selected_names.insert(tool.name.clone())
         {
             selected_reasons.insert(tool.name.clone(), "always_include".to_owned());
+            selected.push(tool.clone());
+        }
+    }
+
+    for tool in candidates
+        .iter()
+        .filter(|tool| matches!(tool.surface, ToolSurface::ProviderHosted { .. }))
+    {
+        if selected_names.insert(tool.name.clone()) {
+            selected_reasons.insert(tool.name.clone(), "provider_hosted_direct".to_owned());
             selected.push(tool.clone());
         }
     }
@@ -472,7 +491,10 @@ mod tests {
     use super::*;
     use proteus_contracts::{
         contracts::ToolExposureRequest,
-        domain::{AgentTask, ToolSafety, ToolSpec},
+        domain::{
+            AgentTask, HostedToolConfig, ToolSafety, ToolSpec, ToolSurface,
+            WebSearchHostedToolConfig,
+        },
     };
 
     fn spec(name: &str, description: &str, safety: ToolSafety) -> ToolSpec {
@@ -484,6 +506,14 @@ mod tests {
             "hot": true,
             "category": "proteus_subagent_control"
         }))
+    }
+
+    fn hosted_web_search_spec() -> ToolSpec {
+        spec("web_search", "Search the web", ToolSafety::Network).with_surface(
+            ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
+                config: WebSearchHostedToolConfig::default(),
+            }),
+        )
     }
 
     fn select(query: &str, max_tools: usize, candidates: Vec<ToolSpec>) -> ToolExposureOutput {
@@ -765,6 +795,31 @@ mod tests {
                 .tools
                 .iter()
                 .any(|tool| tool.name == "request_user_input")
+        );
+    }
+
+    #[test]
+    fn provider_hosted_tool_stays_direct_outside_hot_tool_budget() {
+        let output = select(
+            "stable",
+            1,
+            vec![
+                spec("read_file", "Read", ToolSafety::ReadOnly),
+                hosted_web_search_spec(),
+                spec("remember_fact", "Remember", ToolSafety::WritesFiles),
+            ],
+        );
+        let names = output
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"web_search"), "{names:?}");
+        assert_eq!(output.metadata["max_tools"], 2);
+        assert_eq!(
+            output.metadata["selected_tool_reasons"]["web_search"],
+            "provider_hosted_direct"
         );
     }
 }

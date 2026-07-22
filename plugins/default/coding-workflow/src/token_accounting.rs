@@ -90,6 +90,9 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
                 ContentPart::Patch { patch } => {
                     bytes.patches += patch.content.len();
                 }
+                // OpenAI/other adapters replay the assistant text, not hosted
+                // activity records or source annotations, on the next request.
+                ContentPart::HostedToolActivity { .. } | ContentPart::Citation { .. } => {}
                 _ => {}
             }
         }
@@ -245,6 +248,7 @@ fn part_text_len(part: &ContentPart) -> usize {
         }
         ContentPart::Patch { patch } => patch.content.len(),
         ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => text.len(),
+        ContentPart::HostedToolActivity { .. } | ContentPart::Citation { .. } => 0,
         _ => 0,
     }
 }
