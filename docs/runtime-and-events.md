@@ -522,6 +522,10 @@ sessions.
 файловой системы. Basename является полным canonical UUID `SessionId` и обязан
 сам является источником identity; отдельного metadata-файла с копией
 `session_id` нет. Любой не-canonical UUID basename является ошибкой.
+Numeric directories старого pre-release формата не мигрируются и не
+игнорируются: `doctor`, startup/resume и session listing возвращают явную
+ошибку с путём. Для продолжения такой каталог нужно вручную перенести за
+пределы `sessions/` (сохранив как архив) либо удалить.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
 декодирует этот parent до создания runtime services, event log sink и tool

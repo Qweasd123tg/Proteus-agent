@@ -314,7 +314,7 @@ if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
     server_status=1
   fi
   echo "Proteus app server exited during startup. See the error above." >&2
-  echo "For config and secret diagnostics, run: ${proteus_bin} ${server_config_args[*]} doctor" >&2
+  echo "For startup diagnostics, run: ${proteus_bin} ${server_config_args[*]} doctor" >&2
   exit "${server_status}"
 fi
 

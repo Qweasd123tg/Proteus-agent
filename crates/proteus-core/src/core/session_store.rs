@@ -469,7 +469,7 @@ fn session_id_from_dir(session_dir: &Path) -> Result<SessionId> {
         })?;
     let session_id = actual_name.parse::<SessionId>().with_context(|| {
         format!(
-            "session directory basename must be a canonical UUID: {}",
+            "incompatible session directory {}; basename must be a canonical UUID. Pre-release session formats are not migrated automatically; move this directory outside the sessions tree or remove it before retrying",
             session_dir.display()
         )
     })?;

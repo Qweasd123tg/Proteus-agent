@@ -33,6 +33,11 @@ cargo test -p proteus-core --test module_swap
 cargo run --bin proteus -- doctor
 ```
 
+`doctor` также валидирует persisted session directories. Legacy numeric
+directories старого pre-release формата не мигрируются автоматически: при
+ошибке их нужно перенести из `sessions/` в отдельный архив либо удалить, после
+чего повторить startup.
+
 Если есть event log после manual run:
 
 ```bash
