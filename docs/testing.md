@@ -184,8 +184,11 @@ Journal regression-тесты в `core/session_journal` и `core/session_store`
 child-thread attribution, оборванный final tail, mid-file corruption,
 content-addressed blobs и compaction lineage. App-server отдельно доказывает,
 что завершённый или failed turn восстанавливает transcript/tool cards только
-из journal, без event log. Любые архитектурные изменения storage дополнительно
-должны сохранять зелёным `cargo test -p proteus-core --test module_swap`.
+из journal, без event log. Для non-success `TurnSettled` отдельно проверяются
+сохранённый текст terminal error и status fallback отменённого turn-а, чтобы
+`/history` после reconnect не скрывал причину завершения. Любые архитектурные
+изменения storage дополнительно должны сохранять зелёным
+`cargo test -p proteus-core --test module_swap`.
 
 Focused prompt replay tests в `core/prompt_replay` проверяют однозначный выбор
 единственного exchange, обязательный id при нескольких, отказ для неизвестного

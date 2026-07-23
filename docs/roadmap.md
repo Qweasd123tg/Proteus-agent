@@ -40,10 +40,16 @@ Roadmap хранит порядок работ и журнал уже приня
    storage paths удалены. Prompt replay v0 затем добавлен как read-only direct
    adapter call по exact request; side-effect-free workflow replay остаётся
    отдельным потребителем уже сохранённых records.
+8. ✅ Readiness checkpoint закрыт 2026-07-23: strict-token web/app-server loop
+   прошёл coding edit, queued steering, approve/deny, cancel и typed input;
+   journal + eval локализовали потерянную reconnect-ошибку, projector исправлен
+   и проверен на прежнем journal после atomic reinstall. Подробности — в
+   [postmortem](research/dogfood-readiness-checkpoint-2026-07-23.md).
 
-Пункты 4–7 закрыты; следующий логичный срез canonical replay — side-effect-free
-workflow replay с подстановкой записанных model/tool outcomes, а не live rerun
-tools и не новая storage migration.
+Текущий следующий срез — side-effect-free workflow replay с подстановкой
+сохранённых model/tool outcomes. Он должен проверять orchestration поверх
+canonical records без live повторного исполнения tools и без новой storage
+migration.
 
 ## Цель
 

@@ -154,6 +154,13 @@ model request/terminal response, tool request/approval/resolution/result и
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
 append-only replacement с lineage и не удаляет исходные records.
 
+App-server строит reconnect/cold transcript из того же journal. Root
+`turn_settled` со статусом `error`, `canceled` или `timeout` проецируется в
+terminal system message `AppServer error: ...`: непустой сохранённый `error`
+имеет приоритет, иначе используется status-specific fallback. Пока turn жив,
+эта запись не проецируется поверх in-memory progress, поэтому live event и
+durable readback не создают две одинаковые ошибки.
+
 Payload до 256 KiB хранится inline. Более крупный JSON до 64 MiB выносится в
 `blobs/<sha256>.json`; при чтении проверяются путь, размер и SHA-256. Оборванная
 последняя JSONL-строка отбрасывается и удаляется перед следующим append, а

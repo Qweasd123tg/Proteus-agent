@@ -62,16 +62,16 @@ versioned atomic install bundle и реализованный
 [canonical turn data](canonical-turn-data.md) cutover. Владелец выбрал compactor-трек;
 `pi_rpc_reasoner` оставлен дальней теорией для отдельного обсуждения.
 
-Следующий практический шаг — не новая platform feature, а readiness dogfood:
-несколько небольших web/app-server задач и проверка, что journal + telemetry
-локализуют failure. Canonical parts/journal, resume/transcript и eval уже
-реализованы; prompt/workflow replay runners остаются отдельным следующим
-потребителем, а не новой storage migration.
+Readiness dogfood закрыт 2026-07-23: установленный strict-token web/app-server
+контур прошёл coding edit, steering, approve/deny, cancel и typed input, а
+journal + telemetry локализовали и позволили исправить потерю terminal error
+после reconnect. Подробности — в
+[postmortem](research/dogfood-readiness-checkpoint-2026-07-23.md).
 
-Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
-readiness-checkpoint ниже остаётся обязательным: он дополнительно включает
-install и реальный dogfood. Первый collaboration/UI slice не заменяет эту
-проверку: его records bounded, но process-resident.
+Текущий практический шаг — side-effect-free workflow replay поверх уже
+сохранённых canonical records. Prompt replay v0 уже является read-only direct
+adapter consumer; workflow replay должен проверить orchestration с записанными
+model/tool outcomes, не исполняя tools повторно и не вводя новый session format.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -117,27 +117,25 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 и message capability у process/plugin runners. Эти ограничения не следует
 выдавать за Codex parity.
 
-## Следующий Checkpoint
+## Readiness Checkpoint — закрыт 2026-07-23
 
-Фаза стабилизации закрыта, когда:
-
-1. safety cases выше покрыты regression-тестами;
-2. полный root gate и оба Trunk build зелёные;
+1. ✅ safety cases выше покрыты regression-тестами;
+2. ✅ полный root gate и оба Trunk build зелёные;
 3. ✅ `./install.sh` даёт совместимый versioned binary/plugin set и атомарно
    переключает `current`;
-4. несколько небольших coding-задач проходят через web/app-server без потери
-   контроля, worktree или процесса;
-5. journal и telemetry позволяют объяснить failure без ручного чтения
+4. ✅ несколько небольших coding-задач проходят через web/app-server без
+   потери контроля, worktree или процесса;
+5. ✅ journal и telemetry позволяют объяснить failure без ручного чтения
    исходников runtime.
 
-После этого выбирается следующий измеримый шаг: replay/eval runner поверх уже
-сохранённых canonical records либо smallest dogfood defect. Новый session
-format без измеренного bottleneck не проектируется.
+Следующий измеримый шаг выбран: side-effect-free workflow replay поверх
+сохранённых canonical records. Новый session format без измеренного bottleneck
+не проектируется.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-стабилизацию:
+текущий workflow replay slice или smallest подтверждённый dogfood defect:
 
 - marketplace, signed plugins и внешний package manager;
 - WASM plugin runtime и dylib hot-unload;

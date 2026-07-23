@@ -66,7 +66,7 @@ Wrapper `proteus` включает ephemeral session token по умолчани
 approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
 требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
 для SSE допустим query token; для `fetch` предпочтителен header
-`X-Proteus-Session` или `Authorization: Bearer <token>`. Raw token не
+`Authorization: Bearer <token>`. Raw token не
 логировать и не хранить в `localStorage`. Launcher и оба browser-клиента
 используют единый query key `token`; значение сохраняется только в
 `sessionStorage`.
@@ -227,10 +227,10 @@ proteus eval report "/path/to/session-dir"
 Провал задачи не равен провалу проекта. Провалом gate считается ситуация, где
 после run-а нельзя понять, почему агент не справился.
 
-## Временно Не На Критическом Пути
+## Не На Критическом Пути
 
-До завершения текущего safety/lifecycle checkpoint не начинать как blocking
-scope:
+После закрытия readiness checkpoint эти темы по-прежнему не становятся
+blocking scope без нового измеримого defect-а:
 
 - разделение репозиториев;
 - большой retained/native UI rewrite;
@@ -240,5 +240,5 @@ scope:
 - внешний user onboarding;
 - попытку конкурировать с готовыми агентами по UX.
 
-Эти темы могут оставаться в roadmap, но не должны мешать закрыть первый
-воспроизводимый loop.
+Эти темы могут оставаться в roadmap, но не должны вытеснять следующий
+измеримый replay/eval slice или smallest подтверждённый dogfood defect.

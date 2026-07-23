@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     core::{
         HistoryMutationKind, JournalEntry, JournalProjection, ModelResponseOutcome,
-        ToolCallRecordPhase,
+        ToolCallRecordPhase, TurnSettled, TurnSettlementStatus,
     },
     domain::{CallId, PartId, ThreadId, ToolCallResolution, TurnId},
     model_standard::{CanonicalMessage, ContentPart, PartProvenance, PartScope},
@@ -72,6 +72,12 @@ pub(crate) fn journal_transcript_messages(
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     append_transcript_tool_result(&mut state.transcript, &tool.result);
                 }
+            }
+            JournalEntry::TurnSettled(settled)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id) =>
+            {
+                state.append_turn_failure(settled);
             }
             _ => {}
         }
@@ -239,6 +245,31 @@ impl TranscriptProjectionState {
         tool.status = "failed".to_owned();
         tool.result = Some(reason);
     }
+
+    fn append_turn_failure(&mut self, settled: &TurnSettled) {
+        if settled.status == TurnSettlementStatus::Success {
+            return;
+        }
+        let fallback = match settled.status {
+            TurnSettlementStatus::Success => return,
+            TurnSettlementStatus::Error => "turn failed",
+            TurnSettlementStatus::Canceled => "turn canceled by client",
+            TurnSettlementStatus::Timeout => "turn timed out",
+        };
+        let error = settled
+            .error
+            .as_deref()
+            .map(str::trim)
+            .filter(|error| !error.is_empty())
+            .unwrap_or(fallback);
+        self.transcript.push(AppTranscriptMessage {
+            role: "system".to_owned(),
+            text: format!("AppServer error: {error}"),
+            tool: None,
+            subagent: None,
+            streaming: false,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -281,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_turn_recovers_model_text_and_terminal_tool_card_from_journal() {
+    fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
         let session_id = new_session_id();
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
@@ -420,5 +451,55 @@ mod tests {
         assert_eq!(tool.call_id, "call-1");
         assert_eq!(tool.status, "done");
         assert_eq!(tool.result.as_deref(), Some("listing"));
+        let terminal = transcript.last().expect("terminal failure message");
+        assert_eq!(terminal.role, "system");
+        assert_eq!(
+            terminal.text,
+            "AppServer error: workflow failed after tool execution"
+        );
+        assert!(terminal.tool.is_none());
+    }
+
+    #[test]
+    fn canceled_turn_without_error_recovers_terminal_system_message() {
+        let session_id = new_session_id();
+        let thread_id = new_thread_id();
+        let turn_id = new_turn_id();
+        let records = vec![
+            record(
+                session_id,
+                thread_id,
+                turn_id,
+                1,
+                JournalEntry::TurnOpened(TurnOpened {
+                    task: AgentTask::new("cancel", "/tmp/workspace".into()),
+                    base_history_revision: 0,
+                    module_epoch: 0,
+                    config_snapshot: json!({}),
+                }),
+            ),
+            record(
+                session_id,
+                thread_id,
+                turn_id,
+                2,
+                JournalEntry::TurnSettled(TurnSettled {
+                    status: TurnSettlementStatus::Canceled,
+                    output: None,
+                    error: None,
+                }),
+            ),
+        ];
+
+        let projection = JournalProjection::build(session_id, records).expect("projection");
+        let transcript = journal_transcript_messages(&projection, None);
+
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].role, "system");
+        assert_eq!(
+            transcript[0].text,
+            "AppServer error: turn canceled by client"
+        );
+        assert!(transcript[0].tool.is_none());
     }
 }

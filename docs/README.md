@@ -107,6 +107,9 @@
 - [research/dogfood-freeform-tool-loop-2026-07-22.md](research/dogfood-freeform-tool-loop-2026-07-22.md) —
   postmortem первого readiness dogfood: несовпадение OpenAI custom/function
   surface, повторяющийся `apply_patch` и принятый fail-closed контракт;
+- [research/dogfood-readiness-checkpoint-2026-07-23.md](research/dogfood-readiness-checkpoint-2026-07-23.md) —
+  закрытие readiness checkpoint: strict-token web/app-server loop, approvals,
+  steering, cancel, typed input и durable terminal error после reconnect;
 - [research/memory-research.md](research/memory-research.md) — blueprint
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
