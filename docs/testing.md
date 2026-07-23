@@ -187,6 +187,15 @@ content-addressed blobs и compaction lineage. App-server отдельно до�
 из journal, без event log. Любые архитектурные изменения storage дополнительно
 должны сохранять зелёным `cargo test -p proteus-core --test module_swap`.
 
+Focused prompt replay tests в `core/prompt_replay` проверяют однозначный выбор
+единственного exchange, обязательный id при нескольких, отказ для неизвестного
+и interrupted exchange, точную передачу сохранённого post-shaping
+`CanonicalModelRequest` в fake adapter, отсутствие исполнения local tool call,
+fail-closed hosted tools с явным opt-in и побайтовую неизменность исходного
+journal. Binary unit tests отдельно фиксируют строгий CLI parser и ключевые
+поля human/JSON report schema v1. Эти тесты намеренно не запускают workflow или
+tool registry: отсутствие такого execution path является частью boundary.
+
 ## DTO И Builder-Паттерн
 
 Массовые DTO помечены `#[non_exhaustive]` и конструируются через builder:

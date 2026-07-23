@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use proteus_core::app_server::http::HttpServerConfig;
+use proteus_core::domain::ExchangeId;
 
 pub(crate) fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")
@@ -16,6 +19,90 @@ pub(crate) fn parse_eval_report_command(task: &[String]) -> Result<Option<&str>>
         }
         _ => Ok(None),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptReplayCommand {
+    pub source: PathBuf,
+    pub exchange_id: Option<ExchangeId>,
+    pub allow_hosted_tools: bool,
+    pub json: bool,
+}
+
+pub(crate) fn parse_prompt_replay_command(task: &[String]) -> Result<Option<PromptReplayCommand>> {
+    let Some(namespace) = task.first() else {
+        return Ok(None);
+    };
+    if namespace != "replay" {
+        return Ok(None);
+    }
+    if task.get(1).map(String::as_str) != Some("prompt") {
+        bail!("{}", prompt_replay_usage());
+    }
+
+    let mut source = None;
+    let mut exchange_id = None;
+    let mut allow_hosted_tools = false;
+    let mut json = false;
+    let mut index = 2;
+    while index < task.len() {
+        let argument = &task[index];
+        match argument.as_str() {
+            "--exchange-id" => {
+                if exchange_id.is_some() {
+                    bail!("--exchange-id may be specified only once");
+                }
+                index += 1;
+                let value = task
+                    .get(index)
+                    .ok_or_else(|| anyhow::anyhow!("{}", prompt_replay_usage()))?;
+                exchange_id = Some(parse_exchange_id(value)?);
+            }
+            value if value.starts_with("--exchange-id=") => {
+                if exchange_id.is_some() {
+                    bail!("--exchange-id may be specified only once");
+                }
+                let value = value
+                    .strip_prefix("--exchange-id=")
+                    .expect("starts_with checked");
+                exchange_id = Some(parse_exchange_id(value)?);
+            }
+            "--allow-hosted-tools" => {
+                if allow_hosted_tools {
+                    bail!("--allow-hosted-tools may be specified only once");
+                }
+                allow_hosted_tools = true;
+            }
+            "--json" => {
+                if json {
+                    bail!("--json may be specified only once");
+                }
+                json = true;
+            }
+            value if value.starts_with('-') => bail!("{}", prompt_replay_usage()),
+            value if source.is_none() => source = Some(PathBuf::from(value)),
+            _ => bail!("{}", prompt_replay_usage()),
+        }
+        index += 1;
+    }
+
+    let source = source.ok_or_else(|| anyhow::anyhow!("{}", prompt_replay_usage()))?;
+    Ok(Some(PromptReplayCommand {
+        source,
+        exchange_id,
+        allow_hosted_tools,
+        json,
+    }))
+}
+
+fn parse_exchange_id(value: &str) -> Result<ExchangeId> {
+    value
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid --exchange-id '{value}': {error}"))
+}
+
+fn prompt_replay_usage() -> &'static str {
+    "usage: proteus replay prompt <session-dir-or-journal-path> [--exchange-id <id>] [--allow-hosted-tools] [--json]"
 }
 
 pub(crate) fn is_tools_list_command(task: &[String]) -> bool {

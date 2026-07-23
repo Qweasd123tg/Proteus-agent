@@ -37,11 +37,13 @@ Roadmap хранит порядок работ и журнал уже приня
    теория.
 7. ✅ Закрыто 2026-07-23: canonical parts + append-only journal v1 одним
    pre-release cutover переключили resume/transcript/eval; старые active
-   storage paths удалены. Prompt/workflow replay runners остаются отдельными
-   потребителями уже сохранённых records.
+   storage paths удалены. Prompt replay v0 затем добавлен как read-only direct
+   adapter call по exact request; side-effect-free workflow replay остаётся
+   отдельным потребителем уже сохранённых records.
 
-Пункты 4–7 закрыты; текущий следующий шаг — journal/readiness dogfood и разбор
-trace, а не новая storage migration или platform feature.
+Пункты 4–7 закрыты; следующий логичный срез canonical replay — side-effect-free
+workflow replay с подстановкой записанных model/tool outcomes, а не live rerun
+tools и не новая storage migration.
 
 ## Цель
 
@@ -380,9 +382,10 @@ harness и недеструктивная компакция — потреби�
 - Промежуточные draft-файлы request/history и pre-compaction archives удалены,
   без dual-read/dual-write. `session.json` schema v3 принимает только
   10-значный basename; старые dogfood sessions архивируются вручную.
-- Prompt replay и workflow replay не входят в этот cutover, но больше не
-  требуют новой canonical storage формы: нужные request/response/tool facts
-  уже связаны ids и sequence.
+- Prompt replay v0 реализован поверх этого storage без новых records: direct
+  adapter call получает exact post-shaping request, local tools не исполняются,
+  hosted tools требуют opt-in. Workflow replay всё ещё не требует новой
+  storage формы, но его side-effect-free runner пока не реализован.
 
 ### Кластер 2: изоляция subagent — иллюзия; parallel гейтится на control plane
 
@@ -490,8 +493,9 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 
 1. ✅ Промежуточный request/config/archive slice был реализован, затем целиком
    заменён canonical journal v1 без compatibility shims.
-2. ✅ Единое решение по parts/storage и eval реализовано; prompt/workflow
-   replay остаются следующими consumers, а не новой storage-задачей.
+2. ✅ Единое решение по parts/storage и eval реализовано; prompt replay v0 уже
+   использует journal как read-only consumer. Следующий consumer —
+   side-effect-free workflow replay, а не новая storage-задача.
 3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
    MCP stdio host в core мигрирован на него (initializer-hook для
    handshake); остался LSP-плагин как следующий потребитель.
@@ -738,7 +742,9 @@ Scope:
 - ✅ session resume/restore;
 - ✅ canonical task/turn/model/tool records, config snapshot и history
   revisions персистятся в journal v1; resume/transcript/eval читают его без
-  event log. Prompt/workflow replay CLI/runner ещё не реализованы.
+  event log. `replay prompt` повторяет exact request напрямую через adapter без
+  local tools и journal append; side-effect-free workflow replay runner ещё не
+  реализован.
 - event-log based debugging остаётся telemetry дополнением: `events.jsonl` не
   является replay-логом, может фильтровать deltas и не участвует в recovery.
 - ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
@@ -875,6 +881,12 @@ Scope:
   approvals, token usage, duration, changed files и failure reason. Следующий
   шаг — runner для фиксированных eval cases и добавление tests/diff/cost
   метрик.
+- Prompt replay v0 реализован командой
+  `proteus --config <profile> replay prompt <session-dir-or-journal-path>`:
+  она повторяет exact post-shaping request, сравнивает outcome/text/usage и
+  activity counts, не исполняет local tools и не меняет journal. Hosted tools
+  требуют `--allow-hosted-tools`. Следующий replay-срез — side-effect-free
+  workflow runner с подстановкой записанных model/tool outcomes.
 - Dogfood sanity tasks должны проверять не только "может ли вызвать tool", но и
   tool judgement: не лезть в проект без запроса, не писать transient test notes
   в long-term memory, не выдумывать даты, корректно показывать approval и
@@ -952,8 +964,9 @@ Scope:
   core renderer slot.
 - ✅ Базовые app-server/protocol tests существуют; расширить сценарии timeout,
   disconnect/reconnect и parallel-session/subagent ownership.
-- ✅ Canonical journal records питают resume/UI/eval; event log остаётся
-  debugging telemetry. Отдельными задачами остаются replay runner/CLI.
+- ✅ Canonical journal records питают resume/UI/eval и prompt replay; event log
+  остаётся debugging telemetry. Отдельной задачей остаётся side-effect-free
+  workflow replay runner.
 - MCP resources/prompts/subscriptions и non-stdio transports: execution tools
   уже проходят через `ToolRegistry`, policy visibility и approval.
 - ✅ Hot-swap/reload для config-defined tools и MCP discovery: агент может

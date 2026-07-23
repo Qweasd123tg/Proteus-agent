@@ -1,8 +1,9 @@
 # Design: Canonical Turn Data
 
-Статус: **journal v1 и storage cutover реализованы**. Resume history, web
-transcript и eval читают canonical journal; отдельные prompt/workflow replay
-команды пока не реализованы. Дата решения: 2026-07-20, cutover: 2026-07-23.
+Статус: **journal v1, storage cutover и prompt replay v0 реализованы**. Resume
+history, web transcript, eval и prompt replay читают canonical journal;
+side-effect-free workflow replay пока не реализован. Дата решения: 2026-07-20,
+cutover и prompt replay: 2026-07-23.
 
 ## Решение
 
@@ -190,13 +191,43 @@ contract.
 - eval rows — task, exact shaped requests/responses, tool decisions/results и
   outcome без парсинга UI-текста (**реализовано**);
 - prompt replay — повтор provider call по сохранённому request
-  (**данные есть, команда planned**);
+  (**реализовано** командой `proteus replay prompt`);
 - workflow replay — подстановка записанных model/tool результатов без внешних
   side effects (**данные есть, runner planned**).
 
 «Живой rerun tools» — отдельный опасный режим, не replay по умолчанию.
 Provider wire replay также не является canonical: adapter снова формирует wire
 из сохранённого canonical request.
+
+### Prompt Replay v0
+
+`proteus --config <profile> replay prompt <session-dir-or-journal-path>` читает
+journal через общий `SessionStore`/`JournalProjection` reader и выбирает
+завершённую пару `model_request_recorded` + `model_response_recorded`:
+
+- переданный `--exchange-id` ищется строго;
+- без id автоматически выбирается только единственный завершённый exchange;
+- несколько exchanges требуют явного id и выводят список доступных ids;
+- неизвестный или незавершённый exchange завершается ошибкой без догадок.
+
+Сохранённый `CanonicalModelRequest` уже находится после `RequestShaper`, поэтому
+replay передаёт его напрямую model adapter-у. Context building, compaction,
+tool exposure, повторный shaping, workflow и `ToolOrchestrator` не запускаются.
+Так как `ModelRef` является частью exact request, `recorded_model` и
+`replay_model` в v0 совпадают; выбранный transport фиксируется отдельно в
+`replay_adapter`.
+
+Local tool calls из нового ответа только подсчитываются и перечисляются в
+отчёте. Provider-hosted tools в request по умолчанию блокируют replay, потому
+что provider может выполнить внешний side effect внутри model call. Явный
+`--allow-hosted-tools` разрешает отправить исходный request целиком, без
+фильтрации или переписывания.
+
+Prompt replay v0 не дописывает records в исходный journal и не создаёт durable
+replay run. Human/`--json` отчёт schema v1 содержит source ids, model/adapter,
+recorded/replay outcome и usage, text equality, local/hosted/citation counts и
+длительность adapter call. Различие текста является результатом
+недетерминированной генерации, а не ошибкой команды.
 
 ## Выполненный Переход
 
@@ -218,6 +249,9 @@ producers/consumers и удалил старый active path.
    `session.json` schema v3/journal v1. Старые локальные dogfood sessions нужно
    вручную перенести целиком за пределы active `sessions/`; старая форма не
    распознаётся молча.
+6. ✅ Prompt replay v0 повторяет exact post-shaping request напрямую через
+   model adapter, не исполняет local tools и не изменяет journal; hosted tools
+   требуют явного opt-in. Workflow replay остаётся отдельным runner-ом.
 
 ## Не Решается Этим Документом
 

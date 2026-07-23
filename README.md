@@ -78,7 +78,7 @@ cargo run --bin proteus -- \
 ## Что реально работает
 
 - CLI: REPL, one-shot task, `doctor`, `modules list`, `tools list`,
-  `inspect topology` и `eval report`.
+  `inspect topology`, `eval report` и canonical `replay prompt`.
 - Runtime: session/turn lifecycle, resume, JSONL event log и сохранённая
   история сообщений.
 - Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
@@ -96,8 +96,8 @@ cargo run --bin proteus -- \
   [security reference](docs/security-and-policy.md).
 - Внешний интерфейс: HTTP/SSE app-server, Leptos chat для ежедневного loop-а и
   отдельный Inspector для config/topology.
-- Диагностика: проверка config/plugins/tools без model request, runtime topology
-  и базовый eval-отчёт по canonical session journal.
+- Диагностика: проверка config/plugins/tools без model request, runtime topology,
+  базовый eval-отчёт и prompt replay по canonical session journal.
 
 Полная таблица slot-ов и реализаций находится в
 [docs/modules.md](docs/modules.md), протокол и данные runtime — в
@@ -182,7 +182,24 @@ cargo run --bin proteus -- --config codex doctor
 # отчёт по canonical session journal
 cargo run --bin proteus -- eval report \
   "/path/to/session-dir"
+
+# повтор exact post-shaping model request без workflow и local tools
+cargo run --bin proteus -- --config codex replay prompt \
+  "/path/to/session-dir-or-journal.jsonl" \
+  --exchange-id 7c25efa9-81b7-4412-863a-d90e46d2c894
+
+# тот же versioned machine-readable отчёт
+cargo run --bin proteus -- --config codex replay prompt \
+  "/path/to/session-dir" --json
 ```
+
+`--exchange-id` можно опустить только когда в journal ровно один завершённый
+model exchange. Команда повторно отправляет сохранённый canonical request
+напрямую выбранному model adapter-у, не запускает workflow и не исполняет
+полученные local tool calls; исходный journal остаётся неизменным.
+Provider-hosted tools блокируются по умолчанию, потому что их side effect
+выполняется на стороне провайдера. Для намеренного повтора нужен явный
+`--allow-hosted-tools`; request при этом отправляется целиком без урезания.
 
 Ручной запуск UI без wrapper-а:
 

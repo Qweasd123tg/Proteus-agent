@@ -27,14 +27,16 @@ use tokio::time::sleep;
 mod cli_commands;
 mod cli_doctor;
 mod cli_init;
+mod cli_prompt_replay;
 
 use cli_commands::{
     InspectTopologyFormat, is_app_server_stdio_command, is_doctor_command, is_modules_list_command,
     is_tools_list_command, parse_app_server_http_command, parse_eval_report_command,
-    parse_inspect_topology_command,
+    parse_inspect_topology_command, parse_prompt_replay_command,
 };
 use cli_doctor::run_doctor;
 use cli_init::{parse_init_command, run_init};
+use cli_prompt_replay::run_prompt_replay;
 
 #[cfg(test)]
 use cli_doctor::{
@@ -113,6 +115,7 @@ async fn main() -> Result<()> {
         println!("{}", render_eval_report(&report));
         return Ok(());
     }
+    let prompt_replay = parse_prompt_replay_command(&cli.task)?;
 
     let config_path = AppConfig::resolve_config_path(cli.config.as_deref()).await?;
     let cwd = match cli.cwd {
@@ -124,6 +127,10 @@ async fn main() -> Result<()> {
     }
 
     let mut config = AppConfig::load(cli.config.as_deref()).await?;
+    if let Some(command) = prompt_replay {
+        println!("{}", run_prompt_replay(&config, command).await?);
+        return Ok(());
+    }
     config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
     if let Some(format) = parse_inspect_topology_command(&cli.task)? {
         let snapshot = build_cli_topology(

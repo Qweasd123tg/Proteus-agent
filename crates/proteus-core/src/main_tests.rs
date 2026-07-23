@@ -1,4 +1,5 @@
 use super::*;
+use crate::cli_commands::PromptReplayCommand;
 use proteus_core::domain::{ModuleKind, ModuleManifest};
 
 /// Disables plugin loading so tests don't pick up the developer's
@@ -300,6 +301,69 @@ fn eval_report_command_requires_path() {
     assert!(parse_eval_report_command(&["eval".to_owned(), "report".to_owned()]).is_err());
     assert_eq!(
         parse_eval_report_command(&["doctor".to_owned()]).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn prompt_replay_command_parses_options_strictly() {
+    let exchange_id: proteus_core::domain::ExchangeId = "7c25efa9-81b7-4412-863a-d90e46d2c894"
+        .parse()
+        .expect("exchange id");
+    assert_eq!(
+        parse_prompt_replay_command(&[
+            "replay".to_owned(),
+            "prompt".to_owned(),
+            "/tmp/session/journal.jsonl".to_owned(),
+            "--exchange-id".to_owned(),
+            exchange_id.to_string(),
+            "--allow-hosted-tools".to_owned(),
+            "--json".to_owned(),
+        ])
+        .expect("parse"),
+        Some(PromptReplayCommand {
+            source: PathBuf::from("/tmp/session/journal.jsonl"),
+            exchange_id: Some(exchange_id),
+            allow_hosted_tools: true,
+            json: true,
+        })
+    );
+    assert_eq!(
+        parse_prompt_replay_command(&[
+            "replay".to_owned(),
+            "prompt".to_owned(),
+            "/tmp/session".to_owned(),
+        ])
+        .expect("parse"),
+        Some(PromptReplayCommand {
+            source: PathBuf::from("/tmp/session"),
+            exchange_id: None,
+            allow_hosted_tools: false,
+            json: false,
+        })
+    );
+    assert!(parse_prompt_replay_command(&["replay".to_owned()]).is_err());
+    assert!(
+        parse_prompt_replay_command(&[
+            "replay".to_owned(),
+            "prompt".to_owned(),
+            "/tmp/session".to_owned(),
+            "--exchange-id".to_owned(),
+            "not-a-uuid".to_owned(),
+        ])
+        .is_err()
+    );
+    assert!(
+        parse_prompt_replay_command(&[
+            "replay".to_owned(),
+            "prompt".to_owned(),
+            "/tmp/session".to_owned(),
+            "extra".to_owned(),
+        ])
+        .is_err()
+    );
+    assert_eq!(
+        parse_prompt_replay_command(&["doctor".to_owned()]).expect("parse"),
         None
     );
 }
@@ -725,4 +789,91 @@ fn eval_report_output_contains_core_metrics() {
     assert!(rendered.contains("tool calls: 3 (failures=1)"));
     assert!(rendered.contains("provider_output=30"));
     assert!(rendered.contains("Changed files: src/lib.rs"));
+}
+
+#[test]
+fn prompt_replay_human_and_json_reports_contain_key_fields() {
+    use proteus_core::{
+        core::{
+            PROMPT_REPLAY_REPORT_SCHEMA_VERSION, PromptReplayCounts, PromptReplayNames,
+            PromptReplayOutcomeStatus, PromptReplayOutcomeSummary, PromptReplayReport,
+            PromptReplaySource, PromptReplayUsage,
+        },
+        domain::{ModelRef, new_exchange_id, new_session_id, new_thread_id, new_turn_id},
+        model_standard::TokenUsage,
+    };
+
+    let report = PromptReplayReport {
+        schema_version: PROMPT_REPLAY_REPORT_SCHEMA_VERSION,
+        source: PromptReplaySource {
+            journal_path: PathBuf::from("/tmp/session/1234567890/journal.jsonl"),
+            session_id: new_session_id(),
+            thread_id: new_thread_id(),
+            turn_id: new_turn_id(),
+            exchange_id: new_exchange_id(),
+        },
+        recorded_model: ModelRef::new("openai", "gpt-recorded"),
+        replay_model: ModelRef::new("openai", "gpt-recorded"),
+        replay_adapter: "openai.responses".to_owned(),
+        recorded_outcome: PromptReplayOutcomeSummary {
+            status: PromptReplayOutcomeStatus::Response,
+            finish_reason: Some("stop".to_owned()),
+            error: None,
+            text: Some("recorded".to_owned()),
+        },
+        replay_outcome: PromptReplayOutcomeSummary {
+            status: PromptReplayOutcomeStatus::Response,
+            finish_reason: Some("tool_calls".to_owned()),
+            error: None,
+            text: Some("replayed".to_owned()),
+        },
+        usage: PromptReplayUsage {
+            recorded: Some(TokenUsage::new(100, 20)),
+            replay: Some(TokenUsage::new(110, 25)),
+        },
+        text_equal: Some(false),
+        local_tool_calls: PromptReplayCounts {
+            recorded: 0,
+            replay: 1,
+        },
+        local_tool_call_names: PromptReplayNames {
+            recorded: Vec::new(),
+            replay: vec!["read_file".to_owned()],
+        },
+        hosted_activities: PromptReplayCounts {
+            recorded: 0,
+            replay: 0,
+        },
+        citations: PromptReplayCounts {
+            recorded: 0,
+            replay: 0,
+        },
+        request_hosted_tools: Vec::new(),
+        hosted_tools_allowed: false,
+        duration_ms: 42,
+    };
+
+    let human =
+        cli_prompt_replay::render_prompt_replay_report(&report, false).expect("human report");
+    assert!(human.contains("Prompt replay report"));
+    assert!(human.contains(&format!("Session: {}", report.source.session_id)));
+    assert!(human.contains(&format!("Exchange: {}", report.source.exchange_id)));
+    assert!(human.contains("Recorded model: openai/gpt-recorded"));
+    assert!(human.contains("Replay outcome: response (finish_reason=tool_calls)"));
+    assert!(human.contains("Local tool calls: recorded=0, replay=1"));
+    assert!(human.contains("Replay local tool calls (not executed): read_file"));
+    assert!(human.contains("Duration: 42 ms"));
+
+    let rendered_json =
+        cli_prompt_replay::render_prompt_replay_report(&report, true).expect("JSON report");
+    let value: serde_json::Value = serde_json::from_str(&rendered_json).expect("parse JSON");
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(
+        value["source"]["exchange_id"],
+        report.source.exchange_id.to_string()
+    );
+    assert_eq!(value["recorded_model"]["model"], "gpt-recorded");
+    assert_eq!(value["replay_outcome"]["status"], "response");
+    assert_eq!(value["local_tool_calls"]["replay"], 1);
+    assert_eq!(value["duration_ms"], 42);
 }

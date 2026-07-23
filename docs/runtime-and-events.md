@@ -30,6 +30,14 @@ cargo run --bin proteus -- init coding
 cargo run --bin proteus -- doctor
 ```
 
+Диагностический повтор сохранённого model request без workflow:
+
+```bash
+cargo run --bin proteus -- --config codex replay prompt \
+  "/path/to/session-dir-or-journal.jsonl" \
+  [--exchange-id <id>] [--allow-hosted-tools] [--json]
+```
+
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
 `--config`. Если `--config <name>` передан как bare name, init пишет строгий
@@ -613,6 +621,41 @@ session directory. Это убирает ситуации, где один и т
 При обычном построении runtime новая session directory создаётся заново, если
 session store подключён. Для восстановления нужно явно передать путь к старой
 session directory.
+
+## Prompt Replay
+
+Команда `replay prompt` открывает session тем же строгим reader-ом, что resume
+и `eval report`, валидирует весь journal и извлекает сохранённый
+`model_request_recorded` после `RequestShaper`. Путь может указывать на session
+directory или прямо на `journal.jsonl`.
+
+Правило выбора fail-closed: явный `--exchange-id` должен существовать и иметь
+terminal `model_response_recorded`; без id разрешён только journal с одним
+завершённым exchange. При нескольких exchanges команда требует id и печатает
+доступные значения. Request без response остаётся interrupted exchange и не
+трактуется как пустой ответ.
+
+Replay строит model adapter из указанного config profile и передаёт ему
+сохранённый `CanonicalModelRequest` без повторного context building,
+compaction, tool exposure или shaping. `ModelService`, workflow, tool registry
+и `ToolOrchestrator` в execution path не входят. Поэтому local tool calls из
+нового ответа не исполняются: команда завершает provider call и перечисляет их
+в отчёте. `ModelRef` не переписывается, поэтому recorded/replay model совпадают;
+конкретный выбранный transport показывается полем `replay_adapter`.
+
+Provider-hosted tools потенциально выполняются внутри provider call, поэтому
+request с ними по умолчанию отклоняется до обращения к adapter-у. Флаг
+`--allow-hosted-tools` является явным согласием отправить исходный request с
+этими tools без фильтрации. Исходный journal всегда остаётся read-only; durable
+хранилища replay runs в v0 нет.
+
+Human report и JSON schema v1 (`--json`) содержат session/thread/turn/exchange
+ids, recorded/replay model, adapter, оба outcome и usage, text equality,
+число local tool calls, hosted activities и citations, а также длительность
+adapter call. Несовпадение текста не меняет exit status само по себе:
+генерация может быть недетерминированной. Это prompt replay одного provider
+call; будущий workflow replay должен подставлять записанные model/tool
+результаты без внешних side effects и не является live rerun tools.
 
 ### Root-Session Steering
 
