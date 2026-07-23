@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    CallId, Citation, ContextChunk, HostedToolActivity, MessageId, Patch, ToolCall, ToolResult,
+    CallId, Citation, ContextChunk, HostedToolActivity, MessageId, PartId, Patch, ToolCall,
+    ToolResult,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -21,10 +22,60 @@ pub enum MessageRole {
 pub struct CanonicalMessage {
     pub id: MessageId,
     pub role: MessageRole,
-    pub parts: Vec<ContentPart>,
+    pub parts: Vec<CanonicalPart>,
     pub name: Option<String>,
     pub tool_call_id: Option<CallId>,
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PartProvenance {
+    User,
+    Model,
+    Tool,
+    ContextBuilder,
+    Compactor,
+    Runtime,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PartScope {
+    Conversation,
+    Request,
+    Trace,
+}
+
+/// Stable canonical part record. Storage and projections use the explicit
+/// provenance/scope fields instead of inferring semantics from message names
+/// or unstructured metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct CanonicalPart {
+    pub part_id: PartId,
+    pub provenance: PartProvenance,
+    pub scope: PartScope,
+    pub payload: ContentPart,
+}
+
+impl CanonicalPart {
+    pub fn new(provenance: PartProvenance, scope: PartScope, payload: ContentPart) -> Self {
+        Self {
+            part_id: crate::domain::new_part_id(),
+            provenance,
+            scope,
+            payload,
+        }
+    }
+
+    pub fn with_id(mut self, part_id: PartId) -> Self {
+        self.part_id = part_id;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,19 +117,25 @@ pub enum ContentPart {
 
 impl CanonicalMessage {
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
-        Self {
-            id: crate::domain::new_message_id(),
-            role,
-            parts: vec![ContentPart::Text { text: text.into() }],
-            name: None,
-            tool_call_id: None,
-            metadata: serde_json::Value::Null,
-        }
+        Self::new(role, vec![ContentPart::Text { text: text.into() }])
     }
 
     /// Сообщение с произвольными parts. Остальные поля можно выставить
     /// через `with_*` helpers.
     pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Self {
+        let parts = parts
+            .into_iter()
+            .map(|payload| {
+                let (provenance, scope) = default_part_semantics(&role, &payload);
+                CanonicalPart::new(provenance, scope, payload)
+            })
+            .collect();
+        Self::from_parts(role, parts)
+    }
+
+    /// Конструктор для уже размеченных canonical parts. Используется там,
+    /// где provenance/scope задаёт конкретная lifecycle boundary.
+    pub fn from_parts(role: MessageRole, parts: Vec<CanonicalPart>) -> Self {
         Self {
             id: crate::domain::new_message_id(),
             role,
@@ -107,5 +164,69 @@ impl CanonicalMessage {
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
         self
+    }
+}
+
+fn default_part_semantics(
+    role: &MessageRole,
+    payload: &ContentPart,
+) -> (PartProvenance, PartScope) {
+    match payload {
+        ContentPart::Context { .. } => (PartProvenance::ContextBuilder, PartScope::Request),
+        ContentPart::ToolResult { .. } | ContentPart::Patch { .. } => {
+            (PartProvenance::Tool, PartScope::Conversation)
+        }
+        ContentPart::ToolCall { .. }
+        | ContentPart::ReasoningSummary { .. }
+        | ContentPart::Reasoning { .. }
+        | ContentPart::HostedToolActivity { .. }
+        | ContentPart::Citation { .. } => (PartProvenance::Model, PartScope::Conversation),
+        ContentPart::Text { .. } | ContentPart::FileRef { .. } => match role {
+            MessageRole::User => (PartProvenance::User, PartScope::Conversation),
+            MessageRole::Assistant => (PartProvenance::Model, PartScope::Conversation),
+            MessageRole::Tool => (PartProvenance::Tool, PartScope::Conversation),
+            MessageRole::System | MessageRole::Developer => {
+                (PartProvenance::Runtime, PartScope::Conversation)
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ContextChunk;
+
+    #[test]
+    fn constructors_assign_explicit_part_semantics() {
+        let user = CanonicalMessage::text(MessageRole::User, "hello");
+        let context = CanonicalMessage::new(
+            MessageRole::User,
+            vec![ContentPart::Context {
+                chunk: ContextChunk::new("repo", "context"),
+            }],
+        );
+
+        assert_eq!(user.parts[0].provenance, PartProvenance::User);
+        assert_eq!(user.parts[0].scope, PartScope::Conversation);
+        assert_eq!(context.parts[0].provenance, PartProvenance::ContextBuilder);
+        assert_eq!(context.parts[0].scope, PartScope::Request);
+    }
+
+    #[test]
+    fn part_record_round_trip_preserves_stable_id_and_rejects_unknown_fields() {
+        let message = CanonicalMessage::text(MessageRole::Assistant, "answer");
+        let value = serde_json::to_value(&message).expect("serialize");
+        let round_trip: CanonicalMessage =
+            serde_json::from_value(value.clone()).expect("deserialize");
+
+        assert_eq!(round_trip, message);
+        assert!(value["parts"][0].get("part_id").is_some());
+        assert_eq!(value["parts"][0]["provenance"], "model");
+        assert_eq!(value["parts"][0]["scope"], "conversation");
+
+        let mut invalid = value;
+        invalid["parts"][0]["unknown"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<CanonicalMessage>(invalid).is_err());
     }
 }

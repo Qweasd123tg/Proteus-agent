@@ -14,7 +14,10 @@ use crate::{
         ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
         SubagentRequest, SubagentResult, SubagentToolHost, ToolContext,
     },
-    domain::{AgentTask, Event, PolicyDecision, ToolCall, ToolResult, ToolSpec, ToolSurface},
+    domain::{
+        AgentTask, Event, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec,
+        ToolSurface,
+    },
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
@@ -84,6 +87,9 @@ impl ToolOrchestrator {
         // apply_patch tool, чтобы патч прошёл patch-flow (policy, applier,
         // события) вместо падения в шелле на несуществующем бинаре.
         let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
+        ctx.execution_recorder
+            .tool_call_requested(ctx.session_id, ctx.thread_id, ctx.turn_id, &call)
+            .await?;
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
@@ -91,6 +97,17 @@ impl ToolOrchestrator {
         if let Some(spec) = tool_spec.as_ref()
             && let Some(error) = validate_tool_call_args(&call, spec)
         {
+            ctx.execution_recorder
+                .tool_call_resolved(
+                    ctx.session_id,
+                    ctx.thread_id,
+                    ctx.turn_id,
+                    &call,
+                    &ToolCallResolution::ValidationFailed {
+                        reason: error.clone(),
+                    },
+                )
+                .await?;
             let result = ToolResult::error(call.id.clone(), error).with_metadata(json!({
                 "tool": call.name,
                 "validation_error": true,
@@ -101,8 +118,28 @@ impl ToolOrchestrator {
         let decision = self.evaluate_access(ctx, &task.cwd, &call, tool_spec.clone());
 
         match decision {
-            PolicyDecision::Allow => self.invoke_allowed(ctx, task, &call, tool_spec).await,
+            PolicyDecision::Allow => {
+                ctx.execution_recorder
+                    .tool_call_resolved(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &ToolCallResolution::Allowed,
+                    )
+                    .await?;
+                self.invoke_allowed(ctx, task, &call, tool_spec).await
+            }
             PolicyDecision::Ask { reason } => {
+                ctx.execution_recorder
+                    .tool_approval_requested(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &reason,
+                    )
+                    .await?;
                 ctx.emit(Event::ApprovalRequested {
                     call_id: call.id.clone(),
                     reason: reason.clone(),
@@ -129,6 +166,15 @@ impl ToolOrchestrator {
                 })
                 .await?;
                 if approval.approved {
+                    ctx.execution_recorder
+                        .tool_call_resolved(
+                            ctx.session_id,
+                            ctx.thread_id,
+                            ctx.turn_id,
+                            &call,
+                            &ToolCallResolution::Approved,
+                        )
+                        .await?;
                     let result = self.invoke_allowed(ctx, task, &call, tool_spec).await?;
                     // Approval-gated grants: только результат явно одобренного
                     // вызова может выдать turn-scoped права (см. contracts
@@ -143,17 +189,48 @@ impl ToolOrchestrator {
                         .note
                         .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
                 );
+                ctx.execution_recorder
+                    .tool_call_resolved(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &ToolCallResolution::ApprovalDenied {
+                            reason: result.text_or_status(),
+                        },
+                    )
+                    .await?;
                 self.finish(ctx, result).await
             }
             PolicyDecision::Deny { reason } => {
+                ctx.execution_recorder
+                    .tool_call_resolved(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &ToolCallResolution::PolicyDenied {
+                            reason: reason.clone(),
+                        },
+                    )
+                    .await?;
                 let result = ToolResult::error(call.id.clone(), reason);
                 self.finish(ctx, result).await
             }
             other => {
-                let result = ToolResult::error(
-                    call.id.clone(),
-                    format!("unsupported policy decision: {other:?}"),
-                );
+                let reason = format!("unsupported policy decision: {other:?}");
+                ctx.execution_recorder
+                    .tool_call_resolved(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &ToolCallResolution::Unsupported {
+                            reason: reason.clone(),
+                        },
+                    )
+                    .await?;
+                let result = ToolResult::error(call.id.clone(), reason);
                 self.finish(ctx, result).await
             }
         }
@@ -267,6 +344,9 @@ impl ToolOrchestrator {
     }
 
     async fn finish(&self, ctx: &RuntimeContext, result: ToolResult) -> Result<ToolResult> {
+        ctx.execution_recorder
+            .tool_result_recorded(ctx.session_id, ctx.thread_id, ctx.turn_id, &result)
+            .await?;
         ctx.emit(Event::ToolFinished {
             result: result.clone(),
         })

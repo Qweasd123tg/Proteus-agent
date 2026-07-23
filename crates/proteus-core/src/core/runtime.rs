@@ -1,4 +1,6 @@
 use std::{
+    error::Error as StdError,
+    fmt,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -13,9 +15,7 @@ use crate::{
         ApprovalTransport, CancellationToken, EventEmitter, EventSink, ToolSource,
         UserInputTransport,
     },
-    core::{
-        AppConfig, BuiltinRegistry, RequestSnapshotWriter, SessionConfigSnapshot, SessionStore,
-    },
+    core::{AppConfig, BuiltinRegistry, SessionConfigSnapshot, SessionStore},
     domain::{
         AgentOutput, AgentTask, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig,
         SessionId, ThreadId, ToolSpec,
@@ -85,11 +85,20 @@ impl ModuleEpoch {
 pub struct RuntimeSnapshot {
     pub epoch: ModuleEpoch,
     pub registry: BuiltinRegistry,
+    pub config_snapshot: Option<SessionConfigSnapshot>,
 }
 
 impl RuntimeSnapshot {
-    pub fn new(epoch: ModuleEpoch, registry: BuiltinRegistry) -> Self {
-        Self { epoch, registry }
+    pub fn new(
+        epoch: ModuleEpoch,
+        registry: BuiltinRegistry,
+        config_snapshot: Option<SessionConfigSnapshot>,
+    ) -> Self {
+        Self {
+            epoch,
+            registry,
+            config_snapshot,
+        }
     }
 }
 
@@ -107,13 +116,30 @@ struct RuntimeServices {
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
-    request_snapshot_writer: Option<Arc<RequestSnapshotWriter>>,
-    config_snapshot: Option<SessionConfigSnapshot>,
     permission_mode: RwLock<PermissionMode>,
     model_ref: RwLock<ModelRef>,
     reasoning: RwLock<ReasoningConfig>,
     default_reasoning: ReasoningConfig,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnAbort {
+    Canceled,
+    WorkflowTimeout { timeout_ms: u64 },
+}
+
+impl fmt::Display for TurnAbort {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Canceled => formatter.write_str("turn canceled by client"),
+            Self::WorkflowTimeout { timeout_ms } => {
+                write!(formatter, "workflow timed out after {timeout_ms}ms")
+            }
+        }
+    }
+}
+
+impl StdError for TurnAbort {}
 
 struct SessionState {
     session_id: SessionId,
@@ -335,10 +361,80 @@ impl AgentRuntime {
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
         let task = AgentTask::new(reserved.text.clone(), self.services.cwd.clone());
-        let user_message = reserved.message;
         if cancellation.is_cancelled() {
-            anyhow::bail!("turn canceled by client");
+            return Err(TurnAbort::Canceled.into());
         }
+        let config_snapshot = self.turn_config_snapshot(&snapshot).await;
+        if let Some(session_store) = &self.session.session_store {
+            let base_history_revision = session_store.load_projection()?.history_revision;
+            session_store
+                .append_journal_entry(
+                    self.session.thread_id,
+                    Some(turn_id),
+                    crate::core::JournalEntry::TurnOpened(crate::core::TurnOpened {
+                        task: task.clone(),
+                        base_history_revision,
+                        module_epoch: snapshot.epoch.as_u64(),
+                        config_snapshot: serde_json::to_value(config_snapshot.as_ref())?,
+                    }),
+                )
+                .await?;
+        }
+        let result = self
+            .run_opened_turn(
+                reserved,
+                cancellation.clone(),
+                snapshot,
+                config_snapshot,
+                task,
+            )
+            .await;
+        let settlement = match &result {
+            Ok(output) => crate::core::TurnSettled {
+                status: crate::core::TurnSettlementStatus::Success,
+                output: Some(output.clone()),
+                error: None,
+            },
+            Err(error) => {
+                let message = format!("{error:#}");
+                let status = turn_settlement_status(error, cancellation.is_cancelled());
+                crate::core::TurnSettled {
+                    status,
+                    output: None,
+                    error: Some(message),
+                }
+            }
+        };
+        if let Some(session_store) = &self.session.session_store
+            && let Err(settlement_error) = session_store
+                .append_journal_entry(
+                    self.session.thread_id,
+                    Some(turn_id),
+                    crate::core::JournalEntry::TurnSettled(settlement),
+                )
+                .await
+        {
+            return match result {
+                Ok(_) => Err(settlement_error
+                    .context("turn completed but its canonical settlement could not be persisted")),
+                Err(turn_error) => Err(anyhow::anyhow!(
+                    "{turn_error:#}; additionally failed to persist turn settlement: {settlement_error:#}"
+                )),
+            };
+        }
+        result
+    }
+
+    async fn run_opened_turn(
+        &self,
+        reserved: ReservedUserMessage,
+        cancellation: CancellationToken,
+        snapshot: RuntimeSnapshot,
+        config_snapshot: Option<SessionConfigSnapshot>,
+        task: AgentTask,
+    ) -> Result<AgentOutput> {
+        let turn_id = reserved.turn_id;
+        let user_message = reserved.message;
         let event_context = EventContext::new(
             self.session.session_id,
             self.session.thread_id,
@@ -355,7 +451,9 @@ impl AgentRuntime {
                 },
             )
             .await?;
-        let history = self.persist_current_user_message(&user_message).await?;
+        let history = self
+            .persist_current_user_message(turn_id, &user_message, config_snapshot.as_ref())
+            .await?;
         if let Some(kind) = reserved.delivery {
             self.services
                 .events
@@ -388,7 +486,7 @@ impl AgentRuntime {
                 session_id: Some(self.session.session_id),
                 thread_id: Some(self.session.thread_id),
                 turn_id: Some(turn_id),
-                request_snapshot_writer: self.services.request_snapshot_writer.clone(),
+                session_store: self.session.session_store.clone(),
             });
         }
         let permission_mode = *self.services.permission_mode.read().await;
@@ -406,6 +504,11 @@ impl AgentRuntime {
         runtime_context.model_ref = model_ref;
         runtime_context.reasoning = reasoning;
         runtime_context.queued_user_messages = self.session.steering.queued_count_handle();
+        if let Some(session_store) = &self.session.session_store {
+            runtime_context.execution_recorder = Arc::new(
+                crate::core::SessionExecutionRecorder::new(session_store.clone()),
+            );
+        }
         let steering_model = SteeringModel::new(
             runtime_context.model.clone(),
             self.session.steering.clone(),
@@ -429,9 +532,10 @@ impl AgentRuntime {
                 Ok(result) => result,
                 Err(_) => {
                     cancellation.cancel();
-                    Err(anyhow::anyhow!(
-                        "workflow timed out after {workflow_timeout_ms}ms"
-                    ))
+                    Err(TurnAbort::WorkflowTimeout {
+                        timeout_ms: workflow_timeout_ms,
+                    }
+                    .into())
                 }
             }
         };
@@ -440,14 +544,15 @@ impl AgentRuntime {
             Ok(output) => output,
             Err(error) => {
                 return self
-                    .fail_turn_preserving_steering(error, &delivery_records)
+                    .fail_turn_preserving_steering(turn_id, error, &delivery_records)
                     .await;
             }
         };
         if cancellation.is_cancelled() {
             return self
                 .fail_turn_preserving_steering(
-                    anyhow::anyhow!("turn canceled by client"),
+                    turn_id,
+                    TurnAbort::Canceled.into(),
                     &delivery_records,
                 )
                 .await;
@@ -457,7 +562,7 @@ impl AgentRuntime {
                 Ok(messages) => messages,
                 Err(error) => {
                     return self
-                        .fail_turn_preserving_steering(error, &delivery_records)
+                        .fail_turn_preserving_steering(turn_id, error, &delivery_records)
                         .await;
                 }
             };
@@ -476,7 +581,7 @@ impl AgentRuntime {
             Ok(update) => update,
             Err(error) => {
                 return self
-                    .fail_turn_preserving_steering(error, &delivery_records)
+                    .fail_turn_preserving_steering(turn_id, error, &delivery_records)
                     .await;
             }
         };
@@ -484,11 +589,25 @@ impl AgentRuntime {
         if let Some(session_store) = &self.session.session_store {
             if history_update.replace {
                 session_store
-                    .replace_messages(&history_update.final_messages)
+                    .replace_history(
+                        self.session.thread_id,
+                        Some(turn_id),
+                        &history_update.final_messages,
+                        workflow_output
+                            .compactions
+                            .iter()
+                            .rev()
+                            .find(|report| report.changed)
+                            .cloned(),
+                    )
                     .await?;
             } else {
                 session_store
-                    .append_messages(&workflow_output.new_messages)
+                    .append_history(
+                        self.session.thread_id,
+                        Some(turn_id),
+                        &workflow_output.new_messages,
+                    )
                     .await?;
             }
         }
@@ -498,10 +617,14 @@ impl AgentRuntime {
 
     async fn fail_turn_preserving_steering(
         &self,
+        turn_id: crate::domain::TurnId,
         turn_error: anyhow::Error,
         deliveries: &[steering::SteeringDeliveryRecord],
     ) -> Result<AgentOutput> {
-        if let Err(persist_error) = self.persist_failed_steering_messages(deliveries).await {
+        if let Err(persist_error) = self
+            .persist_failed_steering_messages(turn_id, deliveries)
+            .await
+        {
             return Err(anyhow::anyhow!(
                 "{turn_error:#}; additionally failed to persist delivered steering messages: {persist_error:#}"
             ));
@@ -511,6 +634,7 @@ impl AgentRuntime {
 
     async fn persist_failed_steering_messages(
         &self,
+        turn_id: crate::domain::TurnId,
         deliveries: &[steering::SteeringDeliveryRecord],
     ) -> Result<()> {
         let mut history = self.session.history.lock().await;
@@ -523,7 +647,9 @@ impl AgentRuntime {
             return Ok(());
         }
         if let Some(session_store) = &self.session.session_store {
-            session_store.append_messages(&messages).await?;
+            session_store
+                .append_history(self.session.thread_id, Some(turn_id), &messages)
+                .await?;
         }
         history.extend(messages);
         Ok(())
@@ -531,16 +657,22 @@ impl AgentRuntime {
 
     async fn persist_current_user_message(
         &self,
+        turn_id: crate::domain::TurnId,
         user_message: &CanonicalMessage,
+        config_snapshot: Option<&SessionConfigSnapshot>,
     ) -> Result<Vec<CanonicalMessage>> {
         let mut history = self.session.history.lock().await;
-        history.push(user_message.clone());
         if let Some(session_store) = &self.session.session_store {
             session_store
-                .append_messages(std::slice::from_ref(user_message))
+                .append_history(
+                    self.session.thread_id,
+                    Some(turn_id),
+                    std::slice::from_ref(user_message),
+                )
                 .await?;
-            self.persist_config_snapshot_for_session();
+            self.persist_config_snapshot_for_session(config_snapshot);
         }
+        history.push(user_message.clone());
         Ok(history.clone())
     }
 
@@ -629,7 +761,14 @@ impl AgentRuntime {
         self.services.snapshot.read().await.clone()
     }
 
-    pub async fn reload_registry(&self, registry: BuiltinRegistry) -> Result<RuntimeReloadReport> {
+    pub async fn reload_registry(
+        &self,
+        registry: BuiltinRegistry,
+        config_snapshot: Option<SessionConfigSnapshot>,
+    ) -> Result<RuntimeReloadReport> {
+        if self.session.session_store.is_some() && config_snapshot.is_none() {
+            anyhow::bail!("persisted runtime reload requires a config snapshot");
+        }
         let _reload_guard = self.services.reload_lock.lock().await;
         let mut snapshot = self.services.snapshot.write().await;
         let old_epoch = snapshot.epoch;
@@ -640,7 +779,7 @@ impl AgentRuntime {
             .into_iter()
             .map(|spec| spec.name)
             .collect::<Vec<_>>();
-        *snapshot = RuntimeSnapshot::new(new_epoch, registry);
+        *snapshot = RuntimeSnapshot::new(new_epoch, registry, config_snapshot);
         Ok(RuntimeReloadReport {
             old_epoch: old_epoch.as_u64(),
             new_epoch: new_epoch.as_u64(),
@@ -679,11 +818,20 @@ impl AgentRuntime {
         Ok(())
     }
 
-    fn persist_config_snapshot_for_session(&self) {
-        let (Some(session_store), Some(snapshot)) = (
-            self.session.session_store.as_ref(),
-            self.services.config_snapshot.as_ref(),
-        ) else {
+    async fn turn_config_snapshot(
+        &self,
+        snapshot: &RuntimeSnapshot,
+    ) -> Option<SessionConfigSnapshot> {
+        let mut config = snapshot.config_snapshot.clone()?;
+        config.model = self.services.model_ref.read().await.clone();
+        config.reasoning = self.services.reasoning.read().await.clone();
+        config.permission_mode_default = *self.services.permission_mode.read().await;
+        Some(config)
+    }
+
+    fn persist_config_snapshot_for_session(&self, snapshot: Option<&SessionConfigSnapshot>) {
+        let (Some(session_store), Some(snapshot)) = (self.session.session_store.as_ref(), snapshot)
+        else {
             return;
         };
         if let Err(error) =
@@ -710,7 +858,7 @@ impl AgentRuntime {
         self.session.steering.abort().await;
         self.session.history.lock().await.clear();
         if let Some(session_store) = &self.session.session_store {
-            session_store.clear().await?;
+            session_store.clear_history(self.session.thread_id).await?;
         }
         Ok(())
     }
@@ -721,6 +869,18 @@ impl AgentRuntime {
 
     pub async fn history(&self) -> Vec<CanonicalMessage> {
         self.session.history.lock().await.clone()
+    }
+
+    pub(crate) fn active_turn_id(&self) -> Option<crate::domain::TurnId> {
+        self.session.steering.active_turn_id()
+    }
+
+    pub(crate) fn session_projection(&self) -> Result<Option<crate::core::JournalProjection>> {
+        self.session
+            .session_store
+            .as_ref()
+            .map(SessionStore::load_projection)
+            .transpose()
     }
 
     pub(crate) async fn queued_user_messages(&self) -> Vec<(crate::domain::MessageId, String)> {
@@ -747,6 +907,28 @@ impl AgentRuntime {
     /// Workflow (это не turn, а side-channel ручной записи).
     pub async fn memory(&self) -> Arc<dyn crate::contracts::MemoryStore> {
         self.snapshot().await.registry.memory.clone()
+    }
+}
+
+fn turn_settlement_status(
+    error: &anyhow::Error,
+    cancellation_is_set: bool,
+) -> crate::core::TurnSettlementStatus {
+    for cause in error.chain() {
+        match cause.downcast_ref::<TurnAbort>() {
+            Some(TurnAbort::WorkflowTimeout { .. }) => {
+                return crate::core::TurnSettlementStatus::Timeout;
+            }
+            Some(TurnAbort::Canceled) => {
+                return crate::core::TurnSettlementStatus::Canceled;
+            }
+            None => {}
+        }
+    }
+    if cancellation_is_set {
+        crate::core::TurnSettlementStatus::Canceled
+    } else {
+        crate::core::TurnSettlementStatus::Error
     }
 }
 
@@ -804,12 +986,32 @@ mod tests {
         message
             .parts
             .iter()
-            .filter_map(|part| match part {
+            .filter_map(|part| match &part.payload {
                 crate::model_standard::ContentPart::Text { text } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn settlement_status_uses_typed_runtime_causes_not_error_text() {
+        let misleading = anyhow::anyhow!("provider rejected field named cancellation_timeout");
+        assert_eq!(
+            turn_settlement_status(&misleading, false),
+            crate::core::TurnSettlementStatus::Error
+        );
+
+        let timeout = anyhow::Error::new(TurnAbort::WorkflowTimeout { timeout_ms: 10 });
+        assert_eq!(
+            turn_settlement_status(&timeout, true),
+            crate::core::TurnSettlementStatus::Timeout
+        );
+
+        assert_eq!(
+            turn_settlement_status(&misleading, true),
+            crate::core::TurnSettlementStatus::Canceled
+        );
     }
 
     fn successful_messages(
@@ -1050,7 +1252,7 @@ mod tests {
             .session_store
             .as_ref()
             .expect("session store")
-            .append_messages(&seed_history)
+            .append_history(runtime.session.thread_id, None, &seed_history)
             .await
             .expect("seed session store");
 
@@ -1074,12 +1276,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabled_request_snapshots_do_not_create_requests_jsonl() {
+    async fn model_exchange_is_recorded_in_session_journal() {
         let config_root = tempfile::tempdir().expect("config root");
         let workspace = tempfile::tempdir().expect("workspace");
         let config_path = config_root.path().join("configs").join("config.toml");
         let mut config = AppConfig::default();
-        config.runtime.persist_request_snapshots = false;
         config.modules.patch = "null".to_owned();
         let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
             .with_config_path(Some(&config_path))
@@ -1088,13 +1289,23 @@ mod tests {
             .expect("runtime");
         replace_workflow_for_test(&runtime, Arc::new(ModelCallingWorkflow)).await;
 
-        runtime.run("snapshot off".to_owned()).await.unwrap();
+        runtime.run("record exchange".to_owned()).await.unwrap();
 
-        let requests_path = runtime
-            .session_dir()
-            .expect("session dir")
-            .join(crate::core::REQUEST_SNAPSHOTS_FILE);
-        assert!(!requests_path.exists());
+        let records = runtime
+            .session
+            .session_store
+            .as_ref()
+            .expect("session store")
+            .load_records()
+            .expect("journal records");
+        assert!(records.iter().any(|record| matches!(
+            record.entry,
+            crate::core::JournalEntry::ModelRequestRecorded(_)
+        )));
+        assert!(records.iter().any(|record| matches!(
+            record.entry,
+            crate::core::JournalEntry::ModelResponseRecorded(_)
+        )));
     }
 
     #[tokio::test]
@@ -1139,6 +1350,57 @@ mod tests {
         assert_eq!(value["modules"]["tool_exposure"], "all_visible");
         assert_eq!(value["permission_mode_default"], "auto");
         assert!(value["tools"].as_array().is_some());
+
+        let mut reloaded_config = AppConfig::default();
+        reloaded_config.profile.name = "reloaded-profile".to_owned();
+        reloaded_config.modules.patch = "null".to_owned();
+        let mut reloaded_registry = BuiltinRegistry::from_catalog(
+            &reloaded_config,
+            workspace.path().to_path_buf(),
+            test_catalog(),
+        )
+        .expect("reloaded registry");
+        reloaded_registry.workflow = Arc::new(DelayedWorkflow);
+        let reloaded_snapshot = SessionConfigSnapshot::from_runtime_config(
+            &reloaded_config,
+            &reloaded_registry,
+            PermissionMode::Normal,
+        );
+        runtime
+            .reload_registry(reloaded_registry, Some(reloaded_snapshot))
+            .await
+            .expect("reload registry");
+        runtime
+            .set_model_name("runtime-model-override".to_owned())
+            .await;
+        runtime.set_reasoning_effort(Some("high".to_owned())).await;
+        runtime.set_permission_mode(PermissionMode::Plan).await;
+        runtime.run("after reload".to_owned()).await.unwrap();
+
+        let records = runtime
+            .session
+            .session_store
+            .as_ref()
+            .expect("session store")
+            .load_records()
+            .expect("journal records");
+        let (opened, module_epoch) = records
+            .iter()
+            .rev()
+            .find_map(|record| match &record.entry {
+                crate::core::JournalEntry::TurnOpened(opened) => {
+                    Some((opened, opened.module_epoch))
+                }
+                _ => None,
+            })
+            .expect("latest turn_opened");
+        let turn_snapshot: SessionConfigSnapshot =
+            serde_json::from_value(opened.config_snapshot.clone()).expect("turn config snapshot");
+        assert_eq!(module_epoch, 1);
+        assert_eq!(turn_snapshot.profile_name, "reloaded-profile");
+        assert_eq!(turn_snapshot.model.model, "runtime-model-override");
+        assert_eq!(turn_snapshot.reasoning.effort.as_deref(), Some("high"));
+        assert_eq!(turn_snapshot.permission_mode_default, PermissionMode::Plan);
     }
 
     #[tokio::test]
@@ -1216,7 +1478,7 @@ mod tests {
             BuiltinRegistry::from_catalog(&next_config, cwd.path().to_path_buf(), test_catalog())
                 .expect("next registry");
         let report = runtime
-            .reload_registry(next_registry)
+            .reload_registry(next_registry, None)
             .await
             .expect("reload registry");
         assert_eq!(report.old_epoch, 0);

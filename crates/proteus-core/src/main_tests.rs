@@ -698,8 +698,8 @@ fn tool_list_output_contains_registered_tools() {
 #[test]
 fn eval_report_output_contains_core_metrics() {
     let report = proteus_core::core::EvalReport {
-        event_log_path: PathBuf::from(".proteus/events.jsonl"),
-        events: 9,
+        journal_path: PathBuf::from(".proteus/sessions/1234567890/journal.jsonl"),
+        records: 9,
         turns_started: 1,
         turns_finished: 1,
         turns_failed: 0,

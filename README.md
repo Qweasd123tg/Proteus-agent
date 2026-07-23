@@ -97,7 +97,7 @@ cargo run --bin proteus -- \
 - Внешний интерфейс: HTTP/SSE app-server, Leptos chat для ежедневного loop-а и
   отдельный Inspector для config/topology.
 - Диагностика: проверка config/plugins/tools без model request, runtime topology
-  и базовый eval-отчёт по event log.
+  и базовый eval-отчёт по canonical session journal.
 
 Полная таблица slot-ов и реализаций находится в
 [docs/modules.md](docs/modules.md), протокол и данные runtime — в
@@ -179,9 +179,9 @@ cargo run --bin proteus -- inspect topology --format map
 # named config из ~/.config/Proteus-agent/configs/
 cargo run --bin proteus -- --config codex doctor
 
-# отчёт по durable event log
+# отчёт по canonical session journal
 cargo run --bin proteus -- eval report \
-  "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
+  "/path/to/session-dir"
 ```
 
 Ручной запуск UI без wrapper-а:
@@ -215,7 +215,8 @@ Inspector при необходимости запускается так же �
 ~/.config/Proteus-agent/configs/config.toml
 ~/.config/Proteus-agent/configs/<name>.config.toml
 ~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/session.json
-~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/messages.jsonl
+~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/journal.jsonl
+~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/blobs/<sha256>.json
 ~/.config/Proteus-agent/.proteus/events.jsonl
 ```
 

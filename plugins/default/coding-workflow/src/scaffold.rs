@@ -200,7 +200,7 @@ fn message_text(message: &CanonicalMessage) -> String {
     message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
         })

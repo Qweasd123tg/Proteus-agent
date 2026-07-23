@@ -87,7 +87,7 @@ pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> R
         .message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::ToolCall { call } => Some(call),
             _ => None,
         })

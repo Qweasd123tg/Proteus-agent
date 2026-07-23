@@ -529,9 +529,9 @@ OpenAI Responses custom/freeform форма остаётся доступна ч
 `CanonicalMessage` перед `complete_model`, а compactor возвращает сообщения для
 этого model call. Если workflow передаёт runtime `HistoryCompactionReport` с
 `changed = true`, runtime может заменить in-memory history и session
-`messages.jsonl` compacted-срезом. Это остаётся controlled runtime operation:
-сам compactor не получает доступа к session store и не заменяет
-`MemoryStore`.
+journal projection через `history_mutated/replace`. Предыдущие records не
+удаляются. Это остаётся controlled runtime operation: сам compactor не получает
+доступа к session store и не заменяет `MemoryStore`.
 
 `modules.compactor = "codex"` поставляется плагином `codex-compactor`. Это
 Codex-style request-time compactor: при превышении token threshold он заменяет

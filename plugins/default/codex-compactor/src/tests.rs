@@ -8,7 +8,7 @@ use proteus_contracts::{
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole,
+        MessageRole, PartProvenance,
     },
     plugin::{
         PluginCompactionError, PluginCompactorHost, PluginCompactorHost_TO, PluginCompactorHostMut,
@@ -232,6 +232,7 @@ fn truncates_large_preserved_user_message_without_losing_identity() {
     let selected = select_recent_user_messages(&[message], 16);
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].id, message_id);
+    assert_eq!(selected[0].parts[0].provenance, PartProvenance::Compactor);
     assert!(
         message_text(&selected[0])
             .unwrap()

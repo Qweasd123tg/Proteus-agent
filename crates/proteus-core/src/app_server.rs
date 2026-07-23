@@ -18,9 +18,10 @@ use crate::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
         ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
         ModuleCatalogEntrySummary, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
-        SessionStore, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
-        build_topology_snapshot, config_store_root, delete_workspace_session,
-        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
+        SessionConfigSnapshot, SessionStore, TopologyBuildInput, TopologySnapshot,
+        UserMessageReservation, build_topology_snapshot, config_store_root,
+        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
+        normalize_session_dir_path,
     },
     domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
 };
@@ -52,6 +53,7 @@ use config_summary::{
 };
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
+pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptTool};
 use turn_progress::TurnProgress;
@@ -185,6 +187,7 @@ impl AppServerHandle {
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
         self.runtime.set_permission_mode(mode).await;
+        self.config.write().await.permissions.mode = mode;
     }
 
     pub async fn permission_mode(&self) -> PermissionMode {
@@ -364,7 +367,15 @@ impl AppServerHandle {
             .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
         persist_config_builder(&target_path, &next_config).await?;
 
-        let report = self.runtime.reload_registry(registry).await?;
+        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
+            &next_config,
+            &registry,
+            next_config.permissions.mode,
+        );
+        let report = self
+            .runtime
+            .reload_registry(registry, Some(config_snapshot))
+            .await?;
         if provider_changed {
             let model = next_config.active_model_config()?;
             self.runtime.set_model_ref(model.model_ref()).await;
@@ -433,12 +444,20 @@ impl AppServerHandle {
             .is_ok_and(|session_dir| paths_equal(active_dir, &session_dir))
     }
 
-    pub async fn transcript(&self) -> Vec<AppTranscriptMessage> {
-        let mut transcript = transcript_messages(&self.runtime.history().await);
+    pub async fn transcript(&self) -> Result<Vec<AppTranscriptMessage>> {
+        let mut transcript = if let Some(projection) = self.runtime.session_projection()? {
+            let live_turn_id = self
+                .runtime
+                .active_turn_id()
+                .filter(|turn_id| projection.unsettled_turns.contains(turn_id));
+            journal_transcript_messages(&projection, live_turn_id)
+        } else {
+            transcript_messages(&self.runtime.history().await)
+        };
         // Хвост незавершённого хода: history пополняется только при коммите
         // хода, настриманный текст и tool-вызовы до тех пор живут в прогрессе.
         transcript.extend(self.turn_progress.lock().await.snapshot());
-        transcript
+        Ok(transcript)
     }
 
     pub async fn pending_requests(&self) -> AppPendingRequests {
@@ -596,7 +615,12 @@ impl AppServerHandle {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
         let (registry, plugin_reports, catalog_entries) =
             build_registry_and_plugin_reports(&config, &self.cwd).await?;
-        let report = self.runtime.reload_registry(registry).await?;
+        let config_snapshot =
+            SessionConfigSnapshot::from_runtime_config(&config, &registry, config.permissions.mode);
+        let report = self
+            .runtime
+            .reload_registry(registry, Some(config_snapshot))
+            .await?;
         *self.config.write().await = config;
         *self.plugin_reports.write().await = plugin_reports;
         *self.catalog_entries.write().await = catalog_entries;

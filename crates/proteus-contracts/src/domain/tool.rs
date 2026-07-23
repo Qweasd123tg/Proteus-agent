@@ -37,6 +37,30 @@ impl ToolCall {
     }
 }
 
+/// Canonical pre-invocation resolution for a local tool call. A durable
+/// recorder writes this before the target tool can perform a side effect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
+#[non_exhaustive]
+pub enum ToolCallResolution {
+    Allowed,
+    Approved,
+    ApprovalDenied { reason: String },
+    PolicyDenied { reason: String },
+    ValidationFailed { reason: String },
+    Unsupported { reason: String },
+}
+
+impl ToolCallResolution {
+    pub fn permits_side_effect(&self) -> bool {
+        matches!(self, Self::Allowed | Self::Approved)
+    }
+
+    pub fn requested_approval(&self) -> bool {
+        matches!(self, Self::Approved | Self::ApprovalDenied { .. })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

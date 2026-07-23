@@ -52,7 +52,7 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
     for message in &request.messages {
         bytes.messages += message_envelope_bytes(message);
         for part in &message.parts {
-            match part {
+            match &part.payload {
                 ContentPart::Text { text }
                 | ContentPart::ReasoningSummary { text }
                 | ContentPart::Reasoning { text, .. } => {
@@ -230,7 +230,7 @@ pub(crate) fn estimate_message_tokens(messages: &[CanonicalMessage]) -> Option<u
     let bytes = messages
         .iter()
         .flat_map(|message| &message.parts)
-        .map(part_text_len)
+        .map(|part| part_text_len(&part.payload))
         .sum::<usize>();
     Some((bytes / 4 + messages.len()).max(1) as u32)
 }

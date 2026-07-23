@@ -196,7 +196,7 @@ fn anthropic_role(message: &CanonicalMessage) -> &'static str {
     if message
         .parts
         .iter()
-        .any(|part| matches!(part, ContentPart::ToolResult { .. }))
+        .any(|part| matches!(&part.payload, ContentPart::ToolResult { .. }))
     {
         return "user";
     }
@@ -210,7 +210,7 @@ fn anthropic_role(message: &CanonicalMessage) -> &'static str {
 fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
     let mut blocks = Vec::new();
     for part in &message.parts {
-        match part {
+        match &part.payload {
             ContentPart::Text { text } => blocks.push(json!({ "type": "text", "text": text })),
             ContentPart::Context { chunk } => blocks.push(json!({
                 "type": "text",
@@ -289,7 +289,7 @@ fn tool_result_blocks(message: &CanonicalMessage) -> Vec<Value> {
     message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::ToolResult { result } => Some(tool_result_block(result)),
             _ => None,
         })

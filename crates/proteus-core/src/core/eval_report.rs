@@ -1,18 +1,22 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
 
-use crate::domain::{CallId, Event, EventEnvelope, ToolCall, TurnId};
+use crate::{
+    core::{
+        JournalEntry, JournalRecord, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
+        TurnSettlementStatus, normalize_session_dir_path,
+    },
+    domain::{CallId, ToolCall, ToolCallResolution, TurnId},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvalReport {
-    pub event_log_path: PathBuf,
-    pub events: usize,
+    pub journal_path: PathBuf,
+    pub records: usize,
     pub turns_started: usize,
     pub turns_finished: usize,
     pub turns_failed: usize,
@@ -34,7 +38,7 @@ pub struct EvalReport {
 impl EvalReport {
     pub fn succeeded(&self) -> bool {
         self.turns_started > 0
-            && self.turns_finished > 0
+            && self.turns_finished == self.turns_started
             && self.turns_failed == 0
             && self.failure_reason.is_none()
     }
@@ -48,7 +52,7 @@ struct TurnStats {
 
 #[derive(Debug, Default)]
 struct EvalAccumulator {
-    events: usize,
+    records: usize,
     turns: BTreeMap<TurnId, TurnStats>,
     first_timestamp_ms: Option<i64>,
     last_timestamp_ms: Option<i64>,
@@ -68,97 +72,108 @@ struct EvalAccumulator {
 }
 
 pub fn read_eval_report(path: impl AsRef<Path>) -> Result<EvalReport> {
-    let path = path.as_ref();
-    let file =
-        File::open(path).with_context(|| format!("failed to open event log {}", path.display()))?;
+    let session_dir = normalize_session_dir_path(path.as_ref().to_path_buf())?;
+    let store = SessionStore::open(session_dir.clone()).with_context(|| {
+        format!(
+            "failed to open canonical session journal at {}",
+            session_dir.display()
+        )
+    })?;
+    // Projection validation is the corruption/linkage gate shared with resume.
+    let projection = store.load_projection()?;
     let mut accumulator = EvalAccumulator::default();
-
-    for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line = line.with_context(|| format!("failed to read event log line {}", index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let envelope: EventEnvelope = serde_json::from_str(&line)
-            .with_context(|| format!("failed to parse event log line {}", index + 1))?;
-        accumulator.record(envelope);
+    for record in &projection.records {
+        accumulator.record(record)?;
     }
-
-    Ok(accumulator.finish(path.to_path_buf()))
+    Ok(accumulator.finish(store.journal_path()))
 }
 
 impl EvalAccumulator {
-    fn record(&mut self, envelope: EventEnvelope) {
-        self.events += 1;
+    fn record(&mut self, record: &JournalRecord) -> Result<()> {
+        self.records += 1;
         self.first_timestamp_ms = Some(
             self.first_timestamp_ms
-                .map_or(envelope.timestamp_ms, |seen| {
-                    seen.min(envelope.timestamp_ms)
-                }),
+                .map_or(record.timestamp_ms, |seen| seen.min(record.timestamp_ms)),
         );
         self.last_timestamp_ms = Some(
             self.last_timestamp_ms
-                .map_or(envelope.timestamp_ms, |seen| {
-                    seen.max(envelope.timestamp_ms)
-                }),
+                .map_or(record.timestamp_ms, |seen| seen.max(record.timestamp_ms)),
         );
 
-        match envelope.event {
-            Event::TurnStarted { turn_id, .. } => {
-                self.turns.entry(turn_id).or_default();
+        match &record.entry {
+            JournalEntry::TurnOpened(_) => {
+                if let Some(turn_id) = record.turn_id {
+                    self.turns.entry(turn_id).or_default();
+                }
             }
-            Event::ModelRequestPrepared { .. } => {
+            JournalEntry::ModelRequestRecorded(model) => {
                 self.model_calls += 1;
+                let bytes = serde_json::to_vec(&model.request)?.len();
+                self.estimated_input_tokens = self
+                    .estimated_input_tokens
+                    .saturating_add((bytes / 4).max(1) as u64);
             }
-            Event::TokenUsageUpdated { usage } => {
-                self.estimated_input_tokens += u64::from(usage.estimated_input_tokens);
-                if let Some(actual) = usage.actual {
-                    self.provider_input_tokens += u64::from(actual.input_tokens);
-                    self.provider_output_tokens += u64::from(actual.output_tokens);
+            JournalEntry::ModelResponseRecorded(model) => {
+                if let ModelResponseOutcome::Response { response } = &model.outcome
+                    && let Some(usage) = &response.usage
+                {
+                    self.provider_input_tokens = self
+                        .provider_input_tokens
+                        .saturating_add(u64::from(usage.input_tokens));
+                    self.provider_output_tokens = self
+                        .provider_output_tokens
+                        .saturating_add(u64::from(usage.output_tokens));
                 }
             }
-            Event::ToolCallRequested { call } => {
-                self.tool_calls += 1;
-                self.calls.insert(call.id.clone(), call);
-            }
-            Event::ApprovalRequested { .. } => {
-                self.approvals_requested += 1;
-            }
-            Event::ApprovalResolved { approved, .. } => {
-                self.approvals_resolved += 1;
-                if approved {
-                    self.approvals_approved += 1;
-                } else {
-                    self.approvals_denied += 1;
+            JournalEntry::ToolCallRecorded(tool) => match &tool.phase {
+                ToolCallRecordPhase::Requested => {
+                    self.tool_calls += 1;
+                    self.calls.insert(tool.call.id.clone(), tool.call.clone());
                 }
-            }
-            Event::ToolFinished { result } => {
-                if !result.ok {
+                ToolCallRecordPhase::ApprovalRequested { .. } => {
+                    self.approvals_requested += 1;
+                }
+                ToolCallRecordPhase::Resolved { resolution } => {
+                    if resolution.requested_approval() {
+                        self.approvals_resolved += 1;
+                        match resolution {
+                            ToolCallResolution::Approved => self.approvals_approved += 1,
+                            ToolCallResolution::ApprovalDenied { .. } => self.approvals_denied += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            },
+            JournalEntry::ToolResultRecorded(tool) => {
+                if !tool.result.ok {
                     self.tool_failures += 1;
                 }
-                if result.ok
-                    && let Some(call) = self.calls.get(&result.call_id)
+                if tool.result.ok
+                    && let Some(call) = self.calls.get(&tool.result.call_id)
                 {
-                    record_changed_files(&mut self.changed_files, call, &result.metadata);
+                    record_changed_files(&mut self.changed_files, call, &tool.result.metadata);
                 }
             }
-            Event::Error { message } => {
-                if let Some(turn_id) = envelope.turn_id {
-                    self.turns.entry(turn_id).or_default().failed = true;
+            JournalEntry::TurnSettled(settled) => {
+                if let Some(turn_id) = record.turn_id {
+                    let turn = self.turns.entry(turn_id).or_default();
+                    turn.finished = true;
+                    turn.failed = settled.status != TurnSettlementStatus::Success;
                 }
-                if self.failure_reason.is_none() {
-                    self.failure_reason = Some(message);
+                if settled.status != TurnSettlementStatus::Success && self.failure_reason.is_none()
+                {
+                    self.failure_reason = settled
+                        .error
+                        .clone()
+                        .or_else(|| Some(format!("turn settled with status {:?}", settled.status)));
                 }
             }
-            Event::TurnFinished { .. } => {
-                if let Some(turn_id) = envelope.turn_id {
-                    self.turns.entry(turn_id).or_default().finished = true;
-                }
-            }
-            _ => {}
+            JournalEntry::HistoryMutated(_) => {}
         }
+        Ok(())
     }
 
-    fn finish(mut self, event_log_path: PathBuf) -> EvalReport {
+    fn finish(mut self, journal_path: PathBuf) -> EvalReport {
         let mut unfinished = 0;
         for turn in self.turns.values_mut() {
             if !turn.finished {
@@ -179,8 +194,8 @@ impl EvalAccumulator {
         };
 
         EvalReport {
-            event_log_path,
-            events: self.events,
+            journal_path,
+            records: self.records,
             turns_started,
             turns_finished,
             turns_failed,
@@ -244,188 +259,172 @@ fn patch_paths(patch: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use crate::{
-        domain::{
-            AgentOutput, EventContext, ModelRef, TokenUsageCategory, TokenUsageSnapshot,
-            ToolResult, new_call_id, new_session_id, new_thread_id, new_turn_id,
-        },
-        model_standard::TokenUsage,
-    };
     use serde_json::json;
-    use tempfile::NamedTempFile;
 
     use super::*;
+    use crate::{
+        core::{
+            ModelRequestRecorded, ModelResponseRecorded, ToolCallRecorded, ToolResultRecorded,
+            TurnOpened, TurnSettled,
+        },
+        domain::{
+            AgentOutput, AgentTask, ModelRef, ToolCallResolution, ToolResult, new_call_id,
+            new_exchange_id, new_session_id, new_thread_id, new_turn_id,
+        },
+        model_standard::{
+            CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason,
+            MessageRole, TokenUsage,
+        },
+    };
 
-    #[test]
-    fn report_summarizes_successful_turn() {
-        let session_id = new_session_id();
+    #[tokio::test]
+    async fn report_uses_canonical_journal_records() {
+        let config_dir = tempfile::tempdir().expect("config");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
+            .expect("store");
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
-        let call_id = new_call_id();
-        let mut log = NamedTempFile::new().expect("event log");
-
-        write_event(
-            &mut log,
-            1,
-            EventContext::new(session_id, thread_id, Some(turn_id)),
-            Event::TurnStarted {
-                session_id,
+        store
+            .append_journal_entry(
                 thread_id,
-                turn_id,
-            },
+                Some(turn_id),
+                JournalEntry::TurnOpened(TurnOpened {
+                    task: AgentTask::new("edit", workspace.path().to_path_buf()),
+                    base_history_revision: 0,
+                    module_epoch: 0,
+                    config_snapshot: json!({}),
+                }),
+            )
+            .await
+            .expect("turn opened");
+        let exchange_id = new_exchange_id();
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "edit")],
         );
-        write_event(
-            &mut log,
-            2,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::ModelRequestPrepared {
-                model: ModelRef::new("fake", "test"),
-            },
+        store
+            .append_journal_entry(
+                thread_id,
+                Some(turn_id),
+                JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    exchange_id,
+                    request,
+                }),
+            )
+            .await
+            .expect("model request");
+        let response = CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "done"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_usage(TokenUsage::new(120, 30));
+        store
+            .append_journal_entry(
+                thread_id,
+                Some(turn_id),
+                JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
+                    exchange_id,
+                    outcome: ModelResponseOutcome::Response { response },
+                }),
+            )
+            .await
+            .expect("model response");
+        let call = ToolCall::new(
+            new_call_id(),
+            "write_file",
+            json!({ "path": "src/output.rs" }),
         );
-        write_event(
-            &mut log,
-            3,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::TokenUsageUpdated {
-                usage: TokenUsageSnapshot::new(
-                    ModelRef::new("fake", "test"),
-                    11,
-                    vec![TokenUsageCategory::new("messages", 11)],
+        for phase in [
+            ToolCallRecordPhase::Requested,
+            ToolCallRecordPhase::ApprovalRequested {
+                reason: "write".to_owned(),
+            },
+            ToolCallRecordPhase::Resolved {
+                resolution: ToolCallResolution::Approved,
+            },
+        ] {
+            store
+                .append_journal_entry(
+                    thread_id,
+                    Some(turn_id),
+                    JournalEntry::ToolCallRecorded(ToolCallRecorded {
+                        call: call.clone(),
+                        phase,
+                    }),
                 )
-                .with_actual(Some(TokenUsage::new(13, 5))),
-            },
-        );
-        write_event(
-            &mut log,
-            4,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::ToolCallRequested {
-                call: ToolCall::new(
-                    call_id.clone(),
-                    "apply_patch",
-                    json!({ "patch": "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n-old\n+new\n*** End Patch" }),
-                ),
-            },
-        );
-        write_event(
-            &mut log,
-            5,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::ToolFinished {
-                result: ToolResult::ok(call_id, "updated src/lib.rs"),
-            },
-        );
-        write_event(
-            &mut log,
-            6,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::TurnFinished {
-                output: AgentOutput::text("done"),
-            },
-        );
+                .await
+                .expect("tool call phase");
+        }
+        store
+            .append_journal_entry(
+                thread_id,
+                Some(turn_id),
+                JournalEntry::ToolResultRecorded(ToolResultRecorded {
+                    result: ToolResult::ok(call.id, "written"),
+                }),
+            )
+            .await
+            .expect("tool result");
+        store
+            .append_journal_entry(
+                thread_id,
+                Some(turn_id),
+                JournalEntry::TurnSettled(TurnSettled {
+                    status: TurnSettlementStatus::Success,
+                    output: Some(AgentOutput::text("done")),
+                    error: None,
+                }),
+            )
+            .await
+            .expect("turn settled");
 
-        let report = read_eval_report(log.path()).expect("report");
+        let report = read_eval_report(store.session_dir()).expect("report");
+
         assert!(report.succeeded());
-        assert_eq!(report.events, 6);
+        assert_eq!(report.records, 8);
         assert_eq!(report.turns_started, 1);
         assert_eq!(report.turns_finished, 1);
-        assert_eq!(report.turns_failed, 0);
         assert_eq!(report.model_calls, 1);
         assert_eq!(report.tool_calls, 1);
-        assert_eq!(report.estimated_input_tokens, 11);
-        assert_eq!(report.provider_input_tokens, 13);
-        assert_eq!(report.provider_output_tokens, 5);
-        assert_eq!(report.changed_files, vec!["src/lib.rs"]);
-        assert_eq!(report.duration_ms, Some(5));
+        assert_eq!(report.approvals_requested, 1);
+        assert_eq!(report.approvals_resolved, 1);
+        assert_eq!(report.approvals_approved, 1);
+        assert_eq!(report.provider_input_tokens, 120);
+        assert_eq!(report.provider_output_tokens, 30);
+        assert_eq!(report.changed_files, vec!["src/output.rs"]);
+        assert_eq!(report.journal_path, store.journal_path());
     }
 
-    #[test]
-    fn report_marks_unfinished_turn_failed() {
-        let session_id = new_session_id();
-        let thread_id = new_thread_id();
+    #[tokio::test]
+    async fn unfinished_turn_is_reported_as_failure() {
+        let config_dir = tempfile::tempdir().expect("config");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
+            .expect("store");
         let turn_id = new_turn_id();
-        let mut log = NamedTempFile::new().expect("event log");
+        store
+            .append_journal_entry(
+                new_thread_id(),
+                Some(turn_id),
+                JournalEntry::TurnOpened(TurnOpened {
+                    task: AgentTask::new("crash", workspace.path().to_path_buf()),
+                    base_history_revision: 0,
+                    module_epoch: 0,
+                    config_snapshot: json!({}),
+                }),
+            )
+            .await
+            .expect("turn opened");
 
-        write_event(
-            &mut log,
-            10,
-            EventContext::new(session_id, thread_id, Some(turn_id)),
-            Event::TurnStarted {
-                session_id,
-                thread_id,
-                turn_id,
-            },
-        );
+        let report = read_eval_report(store.journal_path()).expect("report");
 
-        let report = read_eval_report(log.path()).expect("report");
         assert!(!report.succeeded());
         assert_eq!(report.turns_failed, 1);
         assert_eq!(
             report.failure_reason.as_deref(),
             Some("1 unfinished turn(s)")
         );
-    }
-
-    #[test]
-    fn report_error_marks_status_failed_even_after_finished_turn() {
-        let session_id = new_session_id();
-        let thread_id = new_thread_id();
-        let turn_id = new_turn_id();
-        let mut log = NamedTempFile::new().expect("event log");
-
-        write_event(
-            &mut log,
-            1,
-            EventContext::new(session_id, thread_id, Some(turn_id)),
-            Event::TurnStarted {
-                session_id,
-                thread_id,
-                turn_id,
-            },
-        );
-        write_event(
-            &mut log,
-            2,
-            EventContext::new(session_id, new_thread_id(), Some(turn_id)),
-            Event::TurnFinished {
-                output: AgentOutput::text("done"),
-            },
-        );
-        write_event(
-            &mut log,
-            3,
-            EventContext::new(session_id, new_thread_id(), None),
-            Event::Error {
-                message: "transport failed".to_owned(),
-            },
-        );
-
-        let report = read_eval_report(log.path()).expect("report");
-        assert!(!report.succeeded());
-        assert_eq!(report.failure_reason.as_deref(), Some("transport failed"));
-    }
-
-    #[test]
-    fn patch_paths_extracts_edit_headers() {
-        assert_eq!(
-            patch_paths(
-                "*** Begin Patch\n*** Add File: a.txt\n+x\n*** Update File: b.txt\n@@\n-y\n+z\n*** Move to: c.txt\n*** Delete File: d.txt\n*** End Patch"
-            ),
-            vec!["a.txt", "b.txt", "c.txt", "d.txt"]
-        );
-    }
-
-    fn write_event(
-        log: &mut NamedTempFile,
-        timestamp_ms: i64,
-        context: EventContext,
-        event: Event,
-    ) {
-        let mut envelope = EventEnvelope::new(context, timestamp_ms as u64, event);
-        envelope.timestamp_ms = timestamp_ms;
-        serde_json::to_writer(&mut *log, &envelope).expect("write event");
-        writeln!(log).expect("newline");
     }
 }

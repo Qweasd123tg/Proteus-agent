@@ -89,7 +89,7 @@ fn close_dangling_tool_calls(mut history: Vec<CanonicalMessage>) -> Vec<Canonica
                 .tool_call_id
                 .clone()
                 .into_iter()
-                .chain(message.parts.iter().filter_map(|part| match part {
+                .chain(message.parts.iter().filter_map(|part| match &part.payload {
                     ContentPart::ToolResult { result } => Some(result.call_id.clone()),
                     _ => None,
                 }))
@@ -100,7 +100,7 @@ fn close_dangling_tool_calls(mut history: Vec<CanonicalMessage>) -> Vec<Canonica
         .iter()
         .filter(|message| message.role == MessageRole::Assistant)
         .flat_map(|message| {
-            message.parts.iter().filter_map(|part| match part {
+            message.parts.iter().filter_map(|part| match &part.payload {
                 ContentPart::ToolCall { call } if !answered.contains(&call.id) => {
                     Some(call.id.clone())
                 }
@@ -159,7 +159,7 @@ mod tests {
         let synthetic = closed.last().expect("synthetic tool result");
         assert_eq!(synthetic.role, MessageRole::Tool);
         assert_eq!(synthetic.tool_call_id.as_deref(), Some(call.id.as_str()));
-        match &synthetic.parts[0] {
+        match &synthetic.parts[0].payload {
             ContentPart::ToolResult { result } => {
                 assert_eq!(result.call_id, call.id);
                 assert!(!result.ok);

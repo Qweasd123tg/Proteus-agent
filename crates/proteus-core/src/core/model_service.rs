@@ -6,8 +6,14 @@ use futures_util::StreamExt;
 
 use crate::{
     contracts::{EventEmitter, Model, ModelEventStream},
-    core::RequestSnapshotWriter,
-    domain::{Event, EventContext, ModelRef, SessionId, ThreadId, ToolSpec, TurnId},
+    core::{
+        JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
+        SessionStore,
+    },
+    domain::{
+        Event, EventContext, ExchangeId, ModelRef, SessionId, ThreadId, ToolSpec, TurnId,
+        new_exchange_id,
+    },
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
         RequestShaper, validate_model_response_against_request,
@@ -26,7 +32,7 @@ pub struct DeltaEventContext {
     pub session_id: Option<SessionId>,
     pub thread_id: Option<ThreadId>,
     pub turn_id: Option<TurnId>,
-    pub request_snapshot_writer: Option<Arc<RequestSnapshotWriter>>,
+    pub session_store: Option<SessionStore>,
 }
 
 pub struct ModelService {
@@ -106,21 +112,45 @@ impl Model for ModelService {
                 .entry("turn_id".to_owned())
                 .or_insert_with(|| turn_id.to_string());
         }
-        if let (Some(writer), Some(thread_id)) = (&ctx.request_snapshot_writer, ctx.thread_id)
-            && let Err(error) = writer.append(thread_id, &request).await
-        {
-            eprintln!("warning: failed to persist model request snapshot: {error:#}");
+        let journal_context = journal_context(&ctx, &request)?;
+        let exchange_id = new_exchange_id();
+        if let Some((store, thread_id, turn_id)) = &journal_context {
+            store
+                .append_journal_entry(
+                    *thread_id,
+                    Some(*turn_id),
+                    JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                        exchange_id,
+                        request: request.clone(),
+                    }),
+                )
+                .await?;
         }
         let validation_request = request.clone();
-        let stream = self.adapter.stream(request).await?;
-        Ok(Box::pin(stream.map(move |event| {
-            let event = event?;
-            if let ModelStreamEvent::Response { response } = &event {
-                validate_model_response_against_request(&validation_request, response)
-                    .map_err(|error| anyhow!("model protocol error: {error}"))?;
+        let stream = match self.adapter.stream(request).await {
+            Ok(stream) => stream,
+            Err(error) => {
+                if let Some((store, thread_id, turn_id)) = &journal_context {
+                    record_model_outcome(
+                        store,
+                        *thread_id,
+                        *turn_id,
+                        exchange_id,
+                        ModelResponseOutcome::Error {
+                            message: format!("model adapter error: {error:#}"),
+                        },
+                    )
+                    .await?;
+                }
+                return Err(error);
             }
-            Ok(event)
-        })))
+        };
+        Ok(recording_stream(
+            stream,
+            validation_request,
+            journal_context,
+            exchange_id,
+        ))
     }
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
@@ -129,7 +159,7 @@ impl Model for ModelService {
             .get("suppress_stream_deltas")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let ctx = self.snapshot_context();
+        let ctx = event_context_for_request(self.snapshot_context(), &request);
         let mut stream = self.stream(request).await?;
 
         while let Some(event) = stream.next().await {
@@ -179,6 +209,185 @@ impl Model for ModelService {
         }
         Err(anyhow!("model stream ended without Response event"))
     }
+}
+
+type ModelJournalContext = (SessionStore, ThreadId, TurnId);
+
+fn journal_context(
+    ctx: &DeltaEventContext,
+    request: &CanonicalModelRequest,
+) -> Result<Option<ModelJournalContext>> {
+    let Some(store) = ctx.session_store.clone() else {
+        return Ok(None);
+    };
+    let session_id = metadata_uuid(request, "session_id")?
+        .or(ctx.session_id)
+        .ok_or_else(|| anyhow!("session journal model request is missing session_id"))?;
+    let thread_id = metadata_uuid(request, "thread_id")?
+        .or(ctx.thread_id)
+        .ok_or_else(|| anyhow!("session journal model request is missing thread_id"))?;
+    let turn_id = metadata_uuid(request, "turn_id")?
+        .or(ctx.turn_id)
+        .ok_or_else(|| anyhow!("session journal model request is missing turn_id"))?;
+    if session_id != store.session_id() {
+        return Err(anyhow!(
+            "model request session_id {} does not match journal session {}",
+            session_id,
+            store.session_id()
+        ));
+    }
+    Ok(Some((store, thread_id, turn_id)))
+}
+
+fn metadata_uuid(request: &CanonicalModelRequest, key: &str) -> Result<Option<uuid::Uuid>> {
+    request
+        .client_metadata
+        .get(key)
+        .map(|value| {
+            value
+                .parse::<uuid::Uuid>()
+                .map_err(|error| anyhow!("invalid model request client_metadata.{key}: {error}"))
+        })
+        .transpose()
+}
+
+fn event_context_for_request(
+    mut ctx: DeltaEventContext,
+    request: &CanonicalModelRequest,
+) -> DeltaEventContext {
+    if let Ok(Some(session_id)) = metadata_uuid(request, "session_id") {
+        ctx.session_id = Some(session_id);
+    }
+    if let Ok(Some(thread_id)) = metadata_uuid(request, "thread_id") {
+        ctx.thread_id = Some(thread_id);
+    }
+    if let Ok(Some(turn_id)) = metadata_uuid(request, "turn_id") {
+        ctx.turn_id = Some(turn_id);
+    }
+    ctx
+}
+
+fn recording_stream(
+    mut stream: ModelEventStream,
+    validation_request: CanonicalModelRequest,
+    journal_context: Option<ModelJournalContext>,
+    exchange_id: ExchangeId,
+) -> ModelEventStream {
+    Box::pin(async_stream::try_stream! {
+        let mut terminal_recorded = false;
+        while let Some(item) = stream.next().await {
+            let event = match item {
+                Ok(event) => event,
+                Err(error) => {
+                    if let Some((store, thread_id, turn_id)) = &journal_context {
+                        record_model_outcome(
+                            store,
+                            *thread_id,
+                            *turn_id,
+                            exchange_id,
+                            ModelResponseOutcome::Error {
+                                message: format!("model stream transport error: {error:#}"),
+                            },
+                        )
+                        .await?;
+                    }
+                    Err(error)?;
+                    unreachable!();
+                }
+            };
+            match &event {
+                ModelStreamEvent::Response { response } => {
+                    if let Err(error) =
+                        validate_model_response_against_request(&validation_request, response)
+                    {
+                        let error = anyhow!("model protocol error: {error}");
+                        if let Some((store, thread_id, turn_id)) = &journal_context {
+                            record_model_outcome(
+                                store,
+                                *thread_id,
+                                *turn_id,
+                                exchange_id,
+                                ModelResponseOutcome::Error {
+                                    message: error.to_string(),
+                                },
+                            )
+                            .await?;
+                        }
+                        Err(error)?;
+                    }
+                    if let Some((store, thread_id, turn_id)) = &journal_context {
+                        record_model_outcome(
+                            store,
+                            *thread_id,
+                            *turn_id,
+                            exchange_id,
+                            ModelResponseOutcome::Response {
+                                response: response.clone(),
+                            },
+                        )
+                        .await?;
+                    }
+                    terminal_recorded = true;
+                    yield event;
+                    break;
+                }
+                ModelStreamEvent::Error { message } => {
+                    if let Some((store, thread_id, turn_id)) = &journal_context {
+                        record_model_outcome(
+                            store,
+                            *thread_id,
+                            *turn_id,
+                            exchange_id,
+                            ModelResponseOutcome::Error {
+                                message: message.clone(),
+                            },
+                        )
+                        .await?;
+                    }
+                    terminal_recorded = true;
+                    yield event;
+                    break;
+                }
+                _ => yield event,
+            }
+        }
+        if !terminal_recorded {
+            let message = "model stream ended without Response event".to_owned();
+            if let Some((store, thread_id, turn_id)) = &journal_context {
+                record_model_outcome(
+                    store,
+                    *thread_id,
+                    *turn_id,
+                    exchange_id,
+                    ModelResponseOutcome::Error {
+                        message: message.clone(),
+                    },
+                )
+                .await?;
+            }
+            Err(anyhow!(message))?;
+        }
+    })
+}
+
+async fn record_model_outcome(
+    store: &SessionStore,
+    thread_id: ThreadId,
+    turn_id: TurnId,
+    exchange_id: ExchangeId,
+    outcome: ModelResponseOutcome,
+) -> Result<()> {
+    store
+        .append_journal_entry(
+            thread_id,
+            Some(turn_id),
+            JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
+                exchange_id,
+                outcome,
+            }),
+        )
+        .await?;
+    Ok(())
 }
 
 async fn emit_delta(ctx: &DeltaEventContext, event: Event) {

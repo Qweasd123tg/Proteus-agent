@@ -1,6 +1,5 @@
-use proteus_contracts::{
-    domain::CONTEXT_MESSAGE_NAME,
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+use proteus_contracts::model_standard::{
+    CanonicalMessage, CanonicalPart, ContentPart, MessageRole, PartProvenance, PartScope,
 };
 use serde_json::json;
 
@@ -63,12 +62,11 @@ fn is_generated_user_message(text: &str) -> bool {
 }
 
 fn is_structured_ephemeral_context_message(message: &CanonicalMessage) -> bool {
-    message.name.as_deref() == Some(CONTEXT_MESSAGE_NAME)
-        || (!message.parts.is_empty()
-            && message
-                .parts
-                .iter()
-                .all(|part| matches!(part, ContentPart::Context { .. })))
+    !message.parts.is_empty()
+        && message
+            .parts
+            .iter()
+            .all(|part| part.scope == PartScope::Request)
 }
 
 pub(crate) fn select_recent_user_messages(
@@ -94,9 +92,13 @@ pub(crate) fn select_recent_user_messages(
             remaining = remaining.saturating_sub(tokens);
         } else {
             let mut truncated = message.clone();
-            truncated.parts = vec![ContentPart::Text {
-                text: truncate_to_tokens(&text, remaining),
-            }];
+            truncated.parts = vec![CanonicalPart::new(
+                PartProvenance::Compactor,
+                PartScope::Conversation,
+                ContentPart::Text {
+                    text: truncate_to_tokens(&text, remaining),
+                },
+            )];
             selected.push(truncated);
             break;
         }
@@ -122,7 +124,17 @@ pub(crate) fn replacement_messages(
         ephemeral_context.iter().cloned(),
     );
     replacement.push(
-        CanonicalMessage::text(MessageRole::User, summary.to_owned()).with_metadata(json!({
+        CanonicalMessage::from_parts(
+            MessageRole::User,
+            vec![CanonicalPart::new(
+                PartProvenance::Compactor,
+                PartScope::Conversation,
+                ContentPart::Text {
+                    text: summary.to_owned(),
+                },
+            )],
+        )
+        .with_metadata(json!({
             "compactor": MODULE_ID,
             "summary": true,
         })),
@@ -134,7 +146,7 @@ pub(crate) fn message_text(message: &CanonicalMessage) -> Option<String> {
     let pieces = message
         .parts
         .iter()
-        .filter_map(part_text)
+        .filter_map(|part| part_text(&part.payload))
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>();
     if pieces.is_empty() {

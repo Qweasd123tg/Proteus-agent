@@ -63,10 +63,9 @@ Leptos-клиенты исключены из root workspace и проверяю
   принудительного abort transport task;
 - builder может принять существующие `SessionId`/`ThreadId` и восстановить
   history из existing session directory; session-store regressions покрывают
-  UUID basename, 10-digit basename + `session.json`, metadata mismatch и
-  short-id collision без смешивания histories; storage codec принимает точный
-  исторический набор отсутствовавших полей `ToolCall`/`ToolResult`, но
-  отклоняет другие неполные payloads;
+  обязательный 10-digit basename + `session.json` schema v3, явный отказ для
+  UUID/schema-v2 draft sessions, metadata mismatch и short-id collision без
+  смешивания histories;
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - provider-hosted tools требуют явной model capability и `Network` safety,
@@ -171,13 +170,22 @@ summary path, строгий `Stop`/assistant/no-tools ответ вместо f
 сворачивание текущего assistant/tool tail и typed cache `routing_key <= 64`.
 Отдельно проверяется случай, где replacement не сокращает историю. Core adapter тестирует
 ABI bridge для compactor host, включая `complete_model_json`; runtime-тесты
-проверяют, что changed compaction заменяет in-memory history и `messages.jsonl`,
+проверяют, что changed compaction заменяет in-memory history и добавляет
+revisioned journal replacement без удаления прежних records,
 а workflow-тесты проверяют model-aware окно в `CompactionInput.window_tokens`
 и сохранность текущего user message id на changed-compaction boundary.
 Отдельные regression-тесты фиксируют новый workflow history contract: runtime
 передаёт уже сохранённый current user, обычный output содержит только
 assistant/tool `new_messages`, а generated user-summary после current user
 остаётся внутри `history_replacement` и не протекает в append suffix.
+
+Journal regression-тесты в `core/session_journal` и `core/session_store`
+проверяют monotonic sequence, history revisions, turn/exchange/tool linkage,
+child-thread attribution, оборванный final tail, mid-file corruption,
+content-addressed blobs и compaction lineage. App-server отдельно доказывает,
+что завершённый или failed turn восстанавливает transcript/tool cards только
+из journal, без event log. Любые архитектурные изменения storage дополнительно
+должны сохранять зелёным `cargo test -p proteus-core --test module_swap`.
 
 ## DTO И Builder-Паттерн
 
@@ -287,7 +295,7 @@ canonical DTO не ломаются.
 
 ## Eval Harness
 
-Следующий уровень проверок - eval harness поверх event log. Он должен
+Следующий уровень проверок - eval harness поверх canonical journal. Он должен
 дополнять, а не заменять module-swap tests: module-swap фиксирует границы
 контрактов, evals измеряют качество coding loop и показывают, выдерживают ли
 эти контракты будущий plugin-style swapping.
@@ -308,13 +316,13 @@ manual dogfood loop, где после прогона можно локализ�
 Первый слой уже доступен как:
 
 ```bash
-cargo run --bin proteus -- eval report .proteus/events.jsonl
+cargo run --bin proteus -- eval report "/path/to/session-dir"
 ```
 
-Команда читает durable JSONL event log и фиксирует success/fail, turn count,
+Команда валидирует canonical session journal и фиксирует success/fail, turn count,
 model calls, tool calls, tool failures, approval count, duration, provider
 tokens, estimated input tokens, changed files и failure reason. Changed files
-пока выводятся по успешным `write_file` и `apply_patch` events; tests passed,
+выводятся по успешным canonical `write_file` и `apply_patch` tool records; tests passed,
 diff size, unnecessary edits и стоимость остаются следующим расширением
 отчёта/runner-а.
 

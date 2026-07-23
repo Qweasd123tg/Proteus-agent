@@ -1174,7 +1174,7 @@ impl Model for SelectiveBlockingModelClient {
         let should_block = request.messages.iter().any(|message| {
             message.parts.iter().any(|part| {
                 matches!(
-                    part,
+                    &part.payload,
                     crate::model_standard::ContentPart::Text { text } if text.contains("block me")
                 )
             })

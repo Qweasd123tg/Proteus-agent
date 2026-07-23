@@ -445,7 +445,7 @@ fn render_tool_list(registry: &proteus_core::contracts::ToolRegistry) -> String 
 
 fn render_eval_report(report: &proteus_core::core::EvalReport) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("Eval report: {}", report.event_log_path.display()));
+    lines.push(format!("Eval report: {}", report.journal_path.display()));
     lines.push(format!(
         "Status: {}",
         if report.succeeded() {
@@ -454,7 +454,7 @@ fn render_eval_report(report: &proteus_core::core::EvalReport) -> String {
             "failed"
         }
     ));
-    lines.push(format!("Events: {}", report.events));
+    lines.push(format!("Journal records: {}", report.records));
     lines.push(format!(
         "Turns: started={}, finished={}, failed={}",
         report.turns_started, report.turns_finished, report.turns_failed

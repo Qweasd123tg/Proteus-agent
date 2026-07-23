@@ -85,7 +85,7 @@ fn collect_text(response: &CanonicalModelResponse) -> Vec<String> {
         .message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
         })
@@ -183,7 +183,7 @@ impl FakeModelClient {
             .messages
             .iter()
             .flat_map(|message| &message.parts)
-            .filter(|part| matches!(part, ContentPart::Context { .. }))
+            .filter(|part| matches!(&part.payload, ContentPart::Context { .. }))
             .count();
         let message = CanonicalMessage::text(
             MessageRole::Assistant,
@@ -216,14 +216,14 @@ fn latest_turn_input(request: &CanonicalModelRequest) -> LatestTurnInput {
                 && message
                     .parts
                     .iter()
-                    .any(|part| matches!(part, ContentPart::Text { .. }))
+                    .any(|part| matches!(&part.payload, ContentPart::Text { .. }))
             {
                 return Some(LatestTurnInput::User);
             }
             if message
                 .parts
                 .iter()
-                .any(|part| matches!(part, ContentPart::ToolResult { .. }))
+                .any(|part| matches!(&part.payload, ContentPart::ToolResult { .. }))
             {
                 return Some(LatestTurnInput::ToolResult);
             }
@@ -238,7 +238,7 @@ fn latest_tool_result_text(request: &CanonicalModelRequest) -> Option<String> {
         .iter()
         .rev()
         .flat_map(|message| message.parts.iter().rev())
-        .find_map(|part| match part {
+        .find_map(|part| match &part.payload {
             ContentPart::ToolResult { result } => Some(result.text_or_status()),
             _ => None,
         })
@@ -249,7 +249,7 @@ fn latest_user_text(request: &CanonicalModelRequest) -> Option<String> {
         if message.role != MessageRole::User {
             return None;
         }
-        message.parts.iter().find_map(|part| match part {
+        message.parts.iter().find_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.clone()),
             _ => None,
         })

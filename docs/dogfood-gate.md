@@ -34,16 +34,16 @@ cargo run --bin proteus -- doctor
 ```
 
 `doctor` также валидирует persisted session directories и полностью читает их
-`messages.jsonl`. Актуальный write-format использует 10-значное имя каталога с
-полным UUID в `session.json`; reader также принимает ранее созданные каталоги
-с полным UUID в basename. Storage decoder отдельно принимает точный набор
-отсутствовавших полей старых persisted `ToolCall`/`ToolResult`, не ослабляя
-canonical DTO на остальных границах.
+`journal.jsonl`, включая blob references и lifecycle projection. Актуальный
+write/read-format использует 10-значное имя каталога, полный UUID в
+`session.json` schema v3 и `journal_schema_version = 1`. UUID-basename/schema
+v2 sessions намеренно не читаются; нужные старые dogfood каталоги архивируются
+вручную вне active `sessions/`.
 
-Если есть event log после manual run:
+Если есть session journal после manual run:
 
 ```bash
-cargo run --bin proteus -- eval report .proteus/events.jsonl
+cargo run --bin proteus -- eval report "/path/to/session-dir"
 ```
 
 Зелёный core gate означает только то, что module boundaries, config loading,
@@ -82,7 +82,7 @@ proteus doctor
 увидеть tool call / approval
 approve или deny действие
 получить финальный ответ или понятную ошибку
-проверить transcript/session/event log
+проверить transcript/session journal/event log
 сформировать eval report или ручной postmortem
 ```
 
@@ -139,11 +139,11 @@ Gate зелёный, если сценарий можно пройти без п
 
     ```bash
     proteus doctor
-    proteus eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
+    proteus eval report "/path/to/session-dir"
     ```
 
 Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
-turn-ом. Если задача сама провалилась, но UI сохранил transcript/event log и
+turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
 ясно показал причину, фиксируйте это как `failed` или `inconclusive` в
 postmortem, а не как блокер web/app-server boundary.
 
@@ -156,8 +156,8 @@ postmortem, а не как блокер web/app-server boundary.
 - нельзя approve/deny действие, когда workflow ждёт approval;
 - tool activity невидима или вводит в заблуждение;
 - diff/result теряется до того, как его можно проверить;
-- session/transcript/event log не сохраняется или не читается;
-- `eval report` не может разобрать event log после run-а;
+- session/transcript/journal не сохраняется или не читается;
+- `eval report` не может разобрать journal после run-а;
 - UI зависает так, что непонятно, turn ещё идёт или уже умер.
 - provider меняет объявленную function/freeform surface tool-вызова, а runtime
   продолжает исполнять или повторять такой ответ вместо protocol error;
@@ -209,7 +209,8 @@ Task:
 Result: success | failed | inconclusive
 Changed files:
 Tests run:
-Event log:
+Session journal:
+Event log (optional telemetry):
 Main failure bucket: core | workflow | context | tools | policy | patch | provider | app-server | ui
 Observed issue:
 Next smallest fix:
@@ -220,7 +221,7 @@ Non-blocking irritants:
 
 ```bash
 proteus doctor
-proteus eval report "$HOME/.config/Proteus-agent/.proteus/events.jsonl"
+proteus eval report "/path/to/session-dir"
 ```
 
 Провал задачи не равен провалу проекта. Провалом gate считается ситуация, где

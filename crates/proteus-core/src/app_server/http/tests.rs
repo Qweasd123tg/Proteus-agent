@@ -252,13 +252,13 @@ async fn wait_for_transcript_text(
     text: &str,
 ) -> Vec<crate::app_server::AppTranscriptMessage> {
     for _ in 0..50 {
-        let transcript = server.transcript().await;
+        let transcript = server.transcript().await.expect("transcript");
         if transcript.iter().any(|message| message.text == text) {
             return transcript;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    server.transcript().await
+    server.transcript().await.expect("transcript")
 }
 
 #[test]
@@ -1370,10 +1370,14 @@ async fn route_history_can_read_requested_session_without_switching_current() {
         crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
             .expect("session store");
     saved_store
-        .append_messages(&[crate::model_standard::CanonicalMessage::text(
-            crate::model_standard::MessageRole::User,
-            "saved cold history",
-        )])
+        .append_history(
+            crate::domain::new_thread_id(),
+            None,
+            &[crate::model_standard::CanonicalMessage::text(
+                crate::model_standard::MessageRole::User,
+                "saved cold history",
+            )],
+        )
         .await
         .expect("append saved history");
     let server = AgentAppServer::launch(
@@ -1426,10 +1430,14 @@ async fn route_context_can_read_requested_session_without_switching_current() {
         crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
             .expect("session store");
     saved_store
-        .append_messages(&[crate::model_standard::CanonicalMessage::text(
-            crate::model_standard::MessageRole::User,
-            "saved cold context",
-        )])
+        .append_history(
+            crate::domain::new_thread_id(),
+            None,
+            &[crate::model_standard::CanonicalMessage::text(
+                crate::model_standard::MessageRole::User,
+                "saved cold context",
+            )],
+        )
         .await
         .expect("append saved history");
     let server = AgentAppServer::launch(
@@ -1730,6 +1738,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
             .await
             .transcript()
             .await
+            .expect("transcript")
             .iter()
             .any(|message| message.text == "sent to original session")
     );

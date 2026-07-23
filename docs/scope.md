@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-18.
+Последнее обновление: 2026-07-23.
 
 ## Короткий Ответ
 
@@ -34,7 +34,8 @@ fail-closed shell isolation и обязательный auth для non-loopback
   языконезависимым JSON-RPC протоколом;
 - file/git/shell/plan tools через default plugins;
 - mode-aware policy, approvals и session-scoped control plane;
-- JSONL sessions, request/config snapshots и pre-compaction archives;
+- canonical append-only session journal, config snapshots, resume/transcript
+  projections и eval report;
 - HTTP/SSE app-server, chat client и Inspector;
 - sequential и process subagents;
 - параллельные read-only роли и worktree isolation для пишущих ролей;
@@ -57,14 +58,15 @@ ABI и внутренние DTO, если dogfood показывает непр�
 закрыты: raw seam и lifecycle interactive exec; внешние языконезависимые
 `SearchBackend` и pure-transform `HistoryCompactor` с runnable Python
 references; root-session steering/follow-up с server-owned web queue;
-versioned atomic install bundle и design
-[canonical turn data](canonical-turn-data.md). Владелец выбрал compactor-трек;
+versioned atomic install bundle и реализованный
+[canonical turn data](canonical-turn-data.md) cutover. Владелец выбрал compactor-трек;
 `pi_rpc_reasoner` оставлен дальней теорией для отдельного обсуждения.
 
 Следующий практический шаг — не новая platform feature, а readiness dogfood:
-несколько небольших web/app-server задач и проверка, что trace локализует
-failure. Реализация canonical journal обсуждается после этого как один кластер
-parts + storage + replay + eval; текущий документ пока только design.
+несколько небольших web/app-server задач и проверка, что journal + telemetry
+локализуют failure. Canonical parts/journal, resume/transcript и eval уже
+реализованы; prompt/workflow replay runners остаются отдельным следующим
+потребителем, а не новой storage migration.
 
 Lifecycle-подзадача stabilization checkpoint закрыта неделей 1. Более широкий
 readiness-checkpoint ниже остаётся обязательным: он дополнительно включает
@@ -125,11 +127,12 @@ handle принадлежит runtime session/thread/workspace: тот же thre
    переключает `current`;
 4. несколько небольших coding-задач проходят через web/app-server без потери
    контроля, worktree или процесса;
-5. trace позволяет объяснить failure без ручного чтения исходников runtime.
+5. journal и telemetry позволяют объяснить failure без ручного чтения
+   исходников runtime.
 
-После этого следующий архитектурный вопрос — canonical turn data:
-parts/storage/replay/eval должны проектироваться вместе, чтобы не мигрировать
-session format несколько раз.
+После этого выбирается следующий измеримый шаг: replay/eval runner поверх уже
+сохранённых canonical records либо smallest dogfood defect. Новый session
+format без измеренного bottleneck не проектируется.
 
 ## Не На Критическом Пути
 

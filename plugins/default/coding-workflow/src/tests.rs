@@ -546,7 +546,7 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
         .new_messages
         .iter()
         .find_map(|message| {
-            message.parts.iter().find_map(|part| match part {
+            message.parts.iter().find_map(|part| match &part.payload {
                 ContentPart::ToolResult { result } => Some(result.output.as_str()),
                 _ => None,
             })
@@ -583,7 +583,7 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
             .any(|tool| tool.name == dynamic_tools::TOOL_CALL)
     );
     assert!(requests[1].messages.iter().any(|message| {
-        message.parts.iter().any(|part| match part {
+        message.parts.iter().any(|part| match &part.payload {
             ContentPart::ToolResult { result } => result.output == "read_file ok",
             _ => false,
         })
@@ -862,7 +862,7 @@ fn codex_loop_returns_unrequested_tool_error_to_model_without_execution() {
         .messages
         .iter()
         .flat_map(|message| &message.parts)
-        .find_map(|part| match part {
+        .find_map(|part| match &part.payload {
             ContentPart::ToolResult { result } if result.call_id == call.id => Some(result),
             _ => None,
         })
@@ -1217,7 +1217,7 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
         .new_messages
         .iter()
         .find_map(|message| {
-            message.parts.iter().find_map(|part| match part {
+            message.parts.iter().find_map(|part| match &part.payload {
                 ContentPart::ToolResult { result } => Some(result),
                 _ => None,
             })
@@ -1484,7 +1484,7 @@ fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
         execute_request.messages.iter().any(|message| {
             message.parts.iter().any(|part| {
                 matches!(
-                    part,
+                    &part.payload,
                     ContentPart::ToolResult { result } if result.output.contains("read_file ok")
                 )
             })

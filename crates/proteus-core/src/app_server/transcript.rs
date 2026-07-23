@@ -1,9 +1,13 @@
 use serde_json::Value;
 
 use crate::{
-    domain::{Citation, HostedToolActivity, HostedToolStatus, ToolResult},
+    domain::{Citation, HostedToolActivity, HostedToolStatus, ToolCall, ToolResult},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
+
+mod journal;
+
+pub(crate) use journal::journal_transcript_messages;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AppTranscriptMessage {
@@ -44,20 +48,7 @@ pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTrans
     for message in messages {
         append_transcript_message(&mut transcript, message);
     }
-    // Закоммиченная история пишется только по завершении хода: ToolCall без
-    // парного ToolResult — прерванный/потерянный вызов, а не бегущий. Отдать
-    // его как "running" — значит навсегда крутящийся спиннер у клиента
-    // (терминального события для него уже не будет). Живые бегущие вызовы
-    // приходят не отсюда, а из turn_progress-хвоста.
-    for message in &mut transcript {
-        if let Some(tool) = message
-            .tool
-            .as_mut()
-            .filter(|tool| tool.status == "running")
-        {
-            tool.status = "interrupted".to_owned();
-        }
-    }
+    finalize_interrupted_tools(&mut transcript);
     transcript
 }
 
@@ -68,7 +59,7 @@ fn append_transcript_message(
     let role = transcript_role(&message.role).to_owned();
     let mut text_parts = Vec::new();
     for part in &message.parts {
-        match part {
+        match &part.payload {
             ContentPart::Text { text }
             | ContentPart::ReasoningSummary { text }
             | ContentPart::Reasoning { text, signature: _ }
@@ -78,20 +69,7 @@ fn append_transcript_message(
             }
             ContentPart::ToolCall { call } => {
                 flush_transcript_text(transcript, &role, &mut text_parts);
-                transcript.push(AppTranscriptMessage {
-                    role: "system".to_owned(),
-                    text: String::new(),
-                    tool: Some(AppTranscriptTool {
-                        call_id: call.id.clone(),
-                        name: call.name.clone(),
-                        args: call.args.clone(),
-                        status: "running".to_owned(),
-                        result: None,
-                        metadata: Value::Null,
-                    }),
-                    subagent: None,
-                    streaming: false,
-                });
+                append_transcript_tool_call(transcript, call);
             }
             ContentPart::ToolResult { result } => {
                 flush_transcript_text(transcript, &role, &mut text_parts);
@@ -108,6 +86,37 @@ fn append_transcript_message(
         }
     }
     flush_transcript_text(transcript, &role, &mut text_parts);
+}
+
+fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call: &ToolCall) {
+    transcript.push(AppTranscriptMessage {
+        role: "system".to_owned(),
+        text: String::new(),
+        tool: Some(AppTranscriptTool {
+            call_id: call.id.clone(),
+            name: call.name.clone(),
+            args: call.args.clone(),
+            status: "running".to_owned(),
+            result: None,
+            metadata: Value::Null,
+        }),
+        subagent: None,
+        streaming: false,
+    });
+}
+
+fn finalize_interrupted_tools(transcript: &mut [AppTranscriptMessage]) {
+    // Durable history/journal no longer has a live producer. A call without a
+    // terminal result is interrupted, not an eternally running UI activity.
+    for message in transcript {
+        if let Some(tool) = message
+            .tool
+            .as_mut()
+            .filter(|tool| tool.status == "running")
+        {
+            tool.status = "interrupted".to_owned();
+        }
+    }
 }
 
 fn append_hosted_tool_activity(

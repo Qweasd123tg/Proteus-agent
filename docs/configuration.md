@@ -614,7 +614,7 @@ canonical context вставляется перед последним retained 
 или replacement без сокращения истории возвращаются как ошибка compaction, без
 deterministic fallback. Если compaction реально меняет историю, runtime получает
 `HistoryCompactionReport`, испускает lifecycle events и атомарно заменяет
-in-memory/session `messages.jsonl` compacted-срезом; request-scoped
+in-memory history append-only record-ом `history_mutated/replace`; request-scoped
 `ContentPart::Context` в persistent history не попадает. Typed
 `CacheHints.routing_key` компактора всегда укладывается в `64` символа;
 provider wire field формируется только adapter-ом.
@@ -1177,8 +1177,7 @@ user-input requests пустым ответом.
   "runtime": {
     "model_timeout_ms": 10800000,
     "context_timeout_ms": 30000,
-    "workflow_timeout_ms": 14400000,
-    "persist_request_snapshots": true
+    "workflow_timeout_ms": 14400000
   }
 }
 ```
@@ -1189,18 +1188,19 @@ model request. `runtime.workflow_timeout_ms` ограничивает весь w
 если workflow-плагин или встроенный workflow не вернул результат вовремя, turn
 завершается ошибкой и runtime lock освобождается. Для sync dylib-плагинов это
 не является hard-kill уже запущенного native кода; для недоверенных плагинов
-нужна process isolation. При timeout turn завершается ошибкой вместо
+нужна process isolation. При timeout turn получает canonical settlement
+`timeout` вместо
 бесконечного await.
 
 Значение `0` у `runtime.model_timeout_ms` или `runtime.workflow_timeout_ms`
 отключает соответствующий timeout. Дефолты рассчитаны на медленные reasoning
 модели: 3 часа на один model request и 4 часа на весь workflow turn.
 
-`runtime.persist_request_snapshots` по умолчанию `true`: core пишет полный
-shaped `CanonicalModelRequest` каждого provider-вызова в session-local
-`requests.jsonl`. Это durable debug/replay/eval snapshot, не runtime event.
-При `false` файл `requests.jsonl` не создаётся; event log продолжает писать
-обычные telemetry-события вроде `ModelRequestPrepared`.
+Полный shaped `CanonicalModelRequest` каждого provider-вызова всегда пишется в
+session `journal.jsonl` до adapter call; terminal response/error связывается с
+ним через `exchange_id`. Это canonical execution fact, поэтому отдельного
+runtime toggle нет. Event log независимо продолжает писать telemetry-события
+вроде `ModelRequestPrepared`.
 
 ## Policy
 

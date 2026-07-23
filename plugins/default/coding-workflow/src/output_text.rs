@@ -7,7 +7,7 @@ pub(crate) fn message_text(message: &CanonicalMessage) -> String {
     let text = message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
         })
@@ -41,10 +41,14 @@ pub(crate) fn output_text(message: &CanonicalMessage, messages: &[CanonicalMessa
 
 fn latest_tool_result(messages: &[CanonicalMessage]) -> Option<&ToolResult> {
     messages.iter().rev().find_map(|message| {
-        message.parts.iter().rev().find_map(|part| match part {
-            ContentPart::ToolResult { result } => Some(result),
-            _ => None,
-        })
+        message
+            .parts
+            .iter()
+            .rev()
+            .find_map(|part| match &part.payload {
+                ContentPart::ToolResult { result } => Some(result),
+                _ => None,
+            })
     })
 }
 

@@ -1,6 +1,6 @@
 //! Дочерний агентский цикл (модель → tools → модель) и его helpers.
 
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -106,6 +106,11 @@ pub(super) async fn run_child_loop(
                     CacheHints::new(true, true)
                         .with_routing_key(child_cache_routing_key(ctx.thread_id)),
                 )
+                .with_client_metadata(BTreeMap::from([
+                    ("session_id".to_owned(), ctx.session_id.to_string()),
+                    ("thread_id".to_owned(), ctx.thread_id.to_string()),
+                    ("turn_id".to_owned(), ctx.turn_id.to_string()),
+                ]))
                 .with_metadata(json!({
                     "suppress_stream_deltas": true,
                 }));
@@ -216,7 +221,7 @@ fn message_text(message: &CanonicalMessage) -> Option<String> {
     let text = message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
         })

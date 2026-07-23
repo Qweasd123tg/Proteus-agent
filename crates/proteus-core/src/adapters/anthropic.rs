@@ -567,7 +567,7 @@ mod tests {
         match &final_events[0] {
             ModelStreamEvent::Response { response } => {
                 assert!(matches!(
-                    &response.message.parts[0],
+                    &response.message.parts[0].payload,
                     ContentPart::Reasoning { text, signature }
                         if text == "checked constraints" && signature.as_deref() == Some("sig")
                 ));
@@ -605,7 +605,7 @@ mod tests {
                 .message
                 .parts
                 .iter()
-                .all(|part| !matches!(part, ContentPart::ToolCall { .. }))
+                .all(|part| !matches!(&part.payload, ContentPart::ToolCall { .. }))
         );
     }
 
@@ -768,7 +768,7 @@ mod tests {
                     .message
                     .parts
                     .iter()
-                    .filter_map(|part| match part {
+                    .filter_map(|part| match &part.payload {
                         ContentPart::Text { text } => Some(text.as_str()),
                         _ => None,
                     })
@@ -877,7 +877,7 @@ mod tests {
                 .message
                 .parts
                 .iter()
-                .filter_map(|p| match p {
+                .filter_map(|p| match &p.payload {
                     ContentPart::Text { text } => Some(text.as_str()),
                     _ => None,
                 })

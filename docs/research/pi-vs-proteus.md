@@ -77,7 +77,7 @@ control-plane качеством, а не наличием похожей фун
 |---|---|---|---|
 | Providers и auth | Десятки providers, API keys и subscription login | OpenAI, Anthropic, compatible и fake | Не участвовать в гонке providers |
 | Повседневный UI | Зрелый differential TUI | Dogfood web-клиент и простой CLI | Не строить TUI parity |
-| Sessions | JSONL tree, branch, fork, clone, labels, import/export | Линейная history, resume, snapshots и pre-compaction archive | Не копировать tree UX без eval-потребности |
+| Sessions | JSONL tree, branch, fork, clone, labels, import/export | Линейная history, canonical journal и resume | Не копировать tree UX без eval-потребности |
 | Extensions | TypeScript hooks для tools, commands, provider payload, context, compaction и UI | Narrow traits + dylib ABI | Не продавать dylib как более удобную ecosystem |
 | Distribution | npm/git Pi Packages, install/update/config/reload | Локальный `install.sh`, plugins при старте | Заморозить marketplace/package-manager идеи |
 | Embedding | Interactive, print, JSON, RPC и SDK | CLI, HTTP/SSE и stdio app-server | Использовать Pi RPC как baseline, не переписывать его core |
@@ -130,18 +130,19 @@ surface, но не делает взаимозаменяемость search/cont
 
 ### 3. Correlated Trace, Replay И Eval
 
-Proteus уже хранит `EventEnvelope` с session/thread/turn/seq, request/config
-snapshots и pre-compaction history. App-server несёт correlated events и
-inspection endpoints; web отображает approvals/subagent attribution, а
-Inspector — topology.
+Proteus уже хранит canonical journal с session/thread/turn/sequence,
+request/response/tool records, config snapshots и compaction lineage.
+App-server несёт correlated live events и inspection endpoints; web отображает
+approvals/subagent attribution, а Inspector — topology.
 
 Но текущий `eval report` — только агрегация trace. Пока нет one-command runner,
 versioned corpus, scoring по tests/diff/cost и сравнительного отчёта, это не
 преимущество, а незавершённая инфраструктура.
 
-Именно кластер `canonical turn data -> storage -> replay -> eval` должен стать
-следующим продуктовым доказательством. Без него best-of packs являются более
-дорогой версией Pi Packages.
+Storage часть кластера `canonical turn data -> replay -> eval` закрыта
+2026-07-23. Следующим продуктовым доказательством остаются replay/eval runner,
+versioned corpus и scoring; без них best-of packs являются более дорогой
+версией Pi Packages.
 
 ### 4. Supervised Multi-Agent Control Plane
 
@@ -168,7 +169,7 @@ capability. Это задел для проверки, а не готовый mu
 
 - `ToolOrchestrator`, policy/approval contracts и fail-closed shell sandbox;
 - `proteus-process-host` как reusable persistent stdio lifecycle primitive;
-- correlated event envelope, request/config snapshots и app protocol;
+- canonical journal, correlated event envelope, config snapshots и app protocol;
 - worktree/process subagent lifecycle, ownership, attribution и budgets;
 - module swap/boundary tests;
 - provider-neutral canonical model только как слой нормализации экспериментов.

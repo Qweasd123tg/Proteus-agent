@@ -1,17 +1,18 @@
 # Design: Canonical Turn Data
 
-Статус: **planned, только design**. Код и текущий session format этим
-документом не меняются. Дата решения: 2026-07-20.
+Статус: **journal v1 и storage cutover реализованы**. Resume history, web
+transcript и eval читают canonical journal; отдельные prompt/workflow replay
+команды пока не реализованы. Дата решения: 2026-07-20, cutover: 2026-07-23.
 
 ## Решение
 
-Следующий storage/replay/eval срез должен строиться вокруг одного
+Storage/replay/eval контур строится вокруг одного
 append-only **session journal**. Его versioned records становятся
 канонической записью принятых user messages, model exchanges, tool lifecycle,
 изменений conversation history и settlement turn-а.
 
-`messages.jsonl`, transcript, replay input и eval rows должны быть проекциями
-этого journal, а не независимыми источниками правды. Event log остаётся
+Resume history, transcript, будущий replay input и eval rows являются
+проекциями этого journal, а не независимыми источниками правды. Event log остаётся
 телеметрией: он может быть отфильтрован, усечён или отключён и поэтому не
 используется для восстановления execution facts.
 
@@ -21,13 +22,13 @@ adapter-а и может сохраняться отдельно как opt-in d
 
 ## Зачем Один Контур
 
-Сейчас полезные факты разделены:
+До cutover полезные факты были разделены:
 
-- `messages.jsonl` хранит текущую conversation history, но compaction заменяет
+- старый `messages.jsonl` хранил текущую conversation history, но compaction заменял
   её проекцию;
-- `messages.pre-compaction.N.jsonl` страхует старую историю, но не описывает
+- `messages.pre-compaction.N.jsonl` страховал старую историю, но не описывал
   lineage как данные;
-- `requests.jsonl` хранит shaped `CanonicalModelRequest`, но не canonical
+- `requests.jsonl` хранил shaped `CanonicalModelRequest`, но не canonical
   response и не связь с tool/result boundary;
 - `config_snapshot.json` фиксирует последний resolved startup snapshot;
 - event log объясняет lifecycle, но намеренно не является lossless записью:
@@ -53,9 +54,9 @@ DTO, а core фиксирует факт только в своей lifecycle bo
 
 ### Parts
 
-Перед реализацией journal `ContentPart` нужно обернуть в явный part record со
-стабильным `part_id`, provenance и scope. Структурная семантика не должна
-угадываться по `message.name` или свободному `metadata`.
+В journal cutover `ContentPart` обёрнут в явный `CanonicalPart` со стабильным
+`part_id`, provenance и scope. Структурная семантика не угадывается по
+`message.name` или свободному `metadata`.
 
 Минимальные измерения:
 
@@ -74,12 +75,12 @@ Reasoning signatures, tool call ids и исходные provider arguments, уж
 представленные canonical DTO, сохраняются без текстового flattening. Raw
 chain-of-thought не становится обязательной частью journal.
 
-`HostedToolActivity` и `Citation` уже являются текущими canonical response
-parts для provider-side execution. Они обязаны пережить будущий journal и его
-transcript/eval projections, но не превращаются в локальную пару
+`HostedToolActivity` и `Citation` являются canonical response parts для
+provider-side execution и сохраняются в journal/transcript/eval projections,
+но не превращаются в локальную пару
 `ToolCall`/`ToolResult` и не дают replay права повторить hosted side effect.
-Будущий part record должен явно закрепить их provenance/scope; угадывать hosted
-execution по provider metadata или тексту ответа нельзя.
+`CanonicalPart` явно закрепляет их provenance/scope; угадывать hosted execution
+по provider metadata или тексту ответа нельзя.
 
 ## Journal v1
 
@@ -98,14 +99,14 @@ payload
 ```
 
 `session_seq` монотонен внутри session и задаёт единственный порядок между
-root/child threads. `record_id` делает retry записи идемпотентным. Порядок
-event log не переиспользуется: telemetry fan-out и canonical commit имеют
-разные гарантии.
+root/child threads. `record_id` идентифицирует record и делает дубликат
+обнаруживаемой corruption; отдельного публичного retry API writer не даёт.
+Порядок event log не переиспользуется: telemetry fan-out и canonical commit
+имеют разные гарантии.
 
 Минимальный набор `kind`:
 
-- `turn_opened` — task, base history revision и ссылка на runtime/config
-  snapshot;
+- `turn_opened` — task, base history revision и runtime/config snapshot;
 - `history_mutated` — append принятых user/steering или workflow messages либо
   replace после compaction; содержит previous/new revision и сами canonical
   messages;
@@ -146,13 +147,13 @@ pre-compaction exchanges и точную lineage. Отдельные
 `messages.pre-compaction.N.jsonl` после перехода больше не нужны как источник
 данных.
 
-`messages.jsonl` может временно существовать только как rebuildable cache для
-быстрого resume. При расхождении прав journal; cache удаляется и строится
-заново.
+Отдельного history cache после cutover нет: resume всегда fold-ит
+`history_mutated` из journal. Добавлять rebuildable cache следует только после
+измеренного bottleneck и с явным правилом, что при расхождении прав journal.
 
 ## Большие Payload
 
-Journal envelope с первой версии должен поддерживать storage value в двух
+Journal envelope с первой версии поддерживает storage value в двух
 формах: inline JSON и content-addressed blob reference `{sha256, bytes,
 relative_path}`. Семантический DTO после hydration одинаков в обоих случаях.
 
@@ -179,41 +180,44 @@ contract.
 
 ## Проекции И Replay
 
-Из одного journal строятся:
+Из одного journal строятся или могут быть построены:
 
-- resume history — fold history revisions;
-- web transcript — render conversation parts и terminal tool cards;
+- resume history — fold history revisions (**реализовано**);
+- web transcript — render conversation parts и terminal tool cards
+  (**реализовано**; live delta-tail остаётся process-resident);
 - trace — lifecycle view с ids и длительностями, дополненная event log для
   live deltas;
 - eval rows — task, exact shaped requests/responses, tool decisions/results и
-  outcome без парсинга UI-текста;
-- prompt replay — повтор provider call по сохранённому request;
+  outcome без парсинга UI-текста (**реализовано**);
+- prompt replay — повтор provider call по сохранённому request
+  (**данные есть, команда planned**);
 - workflow replay — подстановка записанных model/tool результатов без внешних
-  side effects.
+  side effects (**данные есть, runner planned**).
 
 «Живой rerun tools» — отдельный опасный режим, не replay по умолчанию.
 Provider wire replay также не является canonical: adapter снова формирует wire
 из сохранённого canonical request.
 
-## Переход
+## Выполненный Переход
 
 Проект pre-release, поэтому runtime compatibility shim и постоянный dual
-read/write не нужны. Будущая реализация должна одним изменением обновить все
-tracked producers/consumers и удалить старый active path.
+read/write не добавлялись. Cutover одним изменением обновил tracked
+producers/consumers и удалил старый active path.
 
-Порядок работы:
+Выполненные шаги:
 
-1. добавить journal DTO/writer/projector и property/regression tests на
+1. ✅ Добавлены journal DTO/writer/projector и regression tests на
    ordering, crash tail, history revision и compaction lineage;
-2. в тестовом harness доказать, что journal projection совпадает с ожидаемой
+2. ✅ В test harness доказано, что journal projection совпадает с ожидаемой
    current history/transcript;
-3. переключить runtime, resume, app-server history и eval на journal в одном
+3. ✅ Runtime, resume, app-server history и eval переключены на journal в одном
    cutover;
-4. удалить active запись/чтение `requests.jsonl`, mutable
-   `messages.jsonl` и pre-compaction archives либо оставить `messages.jsonl`
-   только явно помеченным rebuildable cache;
-5. старые локальные dogfood sessions архивировать вне active session root;
-   runtime не распознаёт старую форму молча.
+4. ✅ Удалены active запись/чтение старых request/history JSONL и
+   pre-compaction archives; rebuildable history cache не оставлен.
+5. ✅ Runtime принимает только 10-значные session directories с
+   `session.json` schema v3/journal v1. Старые локальные dogfood sessions нужно
+   вручную перенести целиком за пределы active `sessions/`; старая форма не
+   распознаётся молча.
 
 ## Не Решается Этим Документом
 
@@ -226,7 +230,7 @@ tracked producers/consumers и удалить старый active path.
 Эти решения могут использовать journal, но не должны менять его semantic
 ordering или превращать event log в второй источник истины.
 
-## Gate Будущей Реализации
+## Gate Реализации
 
 - один turn полностью восстанавливается без event log;
 - accepted user message переживает provider/workflow failure;

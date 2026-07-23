@@ -226,7 +226,7 @@ fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistory
             _ => {}
         }
         for part in &message.parts {
-            match part {
+            match &part.payload {
                 ContentPart::Text { text }
                 | ContentPart::ReasoningSummary { text }
                 | ContentPart::Reasoning { text, .. } => {

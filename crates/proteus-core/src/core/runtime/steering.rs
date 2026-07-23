@@ -218,6 +218,13 @@ impl SessionSteering {
             .collect()
     }
 
+    pub(crate) fn active_turn_id(&self) -> Option<TurnId> {
+        self.state
+            .lock()
+            .expect("steering state lock")
+            .active_turn_id
+    }
+
     pub(crate) fn queued_count_handle(&self) -> Arc<AtomicUsize> {
         self.queued_count.clone()
     }

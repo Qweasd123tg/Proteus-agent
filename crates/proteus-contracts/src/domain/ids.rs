@@ -4,6 +4,9 @@ pub type SessionId = Uuid;
 pub type ThreadId = Uuid;
 pub type TurnId = Uuid;
 pub type MessageId = Uuid;
+pub type PartId = Uuid;
+pub type RecordId = Uuid;
+pub type ExchangeId = Uuid;
 pub type CallId = String;
 pub type EventId = Uuid;
 
@@ -20,6 +23,18 @@ pub fn new_turn_id() -> TurnId {
 }
 
 pub fn new_message_id() -> MessageId {
+    Uuid::new_v4()
+}
+
+pub fn new_part_id() -> PartId {
+    Uuid::new_v4()
+}
+
+pub fn new_record_id() -> RecordId {
+    Uuid::new_v4()
+}
+
+pub fn new_exchange_id() -> ExchangeId {
     Uuid::new_v4()
 }
 

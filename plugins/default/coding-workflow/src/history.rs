@@ -1,6 +1,6 @@
 use proteus_contracts::{
-    domain::{CONTEXT_MESSAGE_NAME, MessageId},
-    model_standard::{CanonicalMessage, ContentPart},
+    domain::MessageId,
+    model_standard::{CanonicalMessage, PartScope},
     plugin::PluginWorkflowError,
 };
 use serde_json::Value;
@@ -65,9 +65,9 @@ pub(crate) fn replace_after_compaction(
 }
 
 fn is_ephemeral_context_message(message: &CanonicalMessage) -> bool {
-    message.name.as_deref() == Some(CONTEXT_MESSAGE_NAME)
-        || message
+    !message.parts.is_empty()
+        && message
             .parts
             .iter()
-            .all(|part| matches!(part, ContentPart::Context { .. }))
+            .all(|part| part.scope == PartScope::Request)
 }

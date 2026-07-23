@@ -805,7 +805,7 @@ async fn transcript_projects_runtime_history_for_resume_ui() {
         .await
         .expect("turn output");
 
-    let transcript = handle.transcript().await;
+    let transcript = handle.transcript().await.expect("transcript");
     assert!(
         transcript
             .iter()
@@ -879,19 +879,32 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
     let saved_store =
         SessionStore::new(config_dir.path(), cwd.path(), saved_session_id).expect("session store");
     saved_store
-        .append_messages(&[CanonicalMessage::text(
-            MessageRole::User,
-            "restore saved chat",
-        )])
+        .append_history(
+            crate::domain::new_thread_id(),
+            None,
+            &[CanonicalMessage::text(
+                MessageRole::User,
+                "restore saved chat",
+            )],
+        )
         .await
         .expect("append saved messages");
 
-    let empty_uuid_dir = saved_store
-        .session_dir()
-        .parent()
-        .expect("workspace session directory")
-        .join(new_session_id().to_string());
-    std::fs::create_dir_all(empty_uuid_dir).expect("empty UUID session dir");
+    let empty_store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id())
+        .expect("empty session store");
+    let empty_thread = crate::domain::new_thread_id();
+    empty_store
+        .append_history(
+            empty_thread,
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "temporary")],
+        )
+        .await
+        .expect("materialize empty session");
+    empty_store
+        .clear_history(empty_thread)
+        .await
+        .expect("clear empty session");
 
     let handle = AgentAppServer::launch_or_resume_latest(
         AppConfig::default(),
@@ -907,7 +920,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
     );
     assert_eq!(handle.runtime.history().await.len(), 1);
     assert_eq!(
-        handle.transcript().await[0].text,
+        handle.transcript().await.expect("transcript")[0].text,
         "restore saved chat".to_owned()
     );
     handle.shutdown().await;

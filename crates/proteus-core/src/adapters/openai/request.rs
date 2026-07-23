@@ -323,7 +323,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
     let mut tool_call_surfaces = HashMap::new();
     for message in messages {
         for part in &message.parts {
-            match part {
+            match &part.payload {
                 ContentPart::Text { text } => input.push(json!({
                     "type": "message",
                     "role": role_to_openai(&message.role),

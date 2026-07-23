@@ -35,12 +35,13 @@ Roadmap хранит порядок работ и журнал уже приня
    `install.sh` публикует atomic binary/plugin bundle, design canonical turn
    data зафиксирован отдельно. `pi_rpc_reasoner` отложен владельцем как дальняя
    теория.
-7. После месяца: canonical turn data как один кластер (parts + storage +
-   replay + eval), затем dogfood-задачи перед merge-role/новым UI/packs.
+7. ✅ Закрыто 2026-07-23: canonical parts + append-only journal v1 одним
+   pre-release cutover переключили resume/transcript/eval; старые active
+   storage paths удалены. Prompt/workflow replay runners остаются отдельными
+   потребителями уже сохранённых records.
 
-Пункты 4–6 закрыты; текущий следующий шаг — readiness dogfood и разбор trace,
-а не новая platform feature. Затем canonical turn data рассматривается одним
-кластером parts + storage + replay + eval.
+Пункты 4–7 закрыты; текущий следующий шаг — journal/readiness dogfood и разбор
+trace, а не новая storage migration или platform feature.
 
 ## Цель
 
@@ -335,8 +336,8 @@ regressions и Trunk build.
 ✅ Хвосты закрыты 2026-07-20: docs описывают оба process slots; `install.sh`
 staging-ит binary и 14 default plugins в versioned release и атомарно
 переключает `current`, сохраняя personal overlay; короткий
-[design canonical turn data](canonical-turn-data.md) остаётся только бумагой —
-входом для Кластера 1 аудита 2026-07-06, а не уже реализованным storage.
+[design canonical turn data](canonical-turn-data.md) стал входом для
+реализованного 2026-07-23 journal cutover-а.
 
 ### Не В Этом Месяце
 
@@ -367,32 +368,21 @@ harness и недеструктивная компакция — потреби�
 каноническая запись turn-а». Решать по отдельности — платить за миграцию
 хранилища несколько раз.
 
-Подтверждённые дыры:
+Статус: **кластер закрыт storage cutover-ом 2026-07-23**.
 
-- компакция необратимо стирает историю: `replace_messages`
-  (`core/session_store.rs:162`) переписывает `messages.jsonl` без архива;
-  единственный вызов — `core/runtime.rs:316`;
-  **реализовано:** перед replace текущая history архивируется как
-  `messages.pre-compaction.N.jsonl`;
-- event log — телеметрия, не запись: `ContextBuilt {chunks,
-  token_estimate}`, `ModelRequestPrepared {ModelRef}`
-  (`contracts/domain/events.rs:229`); tool output усекается до записи в
-  durable log (`core/tool_orchestrator.rs:215`), оригинал теряется; дельты
-  в durable log по умолчанию не пишутся;
-  **реализовано частично:** полный shaped `CanonicalModelRequest` пишется в
-  session-local `requests.jsonl` вне event enum;
-- для нового 10-digit session basename полный id хранится в `session.json`;
-  ранее созданный UUID basename также читается; workspace задаётся encoded
-  parent directory; config/profile снапшота нет —
-  **реализовано:** session-local `config_snapshot.json` фиксирует последний
-  resolved startup/persist snapshot.
-
-Дешёвый ранний ход реализован: `CanonicalModelRequest` уже полностью
-serde-сериализуем (`model_standard/canonical_request.rs:11`), поэтому core
-теперь персистит request snapshots (`requests.jsonl`), config snapshots
-(`config_snapshot.json`) и архивирует до-компакционную историю rename-ом до
-любых решений по storage engine. Это разблокирует replay/eval/A-B (clone
-pipeline) почти бесплатно.
+- `CanonicalMessage.parts` получил stable `part_id`, explicit provenance и
+  scope; ephemeral request context больше не определяется по имени message.
+- `journal.jsonl` schema v1 хранит accepted user messages, exact shaped model
+  requests/responses, tool decisions/results, history revisions/compaction
+  lineage и turn settlement. Event log остался телеметрией.
+- Resume, completed web transcript и eval стали journal projections;
+  compaction больше не удаляет исходные execution records.
+- Промежуточные draft-файлы request/history и pre-compaction archives удалены,
+  без dual-read/dual-write. `session.json` schema v3 принимает только
+  10-значный basename; старые dogfood sessions архивируются вручную.
+- Prompt replay и workflow replay не входят в этот cutover, но больше не
+  требуют новой canonical storage формы: нужные request/response/tool facts
+  уже связаны ids и sequence.
 
 ### Кластер 2: изоляция subagent — иллюзия; parallel гейтится на control plane
 
@@ -484,8 +474,9 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 - межпаковые строковые контракты без producer-проверки — инвентарь в
   `docs/pack-contracts.md`;
 - ✅ Исправлено 2026-07-22 после readiness dogfood: writer снова использует
-  короткий 10-digit basename + полный `SessionId` в `session.json`; reader
-  принимает также UUID basename, а collision/mismatch fail-closed;
+  короткий 10-digit basename + полный `SessionId` в `session.json`;
+  **superseded cutover-ом 2026-07-23:** reader теперь принимает только
+  short/schema-v3 journal sessions;
 - ✅ Закрыто 2026-07-17: recovery пустого OpenAI-compatible streaming-ответа
   перенесён из generic `ModelService` в OpenAI adapter; terminal canonical
   `Response` теперь является обязанностью каждого provider adapter-а;
@@ -497,11 +488,10 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
 
 ### Рекомендованный порядок
 
-1. ✅ Реализовано: session-local снапшоты request/config (`requests.jsonl`,
-   `config_snapshot.json`) + архив до-компакционной истории
-   (`messages.pre-compaction.N.jsonl`) — дешёвый шаг для replay/eval/clone-pipeline.
-2. Единое решение по данным (parts + storage engine + replay) до
-   eval runner-а.
+1. ✅ Промежуточный request/config/archive slice был реализован, затем целиком
+   заменён canonical journal v1 без compatibility shims.
+2. ✅ Единое решение по parts/storage и eval реализовано; prompt/workflow
+   replay остаются следующими consumers, а не новой storage-задачей.
 3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
    MCP stdio host в core мигрирован на него (initializer-hook для
    handshake); остался LSP-плагин как следующий потребитель.
@@ -746,17 +736,11 @@ Scope:
   Это Proteus Codex-shaped slice без fork/nesting, durable restart,
   writer/worktree spawn или parity claim;
 - ✅ session resume/restore;
-- 🟡 session/request/config metadata персистится частично; canonical task/turn
-  record и replay ещё не определены;
-- event-log based debugging. Аудит 2026-07-06 подтвердил, что `events.jsonl` —
-  телеметрия, а не replay-лог. Дешёвый evidence-срез после аудита уже сделан:
-  полный shaped `CanonicalModelRequest` пишется в `requests.jsonl`, resolved
-  config/profile — в `config_snapshot.json`, а до-compaction history
-  архивируется. Для replay ("тот же вход, другой модуль/промпт") по-прежнему
-  нет canonical task/turn record; оригинальный tool output может быть усечён до
-  durable event, а ephemeral context не входит в persistent conversation.
-  Parts/storage/replay/eval поэтому остаются одним data-кластером, а не
-  независимыми фичами.
+- ✅ canonical task/turn/model/tool records, config snapshot и history
+  revisions персистятся в journal v1; resume/transcript/eval читают его без
+  event log. Prompt/workflow replay CLI/runner ещё не реализованы.
+- event-log based debugging остаётся telemetry дополнением: `events.jsonl` не
+  является replay-логом, может фильтровать deltas и не участвует в recovery.
 - ✅ groundwork для hot-swap/reload: `RuntimeSnapshot`/`ModuleEpoch`,
   `StdioRequest::ReloadTools`, HTTP `POST /reload-tools` и событие
   `ModulesReloaded`, без выгрузки dylib и без in-place мутации активного
@@ -778,15 +762,15 @@ Scope:
   text/reasoning/tool со state transitions, как в opencode) против текущего
   плоского event stream: решение принять на этапе стабилизации, а не после;
   вход — TUI/protocol research по opencode sources;
-- storage engine review (решается вместе с parts-моделью, не отдельно):
-  jsonl-canonical + derived rebuildable SQLite index (codex-паттерн) vs
+- storage engine review после измеренного bottleneck:
+  текущий journal v1 + derived rebuildable SQLite index (codex-паттерн) vs
   sql-native state store с event-sourced проекторами (opencode-стиль).
   Контекст: `EventStore`/`SessionStore` core-owned, без внешнего ABI —
-  миграция хранилища остаётся внутренним рефакторингом. До решения jsonl
-  остаётся единственной правдой; при ранней боли со списками сессий допустим
+  миграция хранилища остаётся внутренним рефакторингом. Journal уже является
+  единственной правдой; при ранней боли со списками сессий допустим
   промежуточный шаг — derived index, перестраиваемый из jsonl. Мотивация
   sql-native: session listing без live-summary синтеза, versioned rows вместо
-  разрушающего `replace_messages` при compaction, инкрементальная
+  revisioned replacement при compaction, инкрементальная
   персистенция стрима, part lifecycle. Цена: потеря tail/rg/jq дебаг-UX,
   rusqlite как core-зависимость, churn по event_store/session_store/eval/
   resume/docs;
@@ -881,12 +865,13 @@ Scope:
 
 - Golden coding profile: один рекомендуемый профиль, который стабильно проходит
   реальные coding tasks, а не только демонстрирует plugin architecture.
-- Eval harness поверх event log: repo understanding, focused edit, failing test
+- Eval harness поверх canonical journal: repo understanding, focused edit, failing test
   repair, approval/security refusal, long-turn cancel/resume. В отчёте
   фиксировать success/fail, duration, tokens/cost, tool calls, approvals,
   changed files, diff size, tests и failure reason.
-- Первый слой отчёта реализован командой `proteus eval report <event-log-path>`:
-  она читает durable JSONL event log и считает turns, model/tool calls,
+- Первый слой отчёта реализован командой
+  `proteus eval report <session-dir-or-journal-path>`: она читает и валидирует
+  canonical journal и считает turns, model/tool calls,
   approvals, token usage, duration, changed files и failure reason. Следующий
   шаг — runner для фиксированных eval cases и добавление tests/diff/cost
   метрик.
@@ -967,8 +952,8 @@ Scope:
   core renderer slot.
 - ✅ Базовые app-server/protocol tests существуют; расширить сценарии timeout,
   disconnect/reconnect и parallel-session/subagent ownership.
-- 🟡 Request/config snapshots и event-log debugging реализованы; canonical
-  durable task/turn record для UI/eval/replay остаётся общей data-задачей.
+- ✅ Canonical journal records питают resume/UI/eval; event log остаётся
+  debugging telemetry. Отдельными задачами остаются replay runner/CLI.
 - MCP resources/prompts/subscriptions и non-stdio transports: execution tools
   уже проходят через `ToolRegistry`, policy visibility и approval.
 - ✅ Hot-swap/reload для config-defined tools и MCP discovery: агент может
@@ -1096,16 +1081,12 @@ Scope:
   обязательный `active_provider` ссылается на `providers.<id>`. Прямая секция
   `[model]`, implicit-выбор `providers.default` и optional provider state в
   config builder/snapshot удалены; tracked configs используют одну форму.
-- ✅ Скорректировано 2026-07-22 после readiness dogfood: попытка сделать полный
-  UUID basename единственным storage-источником identity откачена как
-  неоправданное ужесточение. Writer создаёт 10-digit basename и `session.json`
-  schema v2 с полным `SessionId`; reader принимает short+metadata и UUID
-  basename (с обязательным совпадением optional metadata). Reversible encoded
-  parent directory остаётся источником workspace, поэтому её rename или
-  перенос session directory меняет cwd при следующем resume. Storage-only
-  history decoder также читает точный набор отсутствовавших полей прежних
-  persisted `ToolCall`/`ToolResult`; strict canonical DTO остаются без legacy
-  defaults.
+- ✅ Финализировано 2026-07-23 canonical journal cutover-ом: writer создаёт
+  10-digit basename и `session.json` schema v3 с полным `SessionId` и journal
+  version. Reader принимает только эту форму; UUID/schema-v2 draft sessions и
+  старые неполные storage DTO отвергаются без legacy defaults. Reversible
+  encoded parent directory остаётся источником workspace, поэтому её rename
+  или перенос session directory меняет cwd при следующем resume.
 
 ## Не Делать Сейчас
 

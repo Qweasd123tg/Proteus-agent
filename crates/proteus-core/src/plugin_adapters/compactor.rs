@@ -237,7 +237,7 @@ mod tests {
                 .message
                 .parts
                 .iter()
-                .find_map(|part| match part {
+                .find_map(|part| match &part.payload {
                     ContentPart::Text { text } => Some(text.clone()),
                     _ => None,
                 })

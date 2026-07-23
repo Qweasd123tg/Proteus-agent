@@ -153,12 +153,10 @@ async fn context_chunks_are_not_written_to_session_store() {
         .unwrap();
 
     let output = runtime.run("hello".to_owned()).await.unwrap();
-    let messages_path = runtime.session_dir().unwrap().join("messages.jsonl");
-    let contents = std::fs::read_to_string(messages_path).expect("messages jsonl");
-    let messages = contents
-        .lines()
-        .map(|line| serde_json::from_str::<CanonicalMessage>(line).expect("message"))
-        .collect::<Vec<_>>();
+    let messages = SessionStore::open(runtime.session_dir().unwrap().to_path_buf())
+        .expect("session store")
+        .load_messages()
+        .expect("journal projection");
 
     assert!(output.text.contains("Fake final answer"));
     assert_eq!(messages.len(), 2);
@@ -168,7 +166,7 @@ async fn context_chunks_are_not_written_to_session_store() {
         message
             .parts
             .iter()
-            .any(|part| matches!(part, ContentPart::Context { .. }))
+            .any(|part| matches!(&part.payload, ContentPart::Context { .. }))
     }));
 }
 
@@ -237,12 +235,9 @@ async fn runtime_can_resume_history_from_existing_session_dir() {
     assert_eq!(second.metadata["thread_id"], thread_id.to_string());
     assert_eq!(resumed.history_len().await, 4);
 
-    let messages_path = session_dir.join("messages.jsonl");
-    let lines = std::fs::read_to_string(messages_path)
-        .expect("messages jsonl")
-        .lines()
-        .count();
-    assert_eq!(lines, 4);
+    let store = SessionStore::open(session_dir).expect("session store");
+    assert_eq!(store.load_messages().expect("journal projection").len(), 4);
+    assert!(store.journal_path().exists());
 }
 
 #[tokio::test]

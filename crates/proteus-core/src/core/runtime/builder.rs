@@ -11,7 +11,7 @@ use crate::{
     core::{
         AppConfig, BuiltinModuleCatalog, BuiltinRegistry, CachedApprovalTransport,
         HeadlessApprovalTransport, HeadlessUserInputTransport, JsonlEventStore,
-        RequestSnapshotWriter, SessionConfigSnapshot, SessionStore, write_config_snapshot,
+        SessionConfigSnapshot, SessionStore, write_config_snapshot,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
 };
@@ -184,10 +184,6 @@ impl AgentRuntimeBuilder {
         {
             eprintln!("warning: failed to persist session config snapshot: {error:#}");
         }
-        let request_snapshot_writer = session_store
-            .as_ref()
-            .filter(|_| config.runtime.persist_request_snapshots)
-            .map(|store| Arc::new(RequestSnapshotWriter::new(store.session_dir())));
         let history = if resume_history {
             session_store
                 .as_ref()
@@ -205,13 +201,15 @@ impl AgentRuntimeBuilder {
         Ok(AgentRuntime {
             services: RuntimeServices {
                 cwd,
-                snapshot: RwLock::new(RuntimeSnapshot::new(ModuleEpoch::initial(), registry)),
+                snapshot: RwLock::new(RuntimeSnapshot::new(
+                    ModuleEpoch::initial(),
+                    registry,
+                    config_snapshot,
+                )),
                 reload_lock: Mutex::new(()),
                 events,
                 approval,
                 user_input,
-                request_snapshot_writer,
-                config_snapshot,
                 permission_mode: RwLock::new(permission_mode),
                 model_ref: RwLock::new(model_ref),
                 reasoning: RwLock::new(reasoning),

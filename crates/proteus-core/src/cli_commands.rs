@@ -9,10 +9,10 @@ pub(crate) fn parse_eval_report_command(task: &[String]) -> Result<Option<&str>>
     match task {
         [namespace, command, path] if namespace == "eval" && command == "report" => Ok(Some(path)),
         [namespace, command, ..] if namespace == "eval" && command == "report" => {
-            bail!("usage: proteus eval report <event-log-path>")
+            bail!("usage: proteus eval report <session-dir-or-journal-path>")
         }
         [namespace, ..] if namespace == "eval" => {
-            bail!("usage: proteus eval report <event-log-path>")
+            bail!("usage: proteus eval report <session-dir-or-journal-path>")
         }
         _ => Ok(None),
     }

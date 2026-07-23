@@ -9,8 +9,9 @@ use async_trait::async_trait;
 use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
-        HistoryCompactor, MemoryStore, Model, PatchApplier, SearchBackend, SubagentRunner,
-        ToolExposure, ToolRegistry, TurnPermissionGrants, UserInputTransport,
+        ExecutionRecorder, HistoryCompactor, MemoryStore, Model, NoopExecutionRecorder,
+        PatchApplier, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
+        TurnPermissionGrants, UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -51,6 +52,9 @@ pub struct RuntimeContext {
     /// Turn-scoped permission grants: контекст создаётся на каждый ход
     /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
     pub turn_grants: Arc<TurnPermissionGrants>,
+    /// Core-owned durable lifecycle recorder. Modules can only invoke the
+    /// narrow contract; journal storage and sequencing remain core details.
+    pub execution_recorder: Arc<dyn ExecutionRecorder>,
     /// Человекочитаемая метка исполняющего thread-а для attribution
     /// (approvals, клиентский UX). `None` — основной цикл turn-а; субагентный
     /// runner ставит имя роли.
@@ -106,6 +110,7 @@ impl RuntimeContext {
             subagent,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
             turn_grants: Arc::default(),
+            execution_recorder: Arc::new(NoopExecutionRecorder),
             thread_label: None,
         }
     }
@@ -117,6 +122,11 @@ impl RuntimeContext {
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.cancellation = cancellation;
+        self
+    }
+
+    pub fn with_execution_recorder(mut self, recorder: Arc<dyn ExecutionRecorder>) -> Self {
+        self.execution_recorder = recorder;
         self
     }
 

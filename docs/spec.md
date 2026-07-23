@@ -129,9 +129,10 @@ Runtime должен сохранять эти свойства:
 - новый `TurnId` на каждый `run()`;
 - один активный turn на session;
 - event log как append-only trace;
+- session journal как canonical append-only execution record;
 - одинаковые event envelopes при fan-out в durable/live sinks;
 - conversation history отдельно от ephemeral context;
-- session resume загружает persistent `messages.jsonl`, не ephemeral context;
+- session resume fold-ит persistent `journal.jsonl`, не ephemeral context;
 - зарегистрированные tools, включая facade-tool `task`, исполняются через
   `ToolRegistry`, mode-aware `ApprovalPolicy` и `ToolOrchestrator`.
 
@@ -147,9 +148,9 @@ Runtime должен сохранять эти свойства:
 - approval preview для `apply_patch`, `write_file` и `shell`;
 - plugin workflows `coding.single_loop`, `coding.codex_loop` и
   `coding.plan_execute_review`;
-- `eval report` поверх durable event log;
+- `eval report` поверх canonical session journal;
 - streaming model deltas через canonical model/event path;
-- durable session store, history и resume.
+- durable journal, history/transcript projections и resume.
 
 ## Planned Направления
 

@@ -56,7 +56,7 @@ fn validate_summary_response(response: &CanonicalModelResponse) -> Result<String
             .message
             .parts
             .iter()
-            .any(|part| matches!(part, ContentPart::ToolCall { .. }))
+            .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
     {
         return Err("codex compaction model summary must not request tools".to_owned());
     }

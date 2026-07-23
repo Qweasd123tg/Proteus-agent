@@ -8,7 +8,7 @@ fn cache_relevant_input(request: &CanonicalModelRequest) -> Vec<Value> {
             message
                 .parts
                 .iter()
-                .map(|part| json!({ "role": message.role, "part": part }))
+                .map(|part| json!({ "role": message.role, "part": part.payload }))
         })
         .collect()
 }

@@ -136,39 +136,35 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
-раздел «Session Store» ниже). Основной файл истории остаётся
-`messages.jsonl`: в него пишутся только committed `CanonicalMessage`, без
-эфемерных context chunks.
+раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
+строка является строгим record schema v1 с `record_id`, монотонным
+`session_seq`, timestamp, session/thread/turn ids, `kind` и payload.
 
-Перед заменой истории после компакции текущий `messages.jsonl`
-переименовывается в `messages.pre-compaction.N.jsonl` в той же директории
-сессии, где `N` — следующий номер по уже существующим архивам. Это именно
-`rename`, не копирование; если исходного `messages.jsonl` нет, архив не
-создаётся. Resume/list читают только текущий `messages.jsonl` и не подхватывают
-архивы как активную history.
+Journal фиксирует `turn_opened`, revisioned `history_mutated`, точные shaped
+model request/terminal response, tool request/approval/resolution/result и
+`turn_settled`. Conversation history для resume получается fold-ом
+`history_mutated`; request-scoped context в неё не попадает. Compaction пишет
+append-only replacement с lineage и не удаляет исходные records.
 
-`requests.jsonl` содержит снапшоты полных `CanonicalModelRequest` после
-`RequestShaper` и перед вызовом provider adapter. Каждая строка — JSON object:
-`schema_version`, `ts` (Unix ms), `thread_id`, `request`. Это не event log и не
-новый contract: файл нужен для replay/eval/debug и может быть отключён через
-`runtime.persist_request_snapshots = false`.
+Payload до 256 KiB хранится inline. Более крупный JSON до 64 MiB выносится в
+`blobs/<sha256>.json`; при чтении проверяются путь, размер и SHA-256. Оборванная
+последняя JSONL-строка отбрасывается и удаляется перед следующим append, а
+corruption в середине файла завершает load ошибкой. Sensitive JSON keys
+редактируются до записи.
 
-`config_snapshot.json` — последний startup/persist snapshot resolved runtime
+`config_snapshot.json` — последний turn/persist snapshot resolved runtime
 config для этой сессии. Текущая `schema_version = 2`: поле `active_provider`
 обязательно и содержит id точного профиля из `providers`. Snapshot
-перезаписывается при открытии существующей сессии и при первой материализации
-новой сессии. В snapshot входят profile name, active provider, active model
-ref, reasoning config, выбранные module ids, список
+перезаписывается при открытии существующей сессии и при принятии user message.
+В snapshot входят profile name, active provider, актуальные model/ref и
+reasoning config, выбранные module ids, список
 зарегистрированных tools с source/spec, `subagent_surface` и default permission
-mode. Изменения
-посреди session (например смена model из UI) остаются событиями runtime и не
-дублируются в этом файле.
+mode. Каждый `turn_opened` дополнительно содержит snapshot того же
+`RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
+override не приписываются следующему turn-у задним числом.
 
-Планируемый единый source of truth для conversation, model/tool exchanges,
-replay и eval описан в
-[canonical-turn-data.md](canonical-turn-data.md). Это design будущего cutover,
-не описание уже существующего journal: текущие файлы выше остаются active
-format.
+Полный формат и границы будущего replay описаны в
+[canonical-turn-data.md](canonical-turn-data.md).
 
 Ключевые события текущего workflow:
 
@@ -305,8 +301,8 @@ UI-клиент может хранить последний `TokenUsageUpdated`
 request-level usage по текущему turn/session и восстанавливать snapshot из
 durable event log при resume. При смене `turn_id` в `EventEnvelope` turn totals
 должны сбрасываться, session totals могут продолжать расти. Если event log
-недоступен, клиент может показать fallback-оценку по загруженной
-`messages.jsonl` истории.
+недоступен, клиент может показать fallback-оценку по resume-history projection
+из session journal.
 
 `GET /context?session_dir=<path>` возвращает diagnostic context map для
 выбранной session. Это debug/observability surface, а не отдельный источник
@@ -495,19 +491,20 @@ session мутировать новый экран.
 Сессии И Durable Snapshots» выше). Для default layout
 `~/.config/Proteus-agent/configs/config.toml` session store живёт в
 `~/.config/Proteus-agent/sessions`. Пустой старт app-server не создаёт session
-directory: `messages.jsonl` и сама directory появляются только при первой
-записи сообщений. Поэтому repeated refresh/start UI не засоряет список пустыми
-sessions.
+directory: она материализуется при первом canonical record (`turn_opened`).
+Поэтому repeated refresh/start UI не засоряет список пустыми sessions.
 
 ```text
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/session.json
-<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/messages.jsonl
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/journal.jsonl
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/config_snapshot.json
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/blobs/<sha256>.json
 ```
 
 Пример:
 
 ```text
-/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/messages.jsonl
+/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/journal.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:
@@ -522,26 +519,16 @@ sessions.
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v2. Перед записью runtime проверяет существующий metadata,
-поэтому коллизия коротких имён завершается ошибкой и не смешивает histories.
+`session.json` schema v3 вместе с `journal_schema_version = 1`. Перед записью runtime
+проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
+смешивает histories.
 
-Reader принимает два явных формата без переименования каталога:
-
-- 10 ASCII-цифр — `session.json` обязателен и является источником полного
-  `SessionId`;
-- UUID basename (hyphenated или simple) — identity читается из имени; если
-  `session.json` присутствует, его `session_id` обязан совпасть.
-
-Произвольные имена каталогов не распознаются. Новые UUID-basename directories
-не генерируются: UUID остаётся внутренним ключом runtime/events, а короткое имя
-— filesystem locator.
-
-Persisted history имеет узкую storage-only границу совместимости с ранее
-записанными draft-сессиями: decoder дополняет отсутствовавшие тогда поля
-`ToolCall.surface`, `ToolCall.raw_arguments` и `ToolResult.content` их
-каноническими пустыми/default значениями. Публичные canonical DTO от этого не
-становятся permissive, файл не переписывается, а любые другие неполные или
-неизвестные формы по-прежнему завершаются явной ошибкой.
+Reader принимает только basename из 10 ASCII-цифр с обязательным
+`session.json` schema v3. UUID-basename directories, schema v2 и неизвестные
+wire/storage формы отвергаются явно: pre-release cutover не содержит legacy
+decoder или dual-read. Старые локальные dogfood sessions следует вручную
+переместить целиком за пределы active `sessions/`, если их нужно сохранить как
+архив.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
 декодирует этот parent до создания runtime services, event log sink и tool
@@ -550,7 +537,7 @@ registry. Поэтому перенос session directory под другой en
 session во время записи перемещать нельзя. Target workspace обязан
 существовать, а имя — быть canonical encoding его пути. Runtime builder
 получает identity и workspace из уже проверенного `SessionStore`; поле
-`workspace_path` в существующем `session.json` schema v2 сохраняется как часть
+`workspace_path` в `session.json` schema v3 сохраняется как часть
 формата, но authoritative workspace остаётся encoded parent directory. Caller
 передаёт только session directory и новый `ThreadId`.
 
@@ -561,14 +548,14 @@ session во время записи перемещать нельзя. Target w
 `SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history,
 optional session store и bounded root-steering queue.
 
-Session state держит history сообщений в памяти. После обычного turn новые
-сообщения дописываются в `messages.jsonl`, если session store подключён. Если
-workflow вернул `HistoryCompactionReport` с `changed = true`, runtime заменяет
-in-memory history и атомарно переписывает `messages.jsonl` compacted-срезом,
-чтобы resume не восстанавливал старую длинную историю.
+Session state держит активную history projection в памяти. После обычного turn
+runtime добавляет `history_mutated/append`. Если workflow вернул
+`HistoryCompactionReport` с `changed = true`, runtime заменяет in-memory history
+и добавляет `history_mutated/replace` с полной compacted projection и lineage.
+Старые records остаются в journal, но resume fold получает короткую историю.
 
 Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` добавляется только в model request текущего turn и не дописывается в runtime history/session store.
-User prompt текущего turn сохраняется в in-memory history и `messages.jsonl`
+User prompt текущего turn сохраняется в in-memory history и journal
 сразу после `TurnStarted`, до вызова workflow. Поэтому если workflow,
 provider, tool loop или процесс падает позже, принятый prompt не пропадает из
 resume/history. Workflow получает input history, который уже заканчивается
@@ -582,9 +569,8 @@ suffix без повторной передачи user prompt. Changed compactio
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
 существующую session directory через `resume_from_session_dir`. При resume
-runtime восстанавливает cwd из имени parent workspace directory, загружает
-`messages.jsonl` в in-memory history и следующие turns дописывают только новые
-сообщения.
+runtime восстанавливает cwd из имени parent workspace directory, fold-ит
+`journal.jsonl` в in-memory history и следующие turns добавляют новые records.
 
 Во внешнем UI resume picker является app-client командой, а не visual-layer
 логикой. HTTP app-server отдаёт список sessions через `GET /sessions`,
@@ -606,11 +592,11 @@ workspace. Если таких sessions нет, создаётся новый in
 `<config-root>/sessions/<encoded-workspace>/`, фильтровать список по
 conversation title/branch/session id и затем перезапускать или переподключать
 transport с `--resume-session <session-dir>`. Runtime вызывает
-`resume_from_session_dir`, загружает `messages.jsonl` и продолжает дописывать
-новые сообщения в эту же session directory. Путь прямо к `messages.jsonl`
-трактуется как указание на parent session directory.
+`resume_from_session_dir`, валидирует весь journal и продолжает append в эту же
+session directory. Путь прямо к `journal.jsonl` трактуется как указание на
+parent session directory.
 
-CLI тоже принимает `--resume-session <session-dir-or-messages.jsonl>` для
+CLI тоже принимает `--resume-session <session-dir-or-journal.jsonl>` для
 single-turn и interactive mode; это тот же runtime builder path, без отдельной
 client-side slash-команды.
 
@@ -620,9 +606,9 @@ client-side slash-команды.
 перезаписывать history. Разные sessions имеют разные `SessionState`, поэтому
 HTTP app-server может вести их turns параллельно без обхода runtime lock.
 Ключи live sessions и locks session store нормализуются через canonical
-session directory. Это убирает ситуации, где один и тот же `messages.jsonl`
+session directory. Это убирает ситуации, где один и тот же `journal.jsonl`
 открыт через разные path spellings и два runtime handles параллельно пишут в
-одну историю без общего lock.
+один journal без общего lock.
 
 При обычном построении runtime новая session directory создаётся заново, если
 session store подключён. Для восстановления нужно явно передать путь к старой
@@ -719,7 +705,7 @@ model/tool loop: model request с tools, tool execution через workflow host
 
 `coding.plan_execute_review` держит plan-фазу только внутри текущего turn:
 plan response участвует в execute/review model context, но не пишется в
-persistent history и `messages.jsonl`. В историю сохраняются пользовательское
+persistent history projection. В историю сохраняются пользовательское
 сообщение, tool results, execute draft/final assistant messages и итоговый
 review answer.
 
@@ -739,7 +725,7 @@ command-level label для shell/process approvals. Если UI ответил
 `cache = "workspace_write"`, следующие requests того же workspace-scoped write
 tool в том же `cwd` будут approved независимо от args; core принимает этот
 scope только для tools, которые явно opt-in через `ToolSpec.metadata.approval`.
-Этот cache не пишется в `messages.jsonl` и не восстанавливается при resume.
+Этот cache не пишется в session journal и не восстанавливается при resume.
 
 Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
 state: interrupt/cancel, approval queue с подсказочным preview,

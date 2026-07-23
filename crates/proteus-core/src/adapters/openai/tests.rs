@@ -81,7 +81,7 @@ fn completed_function_call_is_returned_as_executable_call() {
             .message
             .parts
             .iter()
-            .any(|part| matches!(part, ContentPart::ToolCall { .. }))
+            .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
     );
 }
 
@@ -329,7 +329,7 @@ fn empty_completed_output_recovered_from_output_item_done() {
         .message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.clone()),
             _ => None,
         })
@@ -361,7 +361,7 @@ fn nonempty_completed_output_ignores_fallback_items() {
         .message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.clone()),
             _ => None,
         })
@@ -391,7 +391,7 @@ fn empty_completed_output_recovers_streamed_text_in_adapter() {
         .message
         .parts
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
         })
@@ -579,7 +579,7 @@ fn response_reasoning_item_is_preserved_for_the_next_request() {
 
     let canonical = from_openai_response(response).unwrap();
     assert!(matches!(
-        &canonical.message.parts[0],
+        &canonical.message.parts[0].payload,
         ContentPart::Reasoning { text, signature }
             if text == "first\n\nsecond"
                 && signature.as_deref() == Some("encrypted-reasoning")
@@ -829,7 +829,7 @@ fn response_preserves_hosted_activity_results_and_citations() {
     assert_eq!(canonical.finish_reason, FinishReason::Stop);
     assert!(canonical.tool_calls.is_empty());
     assert!(matches!(
-        &canonical.message.parts[0],
+        &canonical.message.parts[0].payload,
         ContentPart::HostedToolActivity {
             activity: HostedToolActivity::WebSearch {
                 id,
@@ -841,7 +841,7 @@ fn response_preserves_hosted_activity_results_and_citations() {
             && sources[0].title.as_deref() == Some("Using tools")
     ));
     assert!(matches!(
-        &canonical.message.parts[1],
+        &canonical.message.parts[1].payload,
         ContentPart::HostedToolActivity {
             activity: HostedToolActivity::FileSearch {
                 id,
@@ -858,13 +858,13 @@ fn response_preserves_hosted_activity_results_and_citations() {
             )
     ));
     assert!(matches!(
-        &canonical.message.parts[3],
+        &canonical.message.parts[3].payload,
         ContentPart::Citation {
             citation: Citation::Url { title, .. }
         } if title == "Using tools"
     ));
     assert!(matches!(
-        &canonical.message.parts[4],
+        &canonical.message.parts[4].payload,
         ContentPart::Citation {
             citation: Citation::File { file_id, .. }
         } if file_id == "file_1"
@@ -966,7 +966,7 @@ fn translate_sse_completed_emits_final_response() {
                 .message
                 .parts
                 .iter()
-                .filter_map(|p| match p {
+                .filter_map(|p| match &p.payload {
                     ContentPart::Text { text } => Some(text.as_str()),
                     _ => None,
                 })

@@ -123,7 +123,8 @@ docs/                     документация
 7. Обычный model tool call проходит через `ToolRegistry` и
    `ToolOrchestrator`: validation → visibility/policy → approval → timeout →
    execution → bounded result.
-8. Runtime сохраняет сообщения, request/config snapshots и event trace.
+8. Runtime сохраняет canonical session journal, актуальный config snapshot и
+   отдельный telemetry event trace.
 9. App-server транслирует события клиентам; UI строится по факту событий, а не
    по имени активного plugin-а.
 
@@ -224,18 +225,18 @@ Dylib-плагины — доверенный код в процессе Proteus
 Основные данные session:
 
 ```text
-messages.jsonl                     conversation history
-requests.jsonl                     shaped model requests
-config_snapshot.json               resolved config snapshot
-messages.pre-compaction.N.jsonl    архив перед compaction
+session.json                       identity, workspace и schema versions
+journal.jsonl                      canonical append-only execution records
+blobs/<sha256>.json                большие journal payloads
+config_snapshot.json               последний resolved config snapshot
 ```
 
-Глобальный event log нужен для telemetry/debug/eval report. Он не является
-полным replay log: streaming deltas обычно не персистятся, а большие tool
-outputs могут быть ограничены. Предлагаемый единый journal для будущих
-storage/replay/eval изменений описан в
-[canonical-turn-data.md](canonical-turn-data.md); это planned design, текущий
-session layout пока остаётся указанным выше.
+`journal.jsonl` — source of truth для resume history, завершённого transcript,
+model/tool lifecycle и eval. Compaction добавляет revisioned replacement, но
+не удаляет прежние records. Глобальный event log остаётся telemetry/live-debug
+каналом: streaming deltas обычно не персистятся и для восстановления execution
+facts не используются. Формат и recovery rules описаны в
+[canonical-turn-data.md](canonical-turn-data.md).
 
 ## Как Решить, Куда Положить Код
 
@@ -264,7 +265,8 @@ UI-state через generic host API, сначала стоит перепров
   subagent/worktree policy и restart-durable collaboration state требуют
   решения; текущие process idle retention и collaboration control bounded, но
   живут только в процессе;
-- eval report анализирует trace, но автоматического benchmark runner пока нет.
+- eval report анализирует canonical journal, но автоматического benchmark
+  runner пока нет.
 
 Актуальный рабочий фокус находится в [scope.md](scope.md), порядок следующих
 изменений — в [roadmap.md](roadmap.md).

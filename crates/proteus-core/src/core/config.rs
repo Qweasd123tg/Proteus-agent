@@ -731,8 +731,6 @@ pub struct RuntimeConfig {
     pub context_timeout_ms: u64,
     #[serde(default = "default_workflow_timeout_ms")]
     pub workflow_timeout_ms: u64,
-    #[serde(default = "default_persist_request_snapshots")]
-    pub persist_request_snapshots: bool,
 }
 
 impl Default for EventLogConfig {
@@ -758,7 +756,6 @@ impl Default for RuntimeConfig {
             model_timeout_ms: default_model_timeout_ms(),
             context_timeout_ms: default_context_timeout_ms(),
             workflow_timeout_ms: default_workflow_timeout_ms(),
-            persist_request_snapshots: default_persist_request_snapshots(),
         }
     }
 }
@@ -861,10 +858,6 @@ fn default_context_timeout_ms() -> u64 {
 
 fn default_workflow_timeout_ms() -> u64 {
     14_400_000
-}
-
-fn default_persist_request_snapshots() -> bool {
-    true
 }
 
 fn default_config_path() -> Option<PathBuf> {

@@ -11,7 +11,7 @@ use crate::core::{SessionStore, canonicalize_session_dir_path};
 use super::{HttpAppState, state::session_key as canonical_session_key};
 use crate::app_server::{
     AppContextMapSnapshot, AppServerHandle, AppSessionActivity, AppSessionSummary,
-    AppTranscriptMessage, transcript_messages,
+    AppTranscriptMessage, journal_transcript_messages,
 };
 
 pub(super) async fn session_summaries(
@@ -77,7 +77,7 @@ async fn known_session_summary(
     activity: AppSessionActivity,
     include_empty_idle: bool,
 ) -> Result<Option<AppSessionSummary>> {
-    let transcript = server.transcript().await;
+    let transcript = server.transcript().await?;
     let message_count = transcript.len();
     if message_count == 0 && activity.is_idle() && !include_empty_idle {
         return Ok(None);
@@ -129,15 +129,15 @@ pub(super) async fn history_json(
     query: Option<&str>,
 ) -> Result<Vec<AppTranscriptMessage>> {
     let Some(session_dir) = query_path_param(query, "session_dir")? else {
-        return Ok(state.current_server().await.transcript().await);
+        return state.current_server().await.transcript().await;
     };
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
-        return Ok(server.transcript().await);
+        return server.transcript().await;
     }
 
-    let messages = SessionStore::open(session_dir)?.load_messages()?;
-    Ok(transcript_messages(&messages))
+    let projection = SessionStore::open(session_dir)?.load_projection()?;
+    Ok(journal_transcript_messages(&projection, None))
 }
 
 pub(super) async fn context_map_json(

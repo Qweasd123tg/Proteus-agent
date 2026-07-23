@@ -177,8 +177,8 @@ non-stdio transports — отдельная задача. Если они поя
 - **compactor** - `PluginHistoryCompactor::compact_json(input_json, host) ->
   CompactionOutput`. Плагин только предлагает replacement history и сам не
   мутирует session. Текущий `coding-workflow` передаёт принятый changed report
-  runtime-у; runtime архивирует старый `messages.jsonl` как
-  `messages.pre-compaction.N.jsonl` и записывает replacement в новый файл.
+  runtime-у; runtime добавляет revisioned `history_mutated/replace` в canonical
+  journal, не удаляя прежние execution records.
   Host даёт только `is_cancelled` и `complete_model_json`, чтобы compactor мог
   сделать внутренний summary model call без доступа к tools, policy, memory
   или произвольной session mutation.
@@ -517,8 +517,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   Core fallback `none` ничего не меняет; `codex-compactor` даёт Codex-style
   handoff-summary/sliding-window compaction. Плагин только возвращает
   replacement; текущая связка `coding-workflow` + runtime при принятом
-  `changed = true` архивирует прежний `messages.jsonl` и записывает replacement
-  history в новый `messages.jsonl`.
+  `changed = true` сохраняет replacement history и lineage append-only record-ом
+  canonical journal.
 - ✅ `tool_exposure` добавлен как plugin ABI и host capability для workflow.
   Core fallback `all_visible` сохраняет старое поведение; плагинная реализация
   может искать и ранжировать большой tool catalog после policy visibility.

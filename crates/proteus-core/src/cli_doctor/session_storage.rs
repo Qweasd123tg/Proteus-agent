@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_uuid_session_directories() {
+    fn rejects_uuid_session_directories_without_legacy_fallback() {
         let config_root = tempfile::tempdir().expect("config root");
         let workspace = tempfile::tempdir().expect("workspace");
         let config_path = config_root.path().join("configs").join("config.toml");
@@ -84,11 +84,9 @@ mod tests {
         let mut findings = DoctorFindings::default();
         check_session_storage(&mut findings, Some(&config_path));
 
-        assert!(!findings.has_errors());
+        assert!(findings.has_errors());
         assert!(findings.entries.iter().any(|entry| {
-            entry.level == "ok"
-                && entry.message
-                    == "session storage: 0 compatible persisted sessions, 0 message records"
+            entry.level == "error" && entry.message.contains("must be a 10-digit id")
         }));
     }
 
@@ -100,10 +98,14 @@ mod tests {
         let store = SessionStore::new(config_root.path(), workspace.path(), new_session_id())
             .expect("short store");
         store
-            .append_messages(&[proteus_core::model_standard::CanonicalMessage::text(
-                proteus_core::model_standard::MessageRole::User,
-                "hello",
-            )])
+            .append_history(
+                proteus_core::domain::new_thread_id(),
+                None,
+                &[proteus_core::model_standard::CanonicalMessage::text(
+                    proteus_core::model_standard::MessageRole::User,
+                    "hello",
+                )],
+            )
             .await
             .expect("history");
 
