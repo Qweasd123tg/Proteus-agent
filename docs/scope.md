@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-23.
+Последнее обновление: 2026-07-24.
 
 ## Короткий Ответ
 
@@ -46,7 +46,8 @@ fail-closed shell isolation и обязательный auth для non-loopback
   settlement follow-up, HTTP/stdio receipts и web reconnect;
 - versioned binary/default-plugin releases с atomic `~/.proteus/current` и
   отдельным personal plugin overlay;
-- `doctor`, `inspect topology`, `modules list` и `eval report`;
+- `doctor`, `inspect topology`, `modules list`, `eval report`, read-only
+  `replay prompt` и side-effect-free `replay workflow`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
 «Работает» не означает «контракт стабилен навсегда». Проект пока свободно меняет
@@ -68,10 +69,22 @@ journal + telemetry локализовали и позволили исправ�
 после reconnect. Подробности — в
 [postmortem](research/dogfood-readiness-checkpoint-2026-07-23.md).
 
-Текущий практический шаг — side-effect-free workflow replay поверх уже
-сохранённых canonical records. Prompt replay v0 уже является read-only direct
-adapter consumer; workflow replay должен проверить orchestration с записанными
-model/tool outcomes, не исполняя tools повторно и не вводя новый session format.
+Side-effect-free workflow replay закрыт 2026-07-24. Команда подставляет
+сохранённые canonical model/tool outcomes в записанные Workflow и Policy,
+сравнивает orchestration и итоговую history, не строит provider adapters, не
+исполняет реальные tools и не вводит новый session format.
+
+Первый live readback в тот же день прошёл на двух active dogfood journals:
+совпали простой turn, 10 model exchanges + 11 tool calls и approve/deny
+approval turns; source journals остались побайтово неизменными. Dogfood выявил
+и сразу закрыл ложный divergence производной token estimate из-за нового
+`duration_ms`. Turn с доставленным steering ожидаемо отклонён текущей v0
+границей.
+
+Текущий практический шаг — расширять replay corpus сценариями changed
+compaction и terminal failure/cancel и исправлять только smallest подтверждённый
+divergence или дефект readback. Новый storage/runner слой до такого измерения не
+проектируется.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -128,14 +141,17 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 5. ✅ journal и telemetry позволяют объяснить failure без ручного чтения
    исходников runtime.
 
-Следующий измеримый шаг выбран: side-effect-free workflow replay поверх
-сохранённых canonical records. Новый session format без измеренного bottleneck
-не проектируется.
+Выбранный измеримый шаг закрыт 2026-07-24: side-effect-free workflow replay
+работает поверх сохранённых canonical records; первые simple/tool/approve/deny
+dogfood turns совпали. Следующий checkpoint — расширить corpus на changed
+compaction и terminal failure/cancel и делать минимальную правку только по
+подтверждённому divergence/дефекту. Новый session format без измеренного
+bottleneck не проектируется.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-текущий workflow replay slice или smallest подтверждённый dogfood defect:
+текущий replay dogfood или smallest подтверждённый dogfood defect:
 
 - marketplace, signed plugins и внешний package manager;
 - WASM plugin runtime и dylib hot-unload;

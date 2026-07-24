@@ -288,15 +288,16 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
 
     let output = running.await.expect("join").expect("turn output");
     assert_eq!(output.text, "steered");
-    let requests = model.requests.lock().expect("requests lock");
-    assert_eq!(requests.len(), 2);
-    let second_text = requests[1]
-        .messages
-        .iter()
-        .map(message_text_for_test)
-        .collect::<Vec<_>>();
-    assert_eq!(second_text.last().map(String::as_str), Some("steer now"));
-    drop(requests);
+    {
+        let requests = model.requests.lock().expect("requests lock");
+        assert_eq!(requests.len(), 2);
+        let second_text = requests[1]
+            .messages
+            .iter()
+            .map(message_text_for_test)
+            .collect::<Vec<_>>();
+        assert_eq!(second_text.last().map(String::as_str), Some("steer now"));
+    }
 
     let history = runtime.history().await;
     assert_eq!(

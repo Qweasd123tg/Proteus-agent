@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use proteus_core::app_server::http::HttpServerConfig;
-use proteus_core::domain::ExchangeId;
+use proteus_core::domain::{ExchangeId, TurnId};
 
 pub(crate) fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")
@@ -37,7 +37,7 @@ pub(crate) fn parse_prompt_replay_command(task: &[String]) -> Result<Option<Prom
         return Ok(None);
     }
     if task.get(1).map(String::as_str) != Some("prompt") {
-        bail!("{}", prompt_replay_usage());
+        return Ok(None);
     }
 
     let mut source = None;
@@ -95,14 +95,97 @@ pub(crate) fn parse_prompt_replay_command(task: &[String]) -> Result<Option<Prom
     }))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkflowReplayCommand {
+    pub source: PathBuf,
+    pub turn_id: Option<TurnId>,
+    pub json: bool,
+}
+
+pub(crate) fn parse_workflow_replay_command(
+    task: &[String],
+) -> Result<Option<WorkflowReplayCommand>> {
+    let Some(namespace) = task.first() else {
+        return Ok(None);
+    };
+    if namespace != "replay" {
+        return Ok(None);
+    }
+    match task.get(1).map(String::as_str) {
+        Some("prompt") => return Ok(None),
+        Some("workflow") => {}
+        _ => bail!("{}", replay_usage()),
+    }
+
+    let mut source = None;
+    let mut turn_id = None;
+    let mut json = false;
+    let mut index = 2;
+    while index < task.len() {
+        let argument = &task[index];
+        match argument.as_str() {
+            "--turn-id" => {
+                if turn_id.is_some() {
+                    bail!("--turn-id may be specified only once");
+                }
+                index += 1;
+                let value = task
+                    .get(index)
+                    .ok_or_else(|| anyhow::anyhow!("{}", workflow_replay_usage()))?;
+                turn_id = Some(parse_turn_id(value)?);
+            }
+            value if value.starts_with("--turn-id=") => {
+                if turn_id.is_some() {
+                    bail!("--turn-id may be specified only once");
+                }
+                let value = value
+                    .strip_prefix("--turn-id=")
+                    .expect("starts_with checked");
+                turn_id = Some(parse_turn_id(value)?);
+            }
+            "--json" => {
+                if json {
+                    bail!("--json may be specified only once");
+                }
+                json = true;
+            }
+            value if value.starts_with('-') => bail!("{}", workflow_replay_usage()),
+            value if source.is_none() => source = Some(PathBuf::from(value)),
+            _ => bail!("{}", workflow_replay_usage()),
+        }
+        index += 1;
+    }
+
+    let source = source.ok_or_else(|| anyhow::anyhow!("{}", workflow_replay_usage()))?;
+    Ok(Some(WorkflowReplayCommand {
+        source,
+        turn_id,
+        json,
+    }))
+}
+
 fn parse_exchange_id(value: &str) -> Result<ExchangeId> {
     value
         .parse()
         .map_err(|error| anyhow::anyhow!("invalid --exchange-id '{value}': {error}"))
 }
 
+fn parse_turn_id(value: &str) -> Result<TurnId> {
+    value
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid --turn-id '{value}': {error}"))
+}
+
 fn prompt_replay_usage() -> &'static str {
     "usage: proteus replay prompt <session-dir-or-journal-path> [--exchange-id <id>] [--allow-hosted-tools] [--json]"
+}
+
+fn workflow_replay_usage() -> &'static str {
+    "usage: proteus replay workflow <session-dir-or-journal-path> [--turn-id <id>] [--json]"
+}
+
+fn replay_usage() -> &'static str {
+    "usage: proteus replay <prompt|workflow> ..."
 }
 
 pub(crate) fn is_tools_list_command(task: &[String]) -> bool {

@@ -199,6 +199,17 @@ journal. Binary unit tests отдельно фиксируют строгий CL
 поля human/JSON report schema v1. Эти тесты намеренно не запускают workflow или
 tool registry: отсутствие такого execution path является частью boundary.
 
+Focused workflow replay tests в `core/workflow_replay` проходят записанную
+цепочку model → tool → model через настоящий Workflow/Policy orchestration с
+journal-backed зависимостями. Они проверяют равенство model requests, tool
+lifecycle/result, settlement/output/history и побайтовую неизменность source
+journal; отдельный regression намеренно вносит request divergence и доказывает,
+что replay останавливается до tool invocation. Также фиксируются строгий выбор
+`--turn-id` при нескольких turns, CLI parser и ключевые поля human/JSON report
+schema v1, а также нормализация производной token estimate при новом
+`ToolResult.metadata.duration_ms`. Реальные providers, process modules,
+subagents и tools в этих тестах не строятся.
+
 ## DTO И Builder-Паттерн
 
 Массовые DTO помечены `#[non_exhaustive]` и конструируются через builder:

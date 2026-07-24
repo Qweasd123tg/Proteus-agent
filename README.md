@@ -78,7 +78,8 @@ cargo run --bin proteus -- \
 ## Что реально работает
 
 - CLI: REPL, one-shot task, `doctor`, `modules list`, `tools list`,
-  `inspect topology`, `eval report` и canonical `replay prompt`.
+  `inspect topology`, `eval report`, canonical `replay prompt` и
+  side-effect-free `replay workflow`.
 - Runtime: session/turn lifecycle, resume, JSONL event log и сохранённая
   история сообщений.
 - Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
@@ -191,6 +192,15 @@ cargo run --bin proteus -- --config codex replay prompt \
 # тот же versioned machine-readable отчёт
 cargo run --bin proteus -- --config codex replay prompt \
   "/path/to/session-dir" --json
+
+# повтор одного root workflow только на записанных model/tool outcomes
+cargo run --bin proteus -- --config codex replay workflow \
+  "/path/to/session-dir-or-journal.jsonl" \
+  --turn-id 71a908f9-e7f2-45ce-afbf-4eaf0f4f3bad
+
+# versioned machine-readable workflow comparison
+cargo run --bin proteus -- --config codex replay workflow \
+  "/path/to/session-dir" --json
 ```
 
 `--exchange-id` можно опустить только когда в journal ровно один завершённый
@@ -200,6 +210,14 @@ model exchange. Команда повторно отправляет сохра�
 Provider-hosted tools блокируются по умолчанию, потому что их side effect
 выполняется на стороне провайдера. Для намеренного повтора нужен явный
 `--allow-hosted-tools`; request при этом отправляется целиком без урезания.
+
+`replay workflow` повторяет записанный Workflow/Policy, но подменяет model,
+context, compactor, tool exposure, approvals и tools данными canonical journal.
+Реальные providers, process modules, subagents и tool side effects не
+запускаются; source journal остаётся побайтово неизменным. `--turn-id` можно
+опустить только для journal с одним turn-ом. V0 поддерживает root turns без
+доставленного steering/follow-up; результат сравнения находится в
+`comparison.matched` и `comparison.issues` human/JSON отчёта.
 
 Ручной запуск UI без wrapper-а:
 

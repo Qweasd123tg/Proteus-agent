@@ -140,7 +140,13 @@ Gate зелёный, если сценарий можно пройти без п
     ```bash
     proteus doctor
     proteus eval report "/path/to/session-dir"
+    # optional orchestration readback для session с одним root turn
+    proteus --config codex replay workflow "/path/to/session-dir" --json
     ```
+
+    Для journal с несколькими turns нужно явно добавить `--turn-id`. V0
+    намеренно отклоняет turn с доставленным steering/follow-up; такой отказ
+    фиксирует известную границу replay, а не потерю durable данных.
 
 Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
 turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
@@ -222,7 +228,12 @@ Non-blocking irritants:
 ```bash
 proteus doctor
 proteus eval report "/path/to/session-dir"
+# optional для root turn без доставленного steering/follow-up
+proteus --config codex replay workflow "/path/to/session-dir" --json
 ```
+
+Если session содержит несколько turns, для workflow replay укажите
+`--turn-id <id>` из сообщения строгого selector-а.
 
 Провал задачи не равен провалу проекта. Провалом gate считается ситуация, где
 после run-а нельзя понять, почему агент не справился.

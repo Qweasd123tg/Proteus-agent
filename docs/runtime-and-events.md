@@ -38,6 +38,14 @@ cargo run --bin proteus -- --config codex replay prompt \
   [--exchange-id <id>] [--allow-hosted-tools] [--json]
 ```
 
+Side-effect-free повтор сохранённого root workflow:
+
+```bash
+cargo run --bin proteus -- --config codex replay workflow \
+  "/path/to/session-dir-or-journal.jsonl" \
+  [--turn-id <id>] [--json]
+```
+
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
 `--config`. Если `--config <name>` передан как bare name, init пишет строгий
@@ -178,7 +186,7 @@ mode. Каждый `turn_opened` дополнительно содержит sna
 `RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
 override не приписываются следующему turn-у задним числом.
 
-Полный формат и границы будущего replay описаны в
+Полный формат и границы replay описаны в
 [canonical-turn-data.md](canonical-turn-data.md).
 
 Ключевые события текущего workflow:
@@ -661,8 +669,45 @@ ids, recorded/replay model, adapter, оба outcome и usage, text equality,
 число local tool calls, hosted activities и citations, а также длительность
 adapter call. Несовпадение текста не меняет exit status само по себе:
 генерация может быть недетерминированной. Это prompt replay одного provider
-call; будущий workflow replay должен подставлять записанные model/tool
-результаты без внешних side effects и не является live rerun tools.
+call, а не live rerun tools.
+
+## Workflow Replay
+
+Команда `replay workflow` открывает и полностью валидирует canonical journal,
+после чего выбирает один сохранённый root turn. Без `--turn-id` допустим только
+journal с единственным turn-ом; при нескольких turns команда требует явный id
+и перечисляет доступные значения. Путь может указывать на session directory
+или прямо на `journal.jsonl`.
+
+Module ids, model/reasoning, tool specs и default permission mode берутся из
+`turn_opened.config_snapshot`. Текущий `--config` предоставляет module factory
+settings и instruction blocks, необходимые для построения записанных Workflow и
+Policy. Реальные model adapters, process modules, subagents и tool
+implementations не создаются: model responses, approval decisions и tool
+results последовательно подставляются из journal, а context, compaction и tool
+exposure восстанавливаются из canonical records.
+
+Replay идёт через обычные Workflow, `ModelService`, `ApprovalPolicy`,
+`ToolRegistry` и `ToolOrchestrator`, поэтому проверяет фактический orchestration
+path, но не повторяет provider-hosted или local side effects. Он сравнивает
+post-shaping model requests, tool request/approval/resolution/result,
+settlement, output и итоговую history. Допустимая нормализация ограничена
+заново создаваемыми message/part ids, generated inner call ids и
+`ToolResult.metadata.duration_ms`, включая зависящий от него итоговый
+`AgentOutput.metadata.context.token_estimate`.
+
+V0 не эмулирует root steering decorator: turn с доставленным steering или
+follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
+и отсутствующий snapshot также являются ошибкой выбора fixture. Исходный
+journal сравнивается побайтово до и после запуска; durable replay session и
+новый storage format не создаются.
+
+Human report и JSON schema v1 (`--json`) содержат recorded/replay outcomes,
+счётчики exchanges/tools, equality итогов/history, список divergences и признак
+неизменности journal. Машинным источником результата являются
+`comparison.matched` и `comparison.issues`. Полученный `diverged` report сам по
+себе не меняет exit status; ошибки чтения, выбора или выполнения replay
+завершают команду ошибкой.
 
 ### Root-Session Steering
 

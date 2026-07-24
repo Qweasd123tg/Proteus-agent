@@ -1,9 +1,9 @@
 # Design: Canonical Turn Data
 
-Статус: **journal v1, storage cutover и prompt replay v0 реализованы**. Resume
-history, web transcript, eval и prompt replay читают canonical journal;
-side-effect-free workflow replay пока не реализован. Дата решения: 2026-07-20,
-cutover и prompt replay: 2026-07-23.
+Статус: **journal v1, storage cutover, prompt replay v0 и workflow replay v0
+реализованы**. Resume history, web transcript, eval и оба replay-режима читают
+canonical journal. Дата решения: 2026-07-20, cutover и prompt replay:
+2026-07-23, workflow replay: 2026-07-24.
 
 ## Решение
 
@@ -12,7 +12,7 @@ append-only **session journal**. Его versioned records становятся
 канонической записью принятых user messages, model exchanges, tool lifecycle,
 изменений conversation history и settlement turn-а.
 
-Resume history, transcript, будущий replay input и eval rows являются
+Resume history, transcript, replay input и eval rows являются
 проекциями этого journal, а не независимыми источниками правды. Event log остаётся
 телеметрией: он может быть отфильтрован, усечён или отключён и поэтому не
 используется для восстановления execution facts.
@@ -193,7 +193,7 @@ contract.
 - prompt replay — повтор provider call по сохранённому request
   (**реализовано** командой `proteus replay prompt`);
 - workflow replay — подстановка записанных model/tool результатов без внешних
-  side effects (**данные есть, runner planned**).
+  side effects (**реализовано** командой `proteus replay workflow`).
 
 «Живой rerun tools» — отдельный опасный режим, не replay по умолчанию.
 Provider wire replay также не является canonical: adapter снова формирует wire
@@ -229,6 +229,42 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 длительность adapter call. Различие текста является результатом
 недетерминированной генерации, а не ошибкой команды.
 
+### Workflow Replay v0
+
+`proteus --config <profile> replay workflow
+<session-dir-or-journal-path> [--turn-id <id>] [--json]` повторяет один
+сохранённый root turn через записанный Workflow и Policy. Команда берёт module
+ids, model/reasoning, tool specs и default permission mode из
+`turn_opened.config_snapshot`; текущий profile нужен для доступных module
+factories, их settings и instruction blocks. Если journal содержит несколько
+turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
+model/tool record или overlap turns отклоняется без эвристики.
+
+Replay runtime не строит real provider adapters, process modules, subagents или
+настоящие tools. Model responses и tool results последовательно берутся из
+`model_response_recorded`/`tool_result_recorded`; context, compaction и tool
+exposure восстанавливаются из canonical request/history records. Approval
+проходит обычный `ApprovalPolicy -> ToolOrchestrator` path, но ответ transport-а
+и результат tool invocation уже записаны в journal. Поэтому mutating tool и
+provider-hosted side effect повторно не выполняются.
+
+Runner сравнивает каждый post-shaping model request, tool request/approval/
+resolution/result, settlement, `AgentOutput` и итоговую persistent history.
+Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними
+generated call ids, недетерминированным `ToolResult.metadata.duration_ms` и
+зависящим от него итоговым `AgentOutput.metadata.context.token_estimate`;
+остальные различия остаются divergence. Доставленный steering/follow-up внутри
+выбранного turn-а пока отклоняется fail-closed: v0 не эмулирует root steering
+decorator.
+
+Исходный journal читается до и после replay и должен остаться побайтово
+неизменным. Durable replay run и новый storage format не создаются. Human и
+`--json` report schema v1 используют `comparison.matched` и
+`comparison.issues` как источник результата сравнения; `diverged` является
+успешно сформированным диагностическим отчётом и сам по себе не меняет exit
+status команды. Ошибки выбора fixture, построения записанных modules или самого
+replay path завершают команду ошибкой.
+
 ## Выполненный Переход
 
 Проект pre-release, поэтому runtime compatibility shim и постоянный dual
@@ -251,7 +287,10 @@ producers/consumers и удалил старый active path.
    распознаётся молча.
 6. ✅ Prompt replay v0 повторяет exact post-shaping request напрямую через
    model adapter, не исполняет local tools и не изменяет journal; hosted tools
-   требуют явного opt-in. Workflow replay остаётся отдельным runner-ом.
+   требуют явного opt-in.
+7. ✅ Workflow replay v0 запускает записанный Workflow с journal-backed
+   зависимостями, проверяет canonical orchestration/history и побайтовую
+   неизменность source journal без live provider/tool calls.
 
 ## Не Решается Этим Документом
 

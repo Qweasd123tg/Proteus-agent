@@ -151,10 +151,10 @@ pub(super) async fn spawn_send_turn(
 ) -> Result<SendDispatch> {
     let session_dir = server.session_dir_path();
     let mut running_turns = state.running_turns.lock().await;
-    if let Some(turn_id) = turn_id.as_deref() {
-        if running_turns.contains_key(turn_id) {
-            return Err(anyhow!("turn id is already running: {turn_id}"));
-        }
+    if let Some(turn_id) = turn_id.as_deref()
+        && running_turns.contains_key(turn_id)
+    {
+        return Err(anyhow!("turn id is already running: {turn_id}"));
     }
     let reservation = server.reserve_user_message(text).await?;
     let reserved = match reservation {

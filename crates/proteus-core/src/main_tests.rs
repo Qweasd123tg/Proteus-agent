@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli_commands::PromptReplayCommand;
+use crate::cli_commands::{PromptReplayCommand, WorkflowReplayCommand};
 use proteus_core::domain::{ModuleKind, ModuleManifest};
 
 /// Disables plugin loading so tests don't pick up the developer's
@@ -342,7 +342,11 @@ fn prompt_replay_command_parses_options_strictly() {
             json: false,
         })
     );
-    assert!(parse_prompt_replay_command(&["replay".to_owned()]).is_err());
+    assert_eq!(
+        parse_prompt_replay_command(&["replay".to_owned()]).expect("prompt parser"),
+        None
+    );
+    assert!(parse_workflow_replay_command(&["replay".to_owned()]).is_err());
     assert!(
         parse_prompt_replay_command(&[
             "replay".to_owned(),
@@ -364,6 +368,78 @@ fn prompt_replay_command_parses_options_strictly() {
     );
     assert_eq!(
         parse_prompt_replay_command(&["doctor".to_owned()]).expect("parse"),
+        None
+    );
+    assert_eq!(
+        parse_prompt_replay_command(&[
+            "replay".to_owned(),
+            "workflow".to_owned(),
+            "/tmp/session".to_owned(),
+        ])
+        .expect("prompt parser ignores workflow replay"),
+        None
+    );
+}
+
+#[test]
+fn workflow_replay_command_parses_options_strictly() {
+    let turn_id: proteus_core::domain::TurnId = "71a908f9-e7f2-45ce-afbf-4eaf0f4f3bad"
+        .parse()
+        .expect("turn id");
+    assert_eq!(
+        parse_workflow_replay_command(&[
+            "replay".to_owned(),
+            "workflow".to_owned(),
+            "/tmp/session/journal.jsonl".to_owned(),
+            format!("--turn-id={turn_id}"),
+            "--json".to_owned(),
+        ])
+        .expect("parse"),
+        Some(WorkflowReplayCommand {
+            source: PathBuf::from("/tmp/session/journal.jsonl"),
+            turn_id: Some(turn_id),
+            json: true,
+        })
+    );
+    assert_eq!(
+        parse_workflow_replay_command(&[
+            "replay".to_owned(),
+            "workflow".to_owned(),
+            "/tmp/session".to_owned(),
+        ])
+        .expect("parse"),
+        Some(WorkflowReplayCommand {
+            source: PathBuf::from("/tmp/session"),
+            turn_id: None,
+            json: false,
+        })
+    );
+    assert!(
+        parse_workflow_replay_command(&[
+            "replay".to_owned(),
+            "workflow".to_owned(),
+            "/tmp/session".to_owned(),
+            "--turn-id".to_owned(),
+            "bad-id".to_owned(),
+        ])
+        .is_err()
+    );
+    assert!(
+        parse_workflow_replay_command(&[
+            "replay".to_owned(),
+            "workflow".to_owned(),
+            "/tmp/session".to_owned(),
+            "extra".to_owned(),
+        ])
+        .is_err()
+    );
+    assert_eq!(
+        parse_workflow_replay_command(&[
+            "replay".to_owned(),
+            "prompt".to_owned(),
+            "/tmp/session".to_owned(),
+        ])
+        .expect("workflow parser ignores prompt replay"),
         None
     );
 }
@@ -876,4 +952,76 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
     assert_eq!(value["replay_outcome"]["status"], "response");
     assert_eq!(value["local_tool_calls"]["replay"], 1);
     assert_eq!(value["duration_ms"], 42);
+}
+
+#[test]
+fn workflow_replay_human_and_json_reports_contain_key_fields() {
+    use proteus_core::{
+        core::{
+            TurnSettlementStatus, WORKFLOW_REPLAY_REPORT_SCHEMA_VERSION, WorkflowReplayComparison,
+            WorkflowReplayCounts, WorkflowReplayOutcome, WorkflowReplayReport,
+            WorkflowReplaySource,
+        },
+        domain::{AgentOutput, new_session_id, new_thread_id, new_turn_id},
+    };
+
+    let report = WorkflowReplayReport {
+        schema_version: WORKFLOW_REPLAY_REPORT_SCHEMA_VERSION,
+        source: WorkflowReplaySource {
+            journal_path: PathBuf::from("/tmp/session/1234567890/journal.jsonl"),
+            session_id: new_session_id(),
+            thread_id: new_thread_id(),
+            turn_id: new_turn_id(),
+            module_epoch: 4,
+            profile_name: "codex".to_owned(),
+            workflow_id: "coding.codex_loop".to_owned(),
+            policy_id: "codex_policy".to_owned(),
+        },
+        recorded: WorkflowReplayOutcome {
+            status: TurnSettlementStatus::Success,
+            output: Some(AgentOutput::text("done")),
+            error: None,
+        },
+        replay: WorkflowReplayOutcome {
+            status: TurnSettlementStatus::Success,
+            output: Some(AgentOutput::text("done")),
+            error: None,
+        },
+        model_exchanges: WorkflowReplayCounts {
+            recorded: 2,
+            replayed: 2,
+        },
+        tool_calls: WorkflowReplayCounts {
+            recorded: 1,
+            replayed: 1,
+        },
+        comparison: WorkflowReplayComparison {
+            matched: true,
+            settlement_equal: true,
+            output_equal: Some(true),
+            error_equal: None,
+            history_equal: Some(true),
+            issues: Vec::new(),
+        },
+        source_journal_unchanged: true,
+        duration_ms: 9,
+    };
+
+    let human =
+        cli_workflow_replay::render_workflow_replay_report(&report, false).expect("human report");
+    assert!(human.contains("Workflow replay report"));
+    assert!(human.contains("Workflow: coding.codex_loop (policy=codex_policy, epoch=4)"));
+    assert!(human.contains("Model exchanges: recorded=2, replayed=2"));
+    assert!(human.contains("Tool calls: recorded=1, replayed=1"));
+    assert!(human.contains("Status: matched"));
+    assert!(human.contains("Replay text:\ndone"));
+
+    let rendered_json =
+        cli_workflow_replay::render_workflow_replay_report(&report, true).expect("JSON report");
+    let value: serde_json::Value = serde_json::from_str(&rendered_json).expect("parse JSON");
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["source"]["workflow_id"], "coding.codex_loop");
+    assert_eq!(value["comparison"]["matched"], true);
+    assert_eq!(value["tool_calls"]["replayed"], 1);
+    assert_eq!(value["duration_ms"], 9);
 }
