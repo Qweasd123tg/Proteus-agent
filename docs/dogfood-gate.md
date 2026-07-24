@@ -6,6 +6,11 @@
 `core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
 app-server или текущий внешний UI-клиент.
 
+Это live-слой общего
+[стандарта внедрения и проверки фичи](testing.md#стандарт-внедрения-и-проверки-фичи):
+focused/boundary/full проверки выполняются до dogfood, а journal/replay/cold
+readback сохраняют доказательство после него.
+
 ## Цель
 
 Ближайший этап считается полезным, если через текущий стек можно выполнить
@@ -145,8 +150,10 @@ Gate зелёный, если сценарий можно пройти без п
     ```
 
     Для journal с несколькими turns нужно явно добавить `--turn-id`. V0
-    намеренно отклоняет turn с доставленным steering/follow-up; такой отказ
-    фиксирует известную границу replay, а не потерю durable данных.
+    намеренно отклоняет turn с доставленным steering/follow-up и runtime-owned
+    `Canceled`/`Timeout`; такие статусы проверяются по `TurnSettled` и cold
+    `/history`. Этот отказ фиксирует известную границу replay, а не потерю
+    durable данных.
 
 Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
 turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
@@ -228,12 +235,14 @@ Non-blocking irritants:
 ```bash
 proteus doctor
 proteus eval report "/path/to/session-dir"
-# optional для root turn без доставленного steering/follow-up
+# optional для replay-eligible root Success/Error без steering/follow-up
 proteus --config codex replay workflow "/path/to/session-dir" --json
 ```
 
 Если session содержит несколько turns, для workflow replay укажите
-`--turn-id <id>` из сообщения строгого selector-а.
+`--turn-id <id>` из сообщения строгого selector-а. Для `Canceled`/`Timeout`
+обязательно перезапустите app-server и подтвердите terminal message через cold
+`/history`, не подменяя этот contract workflow replay-ем.
 
 Провал задачи не равен провалу проекта. Провалом gate считается ситуация, где
 после run-а нельзя понять, почему агент не справился.

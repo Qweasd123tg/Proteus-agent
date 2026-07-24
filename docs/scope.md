@@ -81,10 +81,17 @@ approval turns; source journals остались побайтово неизме
 `duration_ms`. Turn с доставленным steering ожидаемо отклонён текущей v0
 границей.
 
-Текущий практический шаг — расширять replay corpus сценариями changed
-compaction и terminal failure/cancel и исправлять только smallest подтверждённый
-divergence или дефект readback. Новый storage/runner слой до такого измерения не
-проектируется.
+Общий стандарт внедрения и проверки фич закрыт 2026-07-24. Integrated replay
+corpus теперь покрывает changed compaction с history replacement и
+воспроизводимый terminal workflow `Error`. Runtime-owned `Canceled`/`Timeout`
+явно отклоняются до replay: unit regression фиксирует границу, а существующий
+canceled dogfood journal подтвердил читаемую ошибку и побайтовую неизменность
+source. Их durable evidence остаётся canonical `TurnSettled` + cold `/history`.
+
+Текущий практический шаг — `plugins/default/skill-pack` v0 по уже
+согласованному docs-on-disk/context/tool плану без нового slot-а. После его
+dogfood — узкий измеряемый Rust LSP slice; общий LSP subsystem заранее не
+проектируется. Replay/storage расширяются только по подтверждённому дефекту.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -143,15 +150,16 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 
 Выбранный измеримый шаг закрыт 2026-07-24: side-effect-free workflow replay
 работает поверх сохранённых canonical records; первые simple/tool/approve/deny
-dogfood turns совпали. Следующий checkpoint — расширить corpus на changed
-compaction и terminal failure/cancel и делать минимальную правку только по
-подтверждённому divergence/дефекту. Новый session format без измеренного
+dogfood turns совпали. Standardization checkpoint также закрыт: changed
+compaction и terminal `Error` добавлены в integrated corpus, внешний
+`Canceled`/`Timeout` отделён от replay и закреплён за journal/cold-history
+gate. Следующий checkpoint — skills v0; новый session format без измеренного
 bottleneck не проектируется.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-текущий replay dogfood или smallest подтверждённый dogfood defect:
+текущий skills slice или smallest подтверждённый dogfood defect:
 
 - marketplace, signed plugins и внешний package manager;
 - WASM plugin runtime и dylib hot-unload;

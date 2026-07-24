@@ -71,6 +71,9 @@ pub(super) fn load_fixture(
     let projection = store.load_projection()?;
     let (turn_id, thread_id, opened) = select_turn(&projection.records, options.turn_id)?;
     let snapshot = parse_snapshot(&opened, turn_id)?;
+    let (settlement, compactions) =
+        select_settlement_and_compactions(&projection.records, turn_id, thread_id)?;
+    ensure_replayable_settlement(turn_id, &settlement)?;
     let history = select_history(&projection.records, turn_id, thread_id, &opened)?;
     let exchanges = select_exchanges(&projection.records, turn_id, thread_id)?;
     if exchanges.is_empty() {
@@ -79,8 +82,6 @@ pub(super) fn load_fixture(
         );
     }
     let tools = select_tools(&projection.records, turn_id, thread_id)?;
-    let (settlement, compactions) =
-        select_settlement_and_compactions(&projection.records, turn_id, thread_id)?;
     let context = recorded_context(&exchanges[0].request, &settlement);
 
     Ok(WorkflowReplayFixture {
@@ -155,6 +156,20 @@ fn parse_snapshot(opened: &TurnOpened, turn_id: TurnId) -> Result<SessionConfigS
         );
     }
     Ok(snapshot)
+}
+
+fn ensure_replayable_settlement(turn_id: TurnId, settlement: &TurnSettled) -> Result<()> {
+    match settlement.status {
+        crate::core::TurnSettlementStatus::Success | crate::core::TurnSettlementStatus::Error => {
+            Ok(())
+        }
+        crate::core::TurnSettlementStatus::Canceled => bail!(
+            "turn {turn_id} settled as canceled; workflow replay v0 cannot reproduce external cancellation timing; verify durable cancellation through the canonical journal and cold /history"
+        ),
+        crate::core::TurnSettlementStatus::Timeout => bail!(
+            "turn {turn_id} settled as timeout; workflow replay v0 cannot reproduce the runtime-owned timeout boundary; verify durable timeout recovery through the canonical journal and cold /history"
+        ),
+    }
 }
 
 struct SelectedHistory {

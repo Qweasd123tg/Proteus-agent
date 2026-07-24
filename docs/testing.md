@@ -21,6 +21,102 @@ Leptos-клиенты исключены из root workspace и проверяю
 Не заменяйте эти команды на `cargo check`: он не воспроизводит Trunk build и
 может дать ложноположительный результат из-за отдельного client lock/target.
 
+## Стандарт Внедрения И Проверки Фичи
+
+Для существенного изменения используется один и тот же путь независимо от
+того, пришла идея из upstream agent-а, dogfood, нового protocol-а или локальной
+UX-боли:
+
+```text
+измеримая проблема
+  -> существующий contract/slot или явное решение о новой границе
+  -> focused regression
+  -> boundary/swap или protocol test
+  -> полный gate
+  -> live durable evidence на затронутой внешней границе
+  -> replay для эквивалентности, eval/dogfood для качества
+  -> русская документация и отдельный commit
+```
+
+Это не требование механически запускать все виды тестов для любой строки. До
+реализации нужно назвать затронутую границу и выбрать соответствующую строку
+матрицы; пропущенную применимую проверку явно указывают в итоговом отчёте.
+
+### Карточка Изменения До Кода
+
+Перед реализацией зафиксируйте четыре коротких ответа:
+
+1. Какой наблюдаемый дефект, расход или ограничение подтверждает изменение.
+2. Какой результат можно проверить без субъективного «кажется лучше».
+3. Какой существующий `Tool`, `Workflow`, `ContextBuilder`, `ToolExposure`,
+   `SearchBackend`, `MemoryStore`, `ApprovalPolicy`, `PatchApplier`,
+   `Compactor`, `Renderer`, `Model` или protocol boundary владеет поведением.
+4. Какой failure path должен остаться читаемым после restart/reconnect.
+
+Если идея требует нового slot-а, сначала применяется
+[slot-governance.md](slot-governance.md). Feature-specific facade или
+транспортная обёртка сами по себе новый slot не обосновывают.
+
+### Матрица Evidence
+
+| Граница изменения | Обязательное evidence |
+|---|---|
+| Локальный алгоритм внутри module/plugin | Unit/focused regression в crate-е владельца и полный Rust gate |
+| Новая реализация существующего slot-а или новый selector | Один runtime path для старой и новой реализаций, `module_swap`, config/example и module docs |
+| Contract, DTO, plugin ABI, wire или storage | Все tracked producers/consumers, strict invalid-input case, boundary tests и документация без legacy shim |
+| Workflow, policy, context, tool exposure или tool orchestration | Focused lifecycle test, canonical journal fixture и `replay workflow` для поддерживаемого root turn-а |
+| Provider shaping/adapter | Зафиксированный wire fixture, exact canonical request и `replay prompt`; live provider smoke только когда он нужен и доступен |
+| Root control plane, cancel, timeout или reconnect | App-server/protocol regression, canonical `TurnSettled` и cold `/history`; внешний момент cancel/timeout не подменяется workflow replay-ем |
+| Web/Inspector | Protocol test, `env -u NO_COLOR trunk build` затронутого клиента и внешний app-server smoke |
+| Изменение качества поведения | Маленькая dogfood/eval задача с заранее названной метрикой; одного replay match недостаточно |
+
+Workflow replay v0 воспроизводит `Success` и обычный terminal `Error`, когда
+завершённые model/tool outcomes присутствуют в journal. `Canceled` и `Timeout`
+принадлежат runtime control plane: journal не хранит момент внешнего сигнала,
+поэтому такие turns отклоняются fail-closed и проверяются через durable
+`TurnSettled` + cold `/history`. Нельзя присваивать им искусственный
+`matched=true` из записанного статуса.
+
+### Общий Rust Gate
+
+Для существенного Rust/runtime/architecture изменения после focused tests:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace
+git diff --check
+```
+
+Для архитектурного изменения отдельно зафиксируйте результат
+`cargo test -p proteus-core --test module_swap`. Для client changes добавьте
+соответствующий Trunk build из начала документа. Минимум для doc-only изменения
+и правило отдельного commit-а остаются в `AGENTS.md`.
+
+### Replay Не Заменяет Eval
+
+- replay отвечает: «тот же canonical input прошёл через orchestration
+  эквивалентно или где именно появился divergence?»;
+- eval/dogfood отвечает: «намеренное изменение улучшило задачу, стоимость,
+  latency или понятность failure?»;
+- journal и cold readback отвечают: «доказательство пережило reconnect?».
+
+Намеренный divergence после новой фичи не исправляют обновлением ожидания
+вслепую. Сначала классифицируют изменившийся request/lifecycle, затем
+подтверждают ожидаемое улучшение dogfood/eval evidence и только после этого
+обновляют corpus.
+
+### Definition Of Done Изменения
+
+- место в архитектуре объяснено, Core не знает implementation-specific детали;
+- focused regression падает без исправления и проходит с ним;
+- применимая boundary-строка матрицы закрыта;
+- полный gate зелёный либо отсутствующая внешняя проверка явно отмечена;
+- user-visible failure читается из durable состояния, а не только live events;
+- ближайшие русские reference/scope/roadmap документы не расходятся с кодом;
+- итоговый diff просмотрен и зафиксирован отдельным commit-ом.
+
 ## Что Фиксируют Текущие Тесты
 
 `crates/proteus-core/tests/module_swap.rs` проверяет:
@@ -206,9 +302,12 @@ lifecycle/result, settlement/output/history и побайтовую неизме
 journal; отдельный regression намеренно вносит request divergence и доказывает,
 что replay останавливается до tool invocation. Также фиксируются строгий выбор
 `--turn-id` при нескольких turns, CLI parser и ключевые поля human/JSON report
-schema v1, а также нормализация производной token estimate при новом
-`ToolResult.metadata.duration_ms`. Реальные providers, process modules,
-subagents и tools в этих тестах не строятся.
+schema v1, changed compaction с history replacement, совпадающий terminal
+workflow error, divergence только в compaction report, общий runtime history
+validator, fail-closed `Canceled`/`Timeout`, а также нормализация
+производной token estimate при новом `ToolResult.metadata.duration_ms`.
+Реальные providers, process modules, subagents и tools в этих тестах не
+строятся.
 
 ## DTO И Builder-Паттерн
 

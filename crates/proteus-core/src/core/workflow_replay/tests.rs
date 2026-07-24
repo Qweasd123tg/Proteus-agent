@@ -31,6 +31,9 @@ use crate::{
     },
 };
 
+mod compaction;
+mod terminal;
+
 const WORKFLOW_ID: &str = "replay.probe";
 const POLICY_ID: &str = "replay.allow";
 

@@ -132,6 +132,27 @@ examples/
 
 Для v0 модульность означает либо выбор встроенной реализации через config, либо загрузку dylib-плагина. Marketplace, WASM runtime, hot-reload и sandbox не являются текущей целью.
 
+## Как Добавлять И Проверять Фичу
+
+Для существенного изменения используйте общий evidence path из
+`docs/testing.md`:
+
+1. Назовите измеримую проблему и ожидаемый проверяемый результат.
+2. Разместите поведение в существующем contract/slot/tool/protocol boundary;
+   новый slot сначала пропустите через `docs/slot-governance.md`.
+3. Добавьте focused regression и применимый boundary/swap/protocol test.
+4. Для runtime-поведения сохраните canonical journal evidence: поддерживаемый
+   root `Success`/`Error` проверяйте через workflow replay, а внешний
+   `Canceled`/`Timeout` — через `TurnSettled` и cold `/history`.
+5. Replay используйте для проверки эквивалентности, dogfood/eval — для ответа
+   «стало ли лучше»; намеренный divergence не обновляйте вслепую.
+6. Прогоните применимый полный gate, обновите ближайшую русскую документацию и
+   сделайте отдельный commit.
+
+Не каждая правка требует всех видов evidence. Выберите строку матрицы в
+`docs/testing.md` по затронутой границе и явно укажите непройденную применимую
+проверку.
+
 ## Документация
 
 Документация проекта ведётся на русском. Имена кода, API, traits, modules и config keys остаются английскими.

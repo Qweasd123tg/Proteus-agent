@@ -238,7 +238,8 @@ ids, model/reasoning, tool specs и default permission mode из
 `turn_opened.config_snapshot`; текущий profile нужен для доступных module
 factories, их settings и instruction blocks. Если journal содержит несколько
 turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
-model/tool record или overlap turns отклоняется без эвристики.
+model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
+отклоняется без эвристики.
 
 Replay runtime не строит real provider adapters, process modules, subagents или
 настоящие tools. Model responses и tool results последовательно берутся из
@@ -249,13 +250,19 @@ exposure восстанавливаются из canonical request/history recor
 provider-hosted side effect повторно не выполняются.
 
 Runner сравнивает каждый post-shaping model request, tool request/approval/
-resolution/result, settlement, `AgentOutput` и итоговую persistent history.
+resolution/result, changed compaction report, settlement, `AgentOutput` и
+итоговую persistent history. Workflow output проходит тот же core-owned
+history validation, что и обычный root runtime.
 Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними
 generated call ids, недетерминированным `ToolResult.metadata.duration_ms` и
 зависящим от него итоговым `AgentOutput.metadata.context.token_estimate`;
 остальные различия остаются divergence. Доставленный steering/follow-up внутри
 выбранного turn-а пока отклоняется fail-closed: v0 не эмулирует root steering
-decorator.
+decorator. Обычный terminal `Error` воспроизводится как workflow outcome при
+наличии завершённых records. Внешний момент client cancellation и runtime
+timeout в journal не записан, поэтому `Canceled`/`Timeout` нельзя честно
+получить повторным запуском Workflow: их durable contract проверяется через
+canonical `TurnSettled` и cold `/history`.
 
 Исходный journal читается до и после replay и должен остаться побайтово
 неизменным. Durable replay run и новый storage format не создаются. Human и

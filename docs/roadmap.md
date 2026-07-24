@@ -45,14 +45,19 @@ Roadmap хранит порядок работ и журнал уже приня
    journal + eval локализовали потерянную reconnect-ошибку, projector исправлен
    и проверен на прежнем journal после atomic reinstall. Подробности — в
    [postmortem](research/dogfood-readiness-checkpoint-2026-07-23.md).
+9. ✅ Общий feature evidence path закрыт 2026-07-24: placement через
+   существующие contracts, focused/boundary/full gate, durable live readback,
+   replay для эквивалентности и eval/dogfood для качества сведены в один
+   стандарт в `docs/testing.md` и `AGENTS.md`.
 
 ✅ Следующий срез закрыт 2026-07-24: `replay workflow` подставляет сохранённые
 model/tool outcomes и проверяет orchestration поверх canonical records без live
 повторного исполнения tools и без новой storage migration. Первые simple,
 10-exchange/11-tool и approve/deny dogfood turns совпали; ложный divergence
-производной token estimate исправлен. Ближайший шаг — расширить corpus на
-changed compaction и terminal failure/cancel и делать smallest fix только по
-подтверждённому divergence/дефекту.
+производной token estimate исправлен. Integrated corpus дополнен changed
+compaction и terminal workflow `Error`; runtime-owned `Canceled`/`Timeout`
+отделены в fail-closed journal/cold-history gate. Ближайший новый capability
+slice — skills v0, затем измеряемый Rust LSP prototype.
 
 ## Цель
 
@@ -84,15 +89,26 @@ module implementations без переписывания core или форка 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
 
+Обновление на 2026-07-24: принят единый стандарт внедрения фич. Replay не
+считается оценкой качества: он проверяет эквивалентность canonical
+orchestration, dogfood/eval — полезность изменения, journal и cold readback —
+durability evidence. Boundary-матрица различает module/swap, DTO/ABI/storage,
+provider, workflow/tool/policy/context, root control plane и client changes.
+Changed compaction и terminal workflow `Error` добавлены в replay corpus;
+client cancel/runtime timeout намеренно не симулируются без записанного момента
+сигнала. Следующий активный срез — docs-on-disk skills без нового slot-а; LSP
+идёт после его dogfood узким измеряемым Rust-потребителем готового process host.
+
 Обновление на 2026-07-24: реализован side-effect-free workflow replay одного
 root turn-а. Он восстанавливает записанные Workflow/Policy из config snapshot,
 подменяет model, context, compactor, tool exposure, approvals и tools
 journal-backed реализациями, сравнивает requests/lifecycle/settlement/output/
-history и побайтово контролирует неизменность исходного journal. Следующий шаг —
-расширение реального dogfood corpus, а не новый storage format. Первые прогоны
+history и побайтово контролирует неизменность исходного journal. Первые прогоны
 покрыли simple turn, 10 model exchanges + 11 tool calls и approve/deny; все
 совпали после нормализации производной token estimate от нового `duration_ms`.
-Доставленный steering подтвердил документированную fail-closed границу v0.
+Доставленный steering подтвердил документированную fail-closed границу v0;
+последующий standardization checkpoint добавил compaction/error corpus и
+отделил runtime-owned cancel/timeout от workflow replay.
 
 Обновление на 2026-07-22: добавлен первый provider-hosted срез OpenAI
 Responses — opt-in `web_search`/`file_search`, capability + config + policy
@@ -515,11 +531,13 @@ coder 1.5M — первая прикидка). Отложено: phase/turn-бю
    заменён canonical journal v1 без compatibility shims.
 2. ✅ Единое решение по parts/storage и eval реализовано; prompt replay v0 и
    workflow replay v0 используют journal как read-only consumers. Первые
-   сохранённые runs прошли; следующий шаг — расширение corpus и smallest
-   подтверждённый fix, а не новая storage-задача.
+   сохранённые runs и integrated compaction/error corpus прошли;
+   cancel/timeout закреплены за cold-history gate. Дальше replay/storage
+   меняются только по подтверждённому defect-у, а не как отдельная платформа.
 3. ✅ Реализовано: `proteus-process-host` выделен как named sync utility,
    MCP stdio host в core мигрирован на него (initializer-hook для
-   handshake); остался LSP-плагин как следующий потребитель.
+   handshake); LSP остаётся следующим техническим потребителем после skills
+   dogfood, но не причиной заранее расширять host API.
 4. Parallel subagents — stage 1 реализован (2026-07-08): контракт слота
    расширен provider-neutral spawn/wait/cancel (`SubagentHandle`,
    default-методы «не поддерживается»; `run` = `spawn` + `wait` у обоих
@@ -913,8 +931,9 @@ Scope:
   она подставляет записанные model/tool outcomes, не строит внешние зависимости,
   проверяет requests, tool lifecycle, settlement, output и history и оставляет
   source journal побайтово неизменным. Simple, tool-rich и approve/deny dogfood
-  turns уже совпали; следующий replay-шаг определяется только по расширению
-  corpus на changed compaction и terminal failure/cancel.
+  turns уже совпали; integrated corpus дополнительно покрывает changed
+  compaction и terminal workflow `Error`. `Canceled`/`Timeout` проверяются
+  через canonical settlement и cold history, а не искусственный replay match.
 - Dogfood sanity tasks должны проверять не только "может ли вызвать tool", но и
   tool judgement: не лезть в проект без запроса, не писать transient test notes
   в long-term memory, не выдумывать даты, корректно показывать approval и
@@ -935,9 +954,9 @@ Scope:
   зеркалирование документов, capabilities, сервер на язык), но lifecycle
   переиспользует тот же persistent stdio JSON-RPC host, что и MCP executor —
   общий `proteus-process-host` выделен и уже обслуживает MCP
-  (`ContentLengthFraming` и initializer-hook под LSP готовы). Порядок:
-  сначала dogfood измеряет, сколько уходит на цикл проверки правок, затем
-  решение об объёме.
+  (`ContentLengthFraming` и initializer-hook под LSP готовы). Порядок: после
+  skills v0 его dogfood измеряет, сколько уходит на цикл проверки правок, затем
+  берётся один Rust/rust-analyzer slice и только по его evidence решается объём.
 
 ### Token / Context Discipline
 
@@ -994,8 +1013,9 @@ Scope:
   disconnect/reconnect и parallel-session/subagent ownership.
 - ✅ Canonical journal records питают resume/UI/eval, prompt replay и
   side-effect-free workflow replay; event log остаётся debugging telemetry.
-  Следующая задача — dogfood сохранённых journals и минимальный подтверждённый
-  replay/readback fix.
+  Compaction/error corpus и cancel/cold-history boundary стандартизированы;
+  следующий новый capability — skills v0, replay/readback меняются только по
+  подтверждённому defect-у.
 - MCP resources/prompts/subscriptions и non-stdio transports: execution tools
   уже проходят через `ToolRegistry`, policy visibility и approval.
 - ✅ Hot-swap/reload для config-defined tools и MCP discovery: агент может
@@ -1037,7 +1057,8 @@ Scope:
 
 ### Memory / Skills
 
-- Skills (согласованный план): plugin `plugins/default/skill-pack` без нового
+- **Следующий активный capability slice — skills v0.** Согласованный план:
+  plugin `plugins/default/skill-pack` без нового
   slot-а — discovery `~/.proteus/skills/` + `<workspace>/.proteus/skills/`
   (project > user), SKILL.md с frontmatter (совместимо с Claude/opencode),
   context provider `skills` инжектит `<available_skills>`, tool `skill {name}`

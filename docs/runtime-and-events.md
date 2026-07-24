@@ -690,17 +690,22 @@ exposure восстанавливаются из canonical records.
 Replay идёт через обычные Workflow, `ModelService`, `ApprovalPolicy`,
 `ToolRegistry` и `ToolOrchestrator`, поэтому проверяет фактический orchestration
 path, но не повторяет provider-hosted или local side effects. Он сравнивает
-post-shaping model requests, tool request/approval/resolution/result,
-settlement, output и итоговую history. Допустимая нормализация ограничена
+post-shaping model requests, tool request/approval/resolution/result, changed
+compaction reports, settlement, output и итоговую history; построение финальной
+history проходит общий runtime validator. Допустимая нормализация ограничена
 заново создаваемыми message/part ids, generated inner call ids и
 `ToolResult.metadata.duration_ms`, включая зависящий от него итоговый
 `AgentOutput.metadata.context.token_estimate`.
 
 V0 не эмулирует root steering decorator: turn с доставленным steering или
 follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
-и отсутствующий snapshot также являются ошибкой выбора fixture. Исходный
-journal сравнивается побайтово до и после запуска; durable replay session и
-новый storage format не создаются.
+и отсутствующий snapshot также являются ошибкой выбора fixture. Terminal
+workflow `Error` поддерживается при завершённой последовательности records.
+`Canceled`/`Timeout` принадлежат внешнему runtime control plane, момент сигнала
+не записан в journal и поэтому отклоняется до replay с указанием проверить
+canonical `TurnSettled` и cold `/history`. Исходный journal сравнивается
+побайтово до и после запуска; durable replay session и новый storage format не
+создаются.
 
 Human report и JSON schema v1 (`--json`) содержат recorded/replay outcomes,
 счётчики exchanges/tools, equality итогов/history, список divergences и признак

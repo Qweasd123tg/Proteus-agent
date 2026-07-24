@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    domain::{AgentOutput, CallId, ToolCall, ToolResult},
+    domain::{AgentOutput, CallId, HistoryCompactionReport, ToolCall, ToolResult},
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart},
 };
 
@@ -60,6 +60,25 @@ pub(super) fn outputs_equal(
     let mut expected = expected.clone();
     normalize_output(&mut actual, call_ids);
     normalize_output(&mut expected, &HashMap::new());
+    actual == expected
+}
+
+pub(super) fn changed_compactions_equal(
+    actual: &[HistoryCompactionReport],
+    expected: &[HistoryCompactionReport],
+) -> bool {
+    let actual = actual
+        .iter()
+        .filter(|report| report.changed)
+        .cloned()
+        .map(normalize_compaction_report)
+        .collect::<Vec<_>>();
+    let expected = expected
+        .iter()
+        .filter(|report| report.changed)
+        .cloned()
+        .map(normalize_compaction_report)
+        .collect::<Vec<_>>();
     actual == expected
 }
 
@@ -176,6 +195,29 @@ fn normalize_output(output: &mut AgentOutput, call_ids: &HashMap<CallId, CallId>
         // model requests and normalized history remain the semantic checks.
         context.remove("token_estimate");
     }
+}
+
+fn normalize_compaction_report(mut report: HistoryCompactionReport) -> HistoryCompactionReport {
+    let metadata_is_empty = if let Some(metadata) = report.metadata.as_object_mut() {
+        for key in [
+            "input_messages",
+            "output_messages",
+            "original_token_estimate",
+            "output_token_estimate",
+            "trigger_tokens",
+            "summary_source",
+            "skipped_reason",
+        ] {
+            metadata.remove(key);
+        }
+        metadata.is_empty()
+    } else {
+        false
+    };
+    if metadata_is_empty {
+        report.metadata = serde_json::Value::Null;
+    }
+    report
 }
 
 fn rewrite_value_strings(value: &mut serde_json::Value, replacements: &HashMap<CallId, CallId>) {

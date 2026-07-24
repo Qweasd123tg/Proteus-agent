@@ -31,7 +31,7 @@ mod steering;
 pub use builder::AgentRuntimeBuilder;
 pub use paths::{config_store_root, event_log_path};
 
-use history::prepare_history_update;
+pub(crate) use history::prepare_history_update;
 pub(crate) use steering::{
     ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
 };

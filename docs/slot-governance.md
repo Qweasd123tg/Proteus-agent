@@ -17,6 +17,11 @@ slot нужен для класса заменяемого поведения.
 фиксированными. Поэтому новый slot всегда означает согласованное изменение
 `proteus-contracts`, core wiring/config, plugin ABI и boundary tests.
 
+После выбора архитектурного места изменение проходит общий
+[feature evidence path](testing.md#стандарт-внедрения-и-проверки-фичи). Этот
+документ отвечает «куда положить поведение», а `testing.md` — «как доказать,
+что оно работает, не ломает границу и остаётся читаемым после reconnect».
+
 Например, Cursor-like dynamic context, Codex-like tool search и Claude-like
 subagent routing не должны автоматически становиться slots. Сначала их надо
 разложить на уже существующие классы поведения: context building, tool

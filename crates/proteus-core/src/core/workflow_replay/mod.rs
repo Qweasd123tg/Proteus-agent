@@ -7,7 +7,7 @@ use crate::{
     core::{
         AppConfig, BuiltinModuleCatalog, DeltaEventContext, HeadlessUserInputTransport,
         InMemoryEventStore, ModeAwarePolicy, ModelService, ModuleBuildContext, PolicyBuildContext,
-        TurnSettlementStatus,
+        TurnSettlementStatus, prepare_history_update,
     },
     stubs::{NoMemory, NoSubagent, NullPatchApplier, NullSearch},
 };
@@ -20,6 +20,7 @@ mod report;
 pub use report::*;
 
 use fixture::load_fixture;
+use normalize::changed_compactions_equal;
 use replay_runtime::{
     ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel, ReplayState,
     ReplayToolExposure, register_replay_tools,
@@ -145,23 +146,37 @@ pub async fn replay_workflow(
             fixture.initial_history.clone(),
             runtime_context,
         )
-        .await;
-    let (replay_outcome, replay_history) = match replay_result {
-        Ok(output) => {
-            let mut history = output
-                .history_replacement
-                .clone()
-                .unwrap_or_else(|| fixture.initial_history.clone());
-            history.extend(output.new_messages);
-            (
-                WorkflowReplayOutcome {
-                    status: TurnSettlementStatus::Success,
-                    output: Some(output.output),
-                    error: None,
-                },
-                Some(history),
-            )
-        }
+        .await
+        .and_then(|output| {
+            let persisted_user = fixture
+                .initial_history
+                .last()
+                .context("workflow replay fixture has no persisted current user message")?;
+            let history_compacted = output.compactions.iter().any(|report| report.changed);
+            let history_update = prepare_history_update(
+                &fixture.initial_history,
+                persisted_user,
+                &output.new_messages,
+                output.history_replacement.as_deref(),
+                history_compacted,
+                &HashSet::new(),
+            )?;
+            Ok((
+                output.output,
+                history_update.final_messages,
+                output.compactions,
+            ))
+        });
+    let (replay_outcome, replay_history, replay_compactions) = match replay_result {
+        Ok((output, history, compactions)) => (
+            WorkflowReplayOutcome {
+                status: TurnSettlementStatus::Success,
+                output: Some(output),
+                error: None,
+            },
+            Some(history),
+            Some(compactions),
+        ),
         Err(error) => (
             WorkflowReplayOutcome {
                 status: TurnSettlementStatus::Error,
@@ -169,6 +184,7 @@ pub async fn replay_workflow(
                 error: Some(format!("{error:#}")),
             },
             Some(fixture.initial_history.clone()),
+            None,
         ),
     };
     let summary = state.summary();
@@ -195,6 +211,9 @@ pub async fn replay_workflow(
     let history_equal = replay_history
         .as_deref()
         .map(|history| state.histories_equal(history, &fixture.final_history));
+    let compactions_equal = replay_compactions
+        .as_deref()
+        .map(|reports| changed_compactions_equal(reports, &fixture.compactions));
     let mut issues = summary.issues;
     if !settlement_equal {
         issues.push(format!(
@@ -213,6 +232,11 @@ pub async fn replay_workflow(
             "workflow persistent history differs from the recorded journal projection".to_owned(),
         );
     }
+    if compactions_equal == Some(false) {
+        issues.push(
+            "workflow changed compaction reports differ from the canonical journal".to_owned(),
+        );
+    }
     if !source_journal_unchanged {
         issues.push("source journal changed during workflow replay".to_owned());
     }
@@ -221,6 +245,7 @@ pub async fn replay_workflow(
         && output_equal != Some(false)
         && error_equal != Some(false)
         && history_equal != Some(false)
+        && compactions_equal != Some(false)
         && source_journal_unchanged;
 
     Ok(WorkflowReplayReport {

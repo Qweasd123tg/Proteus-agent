@@ -16,6 +16,8 @@
   [modules.md](modules.md).
 - **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
   runtime, config или policy.
+- **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
+  затем стандарт evidence в [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи).
 - **Выбрать следующую работу:** [scope.md](scope.md),
   [dogfood-gate.md](dogfood-gate.md), затем [roadmap.md](roadmap.md).
 
@@ -40,11 +42,13 @@
    manifests и граница plugin/core.
 4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, plugin,
    profile или feature pack.
+5. [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи) — общий путь от
+   измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
 
 - [canonical-turn-data.md](canonical-turn-data.md) — реализованный canonical
-  journal turn-а, projections и границы будущих replay runners;
+  journal turn-а, projections и границы реализованных replay-режимов;
 - [hot-swap.md](hot-swap.md) — что можно reload-ить сейчас и где проходит
   граница snapshot-а;
 - [pack-contracts.md](pack-contracts.md) — неявные межпаковые ключи и строковые

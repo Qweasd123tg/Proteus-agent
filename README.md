@@ -216,7 +216,10 @@ context, compactor, tool exposure, approvals и tools данными canonical j
 Реальные providers, process modules, subagents и tool side effects не
 запускаются; source journal остаётся побайтово неизменным. `--turn-id` можно
 опустить только для journal с одним turn-ом. V0 поддерживает root turns без
-доставленного steering/follow-up; результат сравнения находится в
+доставленного steering/follow-up и воспроизводит обычный terminal `Error`.
+Runtime-owned `Canceled`/`Timeout` отклоняются fail-closed: их проверяют через
+canonical journal и cold `/history`, потому что момент внешнего сигнала не
+является workflow outcome. Результат сравнения находится в
 `comparison.matched` и `comparison.issues` human/JSON отчёта.
 
 Ручной запуск UI без wrapper-а:
@@ -268,6 +271,9 @@ Inspector при необходимости запускается так же �
   [configuration.md](docs/configuration.md);
 - хочу добавить или заменить модуль — [modules.md](docs/modules.md), затем
   [plugin-architecture.md](docs/plugin-architecture.md);
+- хочу добавить и доказательно проверить фичу —
+  [slot-governance.md](docs/slot-governance.md), затем
+  [testing.md](docs/testing.md#стандарт-внедрения-и-проверки-фичи);
 - хочу разобраться с tools, approvals и sandbox —
   [security-and-policy.md](docs/security-and-policy.md);
 - хочу понять, что делать следующим — [scope.md](docs/scope.md), затем

@@ -8,12 +8,12 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(super) struct PreparedHistoryUpdate {
-    pub final_messages: Vec<CanonicalMessage>,
-    pub replace: bool,
+pub(crate) struct PreparedHistoryUpdate {
+    pub(crate) final_messages: Vec<CanonicalMessage>,
+    pub(crate) replace: bool,
 }
 
-pub(super) fn prepare_history_update(
+pub(crate) fn prepare_history_update(
     current_history: &[CanonicalMessage],
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
