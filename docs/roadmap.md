@@ -1075,18 +1075,24 @@ Scope:
 
 ### Architecture Cleanup
 
-- Modularity debt: production-файлы за лимитом 500-700 строк (замер 2026-07):
-  `core/config.rs` 1200, `clients/web/src/messages.rs`
-  1165, `clients/web/src/app_helpers.rs` 1117, `shell-tool/src/lib.rs` 1000,
-  `adapters/anthropic.rs` 973, `clients/web/src/components/context_map.rs` 959,
-  `app_server.rs` 957, `context-pack/src/lib.rs` 946, `clients/web/src/app.rs`
-  938, `core/runtime.rs` 937, `contracts/plugin.rs` 916, `main.rs` 911,
-  `clients/web/src/components/tool_activity.rs` 900, `module_catalog.rs` 830,
-  `session_store.rs` 823, `codex-compactor/src/lib.rs` 803. Правило:
-  оппортунистический разрез (тронул файл — сначала выдели связный блок), без
-  отдельного big-bang рефакторинга. Приоритет: пятёрка web client.
-  Закрыто: `core/subagent.rs` (1616) разрезан на `subagent/{mod,roles,
-  resumable,child_loop,tests}` (2026-07-07).
+- Modularity debt: production-файлы за лимитом 500-700 строк (замер
+  2026-07-25): `clients/web/src/messages.rs` 1406,
+  `clients/web/src/app_helpers.rs` 1249, `shell-tool/src/lib.rs` 1131,
+  `context-pack/src/lib.rs` 1009, `adapters/anthropic.rs` 982, `main.rs` 971,
+  `clients/web/src/components/context_map.rs` 955, `clients/web/src/app.rs` 935,
+  `clients/web/src/components/tool_activity.rs` 901, `contracts/plugin.rs` 893,
+  `module_catalog.rs` 872, `plugin_loader.rs` 870, `app_server.rs` 862,
+  `codex-tool-exposure/src/lib.rs` 825, `shell-tool/src/unified_exec.rs` 813,
+  `app_server/turn_progress.rs` 768, `tool_orchestrator.rs` 763,
+  `clients/web/src/events/runtime.rs` 756, `model_service.rs` 742 и
+  `clients/web/src/markdown.rs` 737. Правило: оппортунистический разрез
+  (тронул файл — сначала выдели связный блок), без отдельного big-bang
+  рефакторинга. Приоритет: пятёрка web client.
+  Закрыто: `core/config.rs` (1538 к моменту разреза) разделён на config DTO и
+  defaults (636), filesystem/env loading (443) и tests (482), а
+  `core/runtime.rs` (1499) — на runtime facade/state (441), turn execution
+  (508) и tests (560) (2026-07-25). Ранее `core/subagent.rs` (1616) разрезан на
+  `subagent/{mod,roles,resumable,child_loop,tests}` (2026-07-07).
 - Watch-сигналы распухания workflow slot (сам contract узкий, следить за
   реализациями): (a) дублирование одинаковых блоков между workflow-модулями —
   сначала extract в scaffold/lib внутри пака, при 2-3 правдоподобных
