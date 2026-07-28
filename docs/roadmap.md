@@ -57,7 +57,8 @@ model/tool outcomes и проверяет orchestration поверх canonical r
 производной token estimate исправлен. Integrated corpus дополнен changed
 compaction и terminal workflow `Error`; runtime-owned `Canceled`/`Timeout`
 отделены в fail-closed journal/cold-history gate. Ближайший новый capability
-slice — packaged dogfood skills v0, затем измеряемый Rust LSP prototype.
+slice — real rust-analyzer dogfood первого `lsp_diagnostics` prototype; общий
+multi-language LSP subsystem остаётся вне scope до его evidence.
 
 ## Цель
 
@@ -96,9 +97,19 @@ durability evidence. Boundary-матрица различает module/swap, DTO
 provider, workflow/tool/policy/context, root control plane и client changes.
 Changed compaction и terminal workflow `Error` добавлены в replay corpus;
 client cancel/runtime timeout намеренно не симулируются без записанного момента
-сигнала. Docs-on-disk skills без нового slot-а реализованы 2026-07-25; после
-packaged dogfood LSP идёт узким измеряемым Rust-потребителем готового process
-host.
+сигнала. Docs-on-disk skills без нового slot-а реализованы 2026-07-25 и прошли
+packaged fake-model/replay dogfood. Первый Rust consumer process host-а
+реализован 2026-07-28 как tool `lsp_diagnostics`; mock LSP покрывает protocol,
+а real success dogfood ждёт доступного `rust-analyzer` binary.
+
+Обновление на 2026-07-28: добавлен `plugins/default/rust-lsp` без нового
+slot-а и без multi-language registry. Tool принимает только
+workspace-relative `.rs`, через `ContentLengthFraming` выполняет
+`initialize`/`initialized`, persistent `didOpen`/`didChange`, обслуживает
+server requests и возвращает bounded `publishDiagnostics`. Safety —
+`RunsCommands`, packaged policy требует approval. Mock protocol и
+missing-binary failure покрыты; установленный success smoke в этой среде
+неприменим, потому что `rust-analyzer` отсутствует в `PATH`.
 
 Обновление на 2026-07-24: реализован side-effect-free workflow replay одного
 root turn-а. Он восстанавливает записанные Workflow/Policy из config snapshot,
@@ -945,7 +956,8 @@ Scope:
 - Усилить `coding.plan_execute_review`: phase settings, auto-verify,
   configurable test runner, compact phase/debug report и настройку token budget
   по фазам.
-- LSP-интеграция (решение 2026-07-06: делать после dogfood, мотивация —
+- LSP-интеграция (первый Rust slice реализован 2026-07-28; решение 2026-07-06,
+  мотивация —
   экономия токенов через короткую петлю обратной связи). Раскладка без нового
   slot-а: diagnostics-after-edit → context provider или обогащение результата
   write/patch tools (агент видит сломанные типы за секунды вместо цикла
@@ -955,9 +967,12 @@ Scope:
   зеркалирование документов, capabilities, сервер на язык), но lifecycle
   переиспользует тот же persistent stdio JSON-RPC host, что и MCP executor —
   общий `proteus-process-host` выделен и уже обслуживает MCP
-  (`ContentLengthFraming` и initializer-hook под LSP готовы). Порядок: после
-  skills v0 его dogfood измеряет, сколько уходит на цикл проверки правок, затем
-  берётся один Rust/rust-analyzer slice и только по его evidence решается объём.
+  (`ContentLengthFraming` и initializer-hook под LSP готовы). Реализован только
+  `lsp_diagnostics` для `.rs`: persistent `rust-analyzer`, полный-text
+  `didOpen`/`didChange`, bounded `publishDiagnostics`, mock protocol и
+  fail-closed отсутствие binary. Следующий шаг — real success dogfood; только
+  после него решать, нужны ли auto diagnostics-after-edit, navigation tools или
+  второй язык.
 
 ### Token / Context Discipline
 
@@ -1064,8 +1079,9 @@ Scope:
   (project > user), SKILL.md с frontmatter (совместимо с Claude/opencode),
   context provider `skills` инжектит `<available_skills>`, tool `skill {name}`
   отдаёт тело. Focused tests фиксируют precedence, parsing, escaping и lookup;
-  packaged dogfood идёт перед Rust LSP slice. Известный gap: plugin tool не
-  получает module_config → v1 остаётся на конвенции путей.
+  packaged fake-model request и workflow replay подтверждены перед Rust LSP
+  slice. Известный gap: plugin tool не получает module_config → v1 остаётся на
+  конвенции путей.
 - Agent Skills и plugin mentions сначала реализовывать через docs-on-disk,
   `ContextBuilder`/`context_provider` и tools. `SkillCatalog` нужен только если
   core должен сам discover/inject skills как stable lifecycle point.

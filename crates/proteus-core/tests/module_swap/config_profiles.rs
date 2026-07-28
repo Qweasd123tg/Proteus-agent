@@ -291,6 +291,13 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
             .any(|tool| tool == "apply_patch")
     );
     assert!(
+        codex_dynamic["always_include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "lsp_diagnostics")
+    );
+    assert!(
         !codex_dynamic["always_include"]
             .as_array()
             .unwrap()
@@ -339,6 +346,13 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
             .unwrap()
             .iter()
             .any(|tool| tool == "shell")
+    );
+    assert!(
+        codex_policy["ask_before"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "lsp_diagnostics")
     );
     assert!(
         codex_policy["ask_before"]

@@ -351,6 +351,7 @@ fn coding_profile_tool_names() -> Vec<&'static str> {
         "list_dir",
         "find_files",
         "grep",
+        "lsp_diagnostics",
         "git_status",
         "git_diff",
         "request_user_input",

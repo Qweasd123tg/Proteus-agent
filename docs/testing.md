@@ -214,6 +214,15 @@ precedence, строгий `name`/directory boundary, совместимые д�
 smoke дополнительно должен видеть одновременно `context_provider:skills` и
 tool `skill` после `./install.sh`.
 
+`rust-lsp` проверяется на своей protocol boundary: harness поднимает mock LSP
+child с `Content-Length` framing, требует `initialize`/`initialized`, отвечает
+на `workspace/configuration`, затем подтверждает persistent
+`didOpen` → `didChange` и фильтрацию `publishDiagnostics` по URI/version.
+Отдельные regressions фиксируют `.rs`/workspace/symlink boundary, bounded
+rendering и читаемый failed `ToolResult` при отсутствующем `rust-analyzer`.
+Packaged smoke обязан видеть `lsp_diagnostics` как `RunsCommands`; real success
+smoke применим только когда `rust-analyzer` действительно есть в `PATH`.
+
 Тесты `shell-tool` отдельно фиксируют fail-closed boundary: невозможность или
 явное отключение sandbox не запускает команду, внешний canonical `workdir`
 отклоняется без escalation, Ptyxis требует escalation, а metadata отражает

@@ -34,6 +34,18 @@ Host очищает parent environment и передаёт только мини
 явный `env_allowlist` и literal `env`. Строгий handshake защищает от ошибочно
 подключённого executable, но не является sandbox или границей доверия.
 
+## Rust LSP Process Boundary
+
+`lsp_diagnostics` является model-callable tool, поэтому, в отличие от process
+module, всегда проходит `ToolRegistry -> ApprovalPolicy -> ToolOrchestrator`.
+Он помечен `RunsCommands`: `rust-analyzer` и запускаемые им Cargo/toolchain
+компоненты не являются чистым чтением и после approval работают с правами
+Proteus, без bwrap-песочницы `shell-tool`. Process environment очищается;
+передаются `PATH` и ограниченный набор `HOME`/Cargo/Rustup переменных, нужный для
+поиска toolchain. Путь документа отдельно ограничен существующим `.rs` внутри
+workspace, включая canonical symlink check. Подменять отсутствующий
+`rust-analyzer` неявным `cargo check` запрещено.
+
 ## App-Server HTTP Boundary
 
 `proteus server http` предназначен для локального web-клиента и dogfood

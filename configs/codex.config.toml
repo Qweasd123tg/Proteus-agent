@@ -68,7 +68,7 @@ renderer = "text"
 surface = "collaboration"
 
 [tools]
-enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
 # playwright остаётся opt-in: dynamic exposure не отправит все его схемы в
 # каждый запрос, но dogfood показал непрошеную браузерную верификацию. Включать
@@ -88,6 +88,7 @@ mode = "normal"
 allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "write_stdin"]
 allow_sandboxed = ["shell", "exec_command"]
 ask_before = [
+  "lsp_diagnostics",
   "shell",
   "exec_command",
   "request_permissions",
@@ -157,7 +158,7 @@ Rules:
 - Verify what you can (build/tests via shell) before finishing.
 - Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.
 - Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging."""
-tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "write_file", "shell"]
+tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
 # Изоляция структурная: каждый fresh запуск получает собственный worktree,
 # поэтому несколько coder-вызовов в одном ответе модели идут параллельно.
 isolation = "worktree"
@@ -168,7 +169,7 @@ max_total_tokens = 1500000
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["skill", "request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
+always_include = ["skill", "lsp_diagnostics", "request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
 
 [module_config.context.codex_context]
 # Strict Codex-shaped context: upstream expects the model to inspect the repo

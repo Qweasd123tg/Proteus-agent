@@ -90,10 +90,15 @@ source. Их durable evidence остаётся canonical `TurnSettled` + cold `/
 
 `plugins/default/skill-pack` v0 закрыт 2026-07-25 по согласованному
 docs-on-disk/context/tool плану без нового slot-а: user/project discovery,
-project precedence, `<available_skills>` и read-only tool `skill`. Текущий
-практический шаг — его packaged dogfood и затем узкий измеряемый Rust LSP
-slice; общий LSP subsystem заранее не проектируется. Replay/storage
-расширяются только по подтверждённому дефекту.
+project precedence, `<available_skills>` и read-only tool `skill`; packaged
+fake-model run подтвердил canonical request и workflow replay. Узкий Rust LSP
+slice закрыт 2026-07-28 отдельным `rust-lsp` tool-плагином:
+`lsp_diagnostics` переиспользует `ContentLengthFraming`, держит один persistent
+`rust-analyzer` и покрыт mock protocol test. В текущей среде binary отсутствует,
+поэтому real success dogfood остаётся следующим evidence, а installed
+missing-binary smoke является ожидаемым fail-closed результатом. Общий LSP
+subsystem заранее не проектируется; replay/storage расширяются только по
+подтверждённому дефекту.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -155,13 +160,15 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 dogfood turns совпали. Standardization checkpoint также закрыт: changed
 compaction и terminal `Error` добавлены в integrated corpus, внешний
 `Canceled`/`Timeout` отделён от replay и закреплён за journal/cold-history
-gate. Следующий checkpoint — packaged skills dogfood и один Rust LSP slice;
-новый session format без измеренного bottleneck не проектируется.
+gate. Packaged skills dogfood и первый Rust LSP slice закрыты; следующий
+checkpoint — real rust-analyzer success dogfood при доступном binary и решение
+по его evidence. Новый session format без измеренного bottleneck не
+проектируется.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-текущий Rust LSP slice или smallest подтверждённый dogfood defect:
+real rust-analyzer dogfood или smallest подтверждённый dogfood defect:
 
 - marketplace, signed plugins и внешний package manager;
 - WASM plugin runtime и dylib hot-unload;

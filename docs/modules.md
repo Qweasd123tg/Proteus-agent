@@ -370,6 +370,12 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   тело выбранного `SKILL.md` без YAML frontmatter. Имя должно присутствовать в
   `<available_skills>` текущего context snapshot; неизвестное имя возвращает
   failed `ToolResult`, а не читает произвольный путь;
+- `rust-lsp` — `lsp_diagnostics { path }` (из
+  `plugins/default/rust-lsp/`): для существующего workspace-relative `.rs`
+  файла держит persistent `rust-analyzer`, выполняет LSP
+  `initialize`/`initialized`, `didOpen`/`didChange` и возвращает bounded
+  `publishDiagnostics`. Другие языки, navigation tools и общий LSP subsystem в
+  v0 отсутствуют; неизвестный binary не заменяется `cargo check` fallback-ом;
 - `shell-tool` — `shell`, `exec_command`, `write_stdin` (из
   `plugins/default/shell-tool/`); `exec_command`/`write_stdin` дают
   персистентные интерактивные PTY-сессии в духе Codex unified exec: команда

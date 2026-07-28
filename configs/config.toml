@@ -40,14 +40,14 @@ renderer = "statusline"
 # file-tools, git helpers come from git-tools, shell comes from shell-tool,
 # and search/apply_patch/remember_fact are core slot facade tools.
 # Run ./install.sh before using this profile so plugin tools are registered.
-enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
 allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+ask_before = ["lsp_diagnostics", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "skills", "manifest", "git_status", "repo_tree", "memory", "search"]

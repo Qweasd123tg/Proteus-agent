@@ -30,7 +30,7 @@ tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
-enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
+enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
 
 [permissions]
 mode = "normal"

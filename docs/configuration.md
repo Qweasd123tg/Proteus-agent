@@ -1387,6 +1387,16 @@ YAML-поля `name` и `description`, дополнительные совмес
 `tools.enabled`. В v0 roots задаются конвенцией: plugin tool не получает
 `module_config`.
 
+Tool `lsp_diagnostics` поставляется `rust-lsp` и не создаёт нового slot-а. Он
+принимает только workspace-relative путь к существующему `.rs`, читает файл с
+bounded размером и запускает `rust-analyzer` из `PATH` через
+`proteus-process-host::ContentLengthFraming`. Один process переиспользуется для
+последовательных `didOpen`/`didChange` в текущем workspace и заменяется при
+смене workspace. Tool имеет `ToolSafety::RunsCommands`, поэтому в packaged
+`ask_write`/`codex_policy` профилях находится в `ask_before`; отсутствие
+`rust-analyzer` возвращает failed `ToolResult` с явной ошибкой. Настраиваемого
+multi-language server registry и fallback на `cargo check` в этом slice нет.
+
 `module_config.context.codex_context` использует тот же `ContextBuilder` slot и
 host callbacks, но меняет порядок providers под Codex-shaped profile:
 instructions, `git_status`, `git_diff`, repo tree, manifests и targeted search.
