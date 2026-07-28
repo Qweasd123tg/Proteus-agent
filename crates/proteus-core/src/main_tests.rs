@@ -581,7 +581,7 @@ async fn init_codex_writes_loadable_single_config_file() {
     assert_eq!(config.modules.renderer, "text");
     assert_eq!(
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
-        serde_json::json!(["project_instructions", "environment"])
+        serde_json::json!(["project_instructions", "skills", "environment"])
     );
     // Cache-stable codex_dynamic не использует task text как implicit query;
     // hidden tools остаются доступны через deferred meta-tools workflow-а.

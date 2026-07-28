@@ -57,7 +57,7 @@ model/tool outcomes и проверяет orchestration поверх canonical r
 производной token estimate исправлен. Integrated corpus дополнен changed
 compaction и terminal workflow `Error`; runtime-owned `Canceled`/`Timeout`
 отделены в fail-closed journal/cold-history gate. Ближайший новый capability
-slice — skills v0, затем измеряемый Rust LSP prototype.
+slice — packaged dogfood skills v0, затем измеряемый Rust LSP prototype.
 
 ## Цель
 
@@ -96,8 +96,9 @@ durability evidence. Boundary-матрица различает module/swap, DTO
 provider, workflow/tool/policy/context, root control plane и client changes.
 Changed compaction и terminal workflow `Error` добавлены в replay corpus;
 client cancel/runtime timeout намеренно не симулируются без записанного момента
-сигнала. Следующий активный срез — docs-on-disk skills без нового slot-а; LSP
-идёт после его dogfood узким измеряемым Rust-потребителем готового process host.
+сигнала. Docs-on-disk skills без нового slot-а реализованы 2026-07-25; после
+packaged dogfood LSP идёт узким измеряемым Rust-потребителем готового process
+host.
 
 Обновление на 2026-07-24: реализован side-effect-free workflow replay одного
 root turn-а. Он восстанавливает записанные Workflow/Policy из config snapshot,
@@ -1057,13 +1058,14 @@ Scope:
 
 ### Memory / Skills
 
-- **Следующий активный capability slice — skills v0.** Согласованный план:
-  plugin `plugins/default/skill-pack` без нового
+- **Skills v0 реализован 2026-07-25.** Plugin
+  `plugins/default/skill-pack` без нового
   slot-а — discovery `~/.proteus/skills/` + `<workspace>/.proteus/skills/`
   (project > user), SKILL.md с frontmatter (совместимо с Claude/opencode),
   context provider `skills` инжектит `<available_skills>`, tool `skill {name}`
-  отдаёт тело. Известный gap: plugin tool не получает module_config → v1 на
-  конвенции путей.
+  отдаёт тело. Focused tests фиксируют precedence, parsing, escaping и lookup;
+  packaged dogfood идёт перед Rust LSP slice. Известный gap: plugin tool не
+  получает module_config → v1 остаётся на конвенции путей.
 - Agent Skills и plugin mentions сначала реализовывать через docs-on-disk,
   `ContextBuilder`/`context_provider` и tools. `SkillCatalog` нужен только если
   core должен сам discover/inject skills как stable lifecycle point.

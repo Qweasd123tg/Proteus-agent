@@ -208,6 +208,12 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 `plugins/default/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
 `apply_patch` в активный `PatchApplier`.
 
+`skill-pack` тем же способом покрывает discovery двух roots, project-over-user
+precedence, строгий `name`/directory boundary, совместимые дополнительные YAML
+поля, XML escaping каталога и выдачу только тела выбранного skill. Packaged
+smoke дополнительно должен видеть одновременно `context_provider:skills` и
+tool `skill` после `./install.sh`.
+
 Тесты `shell-tool` отдельно фиксируют fail-closed boundary: невозможность или
 явное отключение sandbox не запускает команду, внешний canonical `workdir`
 отклоняется без escalation, Ptyxis требует escalation, а metadata отражает

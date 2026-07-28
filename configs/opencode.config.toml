@@ -30,7 +30,7 @@ tool_exposure = "all_visible"
 renderer = "statusline"
 
 [tools]
-enabled = ["read_file", "read_many_files", "list_dir", "grep", "find_files", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
+enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
 
 [permissions]
 mode = "normal"
@@ -69,7 +69,7 @@ pattern_args = ["path", "paths"]
 # Context как у upstream: только project instructions (AGENTS.md и аналоги)
 # + environment; модель исследует репо сама через tools.
 [module_config.context.codex_context]
-providers = ["project_instructions", "environment"]
+providers = ["project_instructions", "skills", "environment"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]

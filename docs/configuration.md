@@ -1331,7 +1331,7 @@ absolute path или подходящий process `cwd`/args.
         "max_search_results": 50
       },
       "repo_aware": {
-        "providers": ["project_instructions", "manifest", "git_status", "repo_tree", "memory", "search"],
+        "providers": ["project_instructions", "skills", "manifest", "git_status", "repo_tree", "memory", "search"],
         "max_context_bytes": 60000,
         "max_bytes_per_file": 8000,
         "max_search_results": 50,
@@ -1343,7 +1343,7 @@ absolute path или подходящий process `cwd`/args.
         "manifest_files": ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
       },
       "codex_context": {
-        "providers": ["project_instructions", "git_status", "git_diff", "repo_tree", "manifest", "search"],
+        "providers": ["project_instructions", "skills", "git_status", "git_diff", "repo_tree", "manifest", "search"],
         "max_context_bytes": 60000,
         "max_bytes_per_file": 12000,
         "max_search_results": 40,
@@ -1375,6 +1375,17 @@ absolute path или подходящий process `cwd`/args.
 ограничивают recursive tree provider. Search provider извлекает несколько
 targeted queries из текущей задачи и вызывает `SearchBackend` по ним, вместо
 того чтобы всегда искать сырой prompt целиком.
+
+Provider `skills` поставляется `skill-pack`. Он ищет только
+`<root>/<name>/SKILL.md` в `~/.proteus/skills/` и
+`<workspace>/.proteus/skills/`, где workspace определяется ближайшим `.git`;
+project skill перекрывает user skill с тем же frontmatter `name`. Обязательны
+YAML-поля `name` и `description`, дополнительные совместимые поля не
+отклоняются. Имена ограничены lowercase ASCII, цифрами и дефисами и должны
+совпадать с именем каталога. В контекст входит bounded каталог, а тело читает
+отдельный read-only tool `skill`, который нужно явно добавить в
+`tools.enabled`. В v0 roots задаются конвенцией: plugin tool не получает
+`module_config`.
 
 `module_config.context.codex_context` использует тот же `ContextBuilder` slot и
 host callbacks, но меняет порядок providers под Codex-shaped profile:

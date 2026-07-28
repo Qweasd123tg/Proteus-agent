@@ -1,0 +1,5 @@
+name = "skill-pack"
+version = "0.1.0"
+description = "Docs-on-disk skills: available-skills context provider and skill tool"
+capabilities = ["context-provider", "tools"]
+tags = ["skills", "context", "tools"]

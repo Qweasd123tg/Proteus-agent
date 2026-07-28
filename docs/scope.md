@@ -88,10 +88,12 @@ corpus теперь покрывает changed compaction с history replacement
 canceled dogfood journal подтвердил читаемую ошибку и побайтовую неизменность
 source. Их durable evidence остаётся canonical `TurnSettled` + cold `/history`.
 
-Текущий практический шаг — `plugins/default/skill-pack` v0 по уже
-согласованному docs-on-disk/context/tool плану без нового slot-а. После его
-dogfood — узкий измеряемый Rust LSP slice; общий LSP subsystem заранее не
-проектируется. Replay/storage расширяются только по подтверждённому дефекту.
+`plugins/default/skill-pack` v0 закрыт 2026-07-25 по согласованному
+docs-on-disk/context/tool плану без нового slot-а: user/project discovery,
+project precedence, `<available_skills>` и read-only tool `skill`. Текущий
+практический шаг — его packaged dogfood и затем узкий измеряемый Rust LSP
+slice; общий LSP subsystem заранее не проектируется. Replay/storage
+расширяются только по подтверждённому дефекту.
 
 ### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
 
@@ -153,13 +155,13 @@ handle принадлежит runtime session/thread/workspace: тот же thre
 dogfood turns совпали. Standardization checkpoint также закрыт: changed
 compaction и terminal `Error` добавлены в integrated corpus, внешний
 `Canceled`/`Timeout` отделён от replay и закреплён за journal/cold-history
-gate. Следующий checkpoint — skills v0; новый session format без измеренного
-bottleneck не проектируется.
+gate. Следующий checkpoint — packaged skills dogfood и один Rust LSP slice;
+новый session format без измеренного bottleneck не проектируется.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-текущий skills slice или smallest подтверждённый dogfood defect:
+текущий Rust LSP slice или smallest подтверждённый dogfood defect:
 
 - marketplace, signed plugins и внешний package manager;
 - WASM plugin runtime и dylib hot-unload;
@@ -168,7 +170,7 @@ bottleneck не проектируется.
 - memory consolidation/background jobs;
 - полноценный RAG/index daemon;
 - MCP resources/prompts/subscriptions и новые transports;
-- LSP integration;
+- общий multi-language LSP subsystem поверх первого Rust slice;
 - внешний onboarding и distribution для незнакомого пользователя;
 - `pi_rpc_reasoner` и Pi-specific runtime integration до отдельного решения
   владельца.

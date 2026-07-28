@@ -354,7 +354,7 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
     let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
     assert_eq!(
         codex_context["providers"],
-        json!(["project_instructions", "environment"])
+        json!(["project_instructions", "skills", "environment"])
     );
     assert_eq!(codex_context["max_context_bytes"], 60000);
     assert!(codex_context.get("git_diff_max_bytes").is_none());

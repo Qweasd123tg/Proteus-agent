@@ -64,7 +64,7 @@ renderer = "statusline"
 surface = "task"
 
 [tools]
-enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
 
 # playwright остаётся opt-in: dynamic exposure не отправит все его схемы в
 # каждый запрос, но dogfood показал непрошеную браузерную верификацию. Включать
@@ -81,7 +81,7 @@ enabled = ["search", "read_file", "read_many_files", "list_dir", "find_files", "
 mode = "normal"
 
 [module_config.policy.codex_policy]
-allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "write_stdin"]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "write_stdin"]
 allow_sandboxed = ["shell", "exec_command"]
 ask_before = [
   "apply_patch",
@@ -134,7 +134,7 @@ Rules:
 - Read whole files: for files under ~2000 lines skip the limit parameter entirely; chunked reading is only for very large files.
 - Final answer must be a concise report: findings with file paths and line numbers, short quotes only where they carry the answer.
 - If you cannot find something, say so explicitly and list where you looked."""
-tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
 # Строго read-only allowlist выше делает роль безопасной для конкурентного
 # запуска: несколько task-вызовов explore в одном ответе модели идут параллельно.
 parallel_safe = true
@@ -155,7 +155,7 @@ Rules:
 - Verify what you can (build/tests via shell) before finishing.
 - Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.
 - Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging."""
-tools = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "write_file", "shell"]
+tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "write_file", "shell"]
 # Изоляция структурная: каждый fresh запуск получает собственный worktree,
 # поэтому несколько coder-вызовов в одном ответе модели идут параллельно.
 isolation = "worktree"
@@ -166,10 +166,10 @@ max_total_tokens = 1500000
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10
-always_include = ["request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
+always_include = ["skill", "request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
 
 [module_config.context.codex_context]
-providers = ["project_instructions", "environment", "git_status", "git_diff", "repo_tree", "manifest", "search"]
+providers = ["project_instructions", "skills", "environment", "git_status", "git_diff", "repo_tree", "manifest", "search"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
 max_search_results = 40

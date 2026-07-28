@@ -313,6 +313,11 @@ pipeline, но внешний slot остаётся тем же: runtime пол�
   config), поэтому вложенные инструкции идут позже и перекрывают более общие;
 - `environment` - один `<environment_context>` chunk с os/arch/`sh`/cwd, чтобы
   модель не гадала платформу и shell;
+- `skills` - внешний provider из `skill-pack`: bounded discovery
+  `~/.proteus/skills/<name>/SKILL.md` и
+  `<workspace>/.proteus/skills/<name>/SKILL.md`, project-версия перекрывает
+  user-версию с тем же `name`; в контекст попадает только XML-список
+  `<available_skills>` с именем, описанием и путём, без полного тела;
 - `manifest` - bounded чтение `Cargo.toml`, `package.json`, `pyproject.toml` и
   других manifest files из config;
 - `git_status` - краткий `git status --short --branch`, если `git` доступен;
@@ -361,6 +366,10 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
 
 - `file-tools` — `read_file`, `write_file`, `edit_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace; `edit_file` — точечная замена текста (opencode edit shape: `old_string` должен быть уникален, либо `replace_all`);
 - `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);
+- `skill-pack` — `skill { name }` (из `plugins/default/skill-pack/`): читает
+  тело выбранного `SKILL.md` без YAML frontmatter. Имя должно присутствовать в
+  `<available_skills>` текущего context snapshot; неизвестное имя возвращает
+  failed `ToolResult`, а не читает произвольный путь;
 - `shell-tool` — `shell`, `exec_command`, `write_stdin` (из
   `plugins/default/shell-tool/`); `exec_command`/`write_stdin` дают
   персистентные интерактивные PTY-сессии в духе Codex unified exec: команда

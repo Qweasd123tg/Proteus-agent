@@ -240,6 +240,54 @@ async fn repo_aware_context_collects_provider_chunks_with_metadata() {
 }
 
 #[tokio::test]
+async fn skills_provider_and_tool_compose_through_runtime_catalog() {
+    let dir = temp_workspace();
+    std::fs::create_dir(dir.path().join(".git")).expect("git marker");
+    let skill_dir = dir.path().join(".proteus/skills/catalog-check");
+    std::fs::create_dir_all(&skill_dir).expect("skill directory");
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: catalog-check\ndescription: Check composed skill wiring\n---\n\nUse the composed runtime path.\n",
+    )
+    .expect("skill file");
+    let mut config = test_config();
+    config.modules.context = "repo_aware".to_owned();
+    config.tools.enabled = vec!["skill".to_owned()];
+    set_repo_aware_config(&mut config, json!({ "providers": ["skills"] }));
+
+    let registry = registry_from_test_config(&config, dir.path());
+    let bundle = registry
+        .context
+        .build(ContextBuildInput {
+            task: AgentTask::new("use project skills".to_owned(), dir.path().to_path_buf()),
+            search: Arc::new(NullSearch),
+            memory: Arc::new(NoMemory),
+        })
+        .await
+        .expect("skills context");
+    let chunk = bundle
+        .chunks
+        .iter()
+        .find(|chunk| chunk.source == "repo_aware:skills")
+        .expect("available skills chunk");
+    assert!(chunk.content.contains("<available_skills>"));
+    assert!(chunk.content.contains("<name>catalog-check</name>"));
+    assert!(!chunk.content.contains("Use the composed runtime path."));
+
+    let tool = registry.tools.get("skill").expect("skill tool");
+    let result = tool
+        .invoke(
+            &ToolCall::new(new_call_id(), "skill", json!({ "name": "catalog-check" })),
+            ToolContext::new(dir.path().to_path_buf(), test_tool_owner()),
+        )
+        .await
+        .expect("skill invocation");
+
+    assert!(result.ok, "{result:?}");
+    assert_eq!(result.output, "Use the composed runtime path.");
+}
+
+#[tokio::test]
 async fn repo_aware_context_does_not_read_configured_paths_outside_workspace() {
     let dir = temp_workspace();
     let outside = tempfile::tempdir().expect("outside dir");

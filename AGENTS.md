@@ -62,6 +62,7 @@ plugins/
         codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
         coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
         context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
+        skill-pack/          - docs-on-disk skills: context provider "skills" + tool "skill"
         memory-pack/         - MemoryStore "jsonl"
         policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
         renderer-pack/       - Renderer плагин "statusline"

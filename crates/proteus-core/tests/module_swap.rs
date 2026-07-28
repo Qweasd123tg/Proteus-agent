@@ -27,8 +27,8 @@ use proteus_contracts::{
     plugin::{
         ContextProviderObject, PluginApprovalPolicy_TO, PluginContextBuilder_TO,
         PluginContextError, PluginContextProvider, PluginContextProvider_TO,
-        PluginHistoryCompactor_TO, PluginMemoryStore_TO, PluginToolExposure_TO, PluginWorkflow_TO,
-        WorkflowObject,
+        PluginHistoryCompactor_TO, PluginMemoryStore_TO, PluginTool_TO, PluginToolExposure_TO,
+        PluginWorkflow_TO, WorkflowObject,
     },
 };
 use proteus_core::{
@@ -59,6 +59,7 @@ use proteus_core::{
 };
 use renderer_pack::StatuslineRendererPlugin;
 use serde_json::json;
+use skill_pack::{SkillTool, SkillsContextProvider};
 use tempfile::TempDir;
 
 /// Инициализатор тестов: выключает плагин-loader чтобы глобальные плагины
@@ -220,6 +221,15 @@ fn test_catalog() -> BuiltinModuleCatalog {
         )
         .expect("register test codex_context context builder");
     catalog
+        .register_plugin_context_provider(
+            "skills",
+            PluginContextProvider_TO::from_value(SkillsContextProvider, TD_Opaque),
+        )
+        .expect("register test skills context provider");
+    catalog
+        .register_plugin_tool(PluginTool_TO::from_value(SkillTool, TD_Opaque))
+        .expect("register test skill tool");
+    catalog
         .register_plugin_memory_store(
             "jsonl",
             PluginMemoryStore_TO::from_value(
@@ -334,6 +344,7 @@ fn standard_tool_names() -> Vec<&'static str> {
 
 fn coding_profile_tool_names() -> Vec<&'static str> {
     vec![
+        "skill",
         "search",
         "read_file",
         "read_many_files",

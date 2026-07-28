@@ -1258,6 +1258,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "skill-pack",
  "tempfile",
  "tokio",
  "toml",
@@ -1702,6 +1703,18 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "skill-pack"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "proteus-contracts",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
 ]
 
 [[package]]
